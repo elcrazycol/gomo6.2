@@ -10,6 +10,8 @@ import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { AlertTriangle, Reply, Bell, BellOff } from "lucide-react";
+import { ModeratorMenu } from "@/components/ModeratorMenu";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +58,7 @@ const Thread = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -63,6 +66,11 @@ const Thread = () => {
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [banUserId, setBanUserId] = useState<string | null>(null);
+  const [banReason, setBanReason] = useState("");
+  const [banDays, setBanDays] = useState("7");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -76,6 +84,7 @@ const Thread = () => {
           .eq("user_id", session.user.id);
         
         setIsAdmin(roles?.some(r => r.role === 'admin') || false);
+        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
       }
     };
     checkAuth();
@@ -283,6 +292,93 @@ const Thread = () => {
     }
   };
 
+  const handleDeletePost = async (postId: string) => {
+    const { error } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", postId);
+    
+    if (error) {
+      toast.error("Ошибка удаления поста");
+    } else {
+      toast.success("Пост удален");
+      loadPosts();
+    }
+  };
+
+  const handleDeleteThread = async () => {
+    const { error } = await supabase
+      .from("threads")
+      .delete()
+      .eq("id", threadId);
+    
+    if (error) {
+      toast.error("Ошибка удаления треда");
+    } else {
+      toast.success("Тред удален");
+      navigate(`/${slug}`);
+    }
+  };
+
+  const handleEditPost = async () => {
+    if (!editContent.trim() || !editingPostId) return;
+
+    const { error } = await supabase
+      .from("posts")
+      .update({ content: editContent.trim() })
+      .eq("id", editingPostId);
+    
+    if (error) {
+      toast.error("Ошибка изменения поста");
+    } else {
+      toast.success("Пост изменен");
+      setEditingPostId(null);
+      setEditContent("");
+      loadPosts();
+    }
+  };
+
+  const handleBanUser = async (isPermanent: boolean) => {
+    if (!banReason.trim() || !banUserId) return;
+
+    const expiresAt = isPermanent 
+      ? null 
+      : new Date(Date.now() + parseInt(banDays) * 24 * 60 * 60 * 1000).toISOString();
+
+    const { error } = await supabase
+      .from("user_bans")
+      .insert({
+        user_id: banUserId,
+        banned_by: user.id,
+        reason: banReason.trim(),
+        expires_at: expiresAt,
+        is_permanent: isPermanent,
+      });
+
+    if (error) {
+      toast.error("Ошибка выдачи бана");
+    } else {
+      toast.success(isPermanent ? "Пользователь забанен навсегда" : `Пользователь забанен на ${banDays} дней`);
+      setBanUserId(null);
+      setBanReason("");
+    }
+  };
+
+  const renderContent = (text: string) => {
+    // Replace #username with clickable links
+    return text.split(/(@\w+)/g).map((part, i) => {
+      if (part.startsWith('@')) {
+        const username = part.substring(1);
+        return (
+          <span key={i} className="text-link hover:underline cursor-pointer font-semibold">
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Вышли");
@@ -294,30 +390,35 @@ const Thread = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <Link to="/" className="text-xl font-bold hover:underline">
+      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="text-sm sm:text-base">
+            <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
               6gomo
             </Link>
-            <span className="mx-2">/</span>
+            <span className="mx-1 sm:mx-2">/</span>
             <Link to={`/${slug}`} className="hover:underline">
               /{slug}/ - {thread.boards.name}
             </Link>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
             {user && <NotificationBell userId={user.id} />}
             {user ? (
               <>
                 <Link to={`/profile/${user.id}`}>
-                  <Button variant="ghost" size="sm">Профиль</Button>
+                  <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
                 </Link>
-                <Button variant="secondary" size="sm" onClick={handleLogout}>
+                {isModerator && (
+                  <Link to="/moderation">
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                  </Link>
+                )}
+                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
                   Выйти
                 </Button>
               </>
             ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")}>
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
                 Войти
               </Button>
             )}
@@ -325,7 +426,7 @@ const Thread = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -351,36 +452,45 @@ const Thread = () => {
           )}
         </div>
 
-        <div className="border border-border bg-card p-4 mb-4">
-          <div className="flex justify-between items-start mb-2">
-            <h1 className="text-2xl font-bold">{thread.title}</h1>
-            {user && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <AlertTriangle className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="bg-background border-border">
-                  <DialogHeader>
-                    <DialogTitle>Пожаловаться на тред</DialogTitle>
-                  </DialogHeader>
-                  <Textarea
-                    placeholder="Причина жалобы..."
-                    value={reportReason}
-                    onChange={(e) => setReportReason(e.target.value)}
-                    rows={3}
-                  />
-                  <Button onClick={() => handleReport(null, true)}>
-                    Отправить жалобу
-                  </Button>
-                </DialogContent>
-              </Dialog>
-            )}
+        <div className="border border-border bg-card p-3 sm:p-4 mb-4">
+          <div className="flex justify-between items-start mb-2 gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold break-words flex-1">{thread.title}</h1>
+            <div className="flex gap-1 flex-shrink-0">
+              {isModerator && thread.user_id && (
+                <ModeratorMenu
+                  type="thread"
+                  onDelete={handleDeleteThread}
+                  onBan={() => setBanUserId(thread.user_id!)}
+                />
+              )}
+              {user && (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <AlertTriangle className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="bg-background border-border">
+                    <DialogHeader>
+                      <DialogTitle>Пожаловаться на тред</DialogTitle>
+                    </DialogHeader>
+                    <Textarea
+                      placeholder="Причина жалобы..."
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      rows={3}
+                    />
+                    <Button onClick={() => handleReport(null, true)}>
+                      Отправить жалобу
+                    </Button>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </div>
           </div>
           
-          <div className="bg-post-header p-3 border border-border">
-            <div className="text-xs text-muted-foreground mb-2">
+          <div className="bg-post-header p-2 sm:p-3 border border-border">
+            <div className="text-xs text-muted-foreground mb-2 flex-wrap">
               <span className="font-mono text-primary">#{thread.id.slice(0, 8)}</span>
               {" · "}
               <UserBadge
@@ -398,10 +508,12 @@ const Thread = () => {
               <img
                 src={thread.image_url}
                 alt="Thread image"
-                className="max-w-md max-h-96 mb-2 border border-border"
+                className="max-w-full sm:max-w-md max-h-96 mb-2 border border-border"
               />
             )}
-            <p className="whitespace-pre-wrap">{thread.content}</p>
+            <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+              {renderContent(thread.content)}
+            </p>
           </div>
         </div>
 
@@ -410,10 +522,10 @@ const Thread = () => {
             <div
               key={post.id}
               id={`post-${post.id}`}
-              className="bg-post-header p-3 border border-border"
+              className="bg-post-header p-2 sm:p-3 border border-border"
             >
-              <div className="flex justify-between items-start">
-                <div className="text-xs text-muted-foreground mb-2">
+              <div className="flex justify-between items-start gap-2">
+                <div className="text-xs text-muted-foreground mb-2 flex-wrap flex-1">
                   <span className="font-mono text-primary">#{post.id.slice(0, 8)}</span>
                   {" · "}
                   <UserBadge
@@ -427,7 +539,18 @@ const Thread = () => {
                     addSuffix: true,
                   })}
                 </div>
-                <div className="flex gap-1">
+                <div className="flex gap-1 flex-shrink-0">
+                  {isModerator && post.user_id && (
+                    <ModeratorMenu
+                      type="post"
+                      onDelete={() => handleDeletePost(post.id)}
+                      onEdit={() => {
+                        setEditingPostId(post.id);
+                        setEditContent(post.content);
+                      }}
+                      onBan={() => setBanUserId(post.user_id!)}
+                    />
+                  )}
                   {user && (
                     <>
                       <Button
@@ -478,17 +601,83 @@ const Thread = () => {
                 <img
                   src={post.image_url}
                   alt="Post image"
-                  className="max-w-md max-h-96 mb-2 border border-border"
+                  className="max-w-full sm:max-w-md max-h-96 mb-2 border border-border"
                 />
               )}
-              <p className="whitespace-pre-wrap">{post.content}</p>
+              {editingPostId === post.id ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    rows={4}
+                    className="text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button onClick={handleEditPost} size="sm">Сохранить</Button>
+                    <Button 
+                      onClick={() => {
+                        setEditingPostId(null);
+                        setEditContent("");
+                      }} 
+                      variant="secondary" 
+                      size="sm"
+                    >
+                      Отмена
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+                  {renderContent(post.content)}
+                </p>
+              )}
             </div>
           ))}
         </div>
 
+        {/* Ban user dialog */}
+        <Dialog open={!!banUserId} onOpenChange={(open) => !open && setBanUserId(null)}>
+          <DialogContent className="bg-background border-border">
+            <DialogHeader>
+              <DialogTitle>Забанить пользователя</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Textarea
+                placeholder="Причина бана..."
+                value={banReason}
+                onChange={(e) => setBanReason(e.target.value)}
+                rows={3}
+              />
+              <Input
+                type="number"
+                placeholder="Дней"
+                value={banDays}
+                onChange={(e) => setBanDays(e.target.value)}
+                min="1"
+              />
+              <div className="flex gap-2 flex-wrap">
+                <Button 
+                  onClick={() => handleBanUser(false)}
+                  variant="destructive"
+                  size="sm"
+                >
+                  Забанить на {banDays} дней
+                </Button>
+                <Button 
+                  onClick={() => handleBanUser(true)}
+                  variant="destructive"
+                  size="sm"
+                >
+                  Забанить навсегда
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {canPost ? (
-          <form onSubmit={handleSubmitPost} className="bg-post-header p-4 border border-border sticky bottom-4">
-            <h3 className="font-bold mb-2">
+          <form onSubmit={handleSubmitPost} className="bg-post-header p-3 sm:p-4 border border-border sticky bottom-2 sm:bottom-4">
+            <h3 className="font-bold mb-2 text-sm sm:text-base">
               {replyingTo ? `Ответ на #${replyingTo.slice(0, 8)}` : "Ответить"}
             </h3>
             {replyingTo && (

@@ -209,33 +209,33 @@ const Board = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <Link to="/" className="text-xl font-bold hover:underline">
+      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="text-sm sm:text-base">
+            <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
               6gomo
             </Link>
-            <span className="mx-2">/</span>
-            <span className="text-lg">/{slug}/ - {board.name}</span>
+            <span className="mx-1 sm:mx-2">/</span>
+            <span className="text-base sm:text-lg">/{slug}/ - {board.name}</span>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
             {user && <NotificationBell userId={user.id} />}
             {user ? (
               <>
                 <Link to={`/profile/${user.id}`}>
-                  <Button variant="ghost" size="sm">Профиль</Button>
+                  <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
                 </Link>
                 {isModerator && (
                   <Link to="/moderation">
-                    <Button variant="ghost" size="sm">Модерация</Button>
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
                   </Link>
                 )}
-                <Button variant="secondary" size="sm" onClick={handleLogout}>
+                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
                   Выйти
                 </Button>
               </>
             ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")}>
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
                 Войти
               </Button>
             )}
@@ -243,19 +243,19 @@ const Board = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4">
-        <div className="mb-4 text-center">
-          <p className="text-muted-foreground">{board.description}</p>
+      <main className="max-w-5xl mx-auto p-2 sm:p-4">
+        <div className="mb-3 sm:mb-4 text-center">
+          <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
         </div>
 
         {canCreateThread && !showNewThread && (
-          <Button onClick={() => setShowNewThread(true)} className="mb-4">
+          <Button onClick={() => setShowNewThread(true)} className="mb-3 sm:mb-4 text-sm">
             Создать тред
           </Button>
         )}
 
         {showNewThread && canCreateThread && (
-          <form onSubmit={handleCreateThread} className="bg-post-header p-4 border border-border mb-4">
+          <form onSubmit={handleCreateThread} className="bg-post-header p-3 sm:p-4 border border-border mb-3 sm:mb-4">
             <h3 className="font-bold mb-2">Новый тред</h3>
             <Input
               placeholder="Тема"
@@ -298,18 +298,18 @@ const Board = () => {
             <Link
               key={thread.id}
               to={`/${slug}/thread/${thread.id}`}
-              className="block border border-border bg-card p-3 hover:bg-thread-hover transition-colors"
+              className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-colors"
             >
-              <div className="flex gap-3">
+              <div className="flex gap-2 sm:gap-3">
                 {thread.image_url && (
                   <img
                     src={thread.image_url}
                     alt="Thread"
-                    className="w-20 h-20 object-cover border border-border flex-shrink-0"
+                    className="w-16 h-16 sm:w-20 sm:h-20 object-cover border border-border flex-shrink-0"
                   />
                 )}
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-lg">{thread.title}</h3>
+                  <h3 className="font-bold text-base sm:text-lg break-words">{thread.title}</h3>
                   <div className="text-xs text-muted-foreground mb-1">
                     <UserBadge
                       userId={thread.user_id}
@@ -323,17 +323,17 @@ const Board = () => {
                     })}
                   </div>
                   {thread.latest_post ? (
-                    <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                    <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
                       Последний: {thread.latest_post.content.substring(0, 100)}...
                     </p>
                   ) : (
-                    <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                    <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
                       {thread.content.substring(0, 100)}...
                     </p>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground text-right flex-shrink-0">
-                  <div className="font-bold">{thread.post_count} ответов</div>
+                  <div className="font-bold whitespace-nowrap">{thread.post_count} отв.</div>
                 </div>
               </div>
             </Link>

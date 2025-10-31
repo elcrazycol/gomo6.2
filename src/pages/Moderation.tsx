@@ -113,10 +113,10 @@ const Moderation = () => {
           content,
           image_url,
           user_id,
-          profiles!inner(username)
+          profiles(username)
         `)
         .eq("id", report.reported_post_id)
-        .maybeSingle();
+        .single();
       
       if (post) {
         content.post = {
@@ -136,10 +136,10 @@ const Moderation = () => {
           content,
           image_url,
           user_id,
-          profiles!inner(username)
+          profiles(username)
         `)
         .eq("id", report.reported_thread_id)
-        .maybeSingle();
+        .single();
       
       if (thread) {
         content.thread = {
@@ -248,15 +248,15 @@ const Moderation = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <Link to="/" className="text-xl font-bold hover:underline">
             6gomo
           </Link>
-          <h1 className="text-lg font-bold">Панель модератора</h1>
+          <h1 className="text-base sm:text-lg font-bold">Панель модератора</h1>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4">
         <Tabs defaultValue="pending">
           <TabsList>
             <TabsTrigger value="pending">
@@ -279,49 +279,55 @@ const Moderation = () => {
                 const username = content?.post?.profiles?.username || content?.thread?.profiles?.username;
 
                 return (
-                  <div key={report.id} className="bg-card border border-border p-4 space-y-3">
-                    <div className="flex justify-between items-start">
+                  <div key={report.id} className="bg-card border border-border p-3 sm:p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row justify-between gap-3">
                       <div className="flex-1">
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-xs sm:text-sm text-muted-foreground">
                           {new Date(report.created_at).toLocaleString('ru-RU')}
                         </p>
-                        <p className="font-bold mt-1">Причина жалобы:</p>
-                        <p className="text-sm">{report.reason}</p>
+                        <p className="font-bold mt-1 text-sm sm:text-base">Причина жалобы:</p>
+                        <p className="text-xs sm:text-sm">{report.reason}</p>
 
-                        {content && (
-                          <div className="mt-3 p-3 bg-post-header border border-border">
+                        {content ? (
+                          <div className="mt-3 p-2 sm:p-3 bg-post-header border border-border">
                             <p className="text-xs text-muted-foreground mb-2">
                               Пользователь: {username || "Неизвестен"}
                             </p>
                             {content.thread && (
                               <>
-                                <p className="font-bold mb-1">{content.thread.title}</p>
-                                <p className="text-sm whitespace-pre-wrap">{content.thread.content}</p>
+                                <p className="font-bold mb-1 text-sm">{content.thread.title}</p>
+                                <p className="text-xs sm:text-sm whitespace-pre-wrap break-words">
+                                  {content.thread.content}
+                                </p>
                                 {content.thread.image_url && (
                                   <img 
                                     src={content.thread.image_url} 
                                     alt="Thread" 
-                                    className="mt-2 max-w-xs max-h-48 border border-border"
+                                    className="mt-2 max-w-full sm:max-w-xs max-h-48 border border-border"
                                   />
                                 )}
                               </>
                             )}
                             {content.post && (
                               <>
-                                <p className="text-sm whitespace-pre-wrap">{content.post.content}</p>
+                                <p className="text-xs sm:text-sm whitespace-pre-wrap break-words">
+                                  {content.post.content}
+                                </p>
                                 {content.post.image_url && (
                                   <img 
                                     src={content.post.image_url} 
                                     alt="Post" 
-                                    className="mt-2 max-w-xs max-h-48 border border-border"
+                                    className="mt-2 max-w-full sm:max-w-xs max-h-48 border border-border"
                                   />
                                 )}
                               </>
                             )}
                           </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground mt-2">Контент удален или недоступен</p>
                         )}
                       </div>
-                      <div className="space-x-2 flex-shrink-0">
+                      <div className="flex sm:flex-col gap-2 flex-shrink-0">
                         {report.reported_thread_id && (
                           <Button
                             variant="outline"
@@ -330,8 +336,9 @@ const Moderation = () => {
                               const slug = window.location.pathname.split('/')[1] || 'b';
                               navigate(`/${slug}/thread/${report.reported_thread_id}`);
                             }}
+                            className="text-xs"
                           >
-                            Открыть тред
+                            Открыть
                           </Button>
                         )}
                       </div>
@@ -346,7 +353,7 @@ const Moderation = () => {
                           rows={2}
                         />
                         
-                        <div className="flex gap-2 flex-wrap">
+                        <div className="flex gap-2 flex-wrap text-xs sm:text-sm">
                           <Button
                             onClick={() => handleResolve(report.id, 'approve')}
                             variant="default"

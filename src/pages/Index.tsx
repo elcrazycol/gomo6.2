@@ -100,27 +100,27 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-4 border-b border-border">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <h1 className="text-3xl font-bold">6gomo</h1>
-          <div className="flex gap-2 items-center">
+      <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <h1 className="text-2xl sm:text-3xl font-bold">6gomo</h1>
+          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
             {user && <NotificationBell userId={user.id} />}
             {user ? (
               <>
                 <Link to={`/profile/${user.id}`}>
-                  <Button variant="ghost" size="sm">Профиль</Button>
+                  <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
                 </Link>
                 {isModerator && (
                   <Link to="/moderation">
-                    <Button variant="ghost" size="sm">Модерация</Button>
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
                   </Link>
                 )}
-                <Button variant="secondary" size="sm" onClick={handleLogout}>
+                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
                   Выйти
                 </Button>
               </>
             ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")}>
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
                 Войти
               </Button>
             )}
@@ -128,9 +128,9 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-6">
-        <div className="text-center mb-8">
-          <h2 className="text-4xl font-bold mb-2">Добро пожаловать на 6gomo</h2>
+      <main className="max-w-4xl mx-auto p-3 sm:p-6">
+        <div className="text-center mb-6 sm:mb-8">
+          <h2 className="text-2xl sm:text-4xl font-bold mb-2">Добро пожаловать на 6gomo</h2>
         </div>
 
         <div className="mb-4 text-center">
