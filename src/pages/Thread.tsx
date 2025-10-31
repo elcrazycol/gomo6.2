@@ -9,7 +9,7 @@ import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
-import { AlertTriangle, Reply } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -62,6 +62,7 @@ const Thread = () => {
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -91,7 +92,50 @@ const Thread = () => {
   useEffect(() => {
     loadThread();
     loadPosts();
-  }, [threadId]);
+    checkSubscription();
+  }, [threadId, user]);
+
+  const checkSubscription = async () => {
+    if (!user || !threadId) return;
+    
+    const { data } = await supabase
+      .from("thread_subscriptions")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("thread_id", threadId)
+      .maybeSingle();
+    
+    setIsSubscribed(!!data);
+  };
+
+  const toggleSubscription = async () => {
+    if (!user) {
+      toast.error("Нужно войти");
+      return;
+    }
+
+    if (isSubscribed) {
+      const { error } = await supabase
+        .from("thread_subscriptions")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("thread_id", threadId);
+      
+      if (!error) {
+        setIsSubscribed(false);
+        toast.success("Отписались от уведомлений");
+      }
+    } else {
+      const { error } = await supabase
+        .from("thread_subscriptions")
+        .insert({ user_id: user.id, thread_id: threadId });
+      
+      if (!error) {
+        setIsSubscribed(true);
+        toast.success("Подписались на уведомления");
+      }
+    }
+  };
 
   useEffect(() => {
     // Set up realtime subscription for new posts
@@ -282,10 +326,29 @@ const Thread = () => {
       </header>
 
       <main className="max-w-5xl mx-auto p-4">
-        <div className="mb-4">
+        <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
           </Link>
+          {user && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleSubscription}
+            >
+              {isSubscribed ? (
+                <>
+                  <BellOff className="h-4 w-4 mr-2" />
+                  Отключить уведомления
+                </>
+              ) : (
+                <>
+                  <Bell className="h-4 w-4 mr-2" />
+                  Уведомлять о новых постах
+                </>
+              )}
+            </Button>
+          )}
         </div>
 
         <div className="border border-border bg-card p-4 mb-4">

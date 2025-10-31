@@ -19,6 +19,7 @@ interface Notification {
   created_at: string;
   related_thread_id: string | null;
   related_post_id: string | null;
+  thread_slug?: string;
 }
 
 export const NotificationBell = ({ userId }: { userId: string }) => {
@@ -58,8 +59,32 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
       .limit(10);
 
     if (data) {
-      setNotifications(data);
-      setUnreadCount(data.filter(n => !n.is_read).length);
+      // Fetch board slugs for each notification with a thread
+      const notificationsWithSlugs = await Promise.all(
+        data.map(async (notif) => {
+          if (notif.related_thread_id) {
+            const { data: threadData } = await supabase
+              .from("threads")
+              .select("board_id")
+              .eq("id", notif.related_thread_id)
+              .single();
+            
+            if (threadData) {
+              const { data: boardData } = await supabase
+                .from("boards")
+                .select("slug")
+                .eq("id", threadData.board_id)
+                .single();
+              
+              return { ...notif, thread_slug: boardData?.slug };
+            }
+          }
+          return notif;
+        })
+      );
+      
+      setNotifications(notificationsWithSlugs);
+      setUnreadCount(notificationsWithSlugs.filter(n => !n.is_read).length);
     }
   };
 
@@ -110,13 +135,14 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {notifications.map((notif) => {
-                // Get the thread ID from the related_thread_id or extract from related_post_id
-                const threadId = notif.related_thread_id;
+                const link = notif.related_thread_id && notif.thread_slug 
+                  ? `/${notif.thread_slug}/thread/${notif.related_thread_id}`
+                  : '#';
                 
                 return (
                   <Link
                     key={notif.id}
-                    to={threadId ? `/thread/${threadId}` : '#'}
+                    to={link}
                     onClick={() => markAsRead(notif.id)}
                     className={`block p-2 border border-border hover:bg-post-header ${
                       !notif.is_read ? "bg-board-header" : ""
