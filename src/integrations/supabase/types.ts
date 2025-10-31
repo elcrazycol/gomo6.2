@@ -14,11 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      achievements: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string
+          icon: string | null
+          id: string
+          name: string
+          reward_type: string | null
+          reward_value: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          description: string
+          icon?: string | null
+          id: string
+          name: string
+          reward_type?: string | null
+          reward_value?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string
+          icon?: string | null
+          id?: string
+          name?: string
+          reward_type?: string | null
+          reward_value?: string | null
+        }
+        Relationships: []
+      }
       boards: {
         Row: {
           created_at: string
           description: string | null
           id: string
+          is_rules_board: boolean | null
           name: string
           slug: string
         }
@@ -26,6 +60,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          is_rules_board?: boolean | null
           name: string
           slug: string
         }
@@ -33,10 +68,69 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          is_rules_board?: boolean | null
           name?: string
           slug?: string
         }
         Relationships: []
+      }
+      notifications: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_read: boolean | null
+          message: string
+          related_post_id: string | null
+          related_thread_id: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message: string
+          related_post_id?: string | null
+          related_thread_id?: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          message?: string
+          related_post_id?: string | null
+          related_thread_id?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_related_post_id_fkey"
+            columns: ["related_post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_related_thread_id_fkey"
+            columns: ["related_thread_id"]
+            isOneToOne: false
+            referencedRelation: "threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       posts: {
         Row: {
@@ -44,6 +138,7 @@ export type Database = {
           created_at: string
           id: string
           image_url: string | null
+          reply_to: string | null
           thread_id: string
           user_id: string | null
         }
@@ -52,6 +147,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          reply_to?: string | null
           thread_id: string
           user_id?: string | null
         }
@@ -60,10 +156,18 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          reply_to?: string | null
           thread_id?: string
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "posts_reply_to_fkey"
+            columns: ["reply_to"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "posts_thread_id_fkey"
             columns: ["thread_id"]
@@ -75,21 +179,110 @@ export type Database = {
       }
       profiles: {
         Row: {
+          avatar_url: string | null
+          bio: string | null
           created_at: string
+          edit_count: number | null
           id: string
+          image_upload_count: number | null
+          is_anonymous: boolean | null
+          post_count: number | null
+          thread_count: number | null
           username: string
         }
         Insert: {
+          avatar_url?: string | null
+          bio?: string | null
           created_at?: string
+          edit_count?: number | null
           id: string
+          image_upload_count?: number | null
+          is_anonymous?: boolean | null
+          post_count?: number | null
+          thread_count?: number | null
           username: string
         }
         Update: {
+          avatar_url?: string | null
+          bio?: string | null
           created_at?: string
+          edit_count?: number | null
           id?: string
+          image_upload_count?: number | null
+          is_anonymous?: boolean | null
+          post_count?: number | null
+          thread_count?: number | null
           username?: string
         }
         Relationships: []
+      }
+      reports: {
+        Row: {
+          created_at: string | null
+          id: string
+          moderator_id: string | null
+          moderator_note: string | null
+          reason: string
+          reported_post_id: string | null
+          reported_thread_id: string | null
+          reporter_id: string | null
+          resolved_at: string | null
+          status: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          moderator_id?: string | null
+          moderator_note?: string | null
+          reason: string
+          reported_post_id?: string | null
+          reported_thread_id?: string | null
+          reporter_id?: string | null
+          resolved_at?: string | null
+          status?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          moderator_id?: string | null
+          moderator_note?: string | null
+          reason?: string
+          reported_post_id?: string | null
+          reported_thread_id?: string | null
+          reporter_id?: string | null
+          resolved_at?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_moderator_id_fkey"
+            columns: ["moderator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_reported_post_id_fkey"
+            columns: ["reported_post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_reported_thread_id_fkey"
+            columns: ["reported_thread_id"]
+            isOneToOne: false
+            referencedRelation: "threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_reporter_id_fkey"
+            columns: ["reporter_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       threads: {
         Row: {
@@ -135,15 +328,86 @@ export type Database = {
           },
         ]
       }
+      user_achievements: {
+        Row: {
+          achievement_id: string
+          id: string
+          unlocked_at: string | null
+          user_id: string
+        }
+        Insert: {
+          achievement_id: string
+          id?: string
+          unlocked_at?: string | null
+          user_id: string
+        }
+        Update: {
+          achievement_id?: string
+          id?: string
+          unlocked_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_achievements_achievement_id_fkey"
+            columns: ["achievement_id"]
+            isOneToOne: false
+            referencedRelation: "achievements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_achievements_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_roles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -270,6 +534,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+    },
   },
 } as const
