@@ -57,6 +57,18 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        board: {
+          header: "hsl(var(--board-header))",
+          "header-foreground": "hsl(var(--board-header-foreground))",
+        },
+        thread: {
+          hover: "hsl(var(--thread-hover))",
+        },
+        post: {
+          header: "hsl(var(--post-header))",
+        },
+        quote: "hsl(var(--quote-text))",
+        link: "hsl(var(--link-text))",
       },
       borderRadius: {
         lg: "var(--radius)",
