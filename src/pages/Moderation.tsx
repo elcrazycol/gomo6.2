@@ -3,8 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 interface Report {
   id: string;
@@ -17,6 +19,26 @@ interface Report {
   moderator_note: string | null;
 }
 
+interface ReportedContent {
+  post?: {
+    content: string;
+    image_url: string | null;
+    user_id: string;
+    profiles?: {
+      username: string;
+    };
+  };
+  thread?: {
+    title: string;
+    content: string;
+    image_url: string | null;
+    user_id: string;
+    profiles?: {
+      username: string;
+    };
+  };
+}
+
 const Moderation = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -24,6 +46,10 @@ const Moderation = () => {
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [moderatorNote, setModeratorNote] = useState("");
+  const [reportedContent, setReportedContent] = useState<Record<string, ReportedContent>>({});
+  const [warningReason, setWarningReason] = useState("");
+  const [banReason, setBanReason] = useState("");
+  const [banDays, setBanDays] = useState("7");
 
   useEffect(() => {
     checkAuth();
@@ -45,7 +71,6 @@ const Moderation = () => {
 
     setUser(user);
 
-    // Check if user is moderator or admin
     const { data: roles } = await supabase
       .from("user_roles")
       .select("role")
@@ -70,6 +95,127 @@ const Moderation = () => {
 
     if (data) {
       setReports(data);
+      
+      // Load content for each report
+      for (const report of data) {
+        await loadReportContent(report);
+      }
+    }
+  };
+
+  const loadReportContent = async (report: Report) => {
+    const content: ReportedContent = {};
+
+    if (report.reported_post_id) {
+      const { data: post } = await supabase
+        .from("posts")
+        .select(`
+          content,
+          image_url,
+          user_id,
+          profiles!inner(username)
+        `)
+        .eq("id", report.reported_post_id)
+        .maybeSingle();
+      
+      if (post) {
+        content.post = {
+          content: post.content,
+          image_url: post.image_url,
+          user_id: post.user_id,
+          profiles: Array.isArray(post.profiles) ? post.profiles[0] : post.profiles
+        };
+      }
+    }
+
+    if (report.reported_thread_id) {
+      const { data: thread } = await supabase
+        .from("threads")
+        .select(`
+          title,
+          content,
+          image_url,
+          user_id,
+          profiles!inner(username)
+        `)
+        .eq("id", report.reported_thread_id)
+        .maybeSingle();
+      
+      if (thread) {
+        content.thread = {
+          title: thread.title,
+          content: thread.content,
+          image_url: thread.image_url,
+          user_id: thread.user_id,
+          profiles: Array.isArray(thread.profiles) ? thread.profiles[0] : thread.profiles
+        };
+      }
+    }
+
+    setReportedContent(prev => ({ ...prev, [report.id]: content }));
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    const { error } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", postId);
+
+    if (error) {
+      toast.error("Ошибка удаления поста");
+    } else {
+      toast.success("Пост удален");
+      loadReports();
+    }
+  };
+
+  const handleSendWarning = async (userId: string) => {
+    if (!warningReason.trim()) {
+      toast.error("Укажите причину предупреждения");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("user_warnings")
+      .insert({
+        user_id: userId,
+        warned_by: user.id,
+        reason: warningReason.trim(),
+      });
+
+    if (error) {
+      toast.error("Ошибка отправки предупреждения");
+    } else {
+      toast.success("Предупреждение отправлено");
+      setWarningReason("");
+    }
+  };
+
+  const handleBanUser = async (userId: string, isPermanent: boolean) => {
+    if (!banReason.trim()) {
+      toast.error("Укажите причину бана");
+      return;
+    }
+
+    const expiresAt = isPermanent 
+      ? null 
+      : new Date(Date.now() + parseInt(banDays) * 24 * 60 * 60 * 1000).toISOString();
+
+    const { error } = await supabase
+      .from("user_bans")
+      .insert({
+        user_id: userId,
+        banned_by: user.id,
+        reason: banReason.trim(),
+        expires_at: expiresAt,
+        is_permanent: isPermanent,
+      });
+
+    if (error) {
+      toast.error("Ошибка выдачи бана");
+    } else {
+      toast.success(isPermanent ? "Пользователь забанен навсегда" : `Пользователь забанен на ${banDays} дней`);
+      setBanReason("");
     }
   };
 
@@ -127,72 +273,197 @@ const Moderation = () => {
                 Нет новых жалоб
               </p>
             ) : (
-              pendingReports.map((report) => (
-                <div key={report.id} className="bg-card border border-border p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        {new Date(report.created_at).toLocaleString('ru-RU')}
-                      </p>
-                      <p className="font-bold mt-1">Причина жалобы:</p>
-                      <p className="text-sm">{report.reason}</p>
-                    </div>
-                    <div className="space-x-2">
-                      {report.reported_thread_id && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => navigate(`/thread/${report.reported_thread_id}`)}
-                        >
-                          Открыть тред
-                        </Button>
-                      )}
-                    </div>
-                  </div>
+              pendingReports.map((report) => {
+                const content = reportedContent[report.id];
+                const targetUserId = content?.post?.user_id || content?.thread?.user_id;
+                const username = content?.post?.profiles?.username || content?.thread?.profiles?.username;
 
-                  {selectedReport === report.id ? (
-                    <div className="space-y-2 border-t border-border pt-3">
-                      <Textarea
-                        placeholder="Заметка модератора..."
-                        value={moderatorNote}
-                        onChange={(e) => setModeratorNote(e.target.value)}
-                        rows={3}
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          onClick={() => handleResolve(report.id, 'approve')}
-                          variant="default"
-                        >
-                          Принять
-                        </Button>
-                        <Button
-                          onClick={() => handleResolve(report.id, 'reject')}
-                          variant="destructive"
-                        >
-                          Отклонить
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            setSelectedReport(null);
-                            setModeratorNote("");
-                          }}
-                          variant="outline"
-                        >
-                          Отмена
-                        </Button>
+                return (
+                  <div key={report.id} className="bg-card border border-border p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(report.created_at).toLocaleString('ru-RU')}
+                        </p>
+                        <p className="font-bold mt-1">Причина жалобы:</p>
+                        <p className="text-sm">{report.reason}</p>
+
+                        {content && (
+                          <div className="mt-3 p-3 bg-post-header border border-border">
+                            <p className="text-xs text-muted-foreground mb-2">
+                              Пользователь: {username || "Неизвестен"}
+                            </p>
+                            {content.thread && (
+                              <>
+                                <p className="font-bold mb-1">{content.thread.title}</p>
+                                <p className="text-sm whitespace-pre-wrap">{content.thread.content}</p>
+                                {content.thread.image_url && (
+                                  <img 
+                                    src={content.thread.image_url} 
+                                    alt="Thread" 
+                                    className="mt-2 max-w-xs max-h-48 border border-border"
+                                  />
+                                )}
+                              </>
+                            )}
+                            {content.post && (
+                              <>
+                                <p className="text-sm whitespace-pre-wrap">{content.post.content}</p>
+                                {content.post.image_url && (
+                                  <img 
+                                    src={content.post.image_url} 
+                                    alt="Post" 
+                                    className="mt-2 max-w-xs max-h-48 border border-border"
+                                  />
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-x-2 flex-shrink-0">
+                        {report.reported_thread_id && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const slug = window.location.pathname.split('/')[1] || 'b';
+                              navigate(`/${slug}/thread/${report.reported_thread_id}`);
+                            }}
+                          >
+                            Открыть тред
+                          </Button>
+                        )}
                       </div>
                     </div>
-                  ) : (
-                    <Button
-                      onClick={() => setSelectedReport(report.id)}
-                      variant="secondary"
-                      size="sm"
-                    >
-                      Обработать
-                    </Button>
-                  )}
-                </div>
-              ))
+
+                    {selectedReport === report.id ? (
+                      <div className="space-y-3 border-t border-border pt-3">
+                        <Textarea
+                          placeholder="Заметка модератора..."
+                          value={moderatorNote}
+                          onChange={(e) => setModeratorNote(e.target.value)}
+                          rows={2}
+                        />
+                        
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            onClick={() => handleResolve(report.id, 'approve')}
+                            variant="default"
+                            size="sm"
+                          >
+                            Принять
+                          </Button>
+                          <Button
+                            onClick={() => handleResolve(report.id, 'reject')}
+                            variant="destructive"
+                            size="sm"
+                          >
+                            Отклонить
+                          </Button>
+                          
+                          {report.reported_post_id && (
+                            <Button
+                              onClick={() => handleDeletePost(report.reported_post_id!)}
+                              variant="destructive"
+                              size="sm"
+                            >
+                              Удалить пост
+                            </Button>
+                          )}
+                          
+                          {targetUserId && (
+                            <>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="sm">
+                                    Предупредить
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="bg-background border-border">
+                                  <DialogHeader>
+                                    <DialogTitle>Отправить предупреждение</DialogTitle>
+                                  </DialogHeader>
+                                  <Textarea
+                                    placeholder="Причина предупреждения..."
+                                    value={warningReason}
+                                    onChange={(e) => setWarningReason(e.target.value)}
+                                    rows={3}
+                                  />
+                                  <Button onClick={() => handleSendWarning(targetUserId)}>
+                                    Отправить
+                                  </Button>
+                                </DialogContent>
+                              </Dialog>
+
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="destructive" size="sm">
+                                    Забанить
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="bg-background border-border">
+                                  <DialogHeader>
+                                    <DialogTitle>Забанить пользователя</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="space-y-3">
+                                    <Textarea
+                                      placeholder="Причина бана..."
+                                      value={banReason}
+                                      onChange={(e) => setBanReason(e.target.value)}
+                                      rows={3}
+                                    />
+                                    <Input
+                                      type="number"
+                                      placeholder="Дней"
+                                      value={banDays}
+                                      onChange={(e) => setBanDays(e.target.value)}
+                                      min="1"
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button 
+                                        onClick={() => handleBanUser(targetUserId, false)}
+                                        variant="destructive"
+                                      >
+                                        Забанить на {banDays} дней
+                                      </Button>
+                                      <Button 
+                                        onClick={() => handleBanUser(targetUserId, true)}
+                                        variant="destructive"
+                                      >
+                                        Забанить навсегда
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </DialogContent>
+                              </Dialog>
+                            </>
+                          )}
+                          
+                          <Button
+                            onClick={() => {
+                              setSelectedReport(null);
+                              setModeratorNote("");
+                            }}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Отмена
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        onClick={() => setSelectedReport(report.id)}
+                        variant="secondary"
+                        size="sm"
+                      >
+                        Обработать
+                      </Button>
+                    )}
+                  </div>
+                );
+              })
             )}
           </TabsContent>
 

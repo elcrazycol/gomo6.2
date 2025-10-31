@@ -91,9 +91,12 @@ const Thread = () => {
   useEffect(() => {
     loadThread();
     loadPosts();
+  }, [threadId]);
 
+  useEffect(() => {
+    // Set up realtime subscription for new posts
     const channel = supabase
-      .channel('posts-changes')
+      .channel(`thread-${threadId}-posts`)
       .on(
         'postgres_changes',
         {

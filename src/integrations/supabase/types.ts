@@ -364,6 +364,36 @@ export type Database = {
           },
         ]
       }
+      user_bans: {
+        Row: {
+          banned_by: string | null
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          is_permanent: boolean | null
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          banned_by?: string | null
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_permanent?: boolean | null
+          reason: string
+          user_id: string
+        }
+        Update: {
+          banned_by?: string | null
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_permanent?: boolean | null
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -393,11 +423,39 @@ export type Database = {
           },
         ]
       }
+      user_warnings: {
+        Row: {
+          created_at: string | null
+          id: string
+          reason: string
+          user_id: string
+          warned_by: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          reason: string
+          user_id: string
+          warned_by?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          reason?: string
+          user_id?: string
+          warned_by?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      award_achievement: {
+        Args: { _achievement_id: string; _user_id: string }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

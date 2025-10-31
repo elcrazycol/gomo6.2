@@ -109,25 +109,30 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
             </p>
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {notifications.map((notif) => (
-                <Link
-                  key={notif.id}
-                  to={`/thread/${notif.related_thread_id}`}
-                  onClick={() => markAsRead(notif.id)}
-                  className={`block p-2 border border-border hover:bg-post-header ${
-                    !notif.is_read ? "bg-board-header" : ""
-                  }`}
-                >
-                  <p className="font-bold text-sm">{notif.title}</p>
-                  <p className="text-xs text-muted-foreground">{notif.message}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formatDistanceToNow(new Date(notif.created_at), {
-                      locale: ru,
-                      addSuffix: true,
-                    })}
-                  </p>
-                </Link>
-              ))}
+              {notifications.map((notif) => {
+                // Get the thread ID from the related_thread_id or extract from related_post_id
+                const threadId = notif.related_thread_id;
+                
+                return (
+                  <Link
+                    key={notif.id}
+                    to={threadId ? `/thread/${threadId}` : '#'}
+                    onClick={() => markAsRead(notif.id)}
+                    className={`block p-2 border border-border hover:bg-post-header ${
+                      !notif.is_read ? "bg-board-header" : ""
+                    }`}
+                  >
+                    <p className="font-bold text-sm">{notif.title}</p>
+                    <p className="text-xs text-muted-foreground">{notif.message}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatDistanceToNow(new Date(notif.created_at), {
+                        locale: ru,
+                        addSuffix: true,
+                      })}
+                    </p>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

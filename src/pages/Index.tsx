@@ -13,10 +13,21 @@ interface Board {
   description: string;
 }
 
+interface RandomThread {
+  id: string;
+  title: string;
+  board_id: string;
+  boards: {
+    slug: string;
+  };
+}
+
 const Index = () => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
+  const [randomBoards, setRandomBoards] = useState<Board[]>([]);
+  const [randomThread, setRandomThread] = useState<RandomThread | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -52,10 +63,34 @@ const Index = () => {
         .eq("is_rules_board", false)
         .order("created_at", { ascending: true });
 
-      if (data) setBoards(data);
+      if (data) {
+        setBoards(data);
+        
+        // Get 2 random boards
+        const shuffled = [...data].sort(() => 0.5 - Math.random());
+        setRandomBoards(shuffled.slice(0, 2));
+      }
+    };
+
+    const loadRandomThread = async () => {
+      const { data } = await supabase
+        .from("threads")
+        .select(`
+          id,
+          title,
+          board_id,
+          boards!inner(slug)
+        `)
+        .limit(100);
+
+      if (data && data.length > 0) {
+        const randomIndex = Math.floor(Math.random() * data.length);
+        setRandomThread(data[randomIndex]);
+      }
     };
 
     loadBoards();
+    loadRandomThread();
   }, []);
 
   const handleLogout = async () => {
@@ -96,7 +131,6 @@ const Index = () => {
       <main className="max-w-4xl mx-auto p-6">
         <div className="text-center mb-8">
           <h2 className="text-4xl font-bold mb-2">Добро пожаловать на 6gomo</h2>
-          <p className="text-muted-foreground">Имаджборд в стиле 4chan/dvach</p>
         </div>
 
         <div className="mb-4 text-center">
@@ -147,6 +181,38 @@ const Index = () => {
                 </div>
               </Link>
             ))}
+          </div>
+        </div>
+
+        <div className="bg-card border border-border p-6 mb-6">
+          <h3 className="text-xl font-bold mb-4">Случайность</h3>
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-semibold mb-2">Случайные доски:</h4>
+              <div className="space-y-2">
+                {randomBoards.map((board) => (
+                  <Link
+                    key={board.id}
+                    to={`/${board.slug}`}
+                    className="block p-3 border border-border hover:bg-thread-hover transition-colors"
+                  >
+                    <div className="font-bold text-primary">/{board.slug}/ - {board.name}</div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+            
+            {randomThread && (
+              <div>
+                <h4 className="font-semibold mb-2">Случайный тред:</h4>
+                <Link
+                  to={`/${randomThread.boards.slug}/thread/${randomThread.id}`}
+                  className="block p-3 border border-border hover:bg-thread-hover transition-colors"
+                >
+                  <div className="font-bold">{randomThread.title}</div>
+                </Link>
+              </div>
+            )}
           </div>
         </div>
 

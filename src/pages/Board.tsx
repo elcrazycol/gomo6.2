@@ -92,6 +92,31 @@ const Board = () => {
     loadBoard();
   }, [slug]);
 
+  useEffect(() => {
+    if (!board) return;
+
+    // Set up realtime subscription for new threads
+    const channel = supabase
+      .channel(`board-${board.id}-threads`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'threads',
+          filter: `board_id=eq.${board.id}`,
+        },
+        () => {
+          loadThreads(board.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [board]);
+
   const loadThreads = async (boardId: string) => {
     const { data: threadsData } = await supabase
       .from("threads")
