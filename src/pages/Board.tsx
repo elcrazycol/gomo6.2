@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { useSessionTime } from "@/hooks/useSessionTime";
 
 interface Board {
@@ -55,6 +56,7 @@ const Board = () => {
   const [loading, setLoading] = useState(false);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
+  const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
   
   useSessionTime(user?.id);
 
@@ -226,6 +228,29 @@ const Board = () => {
     loadThreads(board!.id);
   };
 
+  const handleFormatText = (prefix: string, suffix: string) => {
+    const textarea = contentTextareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = content.substring(start, end);
+    const newText = 
+      content.substring(0, start) + 
+      prefix + 
+      selectedText + 
+      suffix + 
+      content.substring(end);
+    
+    setContent(newText);
+    
+    // Restore cursor position after formatting
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
+    }, 0);
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Вышли");
@@ -324,7 +349,9 @@ const Board = () => {
               className="mb-2"
               disabled={loading}
             />
+            <TextFormattingToolbar onFormat={handleFormatText} />
             <Textarea
+              ref={contentTextareaRef}
               placeholder="Сообщение"
               value={content}
               onChange={(e) => setContent(e.target.value)}

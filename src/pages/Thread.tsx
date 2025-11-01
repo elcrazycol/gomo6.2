@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { AlertTriangle, Reply, Bell, BellOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
+import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,23 @@ interface Post {
   } | null;
 }
 
+const SpoilerText = ({ content }: { content: string }) => {
+  const [revealed, setRevealed] = useState(false);
+  
+  return (
+    <span
+      onClick={() => setRevealed(!revealed)}
+      className={`cursor-pointer transition-colors px-1 ${
+        revealed
+          ? "bg-transparent"
+          : "bg-foreground text-foreground hover:bg-foreground/80"
+      }`}
+    >
+      {revealed ? content : "████████"}
+    </span>
+  );
+};
+
 const Thread = () => {
   const { slug, threadId } = useParams();
   const navigate = useNavigate();
@@ -72,6 +90,7 @@ const Thread = () => {
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -365,19 +384,86 @@ const Thread = () => {
     }
   };
 
+  const handleFormatText = (prefix: string, suffix: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = content.substring(start, end);
+    const newText = 
+      content.substring(0, start) + 
+      prefix + 
+      selectedText + 
+      suffix + 
+      content.substring(end);
+    
+    setContent(newText);
+    
+    // Restore cursor position after formatting
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
+    }, 0);
+  };
+
   const renderContent = (text: string) => {
-    // Replace #username with clickable links
-    return text.split(/(@\w+)/g).map((part, i) => {
-      if (part.startsWith('@')) {
-        const username = part.substring(1);
-        return (
-          <span key={i} className="text-link hover:underline cursor-pointer font-semibold">
-            {part}
-          </span>
-        );
+    const elements: React.ReactNode[] = [];
+    let currentIndex = 0;
+    let key = 0;
+
+    // Process spoilers first
+    const spoilerRegex = /\|\|(.*?)\|\|/g;
+    let match;
+    let lastIndex = 0;
+
+    const processTextSegment = (segment: string) => {
+      // Process bold and italic
+      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+)/g).map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return (
+            <strong key={`${key++}-${i}`} className="font-bold">
+              {part.slice(2, -2)}
+            </strong>
+          );
+        } else if (part.startsWith('*') && part.endsWith('*') && !part.startsWith('**')) {
+          return (
+            <em key={`${key++}-${i}`} className="italic">
+              {part.slice(1, -1)}
+            </em>
+          );
+        } else if (part.startsWith('@')) {
+          return (
+            <span key={`${key++}-${i}`} className="text-link hover:underline cursor-pointer font-semibold">
+              {part}
+            </span>
+          );
+        }
+        return part;
+      });
+    };
+
+    while ((match = spoilerRegex.exec(text)) !== null) {
+      // Add text before spoiler
+      if (match.index > lastIndex) {
+        elements.push(...processTextSegment(text.substring(lastIndex, match.index)));
       }
-      return part;
-    });
+
+      // Add spoiler
+      const spoilerContent = match[1];
+      elements.push(
+        <SpoilerText key={`spoiler-${key++}`} content={spoilerContent} />
+      );
+
+      lastIndex = spoilerRegex.lastIndex;
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      elements.push(...processTextSegment(text.substring(lastIndex)));
+    }
+
+    return elements;
   };
 
   const handleLogout = async () => {
@@ -710,7 +796,9 @@ const Thread = () => {
                 Отменить ответ
               </Button>
             )}
+            <TextFormattingToolbar onFormat={handleFormatText} />
             <Textarea
+              ref={textareaRef}
               placeholder="Напишите ответ..."
               value={content}
               onChange={(e) => setContent(e.target.value)}
