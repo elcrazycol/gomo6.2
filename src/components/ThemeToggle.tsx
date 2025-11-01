@@ -1,53 +1,97 @@
-import { Moon, Sun, Palette } from "lucide-react";
+import { Settings } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
+  
+  const currentColorTheme = theme?.startsWith('theme-') 
+    ? theme 
+    : localStorage.getItem('colorTheme') || 'theme-cannabis';
+  
+  const isDark = theme?.includes('dark') || false;
+
+  const handleColorChange = (colorTheme: string) => {
+    localStorage.setItem('colorTheme', colorTheme);
+    setTheme(isDark ? `${colorTheme} dark` : colorTheme);
+  };
+
+  const handleModeToggle = (checked: boolean) => {
+    const baseTheme = currentColorTheme.replace(' dark', '');
+    setTheme(checked ? `${baseTheme} dark` : baseTheme);
+  };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Dialog>
+      <DialogTrigger asChild>
         <Button variant="outline" size="icon">
-          <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:rotate-90 dark:scale-0" />
-          <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Сменить тему</span>
+          <Settings className="h-[1.2rem] w-[1.2rem]" />
+          <span className="sr-only">Настройки темы</span>
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          <Sun className="mr-2 h-4 w-4" />
-          Светлая
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          <Moon className="mr-2 h-4 w-4" />
-          Тёмная
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => setTheme("theme-pink")}>
-          <Palette className="mr-2 h-4 w-4" style={{ color: "hsl(330, 70%, 50%)" }} />
-          Розовая няшная
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("theme-blue")}>
-          <Palette className="mr-2 h-4 w-4" style={{ color: "hsl(220, 60%, 35%)" }} />
-          Синяя депрессивная
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("theme-blood")}>
-          <Palette className="mr-2 h-4 w-4" style={{ color: "hsl(0, 80%, 45%)" }} />
-          Кроваво-красная
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("theme-pumpkin")}>
-          <Palette className="mr-2 h-4 w-4" style={{ color: "hsl(30, 85%, 45%)" }} />
-          Оранжевая тыквенная
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Настройки темы</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-6 py-4">
+          <div className="space-y-4">
+            <Label className="text-base font-semibold">Цветовая схема</Label>
+            <RadioGroup value={currentColorTheme.replace(' dark', '')} onValueChange={handleColorChange}>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="theme-cannabis" id="cannabis" />
+                <Label htmlFor="cannabis" className="cursor-pointer">
+                  🌿 Зелёная каннабиоидная
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="theme-pink" id="pink" />
+                <Label htmlFor="pink" className="cursor-pointer">
+                  💖 Розовая няшная
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="theme-blue" id="blue" />
+                <Label htmlFor="blue" className="cursor-pointer">
+                  💙 Синяя депрессивная
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="theme-blood" id="blood" />
+                <Label htmlFor="blood" className="cursor-pointer">
+                  🩸 Кроваво-красная
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="theme-pumpkin" id="pumpkin" />
+                <Label htmlFor="pumpkin" className="cursor-pointer">
+                  🎃 Оранжево-тыквенная
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <Label htmlFor="dark-mode" className="text-base font-semibold">
+              Тёмный режим
+            </Label>
+            <Switch
+              id="dark-mode"
+              checked={isDark}
+              onCheckedChange={handleModeToggle}
+            />
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

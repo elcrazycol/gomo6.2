@@ -7,6 +7,8 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
+import { TermsOfService } from "@/components/TermsOfService";
+import { useSessionTime } from "@/hooks/useSessionTime";
 
 interface Board {
   id: string;
@@ -24,13 +26,29 @@ interface RandomThread {
   };
 }
 
+interface PopularThread {
+  id: string;
+  title: string;
+  post_count: number;
+  board_id: string;
+  boards: {
+    slug: string;
+    name: string;
+  };
+}
+
 const Index = () => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [randomBoards, setRandomBoards] = useState<Board[]>([]);
   const [randomThread, setRandomThread] = useState<RandomThread | null>(null);
+  const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
+  const [showTerms, setShowTerms] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const navigate = useNavigate();
+  
+  useSessionTime(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -44,6 +62,19 @@ const Index = () => {
           .eq("user_id", session.user.id);
         
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        
+        // Check if user has accepted terms
+        const { data: termsData } = await supabase
+          .from("user_terms_acceptance")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+        
+        if (!termsData) {
+          setShowTerms(true);
+        } else {
+          setTermsAccepted(true);
+        }
       }
     };
     checkAuth();
@@ -91,13 +122,52 @@ const Index = () => {
       }
     };
 
+    const loadPopularThreads = async () => {
+      const { data } = await supabase
+        .from("threads")
+        .select(`
+          id,
+          title,
+          post_count,
+          board_id,
+          boards!inner(slug, name)
+        `)
+        .order("post_count", { ascending: false })
+        .limit(5);
+
+      if (data) {
+        setPopularThreads(data);
+      }
+    };
+
     loadBoards();
     loadRandomThread();
+    loadPopularThreads();
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Вышли");
+  };
+
+  const handleAcceptTerms = async () => {
+    if (!user) return;
+    
+    await supabase
+      .from("user_terms_acceptance")
+      .insert({
+        user_id: user.id,
+      });
+    
+    setShowTerms(false);
+    setTermsAccepted(true);
+    toast.success("Спасибо за согласие с правилами");
+  };
+
+  const handleDeclineTerms = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth");
+    toast.info("Вы покинули сайт");
   };
 
   return (
@@ -195,6 +265,31 @@ const Index = () => {
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">
+          <h3 className="text-xl font-bold mb-4">Популярные треды</h3>
+          <div className="space-y-2">
+            {popularThreads.map((thread) => (
+              <Link
+                key={thread.id}
+                to={`/${thread.boards.slug}/thread/${thread.id}`}
+                className="block p-3 border border-border hover:bg-thread-hover transition-colors"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <div className="font-bold">{thread.title}</div>
+                    <div className="text-sm text-muted-foreground">
+                      /{thread.boards.slug}/ - {thread.boards.name}
+                    </div>
+                  </div>
+                  <div className="text-sm text-muted-foreground ml-2">
+                    {thread.post_count} отв.
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-card border border-border p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">Случайность</h3>
           <div className="space-y-4">
             <div>
@@ -230,6 +325,13 @@ const Index = () => {
           <p>© 2025 gomo6 · Имиджборд</p>
         </div>
       </main>
+      
+      <TermsOfService 
+        open={showTerms} 
+        onAccept={handleAcceptTerms}
+        onDecline={handleDeclineTerms}
+        canDecline={true}
+      />
     </div>
   );
 };

@@ -101,100 +101,225 @@ All colors MUST be HSL.
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
+  /* Cannabis Green Theme */
+  .theme-cannabis {
+    --background: 120 25% 95%;
+    --foreground: 120 15% 15%;
+    --card: 120 20% 98%;
+    --card-foreground: 120 15% 15%;
+    --primary: 120 60% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 120 20% 85%;
+    --secondary-foreground: 120 15% 15%;
+    --muted: 120 20% 90%;
+    --muted-foreground: 120 10% 40%;
+    --border: 120 20% 80%;
+    --input: 120 20% 80%;
+    --ring: 120 60% 35%;
+    --board-header: 120 60% 35%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 120 20% 88%;
+    --post-header: 120 20% 92%;
+    --quote-text: 120 100% 25%;
+    --link-text: 120 60% 35%;
+  }
+
+  .theme-cannabis.dark {
+    --background: 120 20% 8%;
+    --foreground: 120 10% 90%;
+    --card: 120 20% 10%;
+    --card-foreground: 120 10% 90%;
+    --primary: 120 60% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 120 15% 15%;
+    --secondary-foreground: 120 10% 90%;
+    --muted: 120 15% 15%;
+    --muted-foreground: 120 10% 60%;
+    --border: 120 15% 18%;
+    --input: 120 15% 18%;
+    --ring: 120 60% 45%;
+    --board-header: 120 60% 30%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 120 15% 16%;
+    --post-header: 120 15% 12%;
+    --quote-text: 120 100% 50%;
+    --link-text: 120 60% 50%;
+  }
+
   .theme-pink {
-    --background: 330 40% 98%;
-    --foreground: 330 20% 15%;
+    --background: 330 40% 95%;
+    --foreground: 330 15% 15%;
+    --card: 330 35% 98%;
+    --card-foreground: 330 15% 15%;
     --primary: 330 70% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 330 30% 95%;
-    --secondary-foreground: 330 20% 15%;
-    --muted: 330 25% 92%;
-    --muted-foreground: 330 10% 45%;
-    --accent: 340 75% 55%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 330 25% 88%;
-    --input: 330 25% 88%;
+    --secondary: 330 30% 85%;
+    --secondary-foreground: 330 15% 15%;
+    --muted: 330 30% 90%;
+    --muted-foreground: 330 10% 40%;
+    --border: 330 30% 80%;
+    --input: 330 30% 80%;
     --ring: 330 70% 50%;
     --board-header: 330 70% 50%;
     --board-header-foreground: 0 0% 100%;
-    --thread-hover: 330 35% 93%;
-    --post-header: 330 25% 92%;
+    --thread-hover: 330 30% 88%;
+    --post-header: 330 30% 92%;
     --quote-text: 150 100% 25%;
-    --link-text: 280 100% 40%;
+    --link-text: 330 70% 50%;
+  }
+
+  .theme-pink.dark {
+    --background: 330 25% 8%;
+    --foreground: 330 10% 90%;
+    --card: 330 25% 10%;
+    --card-foreground: 330 10% 90%;
+    --primary: 330 70% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 330 20% 15%;
+    --secondary-foreground: 330 10% 90%;
+    --muted: 330 20% 15%;
+    --muted-foreground: 330 10% 60%;
+    --border: 330 20% 18%;
+    --input: 330 20% 18%;
+    --ring: 330 70% 55%;
+    --board-header: 330 70% 40%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 330 20% 16%;
+    --post-header: 330 20% 12%;
+    --quote-text: 120 100% 50%;
+    --link-text: 330 70% 60%;
   }
 
   .theme-blue {
-    --background: 220 20% 95%;
-    --foreground: 220 30% 20%;
+    --background: 220 30% 92%;
+    --foreground: 220 15% 20%;
+    --card: 220 25% 96%;
+    --card-foreground: 220 15% 20%;
     --primary: 220 60% 35%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 20% 90%;
-    --secondary-foreground: 220 30% 20%;
-    --muted: 220 15% 85%;
+    --secondary: 220 25% 80%;
+    --secondary-foreground: 220 15% 20%;
+    --muted: 220 25% 85%;
     --muted-foreground: 220 10% 40%;
-    --accent: 210 70% 45%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 220 20% 80%;
-    --input: 220 20% 80%;
+    --border: 220 25% 75%;
+    --input: 220 25% 75%;
     --ring: 220 60% 35%;
     --board-header: 220 60% 35%;
     --board-header-foreground: 0 0% 100%;
-    --thread-hover: 220 25% 88%;
-    --post-header: 220 15% 85%;
+    --thread-hover: 220 25% 83%;
+    --post-header: 220 25% 88%;
     --quote-text: 150 100% 25%;
-    --link-text: 240 100% 40%;
+    --link-text: 220 60% 35%;
+  }
+
+  .theme-blue.dark {
+    --background: 220 25% 8%;
+    --foreground: 220 10% 85%;
+    --card: 220 25% 10%;
+    --card-foreground: 220 10% 85%;
+    --primary: 220 60% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 20% 15%;
+    --secondary-foreground: 220 10% 85%;
+    --muted: 220 20% 15%;
+    --muted-foreground: 220 10% 55%;
+    --border: 220 20% 18%;
+    --input: 220 20% 18%;
+    --ring: 220 60% 45%;
+    --board-header: 220 60% 30%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 220 20% 16%;
+    --post-header: 220 20% 12%;
+    --quote-text: 120 100% 50%;
+    --link-text: 220 60% 50%;
   }
 
   .theme-blood {
-    --background: 0 20% 12%;
-    --foreground: 0 10% 95%;
+    --background: 0 30% 94%;
+    --foreground: 0 15% 15%;
+    --card: 0 25% 97%;
+    --card-foreground: 0 15% 15%;
     --primary: 0 80% 45%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 15% 18%;
-    --secondary-foreground: 0 10% 95%;
-    --muted: 0 10% 20%;
-    --muted-foreground: 0 5% 60%;
-    --accent: 0 90% 50%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 15% 25%;
-    --input: 0 15% 25%;
+    --secondary: 0 25% 85%;
+    --secondary-foreground: 0 15% 15%;
+    --muted: 0 25% 90%;
+    --muted-foreground: 0 10% 40%;
+    --border: 0 25% 80%;
+    --input: 0 25% 80%;
     --ring: 0 80% 45%;
+    --board-header: 0 80% 45%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 25% 88%;
+    --post-header: 0 25% 92%;
+    --quote-text: 120 100% 25%;
+    --link-text: 0 80% 45%;
+  }
+
+  .theme-blood.dark {
+    --background: 0 25% 8%;
+    --foreground: 0 10% 90%;
+    --card: 0 25% 10%;
+    --card-foreground: 0 10% 90%;
+    --primary: 0 80% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 20% 15%;
+    --secondary-foreground: 0 10% 90%;
+    --muted: 0 20% 15%;
+    --muted-foreground: 0 10% 60%;
+    --border: 0 20% 18%;
+    --input: 0 20% 18%;
+    --ring: 0 80% 50%;
     --board-header: 0 80% 35%;
     --board-header-foreground: 0 0% 100%;
-    --thread-hover: 0 15% 16%;
-    --post-header: 0 10% 20%;
+    --thread-hover: 0 20% 16%;
+    --post-header: 0 20% 12%;
     --quote-text: 120 100% 50%;
-    --link-text: 200 100% 60%;
+    --link-text: 0 80% 55%;
   }
 
   .theme-pumpkin {
-    --background: 35 45% 96%;
-    --foreground: 35 30% 15%;
+    --background: 30 40% 94%;
+    --foreground: 30 15% 15%;
+    --card: 30 35% 97%;
+    --card-foreground: 30 15% 15%;
     --primary: 30 85% 45%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 35 35% 92%;
-    --secondary-foreground: 35 30% 15%;
-    --muted: 35 30% 88%;
-    --muted-foreground: 35 15% 40%;
-    --accent: 25 90% 50%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 35 30% 85%;
-    --input: 35 30% 85%;
+    --secondary: 30 30% 85%;
+    --secondary-foreground: 30 15% 15%;
+    --muted: 30 30% 90%;
+    --muted-foreground: 30 10% 40%;
+    --border: 30 30% 80%;
+    --input: 30 30% 80%;
     --ring: 30 85% 45%;
     --board-header: 30 85% 45%;
     --board-header-foreground: 0 0% 100%;
-    --thread-hover: 35 40% 90%;
-    --post-header: 35 30% 88%;
+    --thread-hover: 30 30% 88%;
+    --post-header: 30 30% 92%;
     --quote-text: 120 100% 25%;
-    --link-text: 240 100% 35%;
+    --link-text: 30 85% 45%;
+  }
+
+  .theme-pumpkin.dark {
+    --background: 30 25% 8%;
+    --foreground: 30 10% 90%;
+    --card: 30 25% 10%;
+    --card-foreground: 30 10% 90%;
+    --primary: 30 85% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 30 20% 15%;
+    --secondary-foreground: 30 10% 90%;
+    --muted: 30 20% 15%;
+    --muted-foreground: 30 10% 60%;
+    --border: 30 20% 18%;
+    --input: 30 20% 18%;
+    --ring: 30 85% 50%;
+    --board-header: 30 85% 35%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 30 20% 16%;
+    --post-header: 30 20% 12%;
+    --quote-text: 120 100% 50%;
+    --link-text: 30 85% 55%;
   }
 }
 

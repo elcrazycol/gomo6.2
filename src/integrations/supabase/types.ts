@@ -47,6 +47,27 @@ export type Database = {
         }
         Relationships: []
       }
+      board_visits: {
+        Row: {
+          board_slug: string
+          id: string
+          user_id: string
+          visited_at: string | null
+        }
+        Insert: {
+          board_slug: string
+          id?: string
+          user_id: string
+          visited_at?: string | null
+        }
+        Update: {
+          board_slug?: string
+          id?: string
+          user_id?: string
+          visited_at?: string | null
+        }
+        Relationships: []
+      }
       boards: {
         Row: {
           created_at: string
@@ -451,6 +472,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_session_time: {
+        Row: {
+          id: string
+          last_updated: string | null
+          total_minutes: number | null
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          last_updated?: string | null
+          total_minutes?: number | null
+          user_id: string
+        }
+        Update: {
+          id?: string
+          last_updated?: string | null
+          total_minutes?: number | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_terms_acceptance: {
+        Row: {
+          accepted_at: string | null
+          id: string
+          ip_address: string | null
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          id?: string
+          ip_address?: string | null
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          id?: string
+          ip_address?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       user_warnings: {
         Row: {

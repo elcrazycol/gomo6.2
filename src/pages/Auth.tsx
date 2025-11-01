@@ -4,8 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { z } from "zod";
+import { TermsOfService } from "@/components/TermsOfService";
 
 const authSchema = z.object({
   username: z.string().trim().min(3, "Юзернейм минимум 3 символа").max(20, "Юзернейм максимум 20 символов"),
@@ -17,6 +19,8 @@ const Auth = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,6 +39,11 @@ const Auth = () => {
     const validation = authSchema.safeParse({ username, password });
     if (!validation.success) {
       toast.error(validation.error.errors[0].message);
+      return;
+    }
+
+    if (!isLogin && !agreedToTerms) {
+      toast.error("Необходимо согласиться с пользовательским соглашением");
       return;
     }
 
@@ -81,6 +90,16 @@ const Auth = () => {
           return;
         }
 
+        // Record terms acceptance
+        const { data: newSession } = await supabase.auth.getSession();
+        if (newSession.session?.user) {
+          await supabase
+            .from("user_terms_acceptance")
+            .insert({
+              user_id: newSession.session.user.id,
+            });
+        }
+        
         toast.success("Регистрация успешна! Можете войти.");
         setIsLogin(true);
       }
@@ -131,14 +150,43 @@ const Auth = () => {
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            {!isLogin && (
+              <div className="flex items-start space-x-2">
+                <Checkbox 
+                  id="terms" 
+                  checked={agreedToTerms}
+                  onCheckedChange={(checked) => setAgreedToTerms(checked as boolean)}
+                  disabled={loading}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label
+                    htmlFor="terms"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                  >
+                    Вы согласны с{" "}
+                    <button
+                      type="button"
+                      onClick={() => setShowTerms(true)}
+                      className="text-link hover:underline"
+                    >
+                      пользовательским соглашением GOMO6
+                    </button>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms)}>
               {loading ? "Загрузка..." : isLogin ? "Войти" : "Зарегистрироваться"}
             </Button>
           </form>
 
           <div className="mt-4 text-center text-sm">
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setAgreedToTerms(false);
+              }}
               className="text-link hover:underline"
               disabled={loading}
             >
@@ -147,6 +195,16 @@ const Auth = () => {
           </div>
         </div>
       </div>
+      
+      <TermsOfService 
+        open={showTerms} 
+        onAccept={() => {
+          setShowTerms(false);
+          setAgreedToTerms(true);
+        }}
+        onDecline={() => setShowTerms(false)}
+        canDecline={true}
+      />
     </div>
   );
 };

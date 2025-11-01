@@ -10,9 +10,13 @@ import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
+import { AgeVerification } from "@/components/AgeVerification";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useSessionTime } from "@/hooks/useSessionTime";
 
 interface Board {
   id: string;
+  slug: string;
   name: string;
   description: string;
   is_rules_board: boolean;
@@ -49,6 +53,10 @@ const Board = () => {
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showAgeVerification, setShowAgeVerification] = useState(false);
+  const [ageVerified, setAgeVerified] = useState(false);
+  
+  useSessionTime(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -85,12 +93,32 @@ const Board = () => {
 
       if (boardData) {
         setBoard(boardData);
-        loadThreads(boardData.id);
+        
+        // Check age verification for /d/ board
+        if (boardData.slug === 'd') {
+          const verified = sessionStorage.getItem('age_verified_d');
+          if (!verified) {
+            setShowAgeVerification(true);
+          } else {
+            setAgeVerified(true);
+            loadThreads(boardData.id);
+            
+            // Award incel achievement
+            if (user) {
+              supabase.rpc("award_achievement", {
+                _user_id: user.id,
+                _achievement_id: "incel",
+              });
+            }
+          }
+        } else {
+          loadThreads(boardData.id);
+        }
       }
     };
 
     loadBoard();
-  }, [slug]);
+  }, [slug, user]);
 
   useEffect(() => {
     if (!board) return;
@@ -203,7 +231,38 @@ const Board = () => {
     toast.success("Вышли");
   };
 
+  const handleAgeConfirm = async () => {
+    sessionStorage.setItem('age_verified_d', 'true');
+    setShowAgeVerification(false);
+    setAgeVerified(true);
+    if (board) {
+      loadThreads(board.id);
+      
+      // Award incel achievement
+      if (user) {
+        await supabase.rpc("award_achievement", {
+          _user_id: user.id,
+          _achievement_id: "incel",
+        });
+      }
+    }
+  };
+
+  const handleAgeDecline = () => {
+    navigate('/');
+  };
+
   if (!board) return <div className="p-4">Загрузка...</div>;
+  
+  if (board.slug === 'd' && !ageVerified) {
+    return (
+      <AgeVerification 
+        open={showAgeVerification}
+        onConfirm={handleAgeConfirm}
+        onDecline={handleAgeDecline}
+      />
+    );
+  }
 
   const canCreateThread = user && (!board.is_rules_board || isModerator);
 
@@ -219,6 +278,7 @@ const Board = () => {
             <span className="text-base sm:text-lg">/{slug}/ - {board.name}</span>
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+            <ThemeToggle />
             {user && <NotificationBell userId={user.id} />}
             {user ? (
               <>
