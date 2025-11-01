@@ -513,7 +513,7 @@ const Thread = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-2 sm:p-4">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-32 sm:pb-36">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -781,48 +781,79 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <form onSubmit={handleSubmitPost} className="bg-post-header p-3 sm:p-4 border border-border sticky bottom-2 sm:bottom-4">
-            <h3 className="font-bold mb-2 text-sm sm:text-base">
-              {replyingTo ? `Ответ на #${replyingTo.slice(0, 8)}` : "Ответить"}
-            </h3>
-            {replyingTo && (
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                onClick={() => setReplyingTo(null)}
-                className="mb-2"
-              >
-                Отменить ответ
-              </Button>
-            )}
-            <TextFormattingToolbar onFormat={handleFormatText} />
-            <Textarea
-              ref={textareaRef}
-              placeholder="Напишите ответ..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="mb-2"
-              rows={4}
-              disabled={loading}
-            />
-            <ImageUpload
-              onImageUploaded={setImageUrl}
-              currentImage={imageUrl}
-              onRemove={() => setImageUrl(null)}
-            />
-            <Button type="submit" disabled={loading} className="mt-2">
-              {loading ? "Отправка..." : "Отправить"}
-            </Button>
+          <form 
+            onSubmit={handleSubmitPost} 
+            className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border shadow-lg z-50 transition-all duration-300"
+          >
+            <div className="max-w-5xl mx-auto p-3 sm:p-4">
+              {replyingTo && (
+                <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
+                  <span>Ответ на #{replyingTo.slice(0, 8)}</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setReplyingTo(null)}
+                    className="h-6 text-xs"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              )}
+              
+              <div className="flex gap-2 items-end">
+                <div className="flex-1 space-y-2">
+                  <TextFormattingToolbar onFormat={handleFormatText} />
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder="Напишите сообщение…"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    disabled={loading}
+                    autoExpand
+                    maxRows={5}
+                    className="shadow-sm"
+                  />
+                </div>
+                <Button 
+                  type="submit" 
+                  disabled={loading || !content.trim()} 
+                  size="icon"
+                  className="h-10 w-10 rounded-full flex-shrink-0"
+                >
+                  {loading ? "..." : "→"}
+                </Button>
+              </div>
+              
+              {imageUrl && (
+                <div className="mt-2">
+                  <ImageUpload
+                    onImageUploaded={setImageUrl}
+                    currentImage={imageUrl}
+                    onRemove={() => setImageUrl(null)}
+                  />
+                </div>
+              )}
+              
+              {!imageUrl && (
+                <div className="mt-2">
+                  <ImageUpload
+                    onImageUploaded={setImageUrl}
+                    currentImage={imageUrl}
+                    onRemove={() => setImageUrl(null)}
+                  />
+                </div>
+              )}
+            </div>
           </form>
         ) : user ? (
-          <div className="bg-post-header p-4 border border-border text-center">
-            <p className="mb-2">На этой доске могут писать только администраторы</p>
+          <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border p-4 text-center z-50">
+            <p className="text-sm text-muted-foreground">На этой доске могут писать только администраторы</p>
           </div>
         ) : (
-          <div className="bg-post-header p-4 border border-border text-center">
-            <p className="mb-2">Войдите, чтобы ответить</p>
-            <Button onClick={() => navigate("/auth")}>Войти</Button>
+          <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border p-4 text-center z-50">
+            <p className="text-sm text-muted-foreground mb-2">Войдите, чтобы ответить</p>
+            <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
           </div>
         )}
       </main>
