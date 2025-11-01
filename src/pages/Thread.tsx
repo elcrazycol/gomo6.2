@@ -9,7 +9,7 @@ import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
-import { AlertTriangle, Reply, Bell, BellOff } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, ImageIcon } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -513,7 +513,7 @@ const Thread = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-32 sm:pb-36">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-40 sm:pb-44">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -781,79 +781,85 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <form 
-            onSubmit={handleSubmitPost} 
-            className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border shadow-lg z-50 transition-all duration-300"
-          >
-            <div className="max-w-5xl mx-auto p-3 sm:p-4">
-              {replyingTo && (
-                <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
-                  <span>Ответ на #{replyingTo.slice(0, 8)}</span>
+          <div className="fixed bottom-4 left-0 right-0 z-50 px-4">
+            <div className="max-w-2xl mx-auto">
+              <form 
+                onSubmit={handleSubmitPost} 
+                className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-3 space-y-2"
+              >
+                {replyingTo && (
+                  <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
+                    <span>Ответ на #{replyingTo.slice(0, 8)}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setReplyingTo(null)}
+                      className="h-6 text-xs"
+                    >
+                      ✕
+                    </Button>
+                  </div>
+                )}
+                
+                <TextFormattingToolbar onFormat={handleFormatText} />
+                
+                <div className="flex gap-2 items-end">
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
-                    onClick={() => setReplyingTo(null)}
-                    className="h-6 text-xs"
+                    size="icon"
+                    className="shrink-0 h-10 w-10 rounded-xl"
+                    onClick={() => setImageUrl(imageUrl ? null : "")}
                   >
-                    ✕
+                    <ImageIcon className="h-5 w-5" />
+                  </Button>
+                  <div className="flex-1">
+                    <Textarea
+                      ref={textareaRef}
+                      placeholder="Напишите сообщение…"
+                      value={content}
+                      onChange={(e) => setContent(e.target.value)}
+                      disabled={loading}
+                      autoExpand
+                      maxRows={5}
+                      className="bg-background/50 border-border/30"
+                    />
+                  </div>
+                  <Button 
+                    type="submit" 
+                    disabled={loading || !content.trim()} 
+                    size="icon"
+                    className="h-10 w-10 rounded-xl shrink-0"
+                  >
+                    <Send className="h-5 w-5" />
                   </Button>
                 </div>
-              )}
-              
-              <div className="flex gap-2 items-end">
-                <div className="flex-1 space-y-2">
-                  <TextFormattingToolbar onFormat={handleFormatText} />
-                  <Textarea
-                    ref={textareaRef}
-                    placeholder="Напишите сообщение…"
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    disabled={loading}
-                    autoExpand
-                    maxRows={5}
-                    className="shadow-sm"
-                  />
-                </div>
-                <Button 
-                  type="submit" 
-                  disabled={loading || !content.trim()} 
-                  size="icon"
-                  className="h-10 w-10 rounded-full flex-shrink-0"
-                >
-                  {loading ? "..." : "→"}
-                </Button>
-              </div>
-              
-              {imageUrl && (
-                <div className="mt-2">
-                  <ImageUpload
-                    onImageUploaded={setImageUrl}
-                    currentImage={imageUrl}
-                    onRemove={() => setImageUrl(null)}
-                  />
-                </div>
-              )}
-              
-              {!imageUrl && (
-                <div className="mt-2">
-                  <ImageUpload
-                    onImageUploaded={setImageUrl}
-                    currentImage={imageUrl}
-                    onRemove={() => setImageUrl(null)}
-                  />
-                </div>
-              )}
+                
+                {imageUrl !== null && (
+                  <div className="mt-1">
+                    <ImageUpload
+                      onImageUploaded={setImageUrl}
+                      currentImage={imageUrl}
+                      onRemove={() => setImageUrl(null)}
+                    />
+                  </div>
+                )}
+              </form>
             </div>
-          </form>
+          </div>
         ) : user ? (
-          <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border p-4 text-center z-50">
-            <p className="text-sm text-muted-foreground">На этой доске могут писать только администраторы</p>
+          <div className="fixed bottom-4 left-0 right-0 z-50 px-4">
+            <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center text-muted-foreground">
+              На этой доске могут писать только администраторы
+            </div>
           </div>
         ) : (
-          <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border p-4 text-center z-50">
-            <p className="text-sm text-muted-foreground mb-2">Войдите, чтобы ответить</p>
-            <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
+          <div className="fixed bottom-4 left-0 right-0 z-50 px-4">
+            <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">
+              <p className="text-sm text-muted-foreground mb-2">Войдите, чтобы ответить</p>
+              <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
+            </div>
           </div>
         )}
       </main>
