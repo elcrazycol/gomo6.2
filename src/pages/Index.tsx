@@ -173,7 +173,7 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <h1 className="text-2xl sm:text-3xl font-bold">gomo6</h1>
@@ -203,7 +203,7 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-3 sm:p-6 flex-1">
+      <main className="max-w-4xl mx-auto p-3 sm:p-6">
         <div className="text-center mb-6 sm:mb-8">
           <h2 className="text-2xl sm:text-4xl font-bold mb-2">Добро пожаловать на gomo6</h2>
         </div>
@@ -323,17 +323,16 @@ const Index = () => {
           </div>
         </div>
 
+        <div className="bg-post-header border border-border p-4 text-center text-sm text-muted-foreground">
+          <p>© 2025 gomo6 · Имиджборд</p>
+          <button 
+            onClick={() => setShowPrivacy(true)}
+            className="text-link hover:underline mt-2"
+          >
+            Политика конфиденциальности
+          </button>
+        </div>
       </main>
-
-      <footer className="bg-post-header border-t border-border p-4 text-center text-sm text-muted-foreground mt-auto">
-        <p>© 2025 gomo6 · Имиджборд</p>
-        <button 
-          onClick={() => setShowPrivacy(true)}
-          className="text-link hover:underline mt-2"
-        >
-          Политика конфиденциальности
-        </button>
-      </footer>
       
       <TermsOfService 
         open={showTerms} 

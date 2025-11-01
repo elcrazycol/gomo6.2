@@ -76,7 +76,6 @@ const Thread = () => {
   const [showInputBox, setShowInputBox] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [isInputFocused, setIsInputFocused] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef(0);
 
@@ -125,13 +124,11 @@ const Thread = () => {
       const isScrollingDown = scrollTop > lastScrollTop.current;
       lastScrollTop.current = scrollTop;
 
-      // Показываем/скрываем поле ввода только если оно не в фокусе
-      if (!isInputFocused) {
-        if (isScrollingDown) {
-          setShowInputBox(true);
-        } else if (scrollTop > 50) { // Скрывать только если проскроллили больше 50px
-          setShowInputBox(false);
-        }
+      // Показываем/скрываем поле ввода
+      if (isScrollingDown) {
+        setShowInputBox(true);
+      } else {
+        setShowInputBox(false);
       }
 
       // Показываем кнопку "вниз" если не внизу страницы
@@ -141,7 +138,7 @@ const Thread = () => {
 
     mainElement.addEventListener('scroll', handleScroll);
     return () => mainElement.removeEventListener('scroll', handleScroll);
-  }, [isInputFocused]);
+  }, []);
 
   const scrollToBottom = () => {
     if (mainRef.current) {
@@ -475,7 +472,7 @@ const Thread = () => {
       </header>
 
       <main ref={mainRef} className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto p-2 sm:p-4 pb-32 sm:pb-40">
+        <div className="max-w-5xl mx-auto p-2 sm:p-4 pb-24">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -742,28 +739,13 @@ const Thread = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Footer */}
-        <footer className="bg-post-header border-t border-border p-4 text-center text-sm text-muted-foreground mt-8">
-          <p>© 2025 gomo6 · Имиджборд</p>
-          <button 
-            onClick={() => setShowPrivacy(true)}
-            className="text-link hover:underline mt-2"
+        {canPost ? (
+          <form 
+            onSubmit={handleSubmitPost} 
+            className={`bg-post-header p-3 sm:p-4 border border-border transition-all duration-300 ease-in-out ${
+              showInputBox ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
+            }`}
           >
-            Политика конфиденциальности
-          </button>
-        </footer>
-        </div>
-      </main>
-
-      {/* Floating input box */}
-      {canPost ? (
-        <form 
-          onSubmit={handleSubmitPost} 
-          className={`fixed bottom-0 left-0 right-0 bg-post-header border-t border-border p-3 sm:p-4 shadow-lg transition-all duration-300 ease-in-out z-40 ${
-            showInputBox ? 'translate-y-0' : 'translate-y-full'
-          }`}
-        >
-          <div className="max-w-5xl mx-auto">
             <h3 className="font-bold mb-2 text-sm sm:text-base">
               {replyingTo ? `Ответ на #${replyingTo.slice(0, 8)}` : "Ответить"}
             </h3>
@@ -783,46 +765,46 @@ const Thread = () => {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="mb-2"
-              rows={3}
+              rows={4}
               disabled={loading}
-              onFocus={() => setIsInputFocused(true)}
-              onBlur={() => setIsInputFocused(false)}
             />
-            <div className="flex gap-2 items-center flex-wrap">
-              <ImageUpload
-                onImageUploaded={setImageUrl}
-                currentImage={imageUrl}
-                onRemove={() => setImageUrl(null)}
-              />
-              <Button type="submit" disabled={loading} size="sm">
-                {loading ? "Отправка..." : "Отправить"}
-              </Button>
-            </div>
+            <ImageUpload
+              onImageUploaded={setImageUrl}
+              currentImage={imageUrl}
+              onRemove={() => setImageUrl(null)}
+            />
+            <Button type="submit" disabled={loading} className="mt-2">
+              {loading ? "Отправка..." : "Отправить"}
+            </Button>
+          </form>
+        ) : user ? (
+          <div className="bg-post-header p-4 border border-border text-center">
+            <p className="mb-2">На этой доске могут писать только администраторы</p>
           </div>
-        </form>
-      ) : user ? (
-        <div className={`fixed bottom-0 left-0 right-0 bg-post-header border-t border-border p-4 text-center shadow-lg transition-all duration-300 ease-in-out z-40 ${
-          showInputBox ? 'translate-y-0' : 'translate-y-full'
-        }`}>
-          <div className="max-w-5xl mx-auto">
-            <p className="text-sm">На этой доске могут писать только администраторы</p>
+        ) : (
+          <div className="bg-post-header p-4 border border-border text-center">
+            <p className="mb-2">Войдите, чтобы ответить</p>
+            <Button onClick={() => navigate("/auth")}>Войти</Button>
           </div>
+        )}
+
+        {/* Footer */}
+        <footer className="bg-post-header border-t border-border p-4 text-center text-sm text-muted-foreground mt-8">
+          <p>© 2025 gomo6 · Имиджборд</p>
+          <button 
+            onClick={() => setShowPrivacy(true)}
+            className="text-link hover:underline mt-2"
+          >
+            Политика конфиденциальности
+          </button>
+        </footer>
         </div>
-      ) : (
-        <div className={`fixed bottom-0 left-0 right-0 bg-post-header border-t border-border p-4 text-center shadow-lg transition-all duration-300 ease-in-out z-40 ${
-          showInputBox ? 'translate-y-0' : 'translate-y-full'
-        }`}>
-          <div className="max-w-5xl mx-auto">
-            <p className="mb-2 text-sm">Войдите, чтобы ответить</p>
-            <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
-          </div>
-        </div>
-      )}
+      </main>
 
       {/* Scroll to bottom button */}
       <Button
         onClick={scrollToBottom}
-        className={`fixed bottom-24 sm:bottom-28 right-4 sm:right-8 rounded-full w-12 h-12 shadow-lg transition-all duration-300 z-50 ${
+        className={`fixed bottom-20 right-4 sm:right-8 rounded-full w-12 h-12 shadow-lg transition-all duration-300 ${
           showScrollButton ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'
         }`}
         size="icon"
