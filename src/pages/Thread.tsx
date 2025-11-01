@@ -90,7 +90,10 @@ const Thread = () => {
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [showInputBox, setShowInputBox] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastScrollY = useRef(0);
+  const scrollThreshold = 30;
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -116,6 +119,45 @@ const Thread = () => {
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Scroll detection for auto-hide input form
+  useEffect(() => {
+    let rafId: number;
+    let lastScrollTime = 0;
+
+    const handleScroll = () => {
+      const now = Date.now();
+      if (now - lastScrollTime < 100) return; // Throttle to every 100ms
+      lastScrollTime = now;
+
+      const currentScrollY = window.scrollY;
+      const scrollDelta = currentScrollY - lastScrollY.current;
+
+      // Only toggle if scrolled more than threshold
+      if (Math.abs(scrollDelta) > scrollThreshold) {
+        // Scrolling down - show form
+        if (scrollDelta < 0) {
+          setShowInputBox(true);
+        } 
+        // Scrolling up - hide form
+        else if (scrollDelta > 0) {
+          setShowInputBox(false);
+        }
+        lastScrollY.current = currentScrollY;
+      }
+    };
+
+    const onScroll = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(handleScroll);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   useEffect(() => {
@@ -513,7 +555,7 @@ const Thread = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-2 sm:p-4">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-48 sm:pb-56">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -781,48 +823,59 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <form onSubmit={handleSubmitPost} className="bg-post-header p-3 sm:p-4 border border-border sticky bottom-2 sm:bottom-4">
-            <h3 className="font-bold mb-2 text-sm sm:text-base">
-              {replyingTo ? `Ответ на #${replyingTo.slice(0, 8)}` : "Ответить"}
-            </h3>
-            {replyingTo && (
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                onClick={() => setReplyingTo(null)}
+          <form 
+            onSubmit={handleSubmitPost} 
+            className={`fixed bottom-0 left-0 right-0 bg-post-header p-3 sm:p-4 border-t border-border z-50 transition-transform duration-300 ease-out ${
+              showInputBox ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
+            <div className="max-w-5xl mx-auto">
+              <h3 className="font-bold mb-2 text-sm sm:text-base">
+                {replyingTo ? `Ответ на #${replyingTo.slice(0, 8)}` : "Ответить"}
+              </h3>
+              {replyingTo && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  onClick={() => setReplyingTo(null)}
+                  className="mb-2"
+                >
+                  Отменить ответ
+                </Button>
+              )}
+              <TextFormattingToolbar onFormat={handleFormatText} />
+              <Textarea
+                ref={textareaRef}
+                placeholder="Напишите ответ..."
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
                 className="mb-2"
-              >
-                Отменить ответ
+                rows={4}
+                disabled={loading}
+              />
+              <ImageUpload
+                onImageUploaded={setImageUrl}
+                currentImage={imageUrl}
+                onRemove={() => setImageUrl(null)}
+              />
+              <Button type="submit" disabled={loading} className="mt-2">
+                {loading ? "Отправка..." : "Отправить"}
               </Button>
-            )}
-            <TextFormattingToolbar onFormat={handleFormatText} />
-            <Textarea
-              ref={textareaRef}
-              placeholder="Напишите ответ..."
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="mb-2"
-              rows={4}
-              disabled={loading}
-            />
-            <ImageUpload
-              onImageUploaded={setImageUrl}
-              currentImage={imageUrl}
-              onRemove={() => setImageUrl(null)}
-            />
-            <Button type="submit" disabled={loading} className="mt-2">
-              {loading ? "Отправка..." : "Отправить"}
-            </Button>
+            </div>
           </form>
         ) : user ? (
-          <div className="bg-post-header p-4 border border-border text-center">
-            <p className="mb-2">На этой доске могут писать только администраторы</p>
+          <div className="fixed bottom-0 left-0 right-0 bg-post-header p-4 border-t border-border text-center z-50">
+            <div className="max-w-5xl mx-auto">
+              <p className="mb-2">На этой доске могут писать только администраторы</p>
+            </div>
           </div>
         ) : (
-          <div className="bg-post-header p-4 border border-border text-center">
-            <p className="mb-2">Войдите, чтобы ответить</p>
-            <Button onClick={() => navigate("/auth")}>Войти</Button>
+          <div className="fixed bottom-0 left-0 right-0 bg-post-header p-4 border-t border-border text-center z-50">
+            <div className="max-w-5xl mx-auto">
+              <p className="mb-2">Войдите, чтобы ответить</p>
+              <Button onClick={() => navigate("/auth")}>Войти</Button>
+            </div>
           </div>
         )}
       </main>
