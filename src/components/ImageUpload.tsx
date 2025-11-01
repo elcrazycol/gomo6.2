@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -13,6 +13,10 @@ interface ImageUploadProps {
 export const ImageUpload = ({ onImageUploaded, currentImage, onRemove }: ImageUploadProps) => {
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(currentImage || null);
+
+  useEffect(() => {
+    setPreview(currentImage || null);
+  }, [currentImage]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,7 +57,6 @@ export const ImageUpload = ({ onImageUploaded, currentImage, onRemove }: ImageUp
         .from('post-images')
         .getPublicUrl(fileName);
 
-      setPreview(publicUrl);
       onImageUploaded(publicUrl);
       toast.success("Изображение загружено");
     } catch (error: any) {

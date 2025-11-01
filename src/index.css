@@ -100,6 +100,102 @@ All colors MUST be HSL.
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
+
+  .theme-pink {
+    --background: 330 40% 98%;
+    --foreground: 330 20% 15%;
+    --primary: 330 70% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 330 30% 95%;
+    --secondary-foreground: 330 20% 15%;
+    --muted: 330 25% 92%;
+    --muted-foreground: 330 10% 45%;
+    --accent: 340 75% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 330 25% 88%;
+    --input: 330 25% 88%;
+    --ring: 330 70% 50%;
+    --board-header: 330 70% 50%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 330 35% 93%;
+    --post-header: 330 25% 92%;
+    --quote-text: 150 100% 25%;
+    --link-text: 280 100% 40%;
+  }
+
+  .theme-blue {
+    --background: 220 20% 95%;
+    --foreground: 220 30% 20%;
+    --primary: 220 60% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 20% 90%;
+    --secondary-foreground: 220 30% 20%;
+    --muted: 220 15% 85%;
+    --muted-foreground: 220 10% 40%;
+    --accent: 210 70% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 20% 80%;
+    --input: 220 20% 80%;
+    --ring: 220 60% 35%;
+    --board-header: 220 60% 35%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 220 25% 88%;
+    --post-header: 220 15% 85%;
+    --quote-text: 150 100% 25%;
+    --link-text: 240 100% 40%;
+  }
+
+  .theme-blood {
+    --background: 0 20% 12%;
+    --foreground: 0 10% 95%;
+    --primary: 0 80% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 15% 18%;
+    --secondary-foreground: 0 10% 95%;
+    --muted: 0 10% 20%;
+    --muted-foreground: 0 5% 60%;
+    --accent: 0 90% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 15% 25%;
+    --input: 0 15% 25%;
+    --ring: 0 80% 45%;
+    --board-header: 0 80% 35%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 15% 16%;
+    --post-header: 0 10% 20%;
+    --quote-text: 120 100% 50%;
+    --link-text: 200 100% 60%;
+  }
+
+  .theme-pumpkin {
+    --background: 35 45% 96%;
+    --foreground: 35 30% 15%;
+    --primary: 30 85% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 35% 92%;
+    --secondary-foreground: 35 30% 15%;
+    --muted: 35 30% 88%;
+    --muted-foreground: 35 15% 40%;
+    --accent: 25 90% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 35 30% 85%;
+    --input: 35 30% 85%;
+    --ring: 30 85% 45%;
+    --board-header: 30 85% 45%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 35 40% 90%;
+    --post-header: 35 30% 88%;
+    --quote-text: 120 100% 25%;
+    --link-text: 240 100% 35%;
+  }
 }
 
 @layer base {

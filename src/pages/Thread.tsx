@@ -71,6 +71,7 @@ const Thread = () => {
   const [banUserId, setBanUserId] = useState<string | null>(null);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
+  const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -394,7 +395,7 @@ const Thread = () => {
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div className="text-sm sm:text-base">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
-              6gomo
+              gomo6
             </Link>
             <span className="mx-1 sm:mx-2">/</span>
             <Link to={`/${slug}`} className="hover:underline">
@@ -508,7 +509,16 @@ const Thread = () => {
               <img
                 src={thread.image_url}
                 alt="Thread image"
-                className="max-w-full sm:max-w-md max-h-96 mb-2 border border-border"
+                className={`mb-2 border border-border cursor-pointer transition-all ${
+                  expandedImage === thread.image_url
+                    ? "max-w-full max-h-full"
+                    : "max-w-32 max-h-32"
+                }`}
+                onClick={() =>
+                  setExpandedImage(
+                    expandedImage === thread.image_url ? null : thread.image_url
+                  )
+                }
               />
             )}
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
@@ -601,7 +611,16 @@ const Thread = () => {
                 <img
                   src={post.image_url}
                   alt="Post image"
-                  className="max-w-full sm:max-w-md max-h-96 mb-2 border border-border"
+                  className={`mb-2 border border-border cursor-pointer transition-all ${
+                    expandedImage === post.image_url
+                      ? "max-w-full max-h-full"
+                      : "max-w-32 max-h-32"
+                  }`}
+                  onClick={() =>
+                    setExpandedImage(
+                      expandedImage === post.image_url ? null : post.image_url
+                    )
+                  }
                 />
               )}
               {editingPostId === post.id ? (

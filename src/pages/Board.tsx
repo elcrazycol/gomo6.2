@@ -213,7 +213,7 @@ const Board = () => {
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div className="text-sm sm:text-base">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
-              6gomo
+              gomo6
             </Link>
             <span className="mx-1 sm:mx-2">/</span>
             <span className="text-base sm:text-lg">/{slug}/ - {board.name}</span>
@@ -275,7 +275,9 @@ const Board = () => {
             <ImageUpload
               onImageUploaded={setImageUrl}
               currentImage={imageUrl}
-              onRemove={() => setImageUrl(null)}
+              onRemove={() => {
+                setImageUrl(null);
+              }}
             />
             <div className="flex gap-2 mt-3">
               <Button type="submit" disabled={loading}>
@@ -333,7 +335,11 @@ const Board = () => {
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground text-right flex-shrink-0">
-                  <div className="font-bold whitespace-nowrap">{thread.post_count} отв.</div>
+                  <div className="font-bold whitespace-nowrap">
+                    {thread.post_count > 0 
+                      ? `${thread.post_count} ${thread.post_count === 1 ? 'отв.' : 'отв.'}`
+                      : '0 отв.'}
+                  </div>
                 </div>
               </div>
             </Link>

@@ -41,7 +41,7 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const email = `${username}@6gomo.local`;
+      const email = `${username}@gomo6.local`;
 
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
@@ -95,8 +95,8 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary mb-2">6gomo</h1>
-          <p className="text-muted-foreground">Имаджборд</p>
+          <h1 className="text-4xl font-bold text-primary mb-2">gomo6</h1>
+          <p className="text-muted-foreground">Имиджборд</p>
         </div>
 
         <div className="bg-card border border-border p-6 rounded">

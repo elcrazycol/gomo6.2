@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { UserBadge } from "@/components/UserBadge";
 
 interface Board {
   id: string;
@@ -102,8 +104,9 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <h1 className="text-2xl sm:text-3xl font-bold">6gomo</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">gomo6</h1>
           <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+            <ThemeToggle />
             {user && <NotificationBell userId={user.id} />}
             {user ? (
               <>
@@ -130,20 +133,20 @@ const Index = () => {
 
       <main className="max-w-4xl mx-auto p-3 sm:p-6">
         <div className="text-center mb-6 sm:mb-8">
-          <h2 className="text-2xl sm:text-4xl font-bold mb-2">Добро пожаловать на 6gomo</h2>
+          <h2 className="text-2xl sm:text-4xl font-bold mb-2">Добро пожаловать на gomo6</h2>
         </div>
 
         <div className="mb-4 text-center">
           <Dialog>
             <DialogTrigger asChild>
-              <Button variant="outline">Что такое 6gomo?</Button>
+              <Button variant="outline">Что такое gomo6?</Button>
             </DialogTrigger>
             <DialogContent className="bg-background border-border">
               <DialogHeader>
-                <DialogTitle>О проекте 6gomo</DialogTitle>
+                <DialogTitle>О проекте gomo6</DialogTitle>
               </DialogHeader>
               <div className="space-y-3 text-sm">
-                <p>6gomo - это современная имаджборда, вдохновлённая классическими форумами.</p>
+                <p>gomo6 - это современная имиджборда, вдохновлённая классическими форумами.</p>
                 <p>Здесь вы можете:</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li>Создавать треды и общаться с другими пользователями</li>
@@ -166,20 +169,27 @@ const Index = () => {
           <h3 className="text-xl font-bold mb-4">Доски</h3>
           <div className="space-y-3">
             {boards.map((board) => (
-              <Link
-                key={board.id}
-                to={`/${board.slug}`}
-                className="block p-4 border border-border hover:bg-thread-hover transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-lg font-bold text-primary">/{board.slug}/</h4>
-                    <p className="text-base font-semibold">{board.name}</p>
-                    <p className="text-sm text-muted-foreground">{board.description}</p>
+              <>
+                <Link
+                  key={board.id}
+                  to={`/${board.slug}`}
+                  className="block p-4 border border-border hover:bg-thread-hover transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-lg font-bold text-primary">/{board.slug}/</h4>
+                      <p className="text-base font-semibold">{board.name}</p>
+                      <p className="text-sm text-muted-foreground">{board.description}</p>
+                    </div>
+                    <div className="text-link">→</div>
                   </div>
-                  <div className="text-link">→</div>
-                </div>
-              </Link>
+                </Link>
+                {board.slug === 'b' && (
+                  <div className="mt-6 pt-4 border-t-2 border-primary">
+                    <p className="text-sm font-semibold text-muted-foreground mb-2">Специальные доски:</p>
+                  </div>
+                )}
+              </>
             ))}
           </div>
         </div>
@@ -217,7 +227,7 @@ const Index = () => {
         </div>
 
         <div className="bg-post-header border border-border p-4 text-center text-sm text-muted-foreground">
-          <p>© 2025 6gomo · Имаджборд</p>
+          <p>© 2025 gomo6 · Имиджборд</p>
         </div>
       </main>
     </div>

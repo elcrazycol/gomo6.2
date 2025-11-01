@@ -250,7 +250,7 @@ const Moderation = () => {
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <Link to="/" className="text-xl font-bold hover:underline">
-            6gomo
+            gomo6
           </Link>
           <h1 className="text-base sm:text-lg font-bold">Панель модератора</h1>
         </div>

@@ -124,7 +124,7 @@ const Profile = () => {
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <Link to="/" className="text-xl font-bold hover:underline">
-            6gomo
+            gomo6
           </Link>
           <div className="flex gap-2">
             {isOwnProfile && (
