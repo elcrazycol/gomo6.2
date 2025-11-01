@@ -120,11 +120,10 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 120 20% 88%;
     --post-header: 120 20% 92%;
-    --quote-text: 120 100% 25%;
-    --link-text: 120 60% 35%;
+    --link: 120 60% 35%;
   }
 
-  .theme-cannabis.dark {
+  .theme-cannabis-dark {
     --background: 120 20% 8%;
     --foreground: 120 10% 90%;
     --card: 120 20% 10%;
@@ -142,8 +141,7 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 120 15% 16%;
     --post-header: 120 15% 12%;
-    --quote-text: 120 100% 50%;
-    --link-text: 120 60% 50%;
+    --link: 120 60% 50%;
   }
 
   .theme-pink {
@@ -164,11 +162,10 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 330 30% 88%;
     --post-header: 330 30% 92%;
-    --quote-text: 150 100% 25%;
-    --link-text: 330 70% 50%;
+    --link: 330 70% 50%;
   }
 
-  .theme-pink.dark {
+  .theme-pink-dark {
     --background: 330 25% 8%;
     --foreground: 330 10% 90%;
     --card: 330 25% 10%;
@@ -186,8 +183,7 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 330 20% 16%;
     --post-header: 330 20% 12%;
-    --quote-text: 120 100% 50%;
-    --link-text: 330 70% 60%;
+    --link: 330 70% 60%;
   }
 
   .theme-blue {
@@ -208,11 +204,10 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 220 25% 83%;
     --post-header: 220 25% 88%;
-    --quote-text: 150 100% 25%;
-    --link-text: 220 60% 35%;
+    --link: 220 60% 35%;
   }
 
-  .theme-blue.dark {
+  .theme-blue-dark {
     --background: 220 25% 8%;
     --foreground: 220 10% 85%;
     --card: 220 25% 10%;
@@ -230,8 +225,7 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 220 20% 16%;
     --post-header: 220 20% 12%;
-    --quote-text: 120 100% 50%;
-    --link-text: 220 60% 50%;
+    --link: 220 60% 50%;
   }
 
   .theme-blood {
@@ -252,11 +246,10 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 0 25% 88%;
     --post-header: 0 25% 92%;
-    --quote-text: 120 100% 25%;
-    --link-text: 0 80% 45%;
+    --link: 0 80% 45%;
   }
 
-  .theme-blood.dark {
+  .theme-blood-dark {
     --background: 0 25% 8%;
     --foreground: 0 10% 90%;
     --card: 0 25% 10%;
@@ -274,8 +267,7 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 0 20% 16%;
     --post-header: 0 20% 12%;
-    --quote-text: 120 100% 50%;
-    --link-text: 0 80% 55%;
+    --link: 0 80% 55%;
   }
 
   .theme-pumpkin {
@@ -296,11 +288,10 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 30 30% 88%;
     --post-header: 30 30% 92%;
-    --quote-text: 120 100% 25%;
-    --link-text: 30 85% 45%;
+    --link: 30 85% 45%;
   }
 
-  .theme-pumpkin.dark {
+  .theme-pumpkin-dark {
     --background: 30 25% 8%;
     --foreground: 30 10% 90%;
     --card: 30 25% 10%;
@@ -318,8 +309,7 @@ All colors MUST be HSL.
     --board-header-foreground: 0 0% 100%;
     --thread-hover: 30 20% 16%;
     --post-header: 30 20% 12%;
-    --quote-text: 120 100% 50%;
-    --link-text: 30 85% 55%;
+    --link: 30 85% 55%;
   }
 }
 

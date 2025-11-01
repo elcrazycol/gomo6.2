@@ -11,28 +11,34 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useState } from "react";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
+  const [open, setOpen] = useState(false);
   
-  const currentColorTheme = theme?.startsWith('theme-') 
-    ? theme 
-    : localStorage.getItem('colorTheme') || 'theme-cannabis';
-  
-  const isDark = theme?.includes('dark') || false;
+  // Определяем текущую цветовую тему и режим
+  const isDark = theme?.includes('-dark') || theme === 'dark';
+  const colorTheme = theme?.replace('-dark', '') || 'theme-cannabis';
 
-  const handleColorChange = (colorTheme: string) => {
-    localStorage.setItem('colorTheme', colorTheme);
-    setTheme(isDark ? `${colorTheme} dark` : colorTheme);
+  const handleColorChange = (newColorTheme: string) => {
+    if (isDark) {
+      setTheme(`${newColorTheme}-dark`);
+    } else {
+      setTheme(newColorTheme);
+    }
   };
 
   const handleModeToggle = (checked: boolean) => {
-    const baseTheme = currentColorTheme.replace(' dark', '');
-    setTheme(checked ? `${baseTheme} dark` : baseTheme);
+    if (checked) {
+      setTheme(`${colorTheme}-dark`);
+    } else {
+      setTheme(colorTheme);
+    }
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="icon">
           <Settings className="h-[1.2rem] w-[1.2rem]" />
@@ -46,7 +52,7 @@ export function ThemeToggle() {
         <div className="space-y-6 py-4">
           <div className="space-y-4">
             <Label className="text-base font-semibold">Цветовая схема</Label>
-            <RadioGroup value={currentColorTheme.replace(' dark', '')} onValueChange={handleColorChange}>
+            <RadioGroup value={colorTheme} onValueChange={handleColorChange}>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="theme-cannabis" id="cannabis" />
                 <Label htmlFor="cannabis" className="cursor-pointer">
