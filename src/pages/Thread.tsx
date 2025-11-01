@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,10 @@ import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
-import { AlertTriangle, Reply, Bell, BellOff } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, ChevronDown } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
+import { PrivacyPolicy } from "@/components/PrivacyPolicy";
 import {
   Dialog,
   DialogContent,
@@ -72,6 +73,11 @@ const Thread = () => {
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [showInputBox, setShowInputBox] = useState(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const lastScrollTop = useRef(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -104,6 +110,44 @@ const Thread = () => {
     loadPosts();
     checkSubscription();
   }, [threadId, user]);
+
+  useEffect(() => {
+    const mainElement = mainRef.current;
+    if (!mainElement) return;
+
+    const handleScroll = () => {
+      const scrollTop = mainElement.scrollTop;
+      const scrollHeight = mainElement.scrollHeight;
+      const clientHeight = mainElement.clientHeight;
+      
+      // Определяем направление скролла
+      const isScrollingDown = scrollTop > lastScrollTop.current;
+      lastScrollTop.current = scrollTop;
+
+      // Показываем/скрываем поле ввода
+      if (isScrollingDown) {
+        setShowInputBox(true);
+      } else {
+        setShowInputBox(false);
+      }
+
+      // Показываем кнопку "вниз" если не внизу страницы
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setShowScrollButton(!isAtBottom);
+    };
+
+    mainElement.addEventListener('scroll', handleScroll);
+    return () => mainElement.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToBottom = () => {
+    if (mainRef.current) {
+      mainRef.current.scrollTo({
+        top: mainRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   const checkSubscription = async () => {
     if (!user || !threadId) return;
@@ -390,8 +434,8 @@ const Thread = () => {
   const canPost = user && (!thread.boards.is_rules_board || isAdmin);
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
+    <div className="flex flex-col h-screen bg-background">
+      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border flex-shrink-0">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div className="text-sm sm:text-base">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
@@ -427,7 +471,8 @@ const Thread = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-2 sm:p-4">
+      <main ref={mainRef} className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto p-2 sm:p-4 pb-24">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -695,7 +740,12 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <form onSubmit={handleSubmitPost} className="bg-post-header p-3 sm:p-4 border border-border sticky bottom-2 sm:bottom-4">
+          <form 
+            onSubmit={handleSubmitPost} 
+            className={`bg-post-header p-3 sm:p-4 border border-border transition-all duration-300 ease-in-out ${
+              showInputBox ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
+            }`}
+          >
             <h3 className="font-bold mb-2 text-sm sm:text-base">
               {replyingTo ? `Ответ на #${replyingTo.slice(0, 8)}` : "Ответить"}
             </h3>
@@ -737,7 +787,32 @@ const Thread = () => {
             <Button onClick={() => navigate("/auth")}>Войти</Button>
           </div>
         )}
+
+        {/* Footer */}
+        <footer className="bg-post-header border-t border-border p-4 text-center text-sm text-muted-foreground mt-8">
+          <p>© 2025 gomo6 · Имиджборд</p>
+          <button 
+            onClick={() => setShowPrivacy(true)}
+            className="text-link hover:underline mt-2"
+          >
+            Политика конфиденциальности
+          </button>
+        </footer>
+        </div>
       </main>
+
+      {/* Scroll to bottom button */}
+      <Button
+        onClick={scrollToBottom}
+        className={`fixed bottom-20 right-4 sm:right-8 rounded-full w-12 h-12 shadow-lg transition-all duration-300 ${
+          showScrollButton ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'
+        }`}
+        size="icon"
+      >
+        <ChevronDown className="h-6 w-6" />
+      </Button>
+
+      <PrivacyPolicy open={showPrivacy} onClose={() => setShowPrivacy(false)} />
     </div>
   );
 };

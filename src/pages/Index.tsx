@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { TermsOfService } from "@/components/TermsOfService";
+import { PrivacyPolicy } from "@/components/PrivacyPolicy";
 import { useSessionTime } from "@/hooks/useSessionTime";
 
 interface Board {
@@ -46,6 +47,7 @@ const Index = () => {
   const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const navigate = useNavigate();
   
   useSessionTime(user?.id);
@@ -323,6 +325,12 @@ const Index = () => {
 
         <div className="bg-post-header border border-border p-4 text-center text-sm text-muted-foreground">
           <p>© 2025 gomo6 · Имиджборд</p>
+          <button 
+            onClick={() => setShowPrivacy(true)}
+            className="text-link hover:underline mt-2"
+          >
+            Политика конфиденциальности
+          </button>
         </div>
       </main>
       
@@ -332,6 +340,7 @@ const Index = () => {
         onDecline={handleDeclineTerms}
         canDecline={true}
       />
+      <PrivacyPolicy open={showPrivacy} onClose={() => setShowPrivacy(false)} />
     </div>
   );
 };
