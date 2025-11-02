@@ -104,6 +104,20 @@ serve(async (req) => {
       throw postError;
     }
 
+    // Award "Раб Нейросети" achievement to the user who triggered the AI
+    const { data: triggerPost } = await supabaseAdmin
+      .from('posts')
+      .select('user_id')
+      .eq('id', replyToId)
+      .single();
+
+    if (triggerPost?.user_id) {
+      await supabaseAdmin.rpc('award_achievement', {
+        _user_id: triggerPost.user_id,
+        _achievement_id: 'ai_user'
+      });
+    }
+
     return new Response(
       JSON.stringify({ success: true, post }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

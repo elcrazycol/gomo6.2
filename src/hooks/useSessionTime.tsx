@@ -36,14 +36,21 @@ export function useSessionTime(userId: string | null) {
       const currentTime = Date.now();
       const minutesPassed = Math.floor((currentTime - startTime) / 60000);
       
-      console.log(`[Session] Minutes passed: ${minutesPassed}, accumulated: ${accumulatedMinutes.current}`);
+      console.log(`[Session] Update tick. Minutes passed since last: ${minutesPassed}, accumulated: ${accumulatedMinutes.current}`);
       
-      if (minutesPassed < 1) return;
+      // Always accumulate time, even if less than a minute
+      if (minutesPassed > 0) {
+        accumulatedMinutes.current += minutesPassed;
+        startTime = currentTime;
+      }
 
-      accumulatedMinutes.current += minutesPassed;
-      startTime = currentTime;
+      // Only update DB if we have at least 1 minute accumulated
+      if (accumulatedMinutes.current < 1) {
+        console.log('[Session] Less than 1 minute accumulated, skipping DB update');
+        return;
+      }
 
-      console.log(`[Session] Updating session time. Total accumulated: ${accumulatedMinutes.current} minutes`);
+      console.log(`[Session] Updating DB. Total accumulated: ${accumulatedMinutes.current} minutes`);
 
       // Get current session time
       const { data: sessionData, error: fetchError } = await supabase
