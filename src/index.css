@@ -311,6 +311,10 @@ All colors MUST be HSL.
     --post-header: 30 20% 12%;
     --link: 30 85% 55%;
   }
+  
+  #lovable-badge {
+    display: none !important;
+  }
 }
 
 @layer base {
