@@ -38,40 +38,10 @@ const Profile = () => {
   const [bio, setBio] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [newPassword, setNewPassword] = useState("");
-  // Внутри Profile компонента добавляем новые стейты
-  const [recoveryEmail, setRecoveryEmail] = useState("");
-  const [emailLinked, setEmailLinked] = useState(false);
+  // добавляем состояния для email
+  const [emailInput, setEmailInput] = useState("");
+  const [isAddingEmail, setIsAddingEmail] = useState(false);
 
-  // После загрузки профиля подтягиваем recovery_email
-  useEffect(() => {
-    if (profile?.recovery_email) {
-      setRecoveryEmail(profile.recovery_email);
-      setEmailLinked(true);
-    }
-  }, [profile]);
-
-  // Функция сохранения recovery email и отправки тестового письма
-  const handleLinkEmail = async () => {
-    if (!recoveryEmail) return toast.error("Введите email");
-
-    // Обновляем в таблице profiles
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ recovery_email: recoveryEmail })
-      .eq("id", userId);
-
-    if (updateError) return toast.error("Не удалось сохранить email");
-
-    // Отправка тестового письма через Supabase
-    const { error: mailError } = await supabase.auth.resetPasswordForEmail(recoveryEmail, {
-      redirectTo: `${window.location.origin}/reset-password`
-    });
-
-    if (mailError) return toast.error(mailError.message);
-
-    toast.success("Письмо для привязки отправлено на ваш email");
-    setEmailLinked(true);
-  };
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -220,25 +190,67 @@ const Profile = () => {
                   rows={4}
                 />
               </div>
-              <div className="space-y-2">
-                {emailLinked ? (
-                  <p className="text-sm text-green-600">
-                    Email для восстановления: {recoveryEmail}
-                  </p>
-                ) : (
-                  <>
-                    <Label htmlFor="recoveryEmail">Привязать email для восстановления</Label>
-                    <Input
-                      id="recoveryEmail"
-                      value={recoveryEmail}
-                      onChange={(e) => setRecoveryEmail(e.target.value)}
-                      placeholder="example@mail.com"
-                      className="max-w-xs"
-                    />
-                    <Button size="sm" onClick={handleLinkEmail}>Привязать email</Button>
-                  </>
-                )}
-              </div>
+              // внутри JSX, рядом с блоком редактирования пароля:
+              {isOwnProfile && (
+                <div className="space-y-2 mt-4">
+                  {profile.email ? (
+                    <p>Привязанный email: {profile.email}</p>
+                  ) : (
+                    <>
+                      {isAddingEmail ? (
+                        <div className="flex gap-2">
+                          <Input
+                            value={emailInput}
+                            onChange={(e) => setEmailInput(e.target.value)}
+                            placeholder="Введите email для привязки"
+                            className="max-w-xs"
+                          />
+                          <Button
+                            onClick={async () => {
+                              if (!emailInput) return toast.error("Введите email");
+                              // обновляем auth.user.email, Supabase отправляет confirmation
+                              const { error } = await supabase.auth.updateUser({
+                                email: emailInput,
+                              });
+                              if (error) {
+                                toast.error("Ошибка отправки письма: " + error.message);
+                              } else {
+                                toast.success(
+                                  "Письмо для подтверждения отправлено! После подтверждения email будет привязан."
+                                );
+                                setIsAddingEmail(false);
+                                setEmailInput("");
+                              }
+                            }}
+                          >
+                            Отправить
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button onClick={() => setIsAddingEmail(true)}>
+                          Привязать email
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              // в useEffect добавляем таймер на проверку подтверждения
+              useEffect(() => {
+                const interval = setInterval(async () => {
+                  if (!profile) return;
+                  const { data: user } = await supabase.auth.getUser();
+                  if (user?.user?.email && user.user.email !== profile.email) {
+                    // обновляем таблицу profiles
+                    await supabase
+                      .from("profiles")
+                      .update({ email: user.user.email })
+                      .eq("id", userId);
+                    loadProfile();
+                  }
+                }, 5000); // каждые 5 секунд проверяем
+                return () => clearInterval(interval);
+              }, [profile, userId]);
               <div>
                 <Label htmlFor="password">Новый пароль</Label>
                 <Input
