@@ -30,7 +30,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-2024-05-13:free',
+        model: 'gpt-5-mini-2025-08-07:free',
         messages: [
           { role: 'user', content: promptContent }
         ],
