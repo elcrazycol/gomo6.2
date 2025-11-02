@@ -30,7 +30,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'deepseek-chat-v3.1:free',
+        model: 'gpt-4o-2024-05-13:free',
         messages: [
           { role: 'user', content: promptContent }
         ],
