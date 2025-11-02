@@ -240,6 +240,44 @@ const Thread = () => {
         })
       );
       setPosts(postsWithProfiles);
+      
+      // Check for @AI mentions in new posts
+      if (postsData.length > 0) {
+        const latestPost = postsData[postsData.length - 1];
+        if (latestPost.content.includes('@AI') && latestPost.reply_to) {
+          await handleAIReply(latestPost);
+        }
+      }
+    }
+  };
+
+  const handleAIReply = async (triggerPost: any) => {
+    try {
+      // Get the post that was replied to (this is the prompt)
+      const { data: promptPost } = await supabase
+        .from("posts")
+        .select("content")
+        .eq("id", triggerPost.reply_to)
+        .single();
+
+      if (!promptPost) return;
+
+      console.log('[AI] Triggering AI reply to:', promptPost.content);
+
+      // Call AI edge function
+      const { error } = await supabase.functions.invoke('ai-reply', {
+        body: {
+          threadId: threadId,
+          replyToId: triggerPost.reply_to,
+          promptContent: promptPost.content
+        }
+      });
+
+      if (error) {
+        console.error('[AI] Error calling AI function:', error);
+      }
+    } catch (error) {
+      console.error('[AI] Error in handleAIReply:', error);
     }
   };
 
