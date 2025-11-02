@@ -37,6 +37,7 @@ const Profile = () => {
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -97,7 +98,8 @@ const Profile = () => {
   const handleSave = async () => {
     if (!currentUser || currentUser.id !== userId) return;
 
-    const { error } = await supabase
+    // Сохраняем профиль
+    const { error: profileError } = await supabase
       .from("profiles")
       .update({
         username,
@@ -106,13 +108,29 @@ const Profile = () => {
       })
       .eq("id", userId);
 
-    if (error) {
-      toast.error("Ошибка сохранения");
-    } else {
-      toast.success("Профиль обновлен");
-      setIsEditing(false);
-      loadProfile();
+    if (profileError) {
+      toast.error("Ошибка сохранения профиля");
+      return;
     }
+
+    // Смена пароля, если поле заполнено
+    if (newPassword) {
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (passwordError) {
+        toast.error("Ошибка смены пароля");
+        return;
+      } else {
+        toast.success("Пароль успешно изменён");
+        setNewPassword("");
+      }
+    }
+
+    toast.success("Профиль обновлен");
+    setIsEditing(false);
+    loadProfile();
   };
 
   if (!profile) return <div className="p-4">Загрузка...</div>;
@@ -168,7 +186,17 @@ const Profile = () => {
                   rows={4}
                 />
               </div>
-
+              <div>
+                <Label htmlFor="password">Новый пароль</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Введите новый пароль"
+                  className="max-w-xs"
+                />
+              </div>
               <div className="flex items-center space-x-2">
                 <Switch
                   id="anonymous"
