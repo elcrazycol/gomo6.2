@@ -263,6 +263,11 @@ const Thread = () => {
       if (!promptPost) return;
 
       console.log('[AI] Triggering AI reply to:', promptPost.content);
+      
+      // Show notification that AI is processing
+      toast.info("🤖 AI генерирует ответ...", {
+        duration: 3000,
+      });
 
       // Call AI edge function
       const { error } = await supabase.functions.invoke('ai-reply', {
@@ -275,9 +280,13 @@ const Thread = () => {
 
       if (error) {
         console.error('[AI] Error calling AI function:', error);
+        toast.error("❌ Ошибка AI");
+      } else {
+        toast.success("✅ AI ответил");
       }
     } catch (error) {
       console.error('[AI] Error in handleAIReply:', error);
+      toast.error("❌ Ошибка AI");
     }
   };
 
