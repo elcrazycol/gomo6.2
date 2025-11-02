@@ -37,7 +37,6 @@ const Profile = () => {
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
-  const [password, setPassword] = useState("");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -116,22 +115,6 @@ const Profile = () => {
     }
   };
 
-  const handleChangePassword = async () => {
-    if (!password) {
-      toast.error("Введите новый пароль");
-      return;
-    }
-
-    const { error } = await supabase.auth.updateUser({ password });
-
-    if (error) {
-      toast.error("Ошибка при смене пароля");
-    } else {
-      toast.success("Пароль успешно изменён");
-      setPassword("");
-    }
-  };
-
   if (!profile) return <div className="p-4">Загрузка...</div>;
 
   const isOwnProfile = currentUser?.id === userId;
@@ -195,25 +178,6 @@ const Profile = () => {
                 <Label htmlFor="anonymous">
                   Режим анонимности (писать как "Аноним")
                 </Label>
-              </div>
-
-              {/* --- Смена пароля --- */}
-              <div className="pt-4 border-t border-border">
-                <Label htmlFor="password">Новый пароль</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Введите новый пароль"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <Button
-                  variant="secondary"
-                  className="mt-2"
-                  onClick={handleChangePassword}
-                >
-                  Сменить пароль
-                </Button>
               </div>
 
               <Button onClick={handleSave}>Сохранить</Button>
