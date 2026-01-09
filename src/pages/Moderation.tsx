@@ -264,12 +264,6 @@ const Moderation = () => {
               <Link to={`/profile/${user?.id}`}>
                 <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
               </Link>
-              <Button variant="secondary" size="sm" onClick={async () => {
-                await supabase.auth.signOut();
-                toast.success("Вышли");
-              }} className="text-xs sm:text-sm">
-                Выйти
-              </Button>
             </div>
             {user && (
               <MobileMenu

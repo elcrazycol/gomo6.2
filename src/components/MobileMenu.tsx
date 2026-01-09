@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, X } from "lucide-react";
+import { Menu, X, User } from "lucide-react";
 import { toast } from "sonner";
 import { UserBadge } from "@/components/UserBadge";
 
@@ -63,28 +63,35 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
           <SheetHeader>
             <SheetTitle className="text-left">Меню</SheetTitle>
           </SheetHeader>
-          
-          <div className="mt-6 space-y-4">
-            {/* User info */}
-            <div className="pb-4 border-b border-border">
-              {username && (
-                <UserBadge
-                  userId={user.id}
-                  username={username}
-                  isAnonymous={isAnonymous}
-                />
-              )}
-            </div>
 
-            {/* Profile link */}
+          <div className="mt-6 space-y-4">
+            {/* User profile panel */}
             <Link
               to={`/profile/${user.id}`}
               onClick={() => setOpen(false)}
               className="block"
             >
-              <Button variant="ghost" className="w-full justify-start">
-                Профиль
-              </Button>
+              <div className="p-4 bg-card border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
+                <div className="flex items-start gap-3">
+                  {/* Avatar */}
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                    <User className="w-6 h-6 text-muted-foreground" />
+                  </div>
+
+                  {/* User info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold truncate">
+                      {username || "Пользователь"}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      ID: {user.id.slice(0, 8)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                      {isAnonymous ? "Анонимный режим" : "Нажмите для просмотра профиля"}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </Link>
 
             {/* Moderation link */}
@@ -99,15 +106,6 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
                 </Button>
               </Link>
             )}
-
-            {/* Logout */}
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={handleLogout}
-            >
-              Выйти
-            </Button>
           </div>
         </SheetContent>
       </Sheet>

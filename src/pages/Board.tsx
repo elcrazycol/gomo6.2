@@ -12,6 +12,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
+import { Footer } from "@/components/Footer";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -338,9 +339,6 @@ const Board = () => {
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
                     </Link>
                   )}
-                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                    Выйти
-                  </Button>
                 </div>
                 <MobileMenu
                   user={user}
@@ -464,6 +462,8 @@ const Board = () => {
           </div>
         )}
       </main>
+
+      <Footer />
     </div>
   );
 };

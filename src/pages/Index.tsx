@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
+import { Footer } from "@/components/Footer";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
@@ -209,9 +210,6 @@ const Index = () => {
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
                     </Link>
                   )}
-                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                    Выйти
-                  </Button>
                 </div>
                 <MobileMenu
                   user={user}
@@ -229,13 +227,14 @@ const Index = () => {
 
       <main className="max-w-4xl mx-auto p-3 sm:p-6">
         <div className="text-center mb-6 sm:mb-8">
-          <h2 className="text-2xl sm:text-4xl font-bold mb-2">Добро пожаловать на gomo6</h2>
         </div>
 
         <div className="mb-4 text-center">
           <Dialog>
             <DialogTrigger asChild>
-              <Button variant="outline">Что такое gomo6?</Button>
+              <Link to="/rules">
+                <Button variant="outline">Информация</Button>
+              </Link>
             </DialogTrigger>
             <DialogContent className="bg-background border-border">
               <DialogHeader>
@@ -351,7 +350,9 @@ const Index = () => {
           <p>© 2025 gomo6 · Имиджборд</p>
         </div>
       </main>
-      
+
+      <Footer />
+
       <TermsOfService 
         open={showTerms} 
         onAccept={handleAcceptTerms}

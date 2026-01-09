@@ -18,6 +18,45 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
     setPreviews(currentImages);
   }, [currentImages]);
 
+  // Compress image function
+  const compressImage = (file: File, maxWidth: number = 1200, quality: number = 0.8): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+
+      img.onload = () => {
+        // Calculate new dimensions
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        // Draw and compress
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          } else {
+            reject(new Error('Failed to compress image'));
+          }
+        }, 'image/jpeg', quality);
+      };
+
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -27,7 +66,7 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
       return;
     }
 
-    // Validate file types and sizes
+    // Validate file types
     const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
     for (const file of files) {
       if (!validTypes.includes(file.type)) {
@@ -49,7 +88,19 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
         return;
       }
 
-      const uploadPromises = files.map(async (file) => {
+      // Compress images before upload
+      const compressionPromises = files.map(async (file) => {
+        try {
+          return await compressImage(file);
+        } catch (error) {
+          console.warn('Compression failed, using original file:', error);
+          return file;
+        }
+      });
+
+      const compressedFiles = await Promise.all(compressionPromises);
+
+      const uploadPromises = compressedFiles.map(async (file) => {
         const fileExt = file.name.split('.').pop() || 'jpg';
         const timestamp = Date.now();
         const randomStr = Math.random().toString(36).substring(2, 9);

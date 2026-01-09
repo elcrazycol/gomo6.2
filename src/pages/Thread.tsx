@@ -592,9 +592,6 @@ const Thread = () => {
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
                     </Link>
                   )}
-                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                    Выйти
-                  </Button>
                 </div>
                 <MobileMenu
                   user={user}
@@ -906,6 +903,19 @@ const Thread = () => {
                 <TextFormattingToolbar onFormat={handleFormatText} />
                 
                 <div className="flex gap-2 items-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 rounded-xl shrink-0"
+                    onClick={() => {
+                      // Trigger image upload
+                      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+                      input?.click();
+                    }}
+                  >
+                    <ImageIcon className="h-5 w-5" />
+                  </Button>
                   <div className="flex-1">
                     <Textarea
                       ref={textareaRef}
@@ -918,16 +928,16 @@ const Thread = () => {
                       className="bg-background/50 border-border/30"
                     />
                   </div>
-                  <Button 
-                    type="submit" 
-                    disabled={loading || (!content.trim() && imageUrls.length === 0)} 
+                  <Button
+                    type="submit"
+                    disabled={loading || (!content.trim() && imageUrls.length === 0)}
                     size="icon"
                     className="h-10 w-10 rounded-xl shrink-0"
                   >
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
-                
+
                 <div className="mt-2">
                   <ImageUpload
                     onImagesUploaded={setImageUrls}
