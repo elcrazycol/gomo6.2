@@ -12,7 +12,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { AlertTriangle, Reply, Bell, BellOff, Send, ImageIcon } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -568,20 +568,17 @@ const Thread = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <div className="text-sm sm:text-base">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+          <div className="text-sm sm:text-base flex-1 min-w-0">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
               gomo6
             </Link>
-            <span className="mx-1 sm:mx-2">/</span>
-            <Link to={`/${slug}`} className="hover:underline">
+            <span className="mx-1 sm:mx-2 hidden sm:inline">/</span>
+            <Link to={`/${slug}`} className="hover:underline hidden sm:inline">
               /{slug}/ - {thread.boards.name}
             </Link>
           </div>
-          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
-            <Link to="/" className="text-lg sm:text-xl font-bold hover:underline sm:hidden">
-              gomo6
-            </Link>
+          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             {user ? (
@@ -909,19 +906,6 @@ const Thread = () => {
                 <TextFormattingToolbar onFormat={handleFormatText} />
                 
                 <div className="flex gap-2 items-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="shrink-0 h-10 w-10 rounded-xl"
-                    onClick={() => {
-                      if (imageUrls.length > 0) {
-                        setImageUrls([]);
-                      }
-                    }}
-                  >
-                    <ImageIcon className="h-5 w-5" />
-                  </Button>
                   <div className="flex-1">
                     <Textarea
                       ref={textareaRef}
@@ -944,14 +928,12 @@ const Thread = () => {
                   </Button>
                 </div>
                 
-                {imageUrls.length > 0 && (
-                  <div className="mt-1">
-                    <ImageUpload
-                      onImagesUploaded={setImageUrls}
-                      currentImages={imageUrls}
-                    />
-                  </div>
-                )}
+                <div className="mt-2">
+                  <ImageUpload
+                    onImagesUploaded={setImageUrls}
+                    currentImages={imageUrls}
+                  />
+                </div>
               </form>
             </div>
           </div>

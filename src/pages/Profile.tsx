@@ -182,11 +182,11 @@ const Profile = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <Link to="/" className="text-xl font-bold hover:underline">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+          <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
             gomo6
           </Link>
-          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <ThemeToggle />
             {currentUser && <NotificationBell userId={currentUser.id} />}
             {currentUser && <ChatIcon userId={currentUser.id} />}
