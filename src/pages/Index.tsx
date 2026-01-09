@@ -229,7 +229,7 @@ const Index = () => {
         <div className="text-center mb-6 sm:mb-8">
         </div>
 
-        <div className="mb-4 text-center">
+        <div className="mb-2 text-center">
           <Dialog>
             <DialogTrigger asChild>
               <Link to="/rules">
@@ -346,9 +346,6 @@ const Index = () => {
           </div>
         </div>
 
-        <div className="bg-post-header border border-border p-4 text-center text-sm text-muted-foreground">
-          <p>© 2025 gomo6 · Имиджборд</p>
-        </div>
       </main>
 
       <Footer />
