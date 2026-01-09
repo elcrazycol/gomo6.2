@@ -9,6 +9,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -368,12 +369,18 @@ const Messages = () => {
             <ThemeToggle />
             <NotificationBell userId={user.id} />
             <ChatIcon userId={user.id} />
-            <Link to={`/profile/${user.id}`}>
-              <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-            </Link>
-            <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-              Выйти
-            </Button>
+            <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+              <Link to={`/profile/${user.id}`}>
+                <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+              </Link>
+              <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
+                Выйти
+              </Button>
+            </div>
+            <MobileMenu
+              user={user}
+              isModerator={false}
+            />
           </div>
         </div>
       </header>

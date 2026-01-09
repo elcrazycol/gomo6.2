@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
@@ -191,24 +192,32 @@ const Profile = () => {
             {currentUser && <ChatIcon userId={currentUser.id} />}
             {currentUser ? (
               <>
-                {isOwnProfile && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setIsEditing(!isEditing)}
-                    className="text-xs sm:text-sm"
-                  >
-                    {isEditing ? "Отмена" : "Редактировать"}
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                  {isOwnProfile && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsEditing(!isEditing)}
+                      className="text-xs sm:text-sm"
+                    >
+                      {isEditing ? "Отмена" : "Редактировать"}
+                    </Button>
+                  )}
+                  {isModerator && (
+                    <Link to="/moderation">
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                    </Link>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
+                    Выйти
                   </Button>
-                )}
-                {isModerator && (
-                  <Link to="/moderation">
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
-                  </Link>
-                )}
-                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                  Выйти
-                </Button>
+                </div>
+                <MobileMenu
+                  user={currentUser}
+                  isModerator={isModerator}
+                  username={profile?.username}
+                  isAnonymous={profile?.is_anonymous}
+                />
               </>
             ) : (
               <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">

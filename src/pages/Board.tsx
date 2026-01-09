@@ -11,6 +11,7 @@ import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -54,7 +55,7 @@ const Board = () => {
   const [showNewThread, setShowNewThread] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
@@ -214,12 +215,17 @@ const Board = () => {
 
     setLoading(true);
 
+    // Convert array to JSON for storage, or use first image for backward compatibility
+    const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
+    const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
+
     const { error } = await supabase.from("threads").insert({
       board_id: board!.id,
       user_id: user.id,
       title: title.trim(),
       content: content.trim(),
-      image_url: imageUrl,
+      image_url: imageUrlForDb, // Keep for backward compatibility
+      image_urls: imageUrlsJson, // New field for multiple images
     });
 
     setLoading(false);
@@ -232,7 +238,7 @@ const Board = () => {
     toast.success("Тред создан");
     setTitle("");
     setContent("");
-    setImageUrl(null);
+    setImageUrls([]);
     setShowNewThread(false);
     loadThreads(board!.id);
   };
@@ -323,17 +329,23 @@ const Board = () => {
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
-                <Link to={`/profile/${user.id}`}>
-                  <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-                </Link>
-                {isModerator && (
-                  <Link to="/moderation">
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                  <Link to={`/profile/${user.id}`}>
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
                   </Link>
-                )}
-                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                  Выйти
-                </Button>
+                  {isModerator && (
+                    <Link to="/moderation">
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                    </Link>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
+                    Выйти
+                  </Button>
+                </div>
+                <MobileMenu
+                  user={user}
+                  isModerator={isModerator}
+                />
               </>
             ) : (
               <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
@@ -376,11 +388,8 @@ const Board = () => {
               disabled={loading}
             />
             <ImageUpload
-              onImageUploaded={setImageUrl}
-              currentImage={imageUrl}
-              onRemove={() => {
-                setImageUrl(null);
-              }}
+              onImagesUploaded={setImageUrls}
+              currentImages={imageUrls}
             />
             <div className="flex gap-2 mt-3">
               <Button type="submit" disabled={loading}>

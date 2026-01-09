@@ -159,6 +159,7 @@ export type Database = {
           created_at: string
           id: string
           image_url: string | null
+          image_urls: Json | null
           reply_to: string | null
           thread_id: string
           user_id: string | null
@@ -168,6 +169,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          image_urls?: Json | null
           reply_to?: string | null
           thread_id: string
           user_id?: string | null
@@ -177,6 +179,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          image_urls?: Json | null
           reply_to?: string | null
           thread_id?: string
           user_id?: string | null
@@ -341,6 +344,7 @@ export type Database = {
           created_at: string
           id: string
           image_url: string | null
+          image_urls: Json | null
           post_count: number
           title: string
           updated_at: string
@@ -352,6 +356,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          image_urls?: Json | null
           post_count?: number
           title: string
           updated_at?: string
@@ -363,6 +368,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          image_urls?: Json | null
           post_count?: number
           title?: string
           updated_at?: string
