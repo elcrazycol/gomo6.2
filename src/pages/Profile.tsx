@@ -7,6 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Profile {
   id: string;
@@ -38,13 +41,31 @@ const Profile = () => {
   const [bio, setBio] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [isModerator, setIsModerator] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUser(user);
+      
+      if (user) {
+        const { data: roles } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id);
+        
+        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+      }
     };
     checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setCurrentUser(session?.user ?? null);
+      }
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -133,6 +154,11 @@ const Profile = () => {
     loadProfile();
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    toast.success("Вышли");
+  };
+
   if (!profile) return <div className="p-4">Загрузка...</div>;
 
   const isOwnProfile = currentUser?.id === userId;
@@ -140,18 +166,48 @@ const Profile = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <Link to="/" className="text-xl font-bold hover:underline">
             gomo6
           </Link>
-          <div className="flex gap-2">
-            {isOwnProfile && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsEditing(!isEditing)}
-              >
-                {isEditing ? "Отмена" : "Редактировать"}
+          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+            <ThemeToggle />
+            {currentUser && <NotificationBell userId={currentUser.id} />}
+            {currentUser && <ChatIcon userId={currentUser.id} />}
+            {currentUser ? (
+              <>
+                {isOwnProfile && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="text-xs sm:text-sm"
+                  >
+                    {isEditing ? "Отмена" : "Редактировать"}
+                  </Button>
+                )}
+                {!isOwnProfile && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => navigate(`/messages?user=${userId}`)}
+                    className="text-xs sm:text-sm"
+                  >
+                    Написать
+                  </Button>
+                )}
+                {isModerator && (
+                  <Link to="/moderation">
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                  </Link>
+                )}
+                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
+                  Выйти
+                </Button>
+              </>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
+                Войти
               </Button>
             )}
           </div>

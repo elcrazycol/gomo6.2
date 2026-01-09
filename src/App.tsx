@@ -9,6 +9,7 @@ import Board from "./pages/Board";
 import Thread from "./pages/Thread";
 import Profile from "./pages/Profile";
 import Moderation from "./pages/Moderation";
+import Messages from "./pages/Messages";
 import NotFound from "./pages/NotFound";
 import { useEffect } from "react";
 
@@ -36,6 +37,7 @@ const App = () => {
             <Route path="/auth" element={<Auth />} />
             <Route path="/profile/:userId" element={<Profile />} />
             <Route path="/moderation" element={<Moderation />} />
+            <Route path="/messages" element={<Messages />} />
             <Route path="/:slug" element={<Board />} />
             <Route path="/:slug/thread/:threadId" element={<Thread />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

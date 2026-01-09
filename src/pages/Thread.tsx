@@ -9,6 +9,7 @@ import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
 import { AlertTriangle, Reply, Bell, BellOff, Send, ImageIcon } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
@@ -537,6 +538,7 @@ const Thread = () => {
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
             {user && <NotificationBell userId={user.id} />}
+            {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
                 <Link to={`/profile/${user.id}`}>
