@@ -13,6 +13,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { Footer } from "@/components/Footer";
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -331,9 +332,11 @@ const Board = () => {
             {user ? (
               <>
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
-                  <Link to={`/profile/${user.id}`}>
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-                  </Link>
+                  <ProfileHoverCard userId={user.id}>
+                    <Link to={`/profile/${user.id}`}>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                    </Link>
+                  </ProfileHoverCard>
                   {isModerator && (
                     <Link to="/moderation">
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
