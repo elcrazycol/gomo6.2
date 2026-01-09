@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
+import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface Board {
   id: string;
@@ -47,6 +48,7 @@ const Index = () => {
   const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   
   useSessionTime(user?.id);
@@ -141,9 +143,16 @@ const Index = () => {
       }
     };
 
-    loadBoards();
-    loadRandomThread();
-    loadPopularThreads();
+    const loadAll = async () => {
+      setLoading(true);
+      await Promise.all([
+        loadBoards(),
+        loadRandomThread(),
+        loadPopularThreads(),
+      ]);
+      setLoading(false);
+    };
+    loadAll();
   }, []);
 
   const handleLogout = async () => {
@@ -170,6 +179,14 @@ const Index = () => {
     navigate("/auth");
     toast.info("Вы покинули сайт");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

@@ -14,6 +14,7 @@ import { AlertTriangle, Reply, Bell, BellOff, Send, ImageIcon } from "lucide-rea
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
+import { PentagramLoader } from "@/components/PentagramLoader";
 import {
   Dialog,
   DialogContent,
@@ -91,6 +92,7 @@ const Thread = () => {
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -120,9 +122,16 @@ const Thread = () => {
   }, []);
 
   useEffect(() => {
-    loadThread();
-    loadPosts();
-    checkSubscription();
+    const loadAll = async () => {
+      setPageLoading(true);
+      await Promise.all([
+        loadThread(),
+        loadPosts(),
+        checkSubscription(),
+      ]);
+      setPageLoading(false);
+    };
+    loadAll();
   }, [threadId, user]);
 
   const checkSubscription = async () => {
@@ -519,7 +528,13 @@ const Thread = () => {
     toast.success("Вышли");
   };
 
-  if (!thread) return <div className="p-4">Загрузка...</div>;
+  if (pageLoading || !thread) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
 
   const canPost = user && (!thread.boards.is_rules_board || isAdmin);
 

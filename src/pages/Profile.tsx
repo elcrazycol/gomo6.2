@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface Profile {
   id: string;
@@ -42,6 +43,7 @@ const Profile = () => {
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [isModerator, setIsModerator] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -70,8 +72,15 @@ const Profile = () => {
 
   useEffect(() => {
     if (userId) {
-      loadProfile();
-      loadAchievements();
+      const loadAll = async () => {
+        setPageLoading(true);
+        await Promise.all([
+          loadProfile(),
+          loadAchievements(),
+        ]);
+        setPageLoading(false);
+      };
+      loadAll();
     }
   }, [userId]);
 
@@ -159,7 +168,13 @@ const Profile = () => {
     toast.success("Вышли");
   };
 
-  if (!profile) return <div className="p-4">Загрузка...</div>;
+  if (pageLoading || !profile) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
 
   const isOwnProfile = currentUser?.id === userId;
 
