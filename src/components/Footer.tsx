@@ -12,11 +12,6 @@ export const Footer = () => {
             <p className="text-sm text-muted-foreground">
               Анонимный форум для свободного общения
             </p>
-            <Link to="/rules">
-              <Button variant="outline" size="sm">
-                Правила
-              </Button>
-            </Link>
           </div>
 
           {/* Links */}
@@ -40,7 +35,7 @@ export const Footer = () => {
                 Если у вас возникли проблемы или вопросы, обратитесь к администрации.
               </p>
               <p className="text-xs text-muted-foreground">
-                © 2024 gomo6. Все права защищены.
+                © 2026 gomo6. Все права защищены.
               </p>
             </div>
           </div>

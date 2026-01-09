@@ -12,7 +12,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { AlertTriangle, Reply, Bell, BellOff, Send } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -914,7 +914,7 @@ const Thread = () => {
                       input?.click();
                     }}
                   >
-                    <ImageIcon className="h-5 w-5" />
+                    <ImagePlus className="h-5 w-5" />
                   </Button>
                   <div className="flex-1">
                     <Textarea
