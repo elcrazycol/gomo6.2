@@ -7,9 +7,11 @@ import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
+import { ImageGallery } from "@/components/ImageGallery";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
 import { AlertTriangle, Reply, Bell, BellOff, Send, ImageIcon } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
@@ -28,6 +30,7 @@ interface Thread {
   title: string;
   content: string;
   image_url: string | null;
+  image_urls?: string[] | null;
   created_at: string;
   user_id: string | null;
   profiles: {
@@ -45,6 +48,7 @@ interface Post {
   id: string;
   content: string;
   image_url: string | null;
+  image_urls?: string[] | null;
   created_at: string;
   user_id: string | null;
   reply_to: string | null;
@@ -80,7 +84,7 @@ const Thread = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [content, setContent] = useState("");
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
@@ -91,7 +95,9 @@ const Thread = () => {
   const [banUserId, setBanUserId] = useState<string | null>(null);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
-  const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [showGallery, setShowGallery] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -243,9 +249,24 @@ const Thread = () => {
             .eq("id", post.user_id!)
             .maybeSingle();
           
+          // Parse image_urls if it's a JSON string, or create array from image_url
+          let imageUrls: string[] = [];
+          if (post.image_urls && Array.isArray(post.image_urls)) {
+            imageUrls = post.image_urls;
+          } else if (post.image_urls && typeof post.image_urls === 'string') {
+            try {
+              imageUrls = JSON.parse(post.image_urls);
+            } catch {
+              imageUrls = [];
+            }
+          } else if (post.image_url) {
+            imageUrls = [post.image_url];
+          }
+          
           return {
             ...post,
             profiles: profile,
+            imageUrls,
           };
         })
       );
@@ -322,11 +343,16 @@ const Thread = () => {
 
     setLoading(true);
 
+    // Convert array to JSON for storage, or use first image for backward compatibility
+    const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
+    const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
+
     const { error } = await supabase.from("posts").insert({
       thread_id: threadId,
       user_id: user.id,
       content: content.trim(),
-      image_url: imageUrl,
+      image_url: imageUrlForDb, // Keep for backward compatibility
+      image_urls: imageUrlsJson, // New field for multiple images
       reply_to: replyingTo,
     });
 
@@ -338,8 +364,9 @@ const Thread = () => {
     }
 
     setContent("");
-    setImageUrl(null);
+    setImageUrls([]);
     setReplyingTo(null);
+    loadPosts();
   };
 
   const handleReport = async (postId: string | null, isThread: boolean) => {
@@ -552,21 +579,32 @@ const Thread = () => {
             </Link>
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+            <Link to="/" className="text-lg sm:text-xl font-bold hover:underline sm:hidden">
+              gomo6
+            </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
-                <Link to={`/profile/${user.id}`}>
-                  <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-                </Link>
-                {isModerator && (
-                  <Link to="/moderation">
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                  <Link to={`/profile/${user.id}`}>
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
                   </Link>
-                )}
-                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                  Выйти
-                </Button>
+                  {isModerator && (
+                    <Link to="/moderation">
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                    </Link>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
+                    Выйти
+                  </Button>
+                </div>
+                <MobileMenu
+                  user={user}
+                  isModerator={isModerator}
+                  username={user ? (thread?.profiles?.username || "Пользователь") : undefined}
+                  isAnonymous={thread?.profiles?.is_anonymous}
+                />
               </>
             ) : (
               <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
@@ -655,21 +693,22 @@ const Thread = () => {
                 addSuffix: true,
               })}
             </div>
-            {thread.image_url && (
-              <img
-                src={thread.image_url}
-                alt="Thread image"
-                className={`mb-2 border border-border cursor-pointer transition-all ${
-                  expandedImage === thread.image_url
-                    ? "max-w-full max-h-full"
-                    : "max-w-32 max-h-32"
-                }`}
-                onClick={() =>
-                  setExpandedImage(
-                    expandedImage === thread.image_url ? null : thread.image_url
-                  )
-                }
-              />
+            {((thread as any).imageUrls && (thread as any).imageUrls.length > 0) && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {(thread as any).imageUrls.map((img: string, idx: number) => (
+                  <img
+                    key={idx}
+                    src={img}
+                    alt={`Thread image ${idx + 1}`}
+                    className="max-w-32 max-h-32 border border-border cursor-pointer rounded"
+                    onClick={() => {
+                      setGalleryImages((thread as any).imageUrls);
+                      setGalleryIndex(idx);
+                      setShowGallery(true);
+                    }}
+                  />
+                ))}
+              </div>
             )}
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
               {renderContent(thread.content)}
@@ -757,21 +796,22 @@ const Thread = () => {
                   → Ответ на #{post.reply_to.slice(0, 8)}
                 </a>
               )}
-              {post.image_url && (
-                <img
-                  src={post.image_url}
-                  alt="Post image"
-                  className={`mb-2 border border-border cursor-pointer transition-all ${
-                    expandedImage === post.image_url
-                      ? "max-w-full max-h-full"
-                      : "max-w-32 max-h-32"
-                  }`}
-                  onClick={() =>
-                    setExpandedImage(
-                      expandedImage === post.image_url ? null : post.image_url
-                    )
-                  }
-                />
+              {(post as any).imageUrls && (post as any).imageUrls.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {(post as any).imageUrls.map((img: string, idx: number) => (
+                    <img
+                      key={idx}
+                      src={img}
+                      alt={`Post image ${idx + 1}`}
+                      className="max-w-32 max-h-32 border border-border cursor-pointer rounded"
+                      onClick={() => {
+                        setGalleryImages((post as any).imageUrls);
+                        setGalleryIndex(idx);
+                        setShowGallery(true);
+                      }}
+                    />
+                  ))}
+                </div>
               )}
               {editingPostId === post.id ? (
                 <div className="space-y-2">
@@ -874,7 +914,11 @@ const Thread = () => {
                     variant="ghost"
                     size="icon"
                     className="shrink-0 h-10 w-10 rounded-xl"
-                    onClick={() => setImageUrl(imageUrl ? null : "")}
+                    onClick={() => {
+                      if (imageUrls.length > 0) {
+                        setImageUrls([]);
+                      }
+                    }}
                   >
                     <ImageIcon className="h-5 w-5" />
                   </Button>
@@ -892,7 +936,7 @@ const Thread = () => {
                   </div>
                   <Button 
                     type="submit" 
-                    disabled={loading || !content.trim()} 
+                    disabled={loading || (!content.trim() && imageUrls.length === 0)} 
                     size="icon"
                     className="h-10 w-10 rounded-xl shrink-0"
                   >
@@ -900,12 +944,11 @@ const Thread = () => {
                   </Button>
                 </div>
                 
-                {imageUrl !== null && (
+                {imageUrls.length > 0 && (
                   <div className="mt-1">
                     <ImageUpload
-                      onImageUploaded={setImageUrl}
-                      currentImage={imageUrl}
-                      onRemove={() => setImageUrl(null)}
+                      onImagesUploaded={setImageUrls}
+                      currentImages={imageUrls}
                     />
                   </div>
                 )}
@@ -927,6 +970,15 @@ const Thread = () => {
           </div>
         )}
       </main>
+
+      {/* Image Gallery */}
+      {showGallery && (
+        <ImageGallery
+          images={galleryImages}
+          initialIndex={galleryIndex}
+          onClose={() => setShowGallery(false)}
+        />
+      )}
     </div>
   );
 };

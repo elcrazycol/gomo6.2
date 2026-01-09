@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
@@ -199,17 +200,23 @@ const Index = () => {
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
-                <Link to={`/profile/${user.id}`}>
-                  <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-                </Link>
-                {isModerator && (
-                  <Link to="/moderation">
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                  <Link to={`/profile/${user.id}`}>
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
                   </Link>
-                )}
-                <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                  Выйти
-                </Button>
+                  {isModerator && (
+                    <Link to="/moderation">
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                    </Link>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
+                    Выйти
+                  </Button>
+                </div>
+                <MobileMenu
+                  user={user}
+                  isModerator={isModerator}
+                />
               </>
             ) : (
               <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
