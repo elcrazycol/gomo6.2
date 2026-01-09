@@ -55,6 +55,9 @@ const Messages = () => {
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // For mobile: show conversation list or chat view
+  const [showChatView, setShowChatView] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -90,12 +93,19 @@ const Messages = () => {
     if (targetUserId && user && user.id !== targetUserId) {
       // Find or create conversation with target user
       findOrCreateConversation(targetUserId);
+    } else if (targetUserId && user && user.id === targetUserId) {
+      // User trying to message themselves - remove param
+      navigate("/messages", { replace: true });
     }
-  }, [targetUserId, user]);
+  }, [targetUserId, user, navigate]);
 
   useEffect(() => {
     if (selectedConversation) {
       loadMessages(selectedConversation);
+      // On mobile, show chat view when conversation is selected
+      if (window.innerWidth < 640) {
+        setShowChatView(true);
+      }
       
       // Set up realtime subscription for new messages
       const channel = supabase
@@ -155,6 +165,9 @@ const Messages = () => {
       setSelectedConversation(existing.id);
       // Remove user param from URL
       navigate("/messages", { replace: true });
+      if (window.innerWidth < 640) {
+        setShowChatView(true);
+      }
     } else {
       // Create new conversation
       const { data: newConv, error } = await supabase
@@ -167,13 +180,19 @@ const Messages = () => {
         .single();
 
       if (error) {
-        toast.error("Ошибка создания переписки");
+        toast.error("Ошибка создания переписки: " + error.message);
         return;
       }
 
+      // Reload conversations first to get full data with profiles
+      await loadConversations();
+      
+      // Then set the selected conversation
       setSelectedConversation(newConv.id);
       navigate("/messages", { replace: true });
-      loadConversations();
+      if (window.innerWidth < 640) {
+        setShowChatView(true);
+      }
     }
   };
 
@@ -182,18 +201,29 @@ const Messages = () => {
 
     const { data } = await supabase
       .from("conversations")
-      .select(`
-        *,
-        user1:profiles!conversations_user1_id_fkey(id, username, is_anonymous),
-        user2:profiles!conversations_user2_id_fkey(id, username, is_anonymous)
-      `)
+      .select("*")
       .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
       .order("last_message_at", { ascending: false });
 
     if (data) {
-      // Calculate unread counts for each conversation
+      // Load profiles and unread counts for each conversation
       const conversationsWithUnread = await Promise.all(
         data.map(async (conv) => {
+          // Load user1 profile
+          const { data: user1Profile } = await supabase
+            .from("profiles")
+            .select("id, username, is_anonymous")
+            .eq("id", conv.user1_id)
+            .single();
+
+          // Load user2 profile
+          const { data: user2Profile } = await supabase
+            .from("profiles")
+            .select("id, username, is_anonymous")
+            .eq("id", conv.user2_id)
+            .single();
+
+          // Count unread messages
           const { count } = await supabase
             .from("messages")
             .select("id", { count: "exact", head: true })
@@ -203,6 +233,8 @@ const Messages = () => {
 
           return {
             ...conv,
+            user1: user1Profile || { id: conv.user1_id, username: "Неизвестен", is_anonymous: false },
+            user2: user2Profile || { id: conv.user2_id, username: "Неизвестен", is_anonymous: false },
             unread_count: count || 0,
           };
         })
@@ -217,15 +249,28 @@ const Messages = () => {
 
     const { data } = await supabase
       .from("messages")
-      .select(`
-        *,
-        sender:profiles!messages_sender_id_fkey(username, is_anonymous)
-      `)
+      .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
 
     if (data) {
-      setMessages(data);
+      // Load sender profiles for each message
+      const messagesWithProfiles = await Promise.all(
+        data.map(async (msg) => {
+          const { data: senderProfile } = await supabase
+            .from("profiles")
+            .select("username, is_anonymous")
+            .eq("id", msg.sender_id)
+            .single();
+
+          return {
+            ...msg,
+            sender: senderProfile || { username: "Неизвестен", is_anonymous: false },
+          };
+        })
+      );
+
+      setMessages(messagesWithProfiles);
 
       // Mark messages as read
       await supabase
@@ -244,19 +289,25 @@ const Messages = () => {
     e.preventDefault();
     if (!user || !selectedConversation || !messageContent.trim()) return;
 
+    const recipientId = getOtherUserId();
+    if (!recipientId) {
+      toast.error("Не удалось определить получателя");
+      return;
+    }
+
     setLoading(true);
 
     const { error } = await supabase.from("messages").insert({
       conversation_id: selectedConversation,
       sender_id: user.id,
-      recipient_id: getOtherUserId(),
+      recipient_id: recipientId,
       content: messageContent.trim(),
     });
 
     setLoading(false);
 
     if (error) {
-      toast.error("Ошибка отправки сообщения");
+      toast.error("Ошибка отправки сообщения: " + error.message);
       return;
     }
 
@@ -313,13 +364,14 @@ const Messages = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4">
-        <div className="bg-card border border-border flex flex-col h-[calc(100vh-120px)]">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4">
+        <div className="bg-card border border-border flex flex-col h-[calc(100vh-120px)] sm:h-[calc(100vh-120px)]">
+          {/* Mobile: Show either list or chat */}
           <div className="flex flex-1 overflow-hidden">
-            {/* Conversations list */}
-            <div className="w-full sm:w-80 border-r border-border flex flex-col">
-              <div className="p-4 border-b border-border">
-                <h2 className="text-lg font-bold">Сообщения</h2>
+            {/* Conversations list - hidden on mobile when chat is open */}
+            <div className={`${showChatView ? 'hidden sm:flex' : 'flex'} w-full sm:w-80 border-r border-border flex-col`}>
+              <div className="p-3 sm:p-4 border-b border-border">
+                <h2 className="text-base sm:text-lg font-bold">Сообщения</h2>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-1 p-2">
@@ -333,12 +385,17 @@ const Messages = () => {
                       return (
                         <button
                           key={conv.id}
-                          onClick={() => setSelectedConversation(conv.id)}
+                          onClick={() => {
+                            setSelectedConversation(conv.id);
+                            if (window.innerWidth < 640) {
+                              setShowChatView(true);
+                            }
+                          }}
                           className={`w-full text-left p-3 border border-border hover:bg-post-header transition-colors ${
                             selectedConversation === conv.id ? "bg-board-header" : ""
                           }`}
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               <p className="font-bold text-sm truncate">
                                 {otherUser.is_anonymous ? "Аноним" : otherUser.username}
@@ -365,17 +422,29 @@ const Messages = () => {
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 flex flex-col">
+            <div className={`${showChatView ? 'flex' : 'hidden sm:flex'} flex-1 flex-col`}>
               {selectedConversation ? (
                 <>
-                  <div className="p-4 border-b border-border">
-                    <h3 className="font-bold">
+                  <div className="p-3 sm:p-4 border-b border-border flex items-center gap-2">
+                    {/* Back button for mobile */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="sm:hidden"
+                      onClick={() => {
+                        setShowChatView(false);
+                        setSelectedConversation(null);
+                      }}
+                    >
+                      ←
+                    </Button>
+                    <h3 className="font-bold text-base sm:text-lg flex-1">
                       {getOtherUser()?.is_anonymous ? "Аноним" : getOtherUser()?.username}
                     </h3>
                   </div>
                   <div 
                     ref={messagesContainerRef}
-                    className="flex-1 overflow-y-auto p-4"
+                    className="flex-1 overflow-y-auto p-3 sm:p-4"
                   >
                     <div className="space-y-3">
                       {messages.map((msg) => {
@@ -386,14 +455,19 @@ const Messages = () => {
                             className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                           >
                             <div
-                              className={`max-w-[70%] p-2 rounded ${
+                              className={`max-w-[85%] sm:max-w-[70%] p-2 sm:p-3 rounded-lg ${
                                 isOwn
                                   ? "bg-primary text-primary-foreground"
                                   : "bg-post-header border border-border"
                               }`}
                             >
+                              {!isOwn && (
+                                <p className="text-xs font-semibold mb-1 opacity-80">
+                                  {msg.sender.is_anonymous ? "Аноним" : msg.sender.username}
+                                </p>
+                              )}
                               <p className="text-sm break-words">{msg.content}</p>
-                              <p className="text-xs opacity-70 mt-1">
+                              <p className={`text-xs opacity-70 mt-1 ${isOwn ? 'text-right' : ''}`}>
                                 {formatDistanceToNow(new Date(msg.created_at), {
                                   locale: ru,
                                   addSuffix: true,
@@ -406,25 +480,27 @@ const Messages = () => {
                       <div ref={messagesEndRef} />
                     </div>
                   </div>
-                  <form onSubmit={handleSendMessage} className="p-4 border-t border-border">
+                  <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-border">
                     <div className="flex gap-2">
                       <Textarea
                         value={messageContent}
                         onChange={(e) => setMessageContent(e.target.value)}
                         placeholder="Написать сообщение..."
                         rows={2}
-                        className="resize-none"
+                        className="resize-none text-sm"
                         disabled={loading}
                       />
-                      <Button type="submit" disabled={loading || !messageContent.trim()}>
+                      <Button type="submit" disabled={loading || !messageContent.trim()} size="icon">
                         <Send className="h-4 w-4" />
                       </Button>
                     </div>
                   </form>
                 </>
               ) : (
-                <div className="flex-1 flex items-center justify-center">
-                  <p className="text-muted-foreground">Выберите переписку</p>
+                <div className="flex-1 flex items-center justify-center p-4">
+                  <p className="text-muted-foreground text-center">
+                    {window.innerWidth < 640 ? "Выберите переписку из списка" : "Выберите переписку"}
+                  </p>
                 </div>
               )}
             </div>
