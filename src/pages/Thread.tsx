@@ -12,6 +12,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
@@ -584,9 +585,11 @@ const Thread = () => {
             {user ? (
               <>
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
-                  <Link to={`/profile/${user.id}`}>
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-                  </Link>
+                  <ProfileHoverCard userId={user.id}>
+                    <Link to={`/profile/${user.id}`}>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                    </Link>
+                  </ProfileHoverCard>
                   {isModerator && (
                     <Link to="/moderation">
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>

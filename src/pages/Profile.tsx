@@ -323,100 +323,42 @@ const Profile = () => {
 
       <main className="max-w-5xl mx-auto p-4">
         <div className="max-w-2xl mx-auto space-y-6">
-          {/* Profile Header */}
-          <div className="bg-card p-6 rounded-lg border shadow-sm">
-            <div className="flex items-start gap-4">
-              {/* Avatar */}
-              <div className="relative">
-                <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt="Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <User className="w-10 h-10 text-muted-foreground" />
-                  )}
-                </div>
-                {isOwnProfile && (
-                  <label className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary/80 transition-colors">
-                    <Camera className="w-4 h-4 text-primary-foreground" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleAvatarUpload}
-                      className="hidden"
-                    />
-                  </label>
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-bold mb-2">
+                {isEditing ? (
+                  <Input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="max-w-xs"
+                  />
+                ) : (
+                  profile.username
                 )}
-              </div>
-
-              {/* User Info */}
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold">{profile.username}</h1>
-                  {isOwnProfile && (
-                    <Dialog open={showUsernameDialog} onOpenChange={setShowUsernameDialog}>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm" className="p-1 h-6 w-6">
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Изменить имя пользователя</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <Input
-                            placeholder="Новое имя пользователя"
-                            value={newUsername}
-                            onChange={(e) => setNewUsername(e.target.value)}
-                          />
-                          <Input
-                            placeholder="Подтвердите новое имя пользователя"
-                            value={confirmUsername}
-                            onChange={(e) => setConfirmUsername(e.target.value)}
-                          />
-                          <Button onClick={handleUsernameChange} className="w-full">
-                            Изменить имя пользователя
-                          </Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground mb-2">
-                  ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
-                </p>
-                {profile.bio && (
-                  <p className="text-sm text-muted-foreground">{profile.bio}</p>
-                )}
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2">
-                {!isOwnProfile && currentUser && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => navigate(`/messages?user=${userId}`)}
-                  >
-                    Написать
-                  </Button>
-                )}
-                {isOwnProfile && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsEditing(!isEditing)}
-                  >
-                    {isEditing ? "Отмена" : "Редактировать"}
-                  </Button>
-                )}
-              </div>
+              </h1>
+              <p className="text-sm text-muted-foreground">ID: {profile.id.slice(0, 8)}</p>
             </div>
+            {!isOwnProfile && currentUser && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => navigate(`/messages?user=${userId}`)}
+                className="text-xs sm:text-sm"
+              >
+                Написать
+              </Button>
+            )}
           </div>
+
+          {isOwnProfile && (
+            <Button
+              variant="outline"
+              onClick={() => setIsEditing(!isEditing)}
+              className="w-full mb-4"
+            >
+              {isEditing ? "Отмена" : "Редактировать профиль"}
+            </Button>
+          )}
 
           {isEditing ? (
             <div className="space-y-4">
@@ -472,7 +414,67 @@ const Profile = () => {
                   </DialogContent>
                 </Dialog>
 
-                <Button onClick={handleSave}>Сохранить изменения</Button>
+                <Dialog open={showUsernameDialog} onOpenChange={setShowUsernameDialog}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">
+                      Сменить никнейм
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Изменить имя пользователя</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <Input
+                        placeholder="Новое имя пользователя"
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                      />
+                      <Input
+                        placeholder="Подтвердите новое имя пользователя"
+                        value={confirmUsername}
+                        onChange={(e) => setConfirmUsername(e.target.value)}
+                      />
+                      <Button onClick={handleUsernameChange} className="w-full">
+                        Изменить имя пользователя
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                <Button onClick={handleSave}>Сохранить</Button>
+              </div>
+
+              {/* Avatar upload */}
+              <div className="space-y-2">
+                <Label>Аватарка</Label>
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt="Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-8 h-8 text-muted-foreground" />
+                      )}
+                    </div>
+                  </div>
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarUpload}
+                      className="hidden"
+                    />
+                    <Button variant="outline" size="sm">
+                      <Camera className="w-4 h-4 mr-2" />
+                      Изменить аватар
+                    </Button>
+                  </label>
+                </div>
               </div>
 
               {/* Logout button */}
@@ -488,25 +490,51 @@ const Profile = () => {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center p-4 bg-card rounded-lg border">
-                <div className="text-2xl font-bold">{profile.thread_count || 0}</div>
-                <div className="text-sm text-muted-foreground">Тредов</div>
-              </div>
-              <div className="text-center p-4 bg-card rounded-lg border">
-                <div className="text-2xl font-bold">{profile.post_count || 0}</div>
-                <div className="text-sm text-muted-foreground">Постов</div>
-              </div>
-            </div>
-          )}
+            <div className="space-y-4">
+              {profile.bio && <p className="text-sm">{profile.bio}</p>}
 
-          {/* Registration date */}
-          {!isEditing && (
-            <div className="text-center text-sm text-muted-foreground">
-              Регистрация: {formatDistanceToNow(new Date(profile.created_at), {
-                locale: ru,
-                addSuffix: true,
-              })}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-post-header border border-border">
+                <div>
+                  <p className="text-sm text-muted-foreground">Тредов создано</p>
+                  <p className="text-2xl font-bold">{profile.thread_count}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Постов написано</p>
+                  <p className="text-2xl font-bold">{profile.post_count}</p>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-xl font-bold mb-4">
+                  Достижения ({achievements.length})
+                </h2>
+                {achievements.length === 0 ? (
+                  <p className="text-muted-foreground">Достижений пока нет</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {achievements.map((achievement) => (
+                      <div
+                        key={achievement.id}
+                        className="bg-post-header border border-border p-3 flex items-start gap-3"
+                      >
+                        <span className="text-3xl">{achievement.icon}</span>
+                        <div className="flex-1">
+                          <p className="font-bold">{achievement.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {achievement.description}
+                          </p>
+                          <p className="text-xs text-primary mt-1">
+                            {formatDistanceToNow(new Date(achievement.unlocked_at), {
+                              locale: ru,
+                              addSuffix: true,
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
