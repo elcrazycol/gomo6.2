@@ -15,6 +15,7 @@ import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { useSessionTime } from "@/hooks/useSessionTime";
+import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface Board {
   id: string;
@@ -55,6 +56,7 @@ const Board = () => {
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +90,7 @@ const Board = () => {
 
   useEffect(() => {
     const loadBoard = async () => {
+      setPageLoading(true);
       const { data: boardData } = await supabase
         .from("boards")
         .select("*")
@@ -102,9 +105,11 @@ const Board = () => {
           const verified = sessionStorage.getItem('age_verified_d');
           if (!verified) {
             setShowAgeVerification(true);
+            setPageLoading(false);
           } else {
             setAgeVerified(true);
-            loadThreads(boardData.id);
+            await loadThreads(boardData.id);
+            setPageLoading(false);
             
             // Award incel achievement
             if (user) {
@@ -115,8 +120,11 @@ const Board = () => {
             }
           }
         } else {
-          loadThreads(boardData.id);
+          await loadThreads(boardData.id);
+          setPageLoading(false);
         }
+      } else {
+        setPageLoading(false);
       }
     };
 
@@ -278,7 +286,13 @@ const Board = () => {
     navigate('/');
   };
 
-  if (!board) return <div className="p-4">Загрузка...</div>;
+  if (pageLoading || !board) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
   
   if (board.slug === 'd' && !ageVerified) {
     return (

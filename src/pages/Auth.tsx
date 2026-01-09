@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { z } from "zod";
 import { TermsOfService } from "@/components/TermsOfService";
+import { PentagramLoader } from "@/components/PentagramLoader";
 
 const authSchema = z.object({
   username: z.string().trim().min(3, "Юзернейм минимум 3 символа").max(20, "Юзернейм максимум 20 символов"),
@@ -114,6 +115,9 @@ const Auth = () => {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <PentagramLoader size="md" />
+          </div>
           <h1 className="text-4xl font-bold text-primary mb-2">gomo6</h1>
           <p className="text-muted-foreground">Имиджборд</p>
         </div>

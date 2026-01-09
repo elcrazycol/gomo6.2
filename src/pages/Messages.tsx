@@ -10,6 +10,8 @@ import { ru } from "date-fns/locale";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { UserBadge } from "@/components/UserBadge";
+import { PentagramLoader } from "@/components/PentagramLoader";
 import { Send } from "lucide-react";
 
 interface Conversation {
@@ -53,6 +55,7 @@ const Messages = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageContent, setMessageContent] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
@@ -85,7 +88,12 @@ const Messages = () => {
 
   useEffect(() => {
     if (user) {
-      loadConversations();
+      const loadAll = async () => {
+        setPageLoading(true);
+        await loadConversations();
+        setPageLoading(false);
+      };
+      loadAll();
     }
   }, [user]);
 
@@ -341,7 +349,13 @@ const Messages = () => {
     toast.success("Вышли");
   };
 
-  if (!user) return <div className="p-4">Загрузка...</div>;
+  if (!user || pageLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -438,9 +452,15 @@ const Messages = () => {
                     >
                       ←
                     </Button>
-                    <h3 className="font-bold text-base sm:text-lg flex-1">
-                      {getOtherUser()?.is_anonymous ? "Аноним" : getOtherUser()?.username}
-                    </h3>
+                    <div className="flex-1">
+                      {getOtherUser() && (
+                        <UserBadge
+                          userId={getOtherUser().id}
+                          username={getOtherUser().is_anonymous ? "Аноним" : getOtherUser().username}
+                          isAnonymous={getOtherUser().is_anonymous}
+                        />
+                      )}
+                    </div>
                   </div>
                   <div 
                     ref={messagesContainerRef}
@@ -461,11 +481,6 @@ const Messages = () => {
                                   : "bg-post-header border border-border"
                               }`}
                             >
-                              {!isOwn && (
-                                <p className="text-xs font-semibold mb-1 opacity-80">
-                                  {msg.sender.is_anonymous ? "Аноним" : msg.sender.username}
-                                </p>
-                              )}
                               <p className="text-sm break-words">{msg.content}</p>
                               <p className={`text-xs opacity-70 mt-1 ${isOwn ? 'text-right' : ''}`}>
                                 {formatDistanceToNow(new Date(msg.created_at), {
