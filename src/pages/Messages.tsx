@@ -373,9 +373,6 @@ const Messages = () => {
               <Link to={`/profile/${user.id}`}>
                 <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
               </Link>
-              <Button variant="secondary" size="sm" onClick={handleLogout} className="text-xs sm:text-sm">
-                Выйти
-              </Button>
             </div>
             <MobileMenu
               user={user}

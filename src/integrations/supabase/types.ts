@@ -213,6 +213,7 @@ export type Database = {
           post_count: number | null
           thread_count: number | null
           username: string
+          account_number: number | null
         }
         Insert: {
           avatar_url?: string | null
@@ -225,6 +226,7 @@ export type Database = {
           post_count?: number | null
           thread_count?: number | null
           username: string
+          account_number?: number | null
         }
         Update: {
           avatar_url?: string | null
@@ -237,6 +239,7 @@ export type Database = {
           post_count?: number | null
           thread_count?: number | null
           username?: string
+          account_number?: number | null
         }
         Relationships: []
       }
