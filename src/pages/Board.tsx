@@ -315,15 +315,15 @@ const Board = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <div className="text-sm sm:text-base">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+          <div className="text-sm sm:text-base flex-1 min-w-0">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
               gomo6
             </Link>
-            <span className="mx-1 sm:mx-2">/</span>
-            <span className="text-base sm:text-lg">/{slug}/ - {board.name}</span>
+            <span className="mx-1 sm:mx-2 hidden sm:inline">/</span>
+            <span className="text-base sm:text-lg hidden sm:inline">/{slug}/ - {board.name}</span>
           </div>
-          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <ThemeToggle />
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}

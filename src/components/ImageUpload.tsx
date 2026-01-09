@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -50,14 +50,22 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
       }
 
       const uploadPromises = files.map(async (file) => {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${user.id}/${Math.random()}.${fileExt}`;
+        const fileExt = file.name.split('.').pop() || 'jpg';
+        const timestamp = Date.now();
+        const randomStr = Math.random().toString(36).substring(2, 9);
+        const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
           .from('post-images')
-          .upload(fileName, file);
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('Upload error:', uploadError);
+          throw new Error(uploadError.message || 'Ошибка загрузки файла');
+        }
 
         const { data: { publicUrl } } = supabase.storage
           .from('post-images')
@@ -72,12 +80,14 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
       onImagesUploaded(updatedPreviews);
       toast.success(`Загружено ${newUrls.length} изображений`);
     } catch (error: any) {
-      toast.error("Ошибка загрузки изображений");
-      console.error(error);
+      console.error('Image upload error:', error);
+      toast.error(error.message || "Ошибка загрузки изображений. Проверьте настройки storage в Supabase.");
     } finally {
       setUploading(false);
       // Reset input
-      e.target.value = '';
+      if (e.target) {
+        e.target.value = '';
+      }
     }
   };
 
@@ -87,8 +97,39 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
     onImagesUploaded(updatedPreviews);
   };
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleButtonClick = () => {
+    if (previews.length >= maxImages) {
+      toast.error(`Максимум ${maxImages} изображений`);
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
   return (
     <div className="space-y-2">
+      <div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+          onChange={handleFileChange}
+          disabled={uploading || previews.length >= maxImages}
+          multiple
+          className="hidden"
+        />
+        <Button 
+          type="button" 
+          variant="outline" 
+          size="sm"
+          disabled={uploading || previews.length >= maxImages}
+          onClick={handleButtonClick}
+        >
+          <Upload className="h-4 w-4 mr-2" />
+          {uploading ? "Загрузка..." : previews.length === 0 ? "Загрузить фото" : `Добавить фото (${previews.length}/${maxImages})`}
+        </Button>
+      </div>
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {previews.map((preview, index) => (
@@ -110,24 +151,6 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
             </div>
           ))}
         </div>
-      )}
-      {previews.length < maxImages && (
-        <label className="cursor-pointer">
-          <input
-            type="file"
-            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-            onChange={handleFileChange}
-            disabled={uploading}
-            multiple
-            className="hidden"
-          />
-          <Button type="button" variant="outline" disabled={uploading} asChild>
-            <span>
-              <Upload className="h-4 w-4 mr-2" />
-              {uploading ? "Загрузка..." : `Загрузить изображения (${previews.length}/${maxImages})`}
-            </span>
-          </Button>
-        </label>
       )}
     </div>
   );

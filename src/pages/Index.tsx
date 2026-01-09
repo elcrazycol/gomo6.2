@@ -192,9 +192,9 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
-        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <h1 className="text-2xl sm:text-3xl font-bold">gomo6</h1>
-          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
+          <h1 className="text-2xl sm:text-3xl font-bold flex-shrink-0">gomo6</h1>
+          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <ThemeToggle />
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
