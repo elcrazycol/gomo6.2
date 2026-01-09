@@ -186,16 +186,6 @@ const Profile = () => {
                     {isEditing ? "Отмена" : "Редактировать"}
                   </Button>
                 )}
-                {!isOwnProfile && (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => navigate(`/messages?user=${userId}`)}
-                    className="text-xs sm:text-sm"
-                  >
-                    Написать
-                  </Button>
-                )}
                 {isModerator && (
                   <Link to="/moderation">
                     <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
@@ -216,19 +206,31 @@ const Profile = () => {
 
       <main className="max-w-5xl mx-auto p-4">
         <div className="bg-card border border-border p-6 space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold mb-2">
-              {isEditing ? (
-                <Input
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="max-w-xs"
-                />
-              ) : (
-                profile.username
-              )}
-            </h1>
-            <p className="text-sm text-muted-foreground">ID: {profile.id.slice(0, 8)}</p>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-2xl font-bold mb-2">
+                {isEditing ? (
+                  <Input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="max-w-xs"
+                  />
+                ) : (
+                  profile.username
+                )}
+              </h1>
+              <p className="text-sm text-muted-foreground">ID: {profile.id.slice(0, 8)}</p>
+            </div>
+            {!isOwnProfile && currentUser && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => navigate(`/messages?user=${userId}`)}
+                className="text-xs sm:text-sm"
+              >
+                Написать
+              </Button>
+            )}
           </div>
 
           {isEditing ? (
