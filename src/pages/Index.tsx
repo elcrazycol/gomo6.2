@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
@@ -178,6 +179,7 @@ const Index = () => {
           <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
             <ThemeToggle />
             {user && <NotificationBell userId={user.id} />}
+            {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
                 <Link to={`/profile/${user.id}`}>

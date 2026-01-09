@@ -10,6 +10,7 @@ import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -305,6 +306,7 @@ const Board = () => {
           <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
             <ThemeToggle />
             {user && <NotificationBell userId={user.id} />}
+            {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
                 <Link to={`/profile/${user.id}`}>

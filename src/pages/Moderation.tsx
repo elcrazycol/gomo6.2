@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Report {
   id: string;
@@ -252,7 +255,20 @@ const Moderation = () => {
           <Link to="/" className="text-xl font-bold hover:underline">
             gomo6
           </Link>
-          <h1 className="text-base sm:text-lg font-bold">Панель модератора</h1>
+          <div className="flex gap-1 sm:gap-2 items-center flex-wrap">
+            <ThemeToggle />
+            {user && <NotificationBell userId={user.id} />}
+            {user && <ChatIcon userId={user.id} />}
+            <Link to={`/profile/${user?.id}`}>
+              <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+            </Link>
+            <Button variant="secondary" size="sm" onClick={async () => {
+              await supabase.auth.signOut();
+              toast.success("Вышли");
+            }} className="text-xs sm:text-sm">
+              Выйти
+            </Button>
+          </div>
         </div>
       </header>
 
