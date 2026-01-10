@@ -15,6 +15,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Settings } from "lucide-react";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -328,7 +329,11 @@ const Board = () => {
             <span className="text-base sm:text-lg hidden sm:inline">/{slug}/ - {board.name}</span>
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <ThemeToggle />
+            <Link to="/settings">
+              <Button variant="ghost" size="sm" className="p-2">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             {user ? (

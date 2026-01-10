@@ -13,7 +13,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
@@ -662,6 +662,11 @@ const Thread = () => {
             </Link>
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
+            <Link to="/settings">
+              <Button variant="ghost" size="sm" className="p-2">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             {user ? (

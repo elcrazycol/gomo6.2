@@ -11,6 +11,7 @@ import Thread from "./pages/Thread";
 import Profile from "./pages/Profile";
 import Moderation from "./pages/Moderation";
 import Messages from "./pages/Messages";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +39,7 @@ const App = () => {
             <Route path="/profile/:userId" element={<Profile />} />
             <Route path="/moderation" element={<Moderation />} />
             <Route path="/messages" element={<Messages />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/:slug" element={<Board />} />
             <Route path="/:slug/thread/:threadId" element={<Thread />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

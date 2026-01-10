@@ -12,6 +12,7 @@ import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Settings } from "lucide-react";
 
 interface Report {
   id: string;
@@ -258,7 +259,11 @@ const Moderation = () => {
             gomo6
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <ThemeToggle />
+            <Link to="/settings">
+              <Button variant="ghost" size="sm" className="p-2">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             <div className="hidden sm:flex gap-1 sm:gap-2 items-center">

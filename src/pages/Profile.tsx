@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
-import { Camera, Edit2, LogOut, User } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -40,6 +41,188 @@ interface Achievement {
   unlocked_at: string;
 }
 
+interface AvatarCropperProps {
+  imageSrc: string;
+  onCropComplete: (croppedImage: string) => void;
+  onCancel: () => void;
+}
+
+const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete, onCancel }) => {
+  const [circleSize, setCircleSize] = useState(150); // diameter in pixels
+  const [circlePosition, setCirclePosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - circlePosition.x,
+      y: e.clientY - circlePosition.y
+    });
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+
+    let newX = e.clientX - dragStart.x;
+    let newY = e.clientY - dragStart.y;
+
+    // Constrain circle within reasonable bounds (image acts as container)
+    const maxOffset = Math.max(0, 150 - circleSize / 2);
+    newX = Math.max(-maxOffset, Math.min(maxOffset, newX));
+    newY = Math.max(-maxOffset, Math.min(maxOffset, newY));
+
+    setCirclePosition({ x: newX, y: newY });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
+
+  const handleCrop = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    img.onload = () => {
+      canvas.width = 200;
+      canvas.height = 200;
+
+      // Create circular crop
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(100, 100, 100, 0, 2 * Math.PI);
+      ctx.clip();
+
+      // Calculate crop coordinates
+      // The image is displayed with object-contain, so we need to calculate
+      // where the circle intersects with the actual image
+      const containerWidth = 320;
+      const containerHeight = 320;
+
+      // Calculate how the image fits in the container
+      const imgAspect = img.width / img.height;
+      const containerAspect = containerWidth / containerHeight;
+
+      let drawWidth, drawHeight, offsetX, offsetY;
+
+      if (imgAspect > containerAspect) {
+        // Image is wider than container
+        drawWidth = containerWidth;
+        drawHeight = containerWidth / imgAspect;
+        offsetX = 0;
+        offsetY = (containerHeight - drawHeight) / 2;
+      } else {
+        // Image is taller than container
+        drawHeight = containerHeight;
+        drawWidth = containerHeight * imgAspect;
+        offsetX = (containerWidth - drawWidth) / 2;
+        offsetY = 0;
+      }
+
+      // Circle center relative to container
+      const circleCenterX = containerWidth / 2 + circlePosition.x;
+      const circleCenterY = containerHeight / 2 + circlePosition.y;
+      const circleRadius = circleSize / 2;
+
+      // Check if circle intersects with actual image bounds
+      const imageLeft = offsetX;
+      const imageRight = offsetX + drawWidth;
+      const imageTop = offsetY;
+      const imageBottom = offsetY + drawHeight;
+
+      // Constrain circle to image bounds
+      const constrainedCenterX = Math.max(imageLeft + circleRadius, Math.min(imageRight - circleRadius, circleCenterX));
+      const constrainedCenterY = Math.max(imageTop + circleRadius, Math.min(imageBottom - circleRadius, circleCenterY));
+
+      // Convert to image coordinates
+      const imageX = ((constrainedCenterX - offsetX) / drawWidth) * img.width;
+      const imageY = ((constrainedCenterY - offsetY) / drawHeight) * img.height;
+      const cropRadius = (circleRadius / Math.min(drawWidth / img.width, drawHeight / img.height));
+
+      // Draw the cropped circular area
+      ctx.drawImage(
+        img,
+        imageX - cropRadius,
+        imageY - cropRadius,
+        cropRadius * 2,
+        cropRadius * 2,
+        0,
+        0,
+        200,
+        200
+      );
+
+      ctx.restore();
+
+      const croppedImage = canvas.toDataURL('image/png');
+      onCropComplete(croppedImage);
+    };
+
+    img.src = imageSrc;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="relative w-full h-80 bg-muted rounded-lg overflow-hidden">
+        <img
+          src={imageSrc}
+          alt="Crop preview"
+          className="w-full h-full object-contain"
+        />
+
+        {/* Crop circle - constrained to image bounds */}
+        <div
+          className="absolute border-2 border-white border-dashed rounded-full cursor-move shadow-lg"
+          style={{
+            width: `${circleSize}px`,
+            height: `${circleSize}px`,
+            left: `calc(50% + ${circlePosition.x}px - ${circleSize / 2}px)`,
+            top: `calc(50% + ${circlePosition.y}px - ${circleSize / 2}px)`,
+            boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.8)',
+          }}
+          onMouseDown={handleMouseDown}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Размер круга</label>
+        <input
+          type="range"
+          min="80"
+          max="200"
+          value={circleSize}
+          onChange={(e) => setCircleSize(Number(e.target.value))}
+          className="w-full"
+        />
+        <div className="text-xs text-muted-foreground">
+          Размер: {circleSize}px
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button onClick={onCancel} variant="outline" className="flex-1">
+          Отмена
+        </Button>
+        <Button onClick={handleCrop} className="flex-1">
+          Сохранить
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
@@ -60,8 +243,6 @@ const Profile = () => {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
-  const [cropScale, setCropScale] = useState(1);
-  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
   const [minScale, setMinScale] = useState(0.5);
   const [maxScale, setMaxScale] = useState(3);
 
@@ -198,8 +379,6 @@ const Profile = () => {
     reader.onload = (event) => {
       if (event.target?.result) {
         setCropImage(event.target.result as string);
-        setCropScale(1);
-        setCropOffset({ x: 0, y: 0 });
 
         // Calculate min/max scale for this image
         const img = new Image();
@@ -227,59 +406,57 @@ const Profile = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleCropConfirm = async () => {
-    if (!cropImage || !userId) return;
+  const handleCropConfirm = async (croppedImageData?: string) => {
+    if (!userId) return;
 
     try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
+      let blob: Blob;
 
-      img.onload = async () => {
-        canvas.width = 200;
-        canvas.height = 200;
+      if (croppedImageData) {
+        // Use cropped image from AvatarCropper
+        const response = await fetch(croppedImageData);
+        blob = await response.blob();
+      } else if (cropImage) {
+        // Fallback: convert current cropImage to blob
+        const response = await fetch(cropImage);
+        blob = await response.blob();
+      } else {
+        return;
+      }
 
-        // Calculate crop area
-        const size = Math.min(img.width, img.height) / cropScale;
-        const x = (img.width - size) / 2 + cropOffset.x;
-        const y = (img.height - size) / 2 + cropOffset.y;
+      const croppedFile = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+      const fileName = `${userId}/avatar_${Date.now()}.jpg`;
 
-        // Draw cropped and resized image
-        ctx?.drawImage(img, x, y, size, size, 0, 0, 200, 200);
+      const { error: uploadError } = await supabase.storage
+        .from('post-images')
+        .upload(fileName, croppedFile);
 
-        // Convert to blob
-        canvas.toBlob(async (blob) => {
-          if (blob) {
-            const croppedFile = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-            const fileName = `${userId}/avatar_${Date.now()}.jpg`;
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        toast.error('Ошибка загрузки аватара');
+        return;
+      }
 
-            const { error: uploadError } = await supabase.storage
-              .from('post-images')
-              .upload(fileName, croppedFile);
+      const { data: { publicUrl } } = supabase.storage
+        .from('post-images')
+        .getPublicUrl(fileName);
 
-            if (uploadError) throw uploadError;
+      const { error } = await supabase
+        .from("profiles")
+        .update({ avatar_url: publicUrl })
+        .eq("id", userId);
 
-            const { data: { publicUrl } } = supabase.storage
-              .from('post-images')
-              .getPublicUrl(fileName);
+      if (error) {
+        console.error('Update error:', error);
+        toast.error('Ошибка обновления профиля');
+        return;
+      }
 
-            const { error } = await supabase
-              .from("profiles")
-              .update({ avatar_url: publicUrl })
-              .eq("id", userId);
-
-            if (error) throw error;
-
-            setAvatarUrl(publicUrl);
-            setCropImage(null);
-            toast.success("Аватар обновлен");
-          }
-        }, 'image/jpeg', 0.9);
-      };
-
-      img.src = cropImage;
+      setAvatarUrl(publicUrl);
+      setCropImage(null);
+      toast.success("Аватар обновлен");
     } catch (error) {
-      toast.error("Ошибка загрузки аватара");
+      toast.error("Ошибка обработки изображения");
       console.error(error);
     }
   };
@@ -412,7 +589,11 @@ const Profile = () => {
             gomo6
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <ThemeToggle />
+            <Link to="/settings">
+              <Button variant="ghost" size="sm" className="p-2">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
             {currentUser && <NotificationBell userId={currentUser.id} />}
             {currentUser && <ChatIcon userId={currentUser.id} />}
             {currentUser ? (
@@ -545,200 +726,20 @@ const Profile = () => {
 
               {/* Avatar Crop Dialog */}
               <Dialog open={!!cropImage} onOpenChange={() => setCropImage(null)}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-lg">
                   <DialogHeader>
                     <DialogTitle>Кадрирование аватара</DialogTitle>
                   </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="relative w-full h-64 bg-muted rounded-lg overflow-hidden">
-                      {cropImage && (
-                        <div
-                          className="relative w-full h-full cursor-move"
-                          onMouseDown={(e) => {
-                            const startX = e.clientX - cropOffset.x;
-                            const startY = e.clientY - cropOffset.y;
-
-                            const handleMouseMove = (e: MouseEvent) => {
-                              const img = new Image();
-                              img.src = cropImage!;
-                              img.onload = () => {
-                                // Container size (256px)
-                                const containerSize = 256;
-
-                                // Calculate how the image fits in the container with current scale
-                                const scaledImgWidth = img.width * cropScale;
-                                const scaledImgHeight = img.height * cropScale;
-
-                                // The image will be scaled down if it's larger than container
-                                const scaleX = containerSize / scaledImgWidth;
-                                const scaleY = containerSize / scaledImgHeight;
-                                const finalScale = Math.min(1, Math.min(scaleX, scaleY));
-
-                                // Final display size of the image
-                                const displayWidth = scaledImgWidth * finalScale;
-                                const displayHeight = scaledImgHeight * finalScale;
-
-                                // Circle radius (96px for 192px diameter circle)
-                                const cropRadius = 96;
-
-                                // Simple bounds: circle center must stay within display image bounds minus crop radius
-                                const maxOffsetX = Math.max(0, (displayWidth / 2) - cropRadius);
-                                const maxOffsetY = Math.max(0, (displayHeight / 2) - cropRadius);
-
-                                const newX = Math.max(-maxOffsetX, Math.min(maxOffsetX, e.clientX - startX));
-                                const newY = Math.max(-maxOffsetY, Math.min(maxOffsetY, e.clientY - startY));
-
-                                setCropOffset({ x: newX, y: newY });
-                              };
-                            };
-
-                            const handleMouseUp = () => {
-                              document.removeEventListener('mousemove', handleMouseMove);
-                              document.removeEventListener('mouseup', handleMouseUp);
-                            };
-
-                            document.addEventListener('mousemove', handleMouseMove);
-                            document.addEventListener('mouseup', handleMouseUp);
-                          }}
-                          onTouchStart={(e) => {
-                            e.preventDefault();
-                            const touch = e.touches[0];
-                            const startX = touch.clientX - cropOffset.x;
-                            const startY = touch.clientY - cropOffset.y;
-
-                            let lastDistance = 0;
-
-                            const handleTouchMove = (e: TouchEvent) => {
-                              e.preventDefault();
-
-                              if (e.touches.length === 2) {
-                                // Pinch to zoom
-                                const touch1 = e.touches[0];
-                                const touch2 = e.touches[1];
-                                const distance = Math.sqrt(
-                                  Math.pow(touch2.clientX - touch1.clientX, 2) +
-                                  Math.pow(touch2.clientY - touch1.clientY, 2)
-                                );
-
-                                if (lastDistance > 0) {
-                                  const scaleChange = distance / lastDistance;
-                                  const newScale = Math.max(0.5, Math.min(3, cropScale * scaleChange));
-                                  setCropScale(newScale);
-                                }
-                                lastDistance = distance;
-                              } else if (e.touches.length === 1) {
-                                // Drag
-                                const img = new Image();
-                                img.src = cropImage!;
-                                img.onload = () => {
-                                // Container size (256px)
-                                const containerSize = 256;
-
-                                // Calculate how the image fits in the container with current scale
-                                const scaledImgWidth = img.width * cropScale;
-                                const scaledImgHeight = img.height * cropScale;
-
-                                // The image will be scaled down if it's larger than container
-                                const scaleX = containerSize / scaledImgWidth;
-                                const scaleY = containerSize / scaledImgHeight;
-                                const finalScale = Math.min(1, Math.min(scaleX, scaleY));
-
-                                // Final display size of the image
-                                const displayWidth = scaledImgWidth * finalScale;
-                                const displayHeight = scaledImgHeight * finalScale;
-
-                                  // Circle radius (96px for 192px diameter circle)
-                                  const cropRadius = 96;
-
-                                  // Simple bounds: circle center must stay within display image bounds minus crop radius
-                                  const maxOffsetX = Math.max(0, (displayWidth / 2) - cropRadius);
-                                  const maxOffsetY = Math.max(0, (displayHeight / 2) - cropRadius);
-
-                                  const newX = Math.max(-maxOffsetX, Math.min(maxOffsetX, touch.clientX - startX));
-                                  const newY = Math.max(-maxOffsetY, Math.min(maxOffsetY, touch.clientY - startY));
-
-                                  setCropOffset({ x: newX, y: newY });
-                                };
-                              }
-                            };
-
-                            const handleTouchEnd = () => {
-                              document.removeEventListener('touchmove', handleTouchMove);
-                              document.removeEventListener('touchend', handleTouchEnd);
-                            };
-
-                            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-                            document.addEventListener('touchend', handleTouchEnd);
-                          }}
-                        >
-                          <img
-                            src={cropImage}
-                            alt="Crop preview"
-                            className="absolute top-1/2 left-1/2 max-w-full max-h-full"
-                            style={{
-                              transform: `translate(-50%, -50%) scale(${cropScale}) translate(${cropOffset.x}px, ${cropOffset.y}px)`,
-                              transformOrigin: 'center',
-                            }}
-                          />
-                          {/* Crop circle overlay */}
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-48 h-48 rounded-full border-2 border-white shadow-lg"></div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Масштаб: {cropScale.toFixed(1)}x</Label>
-                      <input
-                        type="range"
-                        min={minScale}
-                        max={maxScale}
-                        step="0.1"
-                        value={cropScale}
-                        onChange={(e) => {
-                          const newScale = Math.max(minScale, Math.min(maxScale, parseFloat(e.target.value)));
-                          setCropScale(newScale);
-
-                          // Adjust crop offset to stay within bounds at new scale
-                          if (cropImage) {
-                            const img = new Image();
-                            img.onload = () => {
-                              const containerSize = 256;
-                              const scaledImgWidth = img.width * newScale;
-                              const scaledImgHeight = img.height * newScale;
-                              const scaleX = containerSize / scaledImgWidth;
-                              const scaleY = containerSize / scaledImgHeight;
-                              const finalScale = Math.min(1, Math.min(scaleX, scaleY));
-                              const displayWidth = scaledImgWidth * finalScale;
-                              const displayHeight = scaledImgHeight * finalScale;
-                              const cropRadius = 96;
-
-                              // Recalculate bounds and adjust offset
-                              const maxOffsetX = Math.max(0, (displayWidth / 2) - cropRadius);
-                              const maxOffsetY = Math.max(0, (displayHeight / 2) - cropRadius);
-
-                              setCropOffset(prev => ({
-                                x: Math.max(-maxOffsetX, Math.min(maxOffsetX, prev.x)),
-                                y: Math.max(-maxOffsetY, Math.min(maxOffsetY, prev.y))
-                              }));
-                            };
-                            img.src = cropImage;
-                          }
-                        }}
-                        className="w-full"
-                      />
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button onClick={() => setCropImage(null)} variant="outline" className="flex-1">
-                        Отмена
-                      </Button>
-                      <Button onClick={handleCropConfirm} className="flex-1">
-                        Сохранить
-                      </Button>
-                    </div>
-                  </div>
+                  {cropImage && (
+                    <AvatarCropper
+                      imageSrc={cropImage}
+                      onCropComplete={async (croppedImage) => {
+                        setCropImage(null);
+                        await handleCropConfirm(croppedImage);
+                      }}
+                      onCancel={() => setCropImage(null)}
+                    />
+                  )}
                 </DialogContent>
               </Dialog>
 
