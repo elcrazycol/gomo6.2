@@ -281,7 +281,7 @@ const Index = () => {
                       <p className="text-base font-semibold">{board.name}</p>
                       <p className="text-sm text-muted-foreground">{board.description}</p>
                     </div>
-                    <div className="text-link">→</div>
+                    <div className="text-primary">→</div>
                   </div>
                 </Link>
                 {board.slug === 'b' && (
