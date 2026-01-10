@@ -423,7 +423,9 @@ const Messages = () => {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <p className="font-bold text-sm truncate">
+                              <p className={`font-bold text-sm truncate ${
+                                selectedConversation === conv.id ? "text-primary" : ""
+                              }`}>
                                 {otherUser.is_anonymous ? "Аноним" : otherUser.username}
                               </p>
                               <p className="text-xs text-muted-foreground truncate">
