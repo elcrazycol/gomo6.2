@@ -14,7 +14,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Send, Search, ChevronDown, Settings } from "lucide-react";
+import { Send, Search, ChevronDown, Settings, User } from "lucide-react";
 
 const getColorClass = (color: string): string => {
   const colorClasses: Record<string, string> = {
@@ -251,35 +251,73 @@ const Messages = () => {
 
     setSearchLoading(true);
     try {
-      // Search by ID (exact match)
-      const idSearch = await supabase
-        .from("profiles")
-        .select("id, username, is_anonymous, account_number")
-        .eq("id", query.trim())
-        .neq("id", user.id)
-        .limit(10);
+      const trimmedQuery = query.trim();
+      const queryAsNumber = parseInt(trimmedQuery);
 
-      // Search by account number
-      const accountSearch = await supabase
-        .from("profiles")
-        .select("id, username, is_anonymous, account_number")
-        .eq("account_number", parseInt(query.trim()))
-        .neq("id", user.id)
-        .limit(10);
 
-      // Search by username (partial match)
+      // Search by account number (regular ID) - always allowed
+      let accountSearch = null;
+      if (!isNaN(queryAsNumber)) {
+        accountSearch = await supabase
+          .from("profiles")
+          .select("id, username, is_anonymous, account_number, avatar_url")
+          .eq("account_number", queryAsNumber)
+          .neq("id", user.id)
+          .limit(10);
+      }
+
+      // Search by UUID (if query looks like UUID) - always allowed
+      let idSearch = { data: [] };
+      if (trimmedQuery.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+        idSearch = await supabase
+          .from("profiles")
+          .select("id, username, is_anonymous, account_number, avatar_url")
+          .eq("id", trimmedQuery)
+          .neq("id", user.id)
+          .limit(10);
+      }
+
+      // Search by short ID (first characters of UUID) - always allowed
+      let shortIdSearch = { data: [] };
+      if (trimmedQuery.match(/^[0-9a-f]{1,8}$/i) && trimmedQuery.length >= 3) {
+        // Get all profiles and filter on client side since UUID ilike doesn't work
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, username, is_anonymous, account_number, avatar_url")
+          .neq("id", user.id)
+          .limit(100); // Get more to filter
+
+        if (!error && data) {
+          shortIdSearch.data = data.filter(profile =>
+            profile.id.toLowerCase().startsWith(trimmedQuery.toLowerCase())
+          ).slice(0, 10);
+        }
+      }
+
+      // Search by username (partial match) - check privacy settings
       const usernameSearch = await supabase
         .from("profiles")
-        .select("id, username, is_anonymous, account_number")
-        .ilike("username", `%${query.trim()}%`)
+        .select("id, username, is_anonymous, account_number, avatar_url")
+        .ilike("username", `%${trimmedQuery}%`)
         .neq("id", user.id)
         .limit(10);
+
+      // For now, include all results since privacy settings table doesn't exist yet
+      const usernameResults = usernameSearch.data || [];
+
+      // Add search type to each result
+      const idResults = (idSearch.data || []).map(user => ({ ...user, searchType: 'id' }));
+      const shortIdResults = (shortIdSearch.data || []).map(user => ({ ...user, searchType: 'short_id' }));
+      const accountResults = (accountSearch?.data || []).map(user => ({ ...user, searchType: 'account_number' }));
+      const usernameResultsWithType = usernameResults.map(user => ({ ...user, searchType: 'username' }));
+
+      // Filter results based on privacy settings
+      const filteredResults = await filterResultsByPrivacy([...idResults, ...shortIdResults, ...accountResults, ...usernameResultsWithType]);
 
       // Combine and deduplicate results
       const allResults = new Map();
-
-      [...(idSearch.data || []), ...(accountSearch.data || []), ...(usernameSearch.data || [])].forEach(user => {
-        allResults.set(user.id, user);
+      filteredResults.forEach(user => {
+        allResults.set(user.id, { ...user, searchType: undefined }); // Remove searchType from final results
       });
 
       setSearchResults(Array.from(allResults.values()).slice(0, 10));
@@ -290,8 +328,69 @@ const Messages = () => {
     setSearchLoading(false);
   };
 
+  const filterResultsByPrivacy = async (users: any[]) => {
+    const filteredUsers = [];
+
+    for (const foundUser of users) {
+      try {
+        const { data: privacy, error } = await (supabase as any)
+          .from('privacy_settings')
+          .select('allow_search_by_username, allow_search_by_id, allow_search_by_secondary_id')
+          .eq('user_id', foundUser.id)
+          .maybeSingle();
+
+        let allowSearch = true;
+
+        if (!error && privacy) {
+          const searchType = foundUser.searchType;
+
+          switch (searchType) {
+            case 'id':
+            case 'short_id':
+              allowSearch = privacy.allow_search_by_id;
+              break;
+            case 'account_number':
+              allowSearch = privacy.allow_search_by_secondary_id;
+              break;
+            case 'username':
+              allowSearch = privacy.allow_search_by_username;
+              break;
+            default:
+              allowSearch = true;
+          }
+        }
+
+        if (allowSearch) {
+          filteredUsers.push(foundUser);
+        }
+      } catch (error) {
+        // If privacy settings don't exist, allow search by default
+        filteredUsers.push(foundUser);
+      }
+    }
+
+    return filteredUsers;
+  };
+
   const findOrCreateConversation = async (otherUserId: string) => {
     if (!user) return;
+
+    // Check if the other user allows private messages
+    try {
+      const { data: privacy, error } = await (supabase as any)
+        .from('privacy_settings')
+        .select('allow_private_messages')
+        .eq('user_id', otherUserId)
+        .maybeSingle();
+
+      if (!error && privacy && !privacy.allow_private_messages) {
+        toast.error("Этот пользователь отключил прием личных сообщений");
+        return;
+      }
+    } catch (error) {
+      // If privacy settings don't exist, allow conversation by default
+      console.log('Privacy settings not found, allowing conversation');
+    }
 
     // Cancel any ongoing load
     if (currentLoadController.current) {
@@ -598,6 +697,23 @@ const Messages = () => {
       return;
     }
 
+    // Check if recipient allows private messages
+    try {
+      const { data: privacy, error } = await (supabase as any)
+        .from('privacy_settings')
+        .select('allow_private_messages')
+        .eq('user_id', recipientId)
+        .maybeSingle();
+
+      if (!error && privacy && !privacy.allow_private_messages) {
+        toast.error("Этот пользователь отключил прием личных сообщений");
+        return;
+      }
+    } catch (error) {
+      // If privacy settings don't exist, allow sending by default
+      console.log('Privacy settings not found, allowing message');
+    }
+
     const messageText = messageContent.trim();
     setMessageContent(""); // Clear input immediately
 
@@ -736,10 +852,16 @@ const Messages = () => {
                           }}
                           className="w-full flex items-center gap-3 p-2 hover:bg-post-header rounded-lg transition-colors text-left"
                         >
-                          <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center">
-                            <span className="text-sm font-bold">
-                              {user.is_anonymous ? "A" : user.username.charAt(0).toUpperCase()}
-                            </span>
+                          <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+                            {user.avatar_url ? (
+                              <img
+                                src={user.avatar_url}
+                                alt="Avatar"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <User className="w-5 h-5 text-muted-foreground" />
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className={`font-medium text-sm truncate ${getColorClass(userColors.get(user.id) || "")}`}>
