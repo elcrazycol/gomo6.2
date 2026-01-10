@@ -14,7 +14,21 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Send } from "lucide-react";
+import { Send, Search } from "lucide-react";
+
+const getColorClass = (color: string): string => {
+  const colorClasses: Record<string, string> = {
+    purple: "text-purple-500",
+    gold: "text-yellow-500",
+    orange: "text-orange-500",
+    red: "text-red-500",
+    blue: "text-blue-500",
+    green: "text-green-500",
+    yellow: "text-yellow-400",
+    cyan: "text-cyan-500",
+  };
+  return colorClasses[color] || "";
+};
 
 interface Conversation {
   id: string;
@@ -63,6 +77,11 @@ const Messages = () => {
   
   // For mobile: show conversation list or chat view
   const [showChatView, setShowChatView] = useState(false);
+  const [userColors, setUserColors] = useState<Map<string, string>>(new Map());
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -150,6 +169,53 @@ const Messages = () => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
     }
+  };
+
+  const performSearch = async (query: string) => {
+    if (!query.trim() || !user) {
+      setSearchResults([]);
+      return;
+    }
+
+    setSearchLoading(true);
+    try {
+      // Search by ID (exact match)
+      const idSearch = await supabase
+        .from("profiles")
+        .select("id, username, is_anonymous, account_number")
+        .eq("id", query.trim())
+        .neq("id", user.id)
+        .limit(10);
+
+      // Search by account number
+      const accountSearch = await supabase
+        .from("profiles")
+        .select("id, username, is_anonymous, account_number")
+        .eq("account_number", parseInt(query.trim()))
+        .neq("id", user.id)
+        .limit(10);
+
+      // Search by username (partial match)
+      const usernameSearch = await supabase
+        .from("profiles")
+        .select("id, username, is_anonymous, account_number")
+        .ilike("username", `%${query.trim()}%`)
+        .neq("id", user.id)
+        .limit(10);
+
+      // Combine and deduplicate results
+      const allResults = new Map();
+
+      [...(idSearch.data || []), ...(accountSearch.data || []), ...(usernameSearch.data || [])].forEach(user => {
+        allResults.set(user.id, user);
+      });
+
+      setSearchResults(Array.from(allResults.values()).slice(0, 10));
+    } catch (error) {
+      console.error("Search error:", error);
+      setSearchResults([]);
+    }
+    setSearchLoading(false);
   };
 
   const findOrCreateConversation = async (otherUserId: string) => {
@@ -252,6 +318,46 @@ const Messages = () => {
       );
 
       setConversations(conversationsWithUnread);
+
+      // Load colors for all users in conversations
+      const colorPromises = conversationsWithUnread.map(async (conv) => {
+        const otherUser = conv.user1_id === user.id ? conv.user2 : conv.user1;
+        if (otherUser && !otherUser.is_anonymous) {
+          const { data: achievements } = await supabase
+            .from("user_achievements")
+            .select(`
+              achievement_id,
+              achievements (
+                reward_type,
+                reward_value
+              )
+            `)
+            .eq("user_id", otherUser.id);
+
+          if (achievements) {
+            const colorRewards = achievements
+              .filter((a: any) => a.achievements?.reward_type === "username_color")
+              .map((a: any) => a.achievements.reward_value);
+
+            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+            for (const p of priority) {
+              if (colorRewards.includes(p)) {
+                return { userId: otherUser.id, color: p };
+              }
+            }
+          }
+        }
+        return null;
+      });
+
+      const colorResults = await Promise.all(colorPromises);
+      const newColors = new Map();
+      colorResults.forEach(result => {
+        if (result) {
+          newColors.set(result.userId, result.color);
+        }
+      });
+      setUserColors(newColors);
     }
   };
 
@@ -396,9 +502,67 @@ const Messages = () => {
           <div className="flex flex-1 overflow-hidden">
             {/* Conversations list - hidden on mobile when chat is open */}
             <div className={`${showChatView ? 'hidden sm:flex' : 'flex'} w-full sm:w-80 border-r border-border flex-col`}>
-              <div className="p-3 sm:p-4 border-b border-border">
-                <h2 className="text-base sm:text-lg font-bold">Сообщения</h2>
+              <div className="p-3 sm:p-4 border-b border-border flex items-center justify-between">
+                <h2 className="text-base sm:text-lg font-bold">Чаты</h2>
+                <button
+                  onClick={() => setShowSearch(!showSearch)}
+                  className="p-2 hover:bg-post-header rounded-lg transition-colors"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
               </div>
+
+              {/* Search panel */}
+              {showSearch && (
+                <div className="border-b border-border p-3">
+                  <input
+                    type="text"
+                    placeholder="Поиск по ID, доп. ID или никнейму..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      performSearch(e.target.value);
+                    }}
+                    className="w-full p-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  {searchLoading && (
+                    <div className="flex justify-center mt-2">
+                      <PentagramLoader size="sm" />
+                    </div>
+                  )}
+                  {searchResults.length > 0 && (
+                    <div className="mt-2 max-h-60 overflow-y-auto space-y-2">
+                      {searchResults.map((user) => (
+                        <button
+                          key={user.id}
+                          onClick={() => {
+                            setShowSearch(false);
+                            setSearchQuery("");
+                            setSearchResults([]);
+                            findOrCreateConversation(user.id);
+                          }}
+                          className="w-full flex items-center gap-3 p-2 hover:bg-post-header rounded-lg transition-colors text-left"
+                        >
+                          <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center">
+                            <span className="text-sm font-bold">
+                              {user.is_anonymous ? "A" : user.username.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`font-medium text-sm truncate ${getColorClass(userColors.get(user.id) || "")}`}>
+                              {user.is_anonymous ? "Аноним" : user.username}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              ID: {user.id.slice(0, 8)} • {user.account_number ? `Доп: ${user.account_number}` : 'Без доп. ID'}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-1 p-2">
                   {conversations.length === 0 ? (
@@ -424,7 +588,7 @@ const Messages = () => {
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               <p className={`font-bold text-sm truncate ${
-                                selectedConversation === conv.id ? "text-primary" : ""
+                                selectedConversation === conv.id ? "text-primary" : getColorClass(userColors.get(otherUser.id) || "")
                               }`}>
                                 {otherUser.is_anonymous ? "Аноним" : otherUser.username}
                               </p>
