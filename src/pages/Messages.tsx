@@ -14,7 +14,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Send, Search, ChevronDown } from "lucide-react";
+import { Send, Search, ChevronDown, Settings } from "lucide-react";
 
 const getColorClass = (color: string): string => {
   const colorClasses: Record<string, string> = {
@@ -666,7 +666,11 @@ const Messages = () => {
             gomo6
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <ThemeToggle />
+            <Link to="/settings">
+              <Button variant="ghost" size="sm" className="p-2">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
             <NotificationBell userId={user.id} />
             <ChatIcon userId={user.id} />
             <div className="hidden sm:flex gap-1 sm:gap-2 items-center">

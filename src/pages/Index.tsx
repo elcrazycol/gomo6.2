@@ -9,6 +9,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Settings } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -199,7 +200,11 @@ const Index = () => {
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
           <h1 className="text-2xl sm:text-3xl font-bold flex-shrink-0">gomo6</h1>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <ThemeToggle />
+            <Link to="/settings">
+              <Button variant="ghost" size="sm" className="p-2">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
             {user ? (
