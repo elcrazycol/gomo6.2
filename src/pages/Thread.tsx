@@ -602,8 +602,6 @@ const Thread = () => {
                 <MobileMenu
                   user={user}
                   isModerator={isModerator}
-                  username={user ? (thread?.profiles?.username || "Пользователь") : undefined}
-                  isAnonymous={thread?.profiles?.is_anonymous}
                 />
               </>
             ) : (

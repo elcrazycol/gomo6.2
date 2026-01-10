@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, cloneElement } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "lucide-react";
 
@@ -72,25 +72,22 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
     }
   }, [showCard, userId]);
 
+  const childrenWithHover = cloneElement(children as React.ReactElement, {
+    onMouseEnter: () => setShowCard(true),
+    onMouseLeave: () => setShowCard(false),
+  });
+
   if (!showCard || !profile) {
     return (
-      <div
-        onMouseEnter={() => setShowCard(true)}
-        onMouseLeave={() => setShowCard(false)}
-        className="relative"
-      >
-        {children}
+      <div className="relative">
+        {childrenWithHover}
       </div>
     );
   }
 
   return (
-    <div
-      onMouseEnter={() => setShowCard(true)}
-      onMouseLeave={() => setShowCard(false)}
-      className="relative"
-    >
-      {children}
+    <div className="relative">
+      {childrenWithHover}
 
       {/* Hover Card */}
       <div className="absolute top-full left-0 mt-1 z-50">
