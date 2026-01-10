@@ -92,6 +92,7 @@ const Thread = () => {
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [isInputPanelVisible, setIsInputPanelVisible] = useState(true);
+  const [isInputPanelCollapsed, setIsInputPanelCollapsed] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
@@ -692,7 +693,7 @@ const Thread = () => {
 
       <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-24 sm:pb-28">
         <div className="mb-4 flex justify-between items-center">
-          <Link to={`/${slug}`} className="text-link hover:underline text-sm">
+          <Link to={`/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
             ← Назад к доске
           </Link>
           {user && (
@@ -791,7 +792,7 @@ const Thread = () => {
           </div>
         </div>
 
-        <div className="space-y-2 mb-4">
+        <div className="space-y-4 mb-4">
           {posts.map((post) => (
             <div
               key={post.id}
@@ -967,7 +968,7 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <div className={`fixed bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed bottom-2 sm:bottom-6 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto">
@@ -977,10 +978,41 @@ const Thread = () => {
                 </div>
               )}
 
-              <form
-                onSubmit={handleSubmitPost}
-                className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-3 space-y-2"
-              >
+              {/* Mini panel for collapsed state */}
+              {isInputPanelCollapsed && (
+                <div className="mx-auto max-w-xs">
+                  <div className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-2 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setIsInputPanelCollapsed(false)}
+                      className="w-8 h-8 rounded-full bg-background/80 hover:bg-background border border-border/50 flex items-center justify-center transition-colors"
+                    >
+                      <span className="text-sm">
+                        ^
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Full panel for expanded state */}
+              {!isInputPanelCollapsed && (
+                <div className="max-w-2xl mx-auto relative">
+                  {/* Collapse button - only on desktop */}
+                  <button
+                    type="button"
+                    onClick={() => setIsInputPanelCollapsed(true)}
+                    className="hidden sm:flex absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-background/80 hover:bg-background border border-border/50 items-center justify-center transition-colors"
+                  >
+                    <span className="text-sm transform rotate-180">
+                      ^
+                    </span>
+                  </button>
+
+                  <form
+                    onSubmit={handleSubmitPost}
+                    className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-3 space-y-2"
+                  >
                 {replyingTo && (
                   <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
                     <span>Ответ на #{replyingTo.slice(0, 8)}</span>
@@ -1143,6 +1175,8 @@ const Thread = () => {
                   </Button>
                 </div>
               </form>
+                </div>
+              )}
 
               {/* Image Preview Modal */}
               {showImagePreview && (
@@ -1199,7 +1233,7 @@ const Thread = () => {
             </div>
           </div>
         ) : user ? (
-          <div className={`fixed bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed bottom-2 sm:bottom-6 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center text-muted-foreground">
@@ -1207,7 +1241,7 @@ const Thread = () => {
             </div>
           </div>
         ) : (
-          <div className={`fixed bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed bottom-2 sm:bottom-6 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">
