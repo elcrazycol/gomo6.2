@@ -690,7 +690,7 @@ const Thread = () => {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-40 sm:pb-44">
+      <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-24 sm:pb-28">
         <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-link hover:underline text-sm">
             ← Назад к доске
@@ -967,7 +967,7 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <div className={`fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto">
@@ -1199,7 +1199,7 @@ const Thread = () => {
             </div>
           </div>
         ) : user ? (
-          <div className={`fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center text-muted-foreground">
@@ -1207,7 +1207,7 @@ const Thread = () => {
             </div>
           </div>
         ) : (
-          <div className={`fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">
