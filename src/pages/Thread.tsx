@@ -89,6 +89,8 @@ const Thread = () => {
   const [content, setContent] = useState("");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [showImagePreview, setShowImagePreview] = useState(false);
+  const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -103,6 +105,32 @@ const Thread = () => {
   const [showGallery, setShowGallery] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const handleUploadSuccess = (event: CustomEvent) => {
+      setUploadSuccessMessage(`Загружено ${event.detail.count} фото`);
+      setTimeout(() => setUploadSuccessMessage(null), 3000);
+    };
+
+    document.addEventListener('showUploadSuccess', handleUploadSuccess as EventListener);
+
+    return () => {
+      document.removeEventListener('showUploadSuccess', handleUploadSuccess as EventListener);
+    };
+  }, []);
+
+  // Prevent body scroll when image preview is open
+  useEffect(() => {
+    if (showImagePreview) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showImagePreview]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -885,8 +913,14 @@ const Thread = () => {
         {canPost ? (
           <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
             <div className="max-w-2xl mx-auto">
-              <form 
-                onSubmit={handleSubmitPost} 
+              {uploadSuccessMessage && (
+                <div className="mb-2 p-3 bg-background/40 backdrop-blur-sm border border-border/30 rounded-2xl text-sm text-foreground font-medium text-center">
+                  {uploadSuccessMessage}
+                </div>
+              )}
+
+              <form
+                onSubmit={handleSubmitPost}
                 className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-3 space-y-2"
               >
                 {replyingTo && (
@@ -907,19 +941,117 @@ const Thread = () => {
                 <TextFormattingToolbar onFormat={handleFormatText} />
                 
                 <div className="flex gap-2 items-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 rounded-xl shrink-0"
-                    onClick={() => {
-                      // Trigger image upload
-                      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-                      input?.click();
-                    }}
-                  >
-                    <ImagePlus className="h-5 w-5" />
-                  </Button>
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length === 0) return;
+
+                        // Compress and upload images
+                        const compressImage = (file: File, maxWidth: number = 1200): Promise<File> => {
+                          return new Promise((resolve, reject) => {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            const img = new Image();
+
+                            img.onload = () => {
+                              let { width, height } = img;
+                              if (width > maxWidth) {
+                                height = (height * maxWidth) / width;
+                                width = maxWidth;
+                              }
+
+                              canvas.width = width;
+                              canvas.height = height;
+                              ctx?.drawImage(img, 0, 0, width, height);
+
+                              canvas.toBlob((blob) => {
+                                if (blob) {
+                                  const compressedFile = new File([blob], file.name, {
+                                    type: 'image/jpeg',
+                                    lastModified: Date.now(),
+                                  });
+                                  resolve(compressedFile);
+                                } else {
+                                  reject(new Error('Failed to compress image'));
+                                }
+                              }, 'image/jpeg', 0.8);
+                            };
+
+                            img.src = URL.createObjectURL(file);
+                          });
+                        };
+
+                        try {
+                          const compressedFiles = await Promise.all(
+                            files.map(file => compressImage(file).catch(() => file))
+                          );
+
+                          const { data: { user } } = await supabase.auth.getUser();
+                          if (!user) {
+                            toast.error("Нужно войти для загрузки изображений");
+                            return;
+                          }
+
+                          const uploadPromises = compressedFiles.map(async (file) => {
+                            const fileExt = file.name.split('.').pop() || 'jpg';
+                            const timestamp = Date.now();
+                            const randomStr = Math.random().toString(36).substring(2, 9);
+                            const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
+
+                            const { error: uploadError } = await supabase.storage
+                              .from('post-images')
+                              .upload(fileName, file, {
+                                cacheControl: '3600',
+                                upsert: false
+                              });
+
+                            if (uploadError) {
+                              console.error('Upload error:', uploadError);
+                              throw new Error(uploadError.message || 'Ошибка загрузки файла');
+                            }
+
+                            const { data: { publicUrl } } = supabase.storage
+                              .from('post-images')
+                              .getPublicUrl(fileName);
+
+                            return publicUrl;
+                          });
+
+                          const newUrls = await Promise.all(uploadPromises);
+                          setImageUrls(prev => [...prev, ...newUrls]);
+                          // Show success message above the form instead of toast
+                          setTimeout(() => {
+                            const event = new CustomEvent('showUploadSuccess', {
+                              detail: { count: newUrls.length }
+                            });
+                            document.dispatchEvent(event);
+                          }, 100);
+                        } catch (error) {
+                          toast.error("Ошибка загрузки фото");
+                          console.error(error);
+                        }
+
+                        // Reset input
+                        e.target.value = '';
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 rounded-xl shrink-0"
+                      asChild
+                    >
+                      <span>
+                        <ImagePlus className="h-5 w-5" />
+                      </span>
+                    </Button>
+                  </label>
                   <div className="flex-1">
                     <Textarea
                       ref={textareaRef}
@@ -932,6 +1064,17 @@ const Thread = () => {
                       className="bg-background/50 border-border/30"
                     />
                   </div>
+                  {imageUrls.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 rounded-xl shrink-0"
+                      onClick={() => setShowImagePreview(true)}
+                    >
+                      <span className="text-sm font-bold">{imageUrls.length}</span>
+                    </Button>
+                  )}
                   <Button
                     type="submit"
                     disabled={loading || (!content.trim() && imageUrls.length === 0)}
@@ -941,14 +1084,60 @@ const Thread = () => {
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
-
-                <div className="mt-2">
-                  <ImageUpload
-                    onImagesUploaded={setImageUrls}
-                    currentImages={imageUrls}
-                  />
-                </div>
               </form>
+
+              {/* Image Preview Modal */}
+              {showImagePreview && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
+                  <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[80vh] overflow-hidden">
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold">
+                          Приложенные фото ({imageUrls.length})
+                        </h3>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowImagePreview(false)}
+                        >
+                          ✕
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto">
+                        {imageUrls.map((url, index) => (
+                          <div key={index} className="relative aspect-square">
+                            <img
+                              src={url}
+                              alt={`Фото ${index + 1}`}
+                              className="w-full h-full object-cover rounded-lg border border-border"
+                            />
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="absolute top-1 right-1 h-6 w-6 p-0"
+                              onClick={() => {
+                                setImageUrls(prev => prev.filter((_, i) => i !== index));
+                              }}
+                            >
+                              ✕
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2 mt-4">
+                        <Button
+                          onClick={() => setShowImagePreview(false)}
+                          className="flex-1"
+                        >
+                          Готово
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : user ? (
