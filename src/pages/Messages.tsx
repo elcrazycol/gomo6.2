@@ -30,6 +30,10 @@ const getColorClass = (color: string): string => {
   return colorClasses[color] || "";
 };
 
+const generateConversationHash = (userId: string, otherUserId: string): string => {
+  return btoa(`${userId}-${otherUserId}-${Date.now()}`).slice(0, 16);
+};
+
 interface Conversation {
   id: string;
   user1_id: string;
@@ -82,6 +86,11 @@ const Messages = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [conversationHashes, setConversationHashes] = useState<Map<string, string>>(new Map());
+  const [loadingFromSearch, setLoadingFromSearch] = useState(false);
+  const currentLoadController = useRef<AbortController | null>(null);
+  const currentLoadingConversation = useRef<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -130,8 +139,14 @@ const Messages = () => {
 
   useEffect(() => {
     if (selectedConversation) {
+      setConversationLoading(true);
       setLoading(true);
-      loadMessages(selectedConversation);
+
+      // Generate hash for this conversation
+      const conversationHash = generateConversationHash(user?.id || '', selectedConversation);
+      setConversationHashes(prev => new Map(prev.set(selectedConversation, conversationHash)));
+
+      loadMessages(selectedConversation, conversationHash);
       // On mobile, show chat view when conversation is selected
       if (window.innerWidth < 640) {
         setShowChatView(true);
@@ -148,8 +163,35 @@ const Messages = () => {
             table: 'messages',
             filter: `conversation_id=eq.${selectedConversation}`,
           },
-          () => {
-            loadMessages(selectedConversation);
+          async (payload) => {
+            // Add new message to existing list without reloading
+            const newMessage = payload.new as Message;
+
+            // Load sender profile for the new message
+            const { data: senderProfile } = await supabase
+              .from("profiles")
+              .select("username, is_anonymous")
+              .eq("id", newMessage.sender_id)
+              .single();
+
+            const messageWithProfile: Message = {
+              ...newMessage,
+              sender: senderProfile || { username: "Неизвестен", is_anonymous: false },
+            };
+
+            // Add to messages list
+            setMessages(prev => [...prev, messageWithProfile]);
+
+            // If message is for current user, mark as read
+            if (newMessage.recipient_id === user?.id) {
+              await supabase
+                .from("messages")
+                .update({ is_read: true })
+                .eq("id", newMessage.id);
+            }
+
+            // Reload conversations to update unread counts
+            loadConversations();
           }
         )
         .subscribe();
@@ -220,6 +262,15 @@ const Messages = () => {
 
   const findOrCreateConversation = async (otherUserId: string) => {
     if (!user) return;
+
+    // Cancel any ongoing load
+    if (currentLoadController.current) {
+      currentLoadController.current.abort();
+    }
+
+    // Reset loading state
+    setLoading(true);
+    setConversationLoading(true);
 
     // Try to find existing conversation
     const { data: existing1 } = await supabase
@@ -361,16 +412,33 @@ const Messages = () => {
     }
   };
 
-  const loadMessages = async (conversationId: string) => {
+  const loadMessages = async (conversationId: string, expectedHash?: string) => {
     if (!user) return;
+
+    // Cancel any previous load
+    if (currentLoadController.current) {
+      currentLoadController.current.abort();
+    }
+
+    // Create new controller for this load
+    const controller = new AbortController();
+    currentLoadController.current = controller;
+    currentLoadingConversation.current = conversationId;
+
 
     setLoading(true);
 
-    const { data } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+    try {
+      const { data } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+
+      // Check if this load was cancelled
+      if (controller.signal.aborted) {
+        return;
+      }
 
     if (data) {
       // Load sender profiles for each message
@@ -389,7 +457,18 @@ const Messages = () => {
         })
       );
 
+      // Check if this load was cancelled
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      // Set messages for this conversation
       setMessages(messagesWithProfiles);
+
+      // Check if load was cancelled
+      if (controller.signal.aborted) {
+        return;
+      }
 
       // Mark messages as read
       await supabase
@@ -399,11 +478,77 @@ const Messages = () => {
         .eq("recipient_id", user.id)
         .eq("is_read", false);
 
+      // Check hash again before completing
+      const finalHash = conversationHashes.get(conversationId);
+      if (expectedHash && finalHash !== expectedHash) {
+        return; // Conversation changed during loading
+      }
+
+      // Load colors for conversation participants
+      const conversation = conversations.find(c => c.id === conversationId);
+      if (conversation) {
+        const otherUser = conversation.user1_id === user.id ? conversation.user2 : conversation.user1;
+        if (otherUser && !otherUser.is_anonymous && !userColors.has(otherUser.id)) {
+          const { data: achievements } = await supabase
+            .from("user_achievements")
+            .select(`
+              achievement_id,
+              achievements (
+                reward_type,
+                reward_value
+              )
+            `)
+            .eq("user_id", otherUser.id);
+
+          if (achievements) {
+            const colorRewards = achievements
+              .filter((a: any) => a.achievements?.reward_type === "username_color")
+              .map((a: any) => a.achievements.reward_value);
+
+            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+            for (const p of priority) {
+              if (colorRewards.includes(p)) {
+                setUserColors(prev => new Map(prev.set(otherUser.id, p)));
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Check if load was cancelled before completing
+      if (controller.signal.aborted) {
+        return;
+      }
+
       // Reload conversations to update unread counts
       loadConversations();
     }
 
+    // Complete loading if this conversation is still being loaded
+    if (currentLoadingConversation.current === conversationId && !controller.signal.aborted) {
+      setLoading(false);
+      setConversationLoading(false);
+      setLoadingFromSearch(false);
+      currentLoadingConversation.current = null;
+      currentLoadController.current = null;
+    }
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      // Load was cancelled, reset state
+      if (currentLoadingConversation.current === conversationId) {
+        currentLoadingConversation.current = null;
+        currentLoadController.current = null;
+      }
+      return;
+    }
+    console.error('Load messages error:', error);
     setLoading(false);
+    setConversationLoading(false);
+    setLoadingFromSearch(false);
+    currentLoadingConversation.current = null;
+    currentLoadController.current = null;
+  }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -539,6 +684,7 @@ const Messages = () => {
                             setShowSearch(false);
                             setSearchQuery("");
                             setSearchResults([]);
+                            setLoadingFromSearch(true);
                             findOrCreateConversation(user.id);
                           }}
                           className="w-full flex items-center gap-3 p-2 hover:bg-post-header rounded-lg transition-colors text-left"
@@ -564,6 +710,11 @@ const Messages = () => {
               )}
 
               <div className="flex-1 overflow-y-auto">
+                {loadingFromSearch && (
+                  <div className="flex justify-center items-center py-8">
+                    <PentagramLoader size="sm" />
+                  </div>
+                )}
                 <div className="space-y-1 p-2">
                   {conversations.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center p-4">
@@ -576,9 +727,12 @@ const Messages = () => {
                         <button
                           key={conv.id}
                           onClick={() => {
-                            setSelectedConversation(conv.id);
-                            if (window.innerWidth < 640) {
-                              setShowChatView(true);
+                            if (selectedConversation !== conv.id) {
+                              setSelectedConversation(conv.id);
+                              setLoadingFromSearch(false); // Reset search flag for existing chats
+                              if (window.innerWidth < 640) {
+                                setShowChatView(true);
+                              }
                             }
                           }}
                           className={`w-full text-left p-3 border border-border hover:bg-post-header transition-colors ${
@@ -587,9 +741,7 @@ const Messages = () => {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <p className={`font-bold text-sm truncate ${
-                                selectedConversation === conv.id ? "text-primary" : getColorClass(userColors.get(otherUser.id) || "")
-                              }`}>
+                              <p className={`font-bold text-sm truncate ${getColorClass(userColors.get(otherUser.id) || "")}`}>
                                 {otherUser.is_anonymous ? "Аноним" : otherUser.username}
                               </p>
                               <p className="text-xs text-muted-foreground truncate">
