@@ -94,6 +94,7 @@ const Thread = () => {
   const [isInputPanelVisible, setIsInputPanelVisible] = useState(true);
   const [isInputPanelCollapsed, setIsInputPanelCollapsed] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const [pulsingPostId, setPulsingPostId] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -797,7 +798,9 @@ const Thread = () => {
             <div
               key={post.id}
               id={`post-${post.id}`}
-              className="bg-post-header p-2 sm:p-3 border border-border"
+              className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
+                pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
+              }`}
             >
               <div className="flex justify-between items-start gap-2">
                 <div className="text-xs text-muted-foreground mb-2 flex-wrap flex-1">
@@ -874,9 +877,18 @@ const Thread = () => {
               {post.reply_to && (
                 <a
                   href={`#post-${post.reply_to}`}
-                  className="text-xs text-link hover:underline block mb-1"
+                  className="text-xs hover:text-primary/80 font-medium hover:underline block mb-1 transition-colors cursor-pointer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPulsingPostId(post.reply_to);
+                    setTimeout(() => setPulsingPostId(null), 800);
+                    const element = document.getElementById(`post-${post.reply_to}`);
+                    if (element) {
+                      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
                 >
-                  → Ответ на #{post.reply_to.slice(0, 8)}
+                  <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
                 </a>
               )}
               {(post as any).imageUrls && (post as any).imageUrls.length > 0 && (
