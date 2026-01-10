@@ -111,6 +111,7 @@ const Messages = () => {
 
   useEffect(() => {
     if (selectedConversation) {
+      setLoading(true);
       loadMessages(selectedConversation);
       // On mobile, show chat view when conversation is selected
       if (window.innerWidth < 640) {
@@ -257,6 +258,8 @@ const Messages = () => {
   const loadMessages = async (conversationId: string) => {
     if (!user) return;
 
+    setLoading(true);
+
     const { data } = await supabase
       .from("messages")
       .select("*")
@@ -293,6 +296,8 @@ const Messages = () => {
       // Reload conversations to update unread counts
       loadConversations();
     }
+
+    setLoading(false);
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -474,32 +479,44 @@ const Messages = () => {
                     className="flex-1 overflow-y-auto p-3 sm:p-4"
                   >
                     <div className="space-y-3">
-                      {messages.map((msg) => {
-                        const isOwn = msg.sender_id === user.id;
-                        return (
-                          <div
-                            key={msg.id}
-                            className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
-                          >
+                      {loading ? (
+                        <div className="flex justify-center items-center h-full min-h-[200px]">
+                          <PentagramLoader size="sm" />
+                        </div>
+                      ) : messages.length === 0 ? (
+                        <div className="text-center text-muted-foreground py-8">
+                          {selectedConversation ? "Сообщений пока нет" : "Выберите чат для начала общения"}
+                        </div>
+                      ) : (
+                        <>
+                          {messages.map((msg) => {
+                          const isOwn = msg.sender_id === user.id;
+                          return (
                             <div
-                              className={`max-w-[85%] sm:max-w-[70%] p-2 sm:p-3 rounded-lg ${
-                                isOwn
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-post-header border border-border"
-                              }`}
+                              key={msg.id}
+                              className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
                             >
-                              <p className="text-sm break-words">{msg.content}</p>
-                              <p className={`text-xs opacity-70 mt-1 ${isOwn ? 'text-right' : ''}`}>
-                                {formatDistanceToNow(new Date(msg.created_at), {
-                                  locale: ru,
-                                  addSuffix: true,
-                                })}
-                              </p>
+                              <div
+                                className={`max-w-[85%] sm:max-w-[70%] p-2 sm:p-3 rounded-lg ${
+                                  isOwn
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-post-header border border-border"
+                                }`}
+                              >
+                                <p className="text-sm break-words">{msg.content}</p>
+                                <p className={`text-xs opacity-70 mt-1 ${isOwn ? 'text-right' : ''}`}>
+                                  {formatDistanceToNow(new Date(msg.created_at), {
+                                    locale: ru,
+                                    addSuffix: true,
+                                  })}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                      <div ref={messagesEndRef} />
+                          );
+                          })}
+                          <div ref={messagesEndRef} />
+                        </>
+                      )}
                     </div>
                   </div>
                   <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-border">
