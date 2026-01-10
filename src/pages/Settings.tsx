@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
@@ -9,11 +10,18 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChevronDown, HelpCircle, AlertTriangle } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [privacySettings, setPrivacySettings] = useState<any>(null);
+  const [privacyLoading, setPrivacyLoading] = useState(false);
+  const [visibilityExpanded, setVisibilityExpanded] = useState(false);
+  const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
 
   useEffect(() => {
     const getUser = async () => {
@@ -24,6 +32,149 @@ const Settings = () => {
 
     getUser();
   }, []);
+
+  const loadPrivacySettings = async () => {
+    // Load from localStorage first
+    const saved = localStorage.getItem(`privacy_settings_${user.id}`);
+    if (saved) {
+      try {
+        const parsedSettings = JSON.parse(saved);
+        setPrivacySettings(parsedSettings);
+        return;
+      } catch (error) {
+        console.error('Error parsing saved privacy settings:', error);
+      }
+    }
+
+    // Try to load from database
+    try {
+      const { data, error } = await (supabase as any)
+        .from('privacy_settings')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!error && data) {
+        setPrivacySettings(data);
+        // Save to localStorage for faster loading next time
+        localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(data));
+        return;
+      }
+
+      // If no data, create default settings in database
+      if (error && error.code === 'PGRST116') {
+        console.log('Creating default privacy settings for user');
+        const defaultSettings = {
+          user_id: user.id,
+          visibility_profile: true,
+          hide_messages_from_unregistered: false,
+          hide_threads_from_unregistered: false,
+          block_profile_visits_from_unregistered: false,
+          allow_search_by_username: true,
+          allow_search_by_id: true,
+          allow_search_by_secondary_id: true,
+          allow_private_messages: true,
+          anonymous_mode: false,
+        };
+
+        const { error: insertError } = await (supabase as any)
+          .from('privacy_settings')
+          .insert(defaultSettings);
+
+        if (!insertError) {
+          setPrivacySettings(defaultSettings);
+          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(defaultSettings));
+          return;
+        }
+      }
+    } catch (error) {
+      console.log('Privacy settings not found in database, using defaults');
+    }
+
+    // Default settings if nothing in database or localStorage
+    const defaultSettings = {
+      visibility_profile: true,
+      hide_messages_from_unregistered: false,
+      hide_threads_from_unregistered: false,
+      block_profile_visits_from_unregistered: false,
+      allow_search_by_username: true,
+      allow_search_by_id: true,
+      allow_search_by_secondary_id: true,
+      allow_private_messages: true,
+      anonymous_mode: false,
+    };
+    setPrivacySettings(defaultSettings);
+  };
+
+  const updatePrivacySetting = async (key: string, value: boolean) => {
+    if (!privacySettings || !user) return;
+
+    setPrivacyLoading(true);
+    try {
+      const updatedSettings = { ...privacySettings, [key]: value };
+      setPrivacySettings(updatedSettings);
+
+      // Try to save to database
+      try {
+        // First try to update existing record
+        const { error: updateError } = await (supabase as any)
+          .from('privacy_settings')
+          .update({
+            ...updatedSettings,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+
+        if (!updateError) {
+          // Save to localStorage too
+          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
+        } else {
+          console.log('Update failed, trying insert:', updateError);
+          // If update failed (no record exists), try to insert
+          const { error: insertError } = await (supabase as any)
+            .from('privacy_settings')
+            .insert({
+              user_id: user.id,
+              ...updatedSettings,
+            });
+
+          if (!insertError) {
+            localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
+          } else {
+            console.error('Insert also failed:', insertError);
+          }
+        }
+      } catch (error) {
+        console.error('Database save error:', error);
+      }
+
+      console.log('Privacy setting updated:', key, value);
+    } catch (error) {
+      console.error('Error updating privacy settings:', error);
+      setPrivacySettings(privacySettings);
+    } finally {
+      setPrivacyLoading(false);
+    }
+  };
+
+  const handleAnonymousToggle = async (value: boolean) => {
+    if (value && !privacySettings?.anonymous_mode) {
+      setShowAnonymousConfirm(true);
+    } else {
+      await updatePrivacySetting('anonymous_mode', value);
+    }
+  };
+
+  const confirmAnonymousMode = async () => {
+    await updatePrivacySetting('anonymous_mode', true);
+    setShowAnonymousConfirm(false);
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadPrivacySettings();
+    }
+  }, [user]);
 
   if (loading) {
     return (
@@ -39,28 +190,29 @@ const Settings = () => {
   }
 
   return (
-    <div className="bg-background min-h-screen flex flex-col">
-      <div className="flex-1">
-        <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-          <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-            <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
-              gomo6
-            </Link>
-            <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-              <ThemeToggle />
-              {user && <NotificationBell userId={user.id} />}
-              {user && <ChatIcon userId={user.id} />}
-              <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
-                <ProfileHoverCard userId={user.id}>
-                  <Link to={`/profile/${user.id}`}>
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
-                  </Link>
-                </ProfileHoverCard>
+    <TooltipProvider>
+      <div className="bg-background min-h-screen flex flex-col">
+        <div className="flex-1">
+          <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
+            <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
+              <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
+                gomo6
+              </Link>
+              <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
+                <ThemeToggle />
+                {user && <NotificationBell userId={user.id} />}
+                {user && <ChatIcon userId={user.id} />}
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                  <ProfileHoverCard userId={user.id}>
+                    <Link to={`/profile/${user.id}`}>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                    </Link>
+                  </ProfileHoverCard>
+                </div>
+                <MobileMenu user={user} isModerator={false} />
               </div>
-              <MobileMenu user={user} />
             </div>
-          </div>
-        </header>
+          </header>
 
         <main className="max-w-4xl mx-auto p-4">
           <div className="space-y-6">
@@ -143,29 +295,188 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="privacy" className="space-y-4">
-                <div className="bg-card p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Приватность</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Видимость профиля</label>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Настройки приватности находятся в разработке
-                      </p>
+                {privacySettings && (
+                  <>
+                    {/* Profile Visibility Section */}
+                    <div className="bg-card border border-border">
+                      <button
+                        onClick={() => setVisibilityExpanded(!visibilityExpanded)}
+                        className="w-full p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg font-semibold">Видимость профиля</span>
+                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <ChevronDown className={`h-5 w-5 transition-transform ${visibilityExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {visibilityExpanded && (
+                        <div className="px-6 pb-6 space-y-6">
+                          <div>
+                            <h3 className="text-base font-medium mb-4">Общая видимость</h3>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span>Не показывать сообщения <u>НП</u></span>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>НП - незарегистрированный пользователь</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                                <Switch
+                                  checked={privacySettings.hide_messages_from_unregistered}
+                                  onCheckedChange={(value) => updatePrivacySetting('hide_messages_from_unregistered', value)}
+                                  disabled={privacyLoading}
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span>Не показывать мои треды <u>НП</u></span>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>НП - незарегистрированный пользователь</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                                <Switch
+                                  checked={privacySettings.hide_threads_from_unregistered}
+                                  onCheckedChange={(value) => updatePrivacySetting('hide_threads_from_unregistered', value)}
+                                  disabled={privacyLoading}
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span>Запретить посещать мой профиль <u>НП</u></span>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>НП - незарегистрированный пользователь</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                                <Switch
+                                  checked={privacySettings.block_profile_visits_from_unregistered}
+                                  onCheckedChange={(value) => updatePrivacySetting('block_profile_visits_from_unregistered', value)}
+                                  disabled={privacyLoading}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <label className="text-sm font-medium">Блокировка пользователей</label>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Управление заблокированными пользователями
-                      </p>
+
+                    {/* Private Chat Section */}
+                    <div className="bg-card p-6 border border-border">
+                      <div className="flex items-center gap-2 mb-4">
+                        <h2 className="text-lg font-semibold">Личный чат</h2>
+                        <AlertTriangle className="h-4 w-4 text-orange-500 cursor-help" />
+                        <span className="text-xs text-muted-foreground">(экспериментальная функция)</span>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span>Поиск меня по username</span>
+                          <Switch
+                            checked={privacySettings.allow_search_by_username}
+                            onCheckedChange={(value) => updatePrivacySetting('allow_search_by_username', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span>Поиск меня по ID</span>
+                          <Switch
+                            checked={privacySettings.allow_search_by_id}
+                            onCheckedChange={(value) => updatePrivacySetting('allow_search_by_id', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span>Поиск меня по 2nd ID</span>
+                          <Switch
+                            checked={privacySettings.allow_search_by_secondary_id}
+                            onCheckedChange={(value) => updatePrivacySetting('allow_search_by_secondary_id', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span>Разрешить писать мне сообщения</span>
+                          <Switch
+                            checked={privacySettings.allow_private_messages}
+                            onCheckedChange={(value) => updatePrivacySetting('allow_private_messages', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+
+                    {/* Anonymous Mode */}
+                    <div className="bg-card p-6 border border-border border-red-200">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h2 className="text-lg font-semibold text-red-600">Режим анонимности</h2>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Не рекомендуется включать
+                          </p>
+                        </div>
+                        <Switch
+                          checked={privacySettings.anonymous_mode}
+                          onCheckedChange={handleAnonymousToggle}
+                          disabled={privacyLoading}
+                          className="data-[state=checked]:bg-red-500"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
               </TabsContent>
             </Tabs>
           </div>
         </main>
       </div>
-    </div>
+
+      {/* Anonymous Mode Confirmation Dialog */}
+      <Dialog open={showAnonymousConfirm} onOpenChange={setShowAnonymousConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Включить режим анонимности?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm">
+              Вы уверены, что хотите включить режим анонимности?
+            </p>
+            <ul className="text-sm text-muted-foreground space-y-1 ml-4">
+              <li>• Информация о вашей активности не будет собираться</li>
+              <li>• Достижения не будут получены</li>
+              <li>• Вам никто не сможет написать лично при надобности</li>
+            </ul>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowAnonymousConfirm(false)}>
+                Отмена
+              </Button>
+              <Button variant="destructive" onClick={confirmAnonymousMode}>
+                Включить
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      </div>
+    </TooltipProvider>
   );
 };
 
