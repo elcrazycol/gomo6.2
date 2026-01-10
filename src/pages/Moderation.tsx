@@ -251,7 +251,7 @@ const Moderation = () => {
   const resolvedReports = reports.filter(r => r.status !== 'pending');
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">

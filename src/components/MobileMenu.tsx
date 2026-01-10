@@ -18,6 +18,7 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState<string | undefined>(propUsername);
   const [isAnonymous, setIsAnonymous] = useState<boolean | undefined>(propIsAnonymous);
+  const [accountNumber, setAccountNumber] = useState<number | undefined>();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -26,13 +27,14 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
       const loadProfile = async () => {
         const { data } = await supabase
           .from("profiles")
-          .select("username, is_anonymous")
+          .select("username, is_anonymous, account_number")
           .eq("id", user.id)
           .single();
         
         if (data) {
           setUsername(data.username);
           setIsAnonymous(data.is_anonymous);
+          setAccountNumber(data.account_number);
         }
       };
       loadProfile();
@@ -84,7 +86,7 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
                       {username || "Пользователь"}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      ID: {user.id.slice(0, 8)}
+                      ID: {user.id.slice(0, 8)} {accountNumber && `(${accountNumber})`}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
                       {isAnonymous ? "Анонимный режим" : "Нажмите для просмотра профиля"}

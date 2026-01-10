@@ -353,14 +353,14 @@ const Messages = () => {
 
   if (!user || pageLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background">
       <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
