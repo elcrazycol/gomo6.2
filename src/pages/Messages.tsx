@@ -14,7 +14,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserBadge } from "@/components/UserBadge";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Send, Search } from "lucide-react";
+import { Send, Search, ChevronDown } from "lucide-react";
 
 const getColorClass = (color: string): string => {
   const colorClasses: Record<string, string> = {
@@ -28,6 +28,19 @@ const getColorClass = (color: string): string => {
     cyan: "text-cyan-500",
   };
   return colorClasses[color] || "";
+};
+
+const ScrollToBottomButton = ({ onClick, visible }: { onClick: () => void; visible: boolean }) => {
+  if (!visible) return null;
+
+  return (
+    <button
+      onClick={onClick}
+      className="absolute bottom-4 right-4 z-10 w-8 h-8 bg-background/60 hover:bg-background/80 border border-border/50 text-muted-foreground hover:text-foreground rounded-full flex items-center justify-center shadow-sm transition-all duration-200 backdrop-blur-sm"
+    >
+      <ChevronDown className="h-4 w-4" />
+    </button>
+  );
 };
 
 const generateConversationHash = (userId: string, otherUserId: string): string => {
@@ -89,6 +102,7 @@ const Messages = () => {
   const [conversationLoading, setConversationLoading] = useState(false);
   const [conversationHashes, setConversationHashes] = useState<Map<string, string>>(new Map());
   const [loadingFromSearch, setLoadingFromSearch] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const currentLoadController = useRef<AbortController | null>(null);
   const currentLoadingConversation = useRef<string | null>(null);
 
@@ -180,7 +194,11 @@ const Messages = () => {
             };
 
             // Add to messages list
-            setMessages(prev => [...prev, messageWithProfile]);
+            setMessages(prev => {
+              const exists = prev.some(msg => msg.id === messageWithProfile.id);
+              if (exists) return prev;
+              return [...prev, messageWithProfile];
+            });
 
             // If message is for current user, mark as read
             if (newMessage.recipient_id === user?.id) {
@@ -209,7 +227,19 @@ const Messages = () => {
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  const handleScroll = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      // Show button if user is more than 100px from bottom
+      const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100;
+      setShowScrollButton(!isNearBottom);
     }
   };
 
@@ -532,6 +562,13 @@ const Messages = () => {
       setLoadingFromSearch(false);
       currentLoadingConversation.current = null;
       currentLoadController.current = null;
+
+      // Scroll to bottom after loading messages (instant for initial load)
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }, 50);
     }
   } catch (error: any) {
     if (error.name === 'AbortError') {
@@ -551,8 +588,8 @@ const Messages = () => {
   }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!user || !selectedConversation || !messageContent.trim()) return;
 
     const recipientId = getOtherUserId();
@@ -561,16 +598,22 @@ const Messages = () => {
       return;
     }
 
-    setLoading(true);
+    const messageText = messageContent.trim();
+    setMessageContent(""); // Clear input immediately
 
+    // Send message to database
     const { error } = await supabase.from("messages").insert({
       conversation_id: selectedConversation,
       sender_id: user.id,
       recipient_id: recipientId,
-      content: messageContent.trim(),
+      content: messageText,
     });
 
-    setLoading(false);
+    if (error) {
+      toast.error("Ошибка отправки сообщения: " + error.message);
+      // Restore message text on error
+      setMessageContent(messageText);
+    }
 
     if (error) {
       toast.error("Ошибка отправки сообщения: " + error.message);
@@ -792,10 +835,12 @@ const Messages = () => {
                       )}
                     </div>
                   </div>
-                  <div 
+                  <div
                     ref={messagesContainerRef}
-                    className="flex-1 overflow-y-auto p-3 sm:p-4"
+                    className="flex-1 overflow-y-auto p-3 sm:p-4 relative"
+                    onScroll={handleScroll}
                   >
+                    <ScrollToBottomButton onClick={scrollToBottom} visible={showScrollButton} />
                     <div className="space-y-3">
                       {loading ? (
                         <div className="flex justify-center items-center h-full min-h-[200px]">
@@ -842,12 +887,18 @@ const Messages = () => {
                       <Textarea
                         value={messageContent}
                         onChange={(e) => setMessageContent(e.target.value)}
+                        onKeyDown={(e) => {
+                          // Send on Enter only on desktop
+                          if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
                         placeholder="Написать сообщение..."
                         rows={2}
                         className="resize-none text-sm"
-                        disabled={loading}
                       />
-                      <Button type="submit" disabled={loading || !messageContent.trim()} size="icon">
+                      <Button type="submit" disabled={!messageContent.trim()} size="icon">
                         <Send className="h-4 w-4" />
                       </Button>
                     </div>

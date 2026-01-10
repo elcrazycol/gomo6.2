@@ -1160,6 +1160,13 @@ const Thread = () => {
                       placeholder="Напишите сообщение…"
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Send on Enter only on desktop
+                        if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
+                          e.preventDefault();
+                          handleSubmitPost(e as any);
+                        }
+                      }}
                       disabled={loading}
                       autoExpand
                       maxRows={5}
