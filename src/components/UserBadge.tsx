@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
+import { ProfileHoverCard } from "./ProfileHoverCard";
 
 interface UserBadgeProps {
   userId: string | null;
@@ -10,7 +11,6 @@ interface UserBadgeProps {
 
 export const UserBadge = ({ userId, username, isAnonymous }: UserBadgeProps) => {
   const [color, setColor] = useState<string>("");
-  const [achievements, setAchievements] = useState<any[]>([]);
 
   useEffect(() => {
     if (!userId || isAnonymous) return;
@@ -22,15 +22,12 @@ export const UserBadge = ({ userId, username, isAnonymous }: UserBadgeProps) => 
           achievement_id,
           achievements (
             reward_type,
-            reward_value,
-            icon
+            reward_value
           )
         `)
         .eq("user_id", userId);
 
       if (data) {
-        setAchievements(data);
-        
         // Get the highest priority color
         const colorRewards = data
           .filter((a: any) => a.achievements?.reward_type === "username_color")
@@ -65,11 +62,13 @@ export const UserBadge = ({ userId, username, isAnonymous }: UserBadgeProps) => 
   };
 
   return (
-    <Link 
-      to={`/profile/${userId}`} 
-      className={`font-bold hover:underline ${color ? colorClasses[color] : "text-quote"}`}
-    >
-      {username}
-    </Link>
+    <ProfileHoverCard userId={userId}>
+      <Link
+        to={`/profile/${userId}`}
+        className={`font-bold hover:underline ${color ? colorClasses[color] : "text-quote"}`}
+      >
+        {username}
+      </Link>
+    </ProfileHoverCard>
   );
 };

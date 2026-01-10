@@ -7,10 +7,25 @@ interface ProfileHoverCardProps {
   children: React.ReactNode;
 }
 
+const getColorClass = (color: string): string => {
+  const colorClasses: Record<string, string> = {
+    purple: "text-purple-500",
+    gold: "text-yellow-500",
+    orange: "text-orange-500",
+    red: "text-red-500",
+    blue: "text-blue-500",
+    green: "text-green-500",
+    yellow: "text-yellow-400",
+    cyan: "text-cyan-500",
+  };
+  return colorClasses[color] || "text-foreground";
+};
+
 export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) => {
   const [showCard, setShowCard] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [usernameColor, setUsernameColor] = useState<string>("");
 
   useEffect(() => {
     if (showCard && userId) {
@@ -24,6 +39,33 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
         if (data) {
           setProfile(data);
           setAvatarUrl(data.avatar_url);
+
+          // Load achievements for color
+          const { data: achievements } = await supabase
+            .from("user_achievements")
+            .select(`
+              achievement_id,
+              achievements (
+                reward_type,
+                reward_value
+              )
+            `)
+            .eq("user_id", userId);
+
+          if (achievements) {
+            // Get the highest priority color
+            const colorRewards = achievements
+              .filter((a: any) => a.achievements?.reward_type === "username_color")
+              .map((a: any) => a.achievements.reward_value);
+
+            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+            for (const p of priority) {
+              if (colorRewards.includes(p)) {
+                setUsernameColor(p);
+                break;
+              }
+            }
+          }
         }
       };
       loadProfile();
@@ -51,7 +93,7 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
       {children}
 
       {/* Hover Card */}
-      <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-50">
+      <div className="absolute top-full left-0 mt-1 z-50">
         <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg p-4 min-w-[280px] max-w-[320px]">
           <div className="flex items-start gap-3">
             {/* Avatar */}
@@ -69,7 +111,7 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
 
             {/* User Info */}
             <div className="flex-1 min-w-0">
-              <div className="font-semibold truncate">
+              <div className={`font-semibold truncate ${usernameColor ? getColorClass(usernameColor) : "text-foreground"}`}>
                 {profile.username}
               </div>
               <div className="text-sm text-muted-foreground">
@@ -83,17 +125,6 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="flex gap-4 mt-3 pt-3 border-t border-border">
-            <div className="text-center">
-              <div className="text-sm font-semibold">{profile.thread_count || 0}</div>
-              <div className="text-xs text-muted-foreground">Тредов</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm font-semibold">{profile.post_count || 0}</div>
-              <div className="text-xs text-muted-foreground">Постов</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

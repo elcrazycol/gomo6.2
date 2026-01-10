@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { Footer } from "@/components/Footer";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -14,6 +13,8 @@ import { UserBadge } from "@/components/UserBadge";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { Footer } from "@/components/Footer";
+import { CookieBanner } from "@/components/CookieBanner";
 
 interface Board {
   id: string;
@@ -185,15 +186,16 @@ const Index = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
+    <div className="bg-background min-h-screen flex flex-col">
+      <div className="flex-1">
+        <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
           <h1 className="text-2xl sm:text-3xl font-bold flex-shrink-0">gomo6</h1>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
@@ -351,14 +353,19 @@ const Index = () => {
 
       </main>
 
-      <Footer />
 
-      <TermsOfService 
-        open={showTerms} 
-        onAccept={handleAcceptTerms}
-        onDecline={handleDeclineTerms}
-        canDecline={true}
-      />
+        <TermsOfService
+          open={showTerms}
+          onAccept={handleAcceptTerms}
+          onDecline={handleDeclineTerms}
+          canDecline={true}
+        />
+      </div>
+
+      <div className="mt-auto">
+        <Footer />
+        <CookieBanner />
+      </div>
     </div>
   );
 };

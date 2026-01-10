@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 
 export const Footer = () => {
   return (
-    <footer className="bg-card border-t border-border mt-16">
-      <div className="max-w-5xl mx-auto px-4 py-8">
+    <footer className="bg-card border-t border-border">
+      <div className="max-w-5xl mx-auto px-4 py-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Logo and description */}
           <div className="space-y-4">

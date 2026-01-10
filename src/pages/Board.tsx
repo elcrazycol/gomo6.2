@@ -12,13 +12,14 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { Footer } from "@/components/Footer";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { Footer } from "@/components/Footer";
+import { CookieBanner } from "@/components/CookieBanner";
 
 interface Board {
   id: string;
@@ -296,7 +297,7 @@ const Board = () => {
 
   if (pageLoading || !board) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
       </div>
     );
@@ -315,8 +316,9 @@ const Board = () => {
   const canCreateThread = user && (!board.is_rules_board || isModerator);
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
+    <div className="bg-background min-h-screen flex flex-col">
+      <div className="flex-1">
+        <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <div className="text-sm sm:text-base flex-1 min-w-0">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
@@ -465,8 +467,12 @@ const Board = () => {
           </div>
         )}
       </main>
+      </div>
 
-      <Footer />
+      <div className="mt-auto">
+        <Footer />
+        <CookieBanner />
+      </div>
     </div>
   );
 };

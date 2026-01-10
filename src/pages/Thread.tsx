@@ -18,6 +18,8 @@ import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { Footer } from "@/components/Footer";
+import { CookieBanner } from "@/components/CookieBanner";
 import {
   Dialog,
   DialogContent,
@@ -558,7 +560,7 @@ const Thread = () => {
 
   if (pageLoading || !thread) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
       </div>
     );
@@ -567,8 +569,9 @@ const Thread = () => {
   const canPost = user && (!thread.boards.is_rules_board || isAdmin);
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
+    <div className="bg-background min-h-screen flex flex-col">
+      <div className="flex-1">
+        <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <div className="text-sm sm:text-base flex-1 min-w-0">
             <Link to="/" className="text-lg sm:text-xl font-bold hover:underline">
@@ -882,7 +885,7 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <div className="fixed bottom-4 left-0 right-0 z-50 px-4">
+          <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
             <div className="max-w-2xl mx-auto">
               <form 
                 onSubmit={handleSubmitPost} 
@@ -951,13 +954,13 @@ const Thread = () => {
             </div>
           </div>
         ) : user ? (
-          <div className="fixed bottom-4 left-0 right-0 z-50 px-4">
+          <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center text-muted-foreground">
               На этой доске могут писать только администраторы
             </div>
           </div>
         ) : (
-          <div className="fixed bottom-4 left-0 right-0 z-50 px-4">
+          <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">
               <p className="text-sm text-muted-foreground mb-2">Войдите, чтобы ответить</p>
               <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
@@ -966,14 +969,20 @@ const Thread = () => {
         )}
       </main>
 
-      {/* Image Gallery */}
-      {showGallery && (
-        <ImageGallery
-          images={galleryImages}
-          initialIndex={galleryIndex}
-          onClose={() => setShowGallery(false)}
-        />
-      )}
+        {/* Image Gallery */}
+        {showGallery && (
+          <ImageGallery
+            images={galleryImages}
+            initialIndex={galleryIndex}
+            onClose={() => setShowGallery(false)}
+          />
+        )}
+      </div>
+
+      <div className="mt-auto">
+        <Footer />
+        <CookieBanner />
+      </div>
     </div>
   );
 };
