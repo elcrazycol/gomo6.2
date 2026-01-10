@@ -386,6 +386,13 @@ const Board = () => {
               placeholder="Сообщение"
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              onKeyDown={(e) => {
+                // Send on Enter only on desktop
+                if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
+                  e.preventDefault();
+                  handleSubmit(e as any);
+                }
+              }}
               className="mb-2"
               rows={4}
               disabled={loading}
