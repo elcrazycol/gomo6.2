@@ -91,6 +91,8 @@ const Thread = () => {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
+  const [isInputPanelVisible, setIsInputPanelVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -131,6 +133,53 @@ const Thread = () => {
       document.body.style.overflow = '';
     };
   }, [showImagePreview]);
+
+  // Handle input panel hide/show on mobile scroll
+  useEffect(() => {
+    // Set initial scroll position
+    setLastScrollY(window.scrollY);
+
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+
+          // Only hide/show on mobile and when not in image preview
+          if (window.innerWidth < 768 && !showImagePreview) {
+            // Check if there's content in the input
+            const hasContent = content.trim().length > 0 || imageUrls.length > 0;
+
+            // Auto-show when reaching bottom of page
+            const isNearBottom = window.innerHeight + currentScrollY >= document.body.scrollHeight - 100;
+
+            if (isNearBottom) {
+              setIsInputPanelVisible(true);
+            } else if (!hasContent) {
+              // Only hide if no content and scrolling down
+              if (currentScrollY > lastScrollY && currentScrollY > 100) {
+                setIsInputPanelVisible(false);
+              } else if (currentScrollY < lastScrollY) {
+                setIsInputPanelVisible(true);
+              }
+            }
+            // If has content, always keep visible
+          }
+
+          setLastScrollY(currentScrollY);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [lastScrollY, showImagePreview, content, imageUrls]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -781,7 +830,14 @@ const Thread = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setReplyingTo(post.id)}
+                        onClick={() => {
+                          setReplyingTo(post.id);
+                          setIsInputPanelVisible(true);
+                          // Focus textarea after a short delay to ensure panel is visible
+                          setTimeout(() => {
+                            textareaRef.current?.focus();
+                          }, 300);
+                        }}
                       >
                         <Reply className="h-4 w-4" />
                       </Button>
@@ -911,7 +967,9 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
+          <div className={`fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+            isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
+          }`}>
             <div className="max-w-2xl mx-auto">
               {uploadSuccessMessage && (
                 <div className="mb-2 p-3 bg-background/40 backdrop-blur-sm border border-border/30 rounded-2xl text-sm text-foreground font-medium text-center">
@@ -1141,13 +1199,17 @@ const Thread = () => {
             </div>
           </div>
         ) : user ? (
-          <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
+          <div className={`fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+            isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
+          }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center text-muted-foreground">
               На этой доске могут писать только администраторы
             </div>
           </div>
         ) : (
-          <div className="fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden">
+          <div className={`fixed bottom-4 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+            isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
+          }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">
               <p className="text-sm text-muted-foreground mb-2">Войдите, чтобы ответить</p>
               <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
