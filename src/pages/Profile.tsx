@@ -62,6 +62,7 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
   const getImageBounds = () => {
     const imgWidth = imageDimensions.width;
     const imgHeight = imageDimensions.height;
+    // Use containerSize for consistency, but it should match rect
     const contWidth = containerSize.width;
     const contHeight = containerSize.height;
 
@@ -120,6 +121,9 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
     const bounds = getImageBounds();
     const circleRadius = getCircleSizePixels() / 2;
 
+    // Allow circle to touch image edges
+    const effectiveRadius = circleRadius * 0.95; // Allow 95% of radius to touch edges
+
     // Convert image bounds to absolute screen coordinates
     const absBounds = {
       left: rect.left + bounds.left,
@@ -128,10 +132,8 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
       bottom: rect.top + bounds.bottom
     };
 
-    // Constrain circle center to stay within image bounds (allow circle to touch edges)
-    const margin = 2; // Small margin to prevent visual clipping
-    const constrainedX = Math.max(absBounds.left + circleRadius - margin, Math.min(absBounds.right - circleRadius + margin, absoluteX));
-    const constrainedY = Math.max(absBounds.top + circleRadius - margin, Math.min(absBounds.bottom - circleRadius + margin, absoluteY));
+    const constrainedX = Math.max(absBounds.left + effectiveRadius, Math.min(absBounds.right - effectiveRadius, absoluteX));
+    const constrainedY = Math.max(absBounds.top + effectiveRadius, Math.min(absBounds.bottom - effectiveRadius, absoluteY));
 
     return { x: constrainedX, y: constrainedY };
   };
@@ -243,8 +245,9 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
             bottom: rect.top + bounds.bottom
           };
 
-          const constrainedX = Math.max(boundsAbs.left + circleRadius, Math.min(boundsAbs.right - circleRadius, imageCenterX));
-          const constrainedY = Math.max(boundsAbs.top + circleRadius, Math.min(boundsAbs.bottom - circleRadius, imageCenterY));
+              const effectiveRadius = getCircleSizePixels() / 2 * 0.95; // Use 95% radius for centering
+              const constrainedX = Math.max(boundsAbs.left + effectiveRadius, Math.min(boundsAbs.right - effectiveRadius, imageCenterX));
+              const constrainedY = Math.max(boundsAbs.top + effectiveRadius, Math.min(boundsAbs.bottom - effectiveRadius, imageCenterY));
 
           setCirclePosition({
             x: constrainedX - containerCenterX,
