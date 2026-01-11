@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
@@ -48,44 +49,247 @@ interface AvatarCropperProps {
 }
 
 const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete, onCancel }) => {
-  const [circleSize, setCircleSize] = useState(150); // diameter in pixels
-  const [circlePosition, setCirclePosition] = useState({ x: 0, y: 0 });
+  const [circleSizePercent, setCircleSizePercent] = useState(70); // percentage 10-100
+  const [circlePosition, setCirclePosition] = useState({ x: 0, y: 0 }); // relative to container center - starts at center
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [containerSize, setContainerSize] = useState({ width: 320, height: 320 });
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Calculate visible image bounds within container
+  const getImageBounds = () => {
+    const imgWidth = imageDimensions.width;
+    const imgHeight = imageDimensions.height;
+    const contWidth = containerSize.width;
+    const contHeight = containerSize.height;
+
+    if (!imgWidth || !imgHeight) return { left: 0, right: contWidth, top: 0, bottom: contHeight };
+
+    const imgAspect = imgWidth / imgHeight;
+    const containerAspect = contWidth / contHeight;
+
+    let drawWidth, drawHeight, offsetX, offsetY;
+
+    if (imgAspect > containerAspect) {
+      // Image is wider than container (letterboxing on top/bottom)
+      drawWidth = contWidth;
+      drawHeight = contWidth / imgAspect;
+      offsetX = 0;
+      offsetY = (contHeight - drawHeight) / 2;
+    } else {
+      // Image is taller than container (letterboxing on sides)
+      drawHeight = contHeight;
+      drawWidth = contHeight * imgAspect;
+      offsetX = (contWidth - drawWidth) / 2;
+      offsetY = 0;
+    }
+
+    return {
+      left: offsetX,
+      right: offsetX + drawWidth,
+      top: offsetY,
+      bottom: offsetY + drawHeight,
+      drawWidth,
+      drawHeight
+    };
+  };
+
+  // Get maximum possible circle size that fits within image bounds
+  const getMaxCircleSize = () => {
+    const bounds = getImageBounds();
+    const imageWidth = bounds.drawWidth;
+    const imageHeight = bounds.drawHeight;
+
+    // Circle diameter can't be larger than the smaller dimension of the visible image
+    return Math.min(imageWidth, imageHeight);
+  };
+
+  // Convert percentage to actual pixel size
+  const getCircleSizePixels = () => {
+    const maxSize = getMaxCircleSize();
+    return Math.max(20, (circleSizePercent / 100) * maxSize); // minimum 20px
+  };
+
+  const constrainCirclePosition = (absoluteX: number, absoluteY: number) => {
+    const container = containerRef.current;
+    if (!container) return { x: absoluteX, y: absoluteY };
+
+    const rect = container.getBoundingClientRect();
+    const bounds = getImageBounds();
+    const circleRadius = getCircleSizePixels() / 2;
+
+    // Convert image bounds to absolute screen coordinates
+    const absBounds = {
+      left: rect.left + bounds.left,
+      right: rect.left + bounds.right,
+      top: rect.top + bounds.top,
+      bottom: rect.top + bounds.bottom
+    };
+
+    // Constrain circle center to stay within image bounds (allow circle to touch edges)
+    const margin = 2; // Small margin to prevent visual clipping
+    const constrainedX = Math.max(absBounds.left + circleRadius - margin, Math.min(absBounds.right - circleRadius + margin, absoluteX));
+    const constrainedY = Math.max(absBounds.top + circleRadius - margin, Math.min(absBounds.bottom - circleRadius + margin, absoluteY));
+
+    return { x: constrainedX, y: constrainedY };
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
     setDragStart({
-      x: e.clientX - circlePosition.x,
-      y: e.clientY - circlePosition.y
+      x: e.clientX,
+      y: e.clientY
+    });
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setIsDragging(true);
+      const touch = e.touches[0];
+      setDragStart({
+        x: touch.clientX,
+        y: touch.clientY
+      });
+    }
+  };
+
+  const updateCirclePosition = (clientX: number, clientY: number) => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const containerCenterX = rect.left + rect.width / 2;
+    const containerCenterY = rect.top + rect.height / 2;
+
+    // Set desired circle center position to mouse/finger position
+    const desiredCenterX = clientX;
+    const desiredCenterY = clientY;
+
+    // Constrain to image bounds
+    const constrained = constrainCirclePosition(desiredCenterX, desiredCenterY);
+
+    // Convert back to relative position from container center
+    setCirclePosition({
+      x: constrained.x - containerCenterX,
+      y: constrained.y - containerCenterY
     });
   };
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging) return;
+    e.preventDefault();
+    updateCirclePosition(e.clientX, e.clientY);
+  };
 
-    let newX = e.clientX - dragStart.x;
-    let newY = e.clientY - dragStart.y;
-
-    // Constrain circle within reasonable bounds (image acts as container)
-    const maxOffset = Math.max(0, 150 - circleSize / 2);
-    newX = Math.max(-maxOffset, Math.min(maxOffset, newX));
-    newY = Math.max(-maxOffset, Math.min(maxOffset, newY));
-
-    setCirclePosition({ x: newX, y: newY });
+  const handleTouchMove = (e: TouchEvent) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    updateCirclePosition(touch.clientX, touch.clientY);
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
   };
 
+  // Load image dimensions and container size
+  useEffect(() => {
+    setImageLoaded(false);
+    const img = new Image();
+    img.onload = () => {
+      setImageDimensions({ width: img.width, height: img.height });
+      setImageLoaded(true);
+    };
+    img.src = imageSrc;
+
+    // Update container size
+    const updateContainerSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setContainerSize({ width: rect.width, height: rect.height });
+      }
+    };
+
+    updateContainerSize();
+    window.addEventListener('resize', updateContainerSize);
+    return () => window.removeEventListener('resize', updateContainerSize);
+  }, [imageSrc]);
+
+  // Center the circle when image is fully loaded and dimensions are available
+  useEffect(() => {
+    if (imageLoaded && imageDimensions.width && imageDimensions.height && containerSize.width) {
+      // Small delay to ensure DOM is fully updated
+      const timeoutId = setTimeout(() => {
+        const container = containerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const bounds = getImageBounds();
+
+          // Center on the visible image area
+          const imageCenterX = rect.left + bounds.left + bounds.drawWidth / 2;
+          const imageCenterY = rect.top + bounds.top + bounds.drawHeight / 2;
+
+          const containerCenterX = rect.left + rect.width / 2;
+          const containerCenterY = rect.top + rect.height / 2;
+
+          // Ensure the position is within bounds
+          const circleRadius = getCircleSizePixels() / 2;
+          const boundsAbs = {
+            left: rect.left + bounds.left,
+            right: rect.left + bounds.right,
+            top: rect.top + bounds.top,
+            bottom: rect.top + bounds.bottom
+          };
+
+          const constrainedX = Math.max(boundsAbs.left + circleRadius, Math.min(boundsAbs.right - circleRadius, imageCenterX));
+          const constrainedY = Math.max(boundsAbs.top + circleRadius, Math.min(boundsAbs.bottom - circleRadius, imageCenterY));
+
+          setCirclePosition({
+            x: constrainedX - containerCenterX,
+            y: constrainedY - containerCenterY
+          });
+        }
+      }, 100); // Small delay for DOM updates
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [imageLoaded, imageDimensions, containerSize, circleSizePercent]);
+
+  // Update circle position when size changes to keep it within bounds
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const containerCenterX = rect.left + rect.width / 2;
+    const containerCenterY = rect.top + rect.height / 2;
+
+    const currentCenterX = containerCenterX + circlePosition.x;
+    const currentCenterY = containerCenterY + circlePosition.y;
+
+    const constrained = constrainCirclePosition(currentCenterX, currentCenterY);
+
+    if (constrained.x !== currentCenterX || constrained.y !== currentCenterY) {
+      setCirclePosition({
+        x: constrained.x - containerCenterX,
+        y: constrained.y - containerCenterY
+      });
+    }
+  }, [circleSizePercent, imageDimensions]);
+
   useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
       document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('touchend', handleMouseUp);
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('touchmove', handleTouchMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('touchend', handleMouseUp);
       };
     }
   }, [isDragging]);
@@ -134,7 +338,7 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
       // Circle center relative to container
       const circleCenterX = containerWidth / 2 + circlePosition.x;
       const circleCenterY = containerHeight / 2 + circlePosition.y;
-      const circleRadius = circleSize / 2;
+      const circleRadius = getCircleSizePixels() / 2;
 
       // Check if circle intersects with actual image bounds
       const imageLeft = offsetX;
@@ -175,7 +379,10 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
 
   return (
     <div className="space-y-4">
-      <div className="relative w-full h-80 bg-muted rounded-lg overflow-hidden">
+      <div
+        ref={containerRef}
+        className="relative w-full h-80 bg-muted rounded-lg overflow-hidden touch-none"
+      >
         <img
           src={imageSrc}
           alt="Crop preview"
@@ -184,15 +391,17 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
 
         {/* Crop circle - constrained to image bounds */}
         <div
-          className="absolute border-2 border-white border-dashed rounded-full cursor-move shadow-lg"
+          className="absolute border-2 border-white border-dashed rounded-full cursor-move shadow-lg select-none"
           style={{
-            width: `${circleSize}px`,
-            height: `${circleSize}px`,
-            left: `calc(50% + ${circlePosition.x}px - ${circleSize / 2}px)`,
-            top: `calc(50% + ${circlePosition.y}px - ${circleSize / 2}px)`,
+            width: `${getCircleSizePixels()}px`,
+            height: `${getCircleSizePixels()}px`,
+            left: `calc(50% + ${circlePosition.x}px - ${getCircleSizePixels() / 2}px)`,
+            top: `calc(50% + ${circlePosition.y}px - ${getCircleSizePixels() / 2}px)`,
             boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.8)',
+            touchAction: 'none',
           }}
           onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
         />
       </div>
 
@@ -200,14 +409,20 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
         <label className="text-sm font-medium">Размер круга</label>
         <input
           type="range"
-          min="80"
-          max="200"
-          value={circleSize}
-          onChange={(e) => setCircleSize(Number(e.target.value))}
-          className="w-full"
+          min="10"
+          max="100"
+          step="5"
+          value={circleSizePercent}
+          onChange={(e) => setCircleSizePercent(Number(e.target.value))}
+          className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer touch-manipulation"
+          style={{
+            background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${((circleSizePercent - 10) / 90) * 100}%, hsl(var(--muted)) ${((circleSizePercent - 10) / 90) * 100}%, hsl(var(--muted)) 100%)`
+          }}
         />
-        <div className="text-xs text-muted-foreground">
-          Размер: {circleSize}px
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>Маленький</span>
+          <span>Размер: {circleSizePercent}% ({Math.round(getCircleSizePixels())}px)</span>
+          <span>Большой</span>
         </div>
       </div>
 
@@ -604,6 +819,11 @@ const Profile = () => {
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
                     </Link>
                   )}
+                  <ProfileHoverCard userId={currentUser.id}>
+                    <Button variant="ghost" size="sm" className="p-2">
+                      <User className="h-4 w-4" />
+                    </Button>
+                  </ProfileHoverCard>
                 </div>
                 <MobileMenu
                   user={currentUser}
