@@ -12,7 +12,10 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ChevronDown, HelpCircle, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, HelpCircle, AlertTriangle, Type } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -22,6 +25,10 @@ const Settings = () => {
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [visibilityExpanded, setVisibilityExpanded] = useState(false);
   const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
+  const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
+  const [customFont, setCustomFont] = useState(() => {
+    return localStorage.getItem('custom_font') || '';
+  });
 
   useEffect(() => {
     const getUser = async () => {
@@ -170,6 +177,55 @@ const Settings = () => {
     setShowAnonymousConfirm(false);
   };
 
+  const loadGoogleFont = (fontName: string) => {
+    // Remove existing Google Font links
+    const existingLinks = document.querySelectorAll('link[data-google-font]');
+    existingLinks.forEach(link => link.remove());
+
+    if (!fontName.trim()) {
+      // Reset to default font
+      document.documentElement.style.setProperty('--font-family', '');
+      document.body.style.fontFamily = '';
+      return;
+    }
+
+    // Create new Google Font link
+    const link = document.createElement('link');
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700&display=swap`;
+    link.rel = 'stylesheet';
+    link.setAttribute('data-google-font', 'true');
+    document.head.appendChild(link);
+
+    // Apply font to document root and body
+    const fontFamily = `"${fontName}", system-ui, -apple-system, sans-serif`;
+    document.documentElement.style.setProperty('--font-family', fontFamily);
+    document.body.style.fontFamily = fontFamily;
+  };
+
+  const handleFontChange = (fontName: string) => {
+    setCustomFont(fontName);
+    localStorage.setItem('custom_font', fontName);
+
+    if (fontName.trim()) {
+      loadGoogleFont(fontName);
+    } else {
+      // Reset to default
+      const existingLinks = document.querySelectorAll('link[data-google-font]');
+      existingLinks.forEach(link => link.remove());
+      document.body.style.fontFamily = '';
+      localStorage.removeItem('custom_font');
+    }
+  };
+
+  // Load custom font on component mount
+  useEffect(() => {
+    const savedFont = localStorage.getItem('custom_font');
+    if (savedFont) {
+      setCustomFont(savedFont);
+      loadGoogleFont(savedFont);
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
       loadPrivacySettings();
@@ -259,12 +315,51 @@ const Settings = () => {
                         <ThemeToggle />
                       </div>
                     </div>
-                    <div>
-                      <label className="text-sm font-medium">Размер шрифта</label>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Настройки размера шрифта находятся в разработке
-                      </p>
-                    </div>
+
+                    <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
+                      <CollapsibleTrigger asChild>
+                        <button className="w-full flex items-center justify-between p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <Type className="h-4 w-4" />
+                            <span className="text-sm font-medium">Настройки шрифта</span>
+                          </div>
+                          <ChevronDown className={`h-4 w-4 transition-transform ${fontSettingsExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent className="space-y-4 pt-4">
+                        <div>
+                          <Label htmlFor="google-font" className="text-sm font-medium">
+                            Шрифт из Google Fonts
+                          </Label>
+                          <div className="mt-2 space-y-2">
+                            <Input
+                              id="google-font"
+                              type="text"
+                              placeholder="Введите название шрифта (например: Roboto, Open Sans, Montserrat)"
+                              value={customFont}
+                              onChange={(e) => handleFontChange(e.target.value)}
+                              className="w-full"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Введите точное название шрифта из{' '}
+                              <a
+                                href="https://fonts.google.com/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline"
+                              >
+                                Google Fonts
+                              </a>
+                              . Например: "Roboto", "Open Sans", "Montserrat", "Lato" и т.д.
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Оставьте поле пустым, чтобы использовать шрифт по умолчанию.
+                            </p>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </div>
                 </div>
               </TabsContent>

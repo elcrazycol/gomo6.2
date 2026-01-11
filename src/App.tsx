@@ -25,6 +25,22 @@ const App = () => {
     const html = document.documentElement;
     const themeClass = savedMode ? `theme-${savedColor}-dark` : `theme-${savedColor}`;
     html.classList.add(themeClass);
+
+    // Apply saved custom font
+    const savedFont = localStorage.getItem('custom_font');
+    if (savedFont) {
+      // Load Google Font
+      const link = document.createElement('link');
+      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(savedFont)}:wght@400;500;600;700&display=swap`;
+      link.rel = 'stylesheet';
+      link.setAttribute('data-google-font', 'true');
+      document.head.appendChild(link);
+
+      // Apply font
+      const fontFamily = `"${savedFont}", system-ui, -apple-system, sans-serif`;
+      document.documentElement.style.setProperty('--font-family', fontFamily);
+      document.body.style.fontFamily = fontFamily;
+    }
   }, []);
 
   return (
