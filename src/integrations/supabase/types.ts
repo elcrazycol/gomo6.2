@@ -160,6 +160,8 @@ export type Database = {
           id: string
           image_url: string | null
           image_urls: Json | null
+          is_private: boolean
+          private_recipient_id: string | null
           reply_to: string | null
           thread_id: string
           user_id: string | null
@@ -170,6 +172,8 @@ export type Database = {
           id?: string
           image_url?: string | null
           image_urls?: Json | null
+          is_private?: boolean
+          private_recipient_id?: string | null
           reply_to?: string | null
           thread_id: string
           user_id?: string | null
@@ -180,6 +184,8 @@ export type Database = {
           id?: string
           image_url?: string | null
           image_urls?: Json | null
+          is_private?: boolean
+          private_recipient_id?: string | null
           reply_to?: string | null
           thread_id?: string
           user_id?: string | null

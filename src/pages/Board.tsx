@@ -46,6 +46,7 @@ interface Thread {
   latest_post?: {
     content: string;
     created_at: string;
+    is_private: boolean;
   };
 }
 
@@ -180,7 +181,7 @@ const Board = () => {
           // Get latest post
           const { data: latestPost } = await supabase
             .from("posts")
-            .select("content, created_at")
+            .select("content, created_at, is_private")
             .eq("thread_id", thread.id)
             .order("created_at", { ascending: false })
             .limit(1)
@@ -453,7 +454,7 @@ const Board = () => {
                   </div>
                   {thread.latest_post ? (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      Последний: {thread.latest_post.content.substring(0, 100)}...
+                      Последний: {thread.latest_post.is_private ? 'Скрытый контент' : thread.latest_post.content.substring(0, 100) + '...'}
                     </p>
                   ) : (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">

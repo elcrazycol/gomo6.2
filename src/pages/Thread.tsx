@@ -13,8 +13,9 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
+import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -55,6 +56,8 @@ interface Post {
   created_at: string;
   user_id: string | null;
   reply_to: string | null;
+  is_private: boolean;
+  private_recipient_id: string | null;
   profiles: {
     username: string;
     is_anonymous: boolean;
@@ -89,6 +92,8 @@ const Thread = () => {
   const [content, setContent] = useState("");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [isPrivateMessage, setIsPrivateMessage] = useState(false);
+  const [privateRecipientId, setPrivateRecipientId] = useState<string | null>(null);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [isInputPanelVisible, setIsInputPanelVisible] = useState(true);
@@ -221,6 +226,50 @@ const Thread = () => {
     };
     loadAll();
   }, [threadId, user]);
+
+  // Realtime subscription for posts changes
+  useEffect(() => {
+    if (!threadId) return;
+
+    const channel = supabase
+      .channel(`posts-${threadId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'posts',
+          filter: `thread_id=eq.${threadId}`,
+        },
+        async (payload) => {
+          console.log('Realtime post change:', payload);
+
+          if (payload.eventType === 'INSERT') {
+            // New post added - reload posts to get full data with profiles
+            loadPosts();
+          } else if (payload.eventType === 'UPDATE') {
+            // Post updated - update the specific post in state
+            setPosts(currentPosts =>
+              currentPosts.map(post =>
+                post.id === payload.new.id
+                  ? { ...post, ...payload.new }
+                  : post
+              )
+            );
+          } else if (payload.eventType === 'DELETE') {
+            // Post deleted - remove from state
+            setPosts(currentPosts =>
+              currentPosts.filter(post => post.id !== payload.old.id)
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [threadId]);
 
   const checkSubscription = async () => {
     if (!user || !threadId) return;
@@ -436,6 +485,8 @@ const Thread = () => {
       image_url: imageUrlForDb, // Keep for backward compatibility
       image_urls: imageUrlsJson, // New field for multiple images
       reply_to: replyingTo,
+      is_private: isPrivateMessage,
+      private_recipient_id: isPrivateMessage ? privateRecipientId : null,
     });
 
     setLoading(false);
@@ -448,6 +499,8 @@ const Thread = () => {
     setContent("");
     setImageUrls([]);
     setReplyingTo(null);
+    setIsPrivateMessage(false);
+    setPrivateRecipientId(null);
     loadPosts();
   };
 
@@ -823,7 +876,18 @@ const Thread = () => {
                   })}
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
-                  {isModerator && post.user_id && (
+                  {user && post.user_id === user.id && (
+                    <UserMenu
+                      type="post"
+                      onEdit={() => {
+                        setEditingPostId(post.id);
+                        setEditContent(post.content);
+                      }}
+                      onDelete={() => handleDeletePost(post.id)}
+                      onReport={() => setReportingPost(post.id)}
+                    />
+                  )}
+                  {isModerator && post.user_id && post.user_id !== user?.id && (
                     <ModeratorMenu
                       type="post"
                       onDelete={() => handleDeletePost(post.id)}
@@ -835,47 +899,48 @@ const Thread = () => {
                     />
                   )}
                   {user && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setReplyingTo(post.id);
-                          setIsInputPanelVisible(true);
-                          // Focus textarea after a short delay to ensure panel is visible
-                          setTimeout(() => {
-                            textareaRef.current?.focus();
-                          }, 300);
-                        }}
-                      >
-                        <Reply className="h-4 w-4" />
-                      </Button>
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setReportingPost(post.id)}
-                          >
-                            <AlertTriangle className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="bg-background border-border">
-                          <DialogHeader>
-                            <DialogTitle>Пожаловаться на пост</DialogTitle>
-                          </DialogHeader>
-                          <Textarea
-                            placeholder="Причина жалобы..."
-                            value={reportReason}
-                            onChange={(e) => setReportReason(e.target.value)}
-                            rows={3}
-                          />
-                          <Button onClick={() => handleReport(post.id, false)}>
-                            Отправить жалобу
-                          </Button>
-                        </DialogContent>
-                      </Dialog>
-                    </>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setReplyingTo(post.id);
+                        setPrivateRecipientId(post.user_id);
+                        setIsInputPanelVisible(true);
+                        // Focus textarea after a short delay to ensure panel is visible
+                        setTimeout(() => {
+                          textareaRef.current?.focus();
+                        }, 300);
+                      }}
+                    >
+                      <Reply className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {user && post.user_id !== user.id && !isModerator && (
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setReportingPost(post.id)}
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-background border-border">
+                        <DialogHeader>
+                          <DialogTitle>Пожаловаться на пост</DialogTitle>
+                        </DialogHeader>
+                        <Textarea
+                          placeholder="Причина жалобы..."
+                          value={reportReason}
+                          onChange={(e) => setReportReason(e.target.value)}
+                          rows={3}
+                        />
+                        <Button onClick={() => handleReport(post.id, false)}>
+                          Отправить жалобу
+                        </Button>
+                      </DialogContent>
+                    </Dialog>
                   )}
                 </div>
               </div>
@@ -937,7 +1002,11 @@ const Thread = () => {
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
-                  {renderContent(post.content)}
+                  {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
+                    <span className="text-muted-foreground italic">Скрытый контент</span>
+                  ) : (
+                    renderContent(post.content)
+                  )}
                 </p>
               )}
             </div>
@@ -1187,6 +1256,18 @@ const Thread = () => {
                       onClick={() => setShowImagePreview(true)}
                     >
                       <span className="text-sm font-bold">{imageUrls.length}</span>
+                    </Button>
+                  )}
+                  {replyingTo && (
+                    <Button
+                      type="button"
+                      variant={isPrivateMessage ? "default" : "ghost"}
+                      size="icon"
+                      className="h-10 w-10 rounded-xl shrink-0"
+                      onClick={() => setIsPrivateMessage(!isPrivateMessage)}
+                      title={isPrivateMessage ? "Отправить как обычное сообщение" : "Отправить как скрытое сообщение"}
+                    >
+                      {isPrivateMessage ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                     </Button>
                   )}
                   <Button
