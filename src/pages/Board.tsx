@@ -17,6 +17,7 @@ import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
+import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
@@ -276,6 +277,19 @@ const Board = () => {
     toast.success("Вышли");
   };
 
+  const renderContent = (text: string) => {
+    const elements: React.ReactNode[] = [];
+    let key = 0;
+
+    // Process URLs
+    return text.split(/(https?:\/\/[^\s]+)/g).map((part, i) => {
+      if (part.match(/^https?:\/\/[^\s]+$/)) {
+        return <LinkButton key={`${key++}-${i}`} url={part} />;
+      }
+      return part;
+    });
+  };
+
   const handleAgeConfirm = async () => {
     sessionStorage.setItem('age_verified_d', 'true');
     setShowAgeVerification(false);
@@ -331,7 +345,7 @@ const Board = () => {
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2">
+              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
             </Link>
@@ -342,12 +356,12 @@ const Board = () => {
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
                   <ProfileHoverCard userId={user.id}>
                     <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
                     </Link>
                   </ProfileHoverCard>
                   {isModerator && (
                     <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
                     </Link>
                   )}
                 </div>
@@ -357,7 +371,7 @@ const Board = () => {
                 />
               </>
             ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
                 Войти
               </Button>
             )}
@@ -371,7 +385,7 @@ const Board = () => {
         </div>
 
         {canCreateThread && !showNewThread && (
-          <Button onClick={() => setShowNewThread(true)} className="mb-3 sm:mb-4 text-sm">
+          <Button onClick={() => setShowNewThread(true)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
             Создать тред
           </Button>
         )}
@@ -396,7 +410,7 @@ const Board = () => {
                 // Send on Enter only on desktop
                 if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
                   e.preventDefault();
-                  handleSubmit(e as any);
+                  handleCreateThread(e as any);
                 }
               }}
               className="mb-2"
@@ -454,11 +468,11 @@ const Board = () => {
                   </div>
                   {thread.latest_post ? (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      Последний: {thread.latest_post.is_private ? 'Скрытый контент' : thread.latest_post.content.substring(0, 100) + '...'}
+                      Последний: {thread.latest_post.is_private ? 'Скрытый контент' : renderContent(thread.latest_post.content.substring(0, 100)) + '...'}
                     </p>
                   ) : (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      {thread.content.substring(0, 100)}...
+                      {renderContent(thread.content.substring(0, 100))}...
                     </p>
                   )}
                 </div>
