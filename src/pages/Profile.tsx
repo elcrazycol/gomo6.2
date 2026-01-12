@@ -808,7 +808,7 @@ const Profile = () => {
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2">
+              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
             </Link>
@@ -819,11 +819,11 @@ const Profile = () => {
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
                   {isModerator && (
                     <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
                     </Link>
                   )}
                   <ProfileHoverCard userId={currentUser.id}>
-                    <Button variant="ghost" size="sm" className="p-2">
+                    <Button variant="ghost" size="sm" className="p-2 hover:bg-primary/10 hover:text-primary transition-colors">
                       <User className="h-4 w-4" />
                     </Button>
                   </ProfileHoverCard>
@@ -900,7 +900,7 @@ const Profile = () => {
               <Button
                 variant="ghost"
                 size="sm"
-                className="p-1 h-8 w-8"
+                className="p-1 h-8 w-8 hover:bg-primary/10 hover:text-primary transition-colors"
                 onClick={isEditing ? handleSaveAndExit : startEditing}
               >
                 {isEditing ? (

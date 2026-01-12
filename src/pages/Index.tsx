@@ -205,7 +205,7 @@ const Index = () => {
           />
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2">
+              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
             </Link>
@@ -216,12 +216,12 @@ const Index = () => {
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
                   <ProfileHoverCard userId={user.id}>
                     <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
                     </Link>
                   </ProfileHoverCard>
                   {isModerator && (
                     <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
                     </Link>
                   )}
                 </div>
@@ -231,7 +231,7 @@ const Index = () => {
                 />
               </>
             ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
                 Войти
               </Button>
             )}
@@ -247,7 +247,7 @@ const Index = () => {
           <Dialog>
             <DialogTrigger asChild>
               <Link to="/rules">
-                <Button variant="outline">Информация</Button>
+                <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
               </Link>
             </DialogTrigger>
             <DialogContent className="bg-background border-border">

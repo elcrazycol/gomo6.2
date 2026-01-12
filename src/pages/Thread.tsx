@@ -21,6 +21,7 @@ import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
+import { LinkButton } from "@/components/LinkButton";
 import {
   Dialog,
   DialogContent,
@@ -637,8 +638,8 @@ const Thread = () => {
     let lastIndex = 0;
 
     const processTextSegment = (segment: string) => {
-      // Process bold and italic
-      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+)/g).map((part, i) => {
+      // Process bold, italic, mentions and URLs
+      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+|https?:\/\/[^\s]+)/g).map((part, i) => {
         if (part.startsWith('**') && part.endsWith('**')) {
           return (
             <strong key={`${key++}-${i}`} className="font-bold">
@@ -656,6 +657,10 @@ const Thread = () => {
             <span key={`${key++}-${i}`} className="text-link hover:underline cursor-pointer font-semibold">
               {part}
             </span>
+          );
+        } else if (part.match(/^https?:\/\/[^\s]+$/)) {
+          return (
+            <LinkButton key={`${key++}-${i}`} url={part} />
           );
         }
         return part;
@@ -716,7 +721,7 @@ const Thread = () => {
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2">
+              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
             </Link>
@@ -727,12 +732,12 @@ const Thread = () => {
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
                   <ProfileHoverCard userId={user.id}>
                     <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
                     </Link>
                   </ProfileHoverCard>
                   {isModerator && (
                     <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Модерация</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
                     </Link>
                   )}
                 </div>
@@ -742,7 +747,7 @@ const Thread = () => {
                 />
               </>
             ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm">
+              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
                 Войти
               </Button>
             )}
@@ -760,6 +765,7 @@ const Thread = () => {
               variant="outline"
               size="sm"
               onClick={toggleSubscription}
+              className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors"
             >
               {isSubscribed ? (
                 <>
@@ -790,7 +796,7 @@ const Thread = () => {
               {user && (
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="hover:bg-white/20 hover:text-white transition-colors">
                       <AlertTriangle className="h-4 w-4" />
                     </Button>
                   </DialogTrigger>
@@ -902,6 +908,7 @@ const Thread = () => {
                     <Button
                       variant="ghost"
                       size="sm"
+                      className="hover:bg-primary/10 hover:text-primary transition-colors"
                       onClick={() => {
                         setReplyingTo(post.id);
                         setPrivateRecipientId(post.user_id);
@@ -921,6 +928,7 @@ const Thread = () => {
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="hover:bg-primary/10 hover:text-primary transition-colors"
                           onClick={() => setReportingPost(post.id)}
                         >
                           <AlertTriangle className="h-4 w-4" />
