@@ -261,7 +261,7 @@ const Settings = () => {
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
                   <ProfileHoverCard userId={user.id}>
                     <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
                     </Link>
                   </ProfileHoverCard>
                 </div>

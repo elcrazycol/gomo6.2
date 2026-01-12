@@ -141,7 +141,7 @@ const PrivacySettings = () => {
         <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
           <div className="max-w-5xl mx-auto flex items-center gap-4">
             <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2">
+              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             </Link>
