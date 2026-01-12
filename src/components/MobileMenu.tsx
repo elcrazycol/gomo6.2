@@ -54,7 +54,7 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
       <Button
         variant="ghost"
         size="sm"
-        className="sm:hidden"
+        className="sm:hidden hover:bg-white/20 hover:text-white transition-colors"
         onClick={() => setOpen(true)}
       >
         <Menu className="h-5 w-5" />
@@ -103,7 +103,7 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
                 onClick={() => setOpen(false)}
                 className="block"
               >
-                <Button variant="ghost" className="w-full justify-start">
+                <Button variant="ghost" className="w-full justify-start hover:bg-primary/10 hover:text-primary transition-colors">
                   Модерация
                 </Button>
               </Link>

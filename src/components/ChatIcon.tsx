@@ -45,10 +45,10 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
   };
 
   return (
-    <Button 
-      variant="ghost" 
-      size="sm" 
-      className="relative"
+    <Button
+      variant="ghost"
+      size="sm"
+      className="relative hover:bg-white/20 hover:text-white transition-colors"
       onClick={() => navigate("/messages")}
     >
       <MessageCircle className="h-5 w-5" />

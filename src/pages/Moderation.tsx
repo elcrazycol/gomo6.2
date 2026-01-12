@@ -260,7 +260,7 @@ const Moderation = () => {
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2">
+              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
             </Link>
@@ -270,7 +270,7 @@ const Moderation = () => {
               {user && (
                 <ProfileHoverCard userId={user.id}>
                   <Link to={`/profile/${user.id}`}>
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm">Профиль</Button>
+                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
                   </Link>
                 </ProfileHoverCard>
               )}

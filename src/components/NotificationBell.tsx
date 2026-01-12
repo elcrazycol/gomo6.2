@@ -108,7 +108,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="relative">
+        <Button variant="ghost" size="sm" className="relative hover:bg-white/20 hover:text-white transition-colors">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
@@ -122,7 +122,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-bold">Уведомления</h3>
             {unreadCount > 0 && (
-              <Button variant="link" size="sm" onClick={markAllAsRead}>
+              <Button variant="link" size="sm" onClick={markAllAsRead} className="hover:text-primary transition-colors">
                 Прочитать все
               </Button>
             )}
@@ -144,8 +144,8 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
                     key={notif.id}
                     to={link}
                     onClick={() => markAsRead(notif.id)}
-                    className={`block p-2 border border-border hover:bg-post-header ${
-                      !notif.is_read ? "bg-board-header" : ""
+                    className={`block p-3 border border-border hover:bg-primary/10 hover:border-primary/20 transition-colors ${
+                      !notif.is_read ? "bg-primary/5 border-primary/20" : ""
                     }`}
                   >
                     <p className="font-bold text-sm">{notif.title}</p>
