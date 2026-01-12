@@ -13,12 +13,11 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff, ExternalLink } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
-import { TextWithLinks } from "@/components/TextWithLinks";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -115,40 +114,6 @@ const Thread = () => {
   const [showGallery, setShowGallery] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Handle URL hash for post highlighting
-  useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash;
-      if (hash.startsWith('#post-')) {
-        const postId = hash.substring(6); // Remove '#post-'
-        setPulsingPostId(postId);
-
-        // Scroll to the post after a short delay to ensure posts are loaded
-        setTimeout(() => {
-          const element = document.getElementById(`post-${postId}`);
-          if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }, 500);
-
-        // Stop pulsing after 3 seconds
-        setTimeout(() => {
-          setPulsingPostId(null);
-        }, 3000);
-      }
-    };
-
-    // Check hash on mount
-    handleHashChange();
-
-    // Listen for hash changes
-    window.addEventListener('hashchange', handleHashChange);
-
-    return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-    };
-  }, [posts.length]);
 
   useEffect(() => {
     const handleUploadSuccess = (event: CustomEvent) => {
@@ -672,8 +637,8 @@ const Thread = () => {
     let lastIndex = 0;
 
     const processTextSegment = (segment: string) => {
-      // Process bold, italic, mentions, and links
-      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+|https?:\/\/[^\s]+)/g).map((part, i) => {
+      // Process bold and italic
+      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+)/g).map((part, i) => {
         if (part.startsWith('**') && part.endsWith('**')) {
           return (
             <strong key={`${key++}-${i}`} className="font-bold">
@@ -691,30 +656,6 @@ const Thread = () => {
             <span key={`${key++}-${i}`} className="text-link hover:underline cursor-pointer font-semibold">
               {part}
             </span>
-          );
-        } else if (part.match(/^https?:\/\/[^\s]+$/)) {
-          // Extract domain from URL
-          const extractDomain = (url: string): string => {
-            try {
-              let domain = url.replace(/^https?:\/\//, '');
-              domain = domain.replace(/^www\./, '');
-              domain = domain.split('/')[0];
-              const parts = domain.split('.');
-              return parts.length >= 3 ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
-            } catch (error) {
-              return url;
-            }
-          };
-
-          return (
-            <button
-              key={`${key++}-${i}`}
-              className="inline-flex items-center gap-1 h-auto px-2 py-0.5 mx-1 text-xs font-medium bg-primary/10 border border-primary/20 rounded hover:bg-primary/20 transition-colors"
-              onClick={() => window.open(part, '_blank', 'noopener,noreferrer')}
-            >
-              <ExternalLink className="h-3 w-3" />
-              {extractDomain(part)}
-            </button>
           );
         }
         return part;
@@ -935,17 +876,17 @@ const Thread = () => {
                   })}
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
-                  <UserMenu
-                    type="post"
-                    isOwner={user ? post.user_id === user.id : false}
-                    postId={post.id}
-                    onEdit={user && post.user_id === user.id ? () => {
-                      setEditingPostId(post.id);
-                      setEditContent(post.content);
-                    } : undefined}
-                    onDelete={user && post.user_id === user.id ? () => handleDeletePost(post.id) : undefined}
-                    onReport={user && post.user_id !== user.id ? () => setReportingPost(post.id) : undefined}
-                  />
+                  {user && post.user_id === user.id && (
+                    <UserMenu
+                      type="post"
+                      onEdit={() => {
+                        setEditingPostId(post.id);
+                        setEditContent(post.content);
+                      }}
+                      onDelete={() => handleDeletePost(post.id)}
+                      onReport={() => setReportingPost(post.id)}
+                    />
+                  )}
                   {isModerator && post.user_id && post.user_id !== user?.id && (
                     <ModeratorMenu
                       type="post"

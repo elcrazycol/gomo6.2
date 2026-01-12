@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ImageUpload } from "@/components/ImageUpload";
@@ -16,7 +15,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Share2 } from "lucide-react";
+import { Settings } from "lucide-react";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -67,8 +66,7 @@ const Board = () => {
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const { toast: toastHook } = useToast();
-
+  
   useSessionTime(user?.id);
 
   useEffect(() => {
@@ -338,30 +336,6 @@ const Board = () => {
               </Button>
             </Link>
             {user && <NotificationBell userId={user.id} />}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="p-2"
-              onClick={async () => {
-                const shareUrl = `${window.location.origin}${window.location.pathname}`;
-                try {
-                  await navigator.clipboard.writeText(shareUrl);
-                  toastHook({
-                    title: "Ссылка скопирована!",
-                    description: "Ссылка на доску скопирована в буфер обмена",
-                  });
-                } catch (err) {
-                  console.error('Failed to copy: ', err);
-                  toastHook({
-                    title: "Ошибка",
-                    description: "Не удалось скопировать ссылку",
-                    variant: "destructive",
-                  });
-                }
-              }}
-            >
-              <Share2 className="h-4 w-4" />
-            </Button>
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
