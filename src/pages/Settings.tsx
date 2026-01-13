@@ -233,12 +233,21 @@ const Settings = () => {
     document.body.style.fontFamily = fontFamily;
   };
 
-  const handleFontChange = (fontName: string) => {
+  const handleFontChange = async (fontName: string) => {
     setCustomFont(fontName);
     localStorage.setItem('custom_font', fontName);
 
     if (fontName.trim()) {
       loadGoogleFont(fontName);
+      // Track font setting change for achievement
+      await supabase
+        .from('user_settings_changes')
+        .upsert({
+          user_id: user?.id,
+          setting_name: 'custom_font'
+        }, {
+          onConflict: 'user_id,setting_name'
+        });
     } else {
       // Reset to default
       const existingLinks = document.querySelectorAll('link[data-google-font]');

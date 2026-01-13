@@ -35,6 +35,7 @@ interface Thread {
   id: string;
   title: string;
   content: string;
+  custom_message?: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
   created_at: string;
@@ -354,7 +355,7 @@ const Thread = () => {
   const loadThread = async () => {
     const { data: threadData } = await supabase
       .from("threads")
-      .select("*")
+      .select("*, custom_message")
       .eq("id", threadId)
       .single();
 
@@ -376,6 +377,20 @@ const Thread = () => {
         boards: board!,
         profiles: profile,
       });
+
+      // Track thread visit for achievements
+      if (user) {
+        const hasCustomMessage = threadData.custom_message && threadData.custom_message.trim().length > 0;
+        await supabase
+          .from('thread_custom_message_visits')
+          .upsert({
+            user_id: user.id,
+            thread_id: threadData.id,
+            has_custom_message: hasCustomMessage
+          }, {
+            onConflict: 'user_id,thread_id'
+          });
+      }
     }
   };
 
