@@ -18,6 +18,7 @@ interface PrivacySettingsData {
   allow_search_by_secondary_id: boolean;
   allow_private_messages: boolean;
   anonymous_mode: boolean;
+  remove_image_metadata: boolean;
 }
 
 const PrivacySettings = () => {
@@ -40,6 +41,28 @@ const PrivacySettings = () => {
   useEffect(() => {
     if (user) {
       loadPrivacySettings();
+
+      // Set up real-time subscription for privacy settings changes
+      const channel = supabase
+        .channel(`privacy_settings_${user.id}`)
+        .on('postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'privacy_settings',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload: any) => {
+            console.log('Privacy settings updated from another device:', payload);
+            // Update local state
+            setSettings(payload.new);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [user]);
 
@@ -70,6 +93,7 @@ const PrivacySettings = () => {
           allow_search_by_secondary_id: true,
           allow_private_messages: true,
           anonymous_mode: false,
+          remove_image_metadata: true,
         };
         setSettings(defaultSettings);
       }
@@ -88,12 +112,25 @@ const PrivacySettings = () => {
       const updatedSettings = { ...settings, [key]: value };
       setSettings(updatedSettings);
 
+      // Prepare data for database (exclude user_id and any extra fields)
+      const dbData = {
+        visibility_profile: updatedSettings.visibility_profile,
+        hide_messages_from_unregistered: updatedSettings.hide_messages_from_unregistered,
+        hide_threads_from_unregistered: updatedSettings.hide_threads_from_unregistered,
+        block_profile_visits_from_unregistered: updatedSettings.block_profile_visits_from_unregistered,
+        allow_search_by_username: updatedSettings.allow_search_by_username,
+        allow_search_by_id: updatedSettings.allow_search_by_id,
+        allow_search_by_secondary_id: updatedSettings.allow_search_by_secondary_id,
+        allow_private_messages: updatedSettings.allow_private_messages,
+        anonymous_mode: updatedSettings.anonymous_mode,
+        remove_image_metadata: updatedSettings.remove_image_metadata,
+      };
+
       const { error } = await supabase
         .from('privacy_settings')
         .upsert({
           user_id: user.id,
-          ...updatedSettings,
-          updated_at: new Date().toISOString(),
+          ...dbData,
         });
 
       if (error) {
@@ -263,6 +300,35 @@ const PrivacySettings = () => {
                     disabled={saving}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Image Security Section */}
+            <div className="bg-card p-6 border border-border">
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-lg font-semibold">Безопасность изображений</h2>
+                <HelpCircle className="h-4 w-4 text-muted-foreground" />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>Удалять метаданные с изображений</span>
+                    <HelpCircle
+                      className="h-4 w-4 text-muted-foreground cursor-help"
+                      title="Удаляет EXIF данные (геолокация, время съемки и др.) для защиты приватности"
+                    />
+                  </div>
+                  <Switch
+                    checked={settings.remove_image_metadata}
+                    onCheckedChange={(value) => updateSetting('remove_image_metadata', value)}
+                    disabled={saving}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Рекомендуется оставить включенным для защиты вашей приватности.
+                  Метаданные могут содержать информацию о местоположении и времени съемки.
+                </p>
               </div>
             </div>
 

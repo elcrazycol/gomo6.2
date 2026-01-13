@@ -22,6 +22,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { LinkButton } from "@/components/LinkButton";
+import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
   DialogContent,
@@ -114,6 +115,7 @@ const Thread = () => {
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [removeMetadata, setRemoveMetadata] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -128,6 +130,18 @@ const Thread = () => {
       document.removeEventListener('showUploadSuccess', handleUploadSuccess as EventListener);
     };
   }, []);
+
+  // Load user's privacy settings
+  useEffect(() => {
+    const loadPrivacySettings = async () => {
+      if (user?.id) {
+        const settings = await getUserPrivacySettings(user.id);
+        setRemoveMetadata(settings.remove_image_metadata);
+      }
+    };
+
+    loadPrivacySettings();
+  }, [user]);
 
   // Prevent body scroll when image preview is open
   useEffect(() => {
@@ -1135,39 +1149,45 @@ const Thread = () => {
                         const files = Array.from(e.target.files || []);
                         if (files.length === 0) return;
 
-                        // Compress and upload images
-                        const compressImage = (file: File, maxWidth: number = 1200): Promise<File> => {
-                          return new Promise((resolve, reject) => {
-                            const canvas = document.createElement('canvas');
-                            const ctx = canvas.getContext('2d');
-                            const img = new Image();
+                        // Compress and upload images with metadata removal
+                        const compressImage = async (file: File, maxWidth: number = 1200): Promise<File> => {
+                          try {
+                            return await compressImageWithMetadataRemoval(file, maxWidth, 0.8, removeMetadata);
+                          } catch (error) {
+                            console.warn('Advanced compression failed, falling back to basic compression:', error);
+                            // Fallback to basic compression
+                            return new Promise((resolve, reject) => {
+                              const canvas = document.createElement('canvas');
+                              const ctx = canvas.getContext('2d');
+                              const img = new Image();
 
-                            img.onload = () => {
-                              let { width, height } = img;
-                              if (width > maxWidth) {
-                                height = (height * maxWidth) / width;
-                                width = maxWidth;
-                              }
-
-                              canvas.width = width;
-                              canvas.height = height;
-                              ctx?.drawImage(img, 0, 0, width, height);
-
-                              canvas.toBlob((blob) => {
-                                if (blob) {
-                                  const compressedFile = new File([blob], file.name, {
-                                    type: 'image/jpeg',
-                                    lastModified: Date.now(),
-                                  });
-                                  resolve(compressedFile);
-                                } else {
-                                  reject(new Error('Failed to compress image'));
+                              img.onload = () => {
+                                let { width, height } = img;
+                                if (width > maxWidth) {
+                                  height = (height * maxWidth) / width;
+                                  width = maxWidth;
                                 }
-                              }, 'image/jpeg', 0.8);
-                            };
 
-                            img.src = URL.createObjectURL(file);
-                          });
+                                canvas.width = width;
+                                canvas.height = height;
+                                ctx?.drawImage(img, 0, 0, width, height);
+
+                                canvas.toBlob((blob) => {
+                                  if (blob) {
+                                    const compressedFile = new File([blob], file.name, {
+                                      type: 'image/jpeg',
+                                      lastModified: Date.now(),
+                                    });
+                                    resolve(compressedFile);
+                                  } else {
+                                    reject(new Error('Failed to compress image'));
+                                  }
+                                }, 'image/jpeg', 0.8);
+                              };
+
+                              img.src = URL.createObjectURL(file);
+                            });
+                          }
                         };
 
                         try {

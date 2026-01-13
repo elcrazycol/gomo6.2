@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Upload, X } from "lucide-react";
+import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 
 interface ImageUploadProps {
   onImagesUploaded: (urls: string[]) => void;
@@ -13,48 +14,65 @@ interface ImageUploadProps {
 export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 10 }: ImageUploadProps) => {
   const [uploading, setUploading] = useState(false);
   const [previews, setPreviews] = useState<string[]>(currentImages);
+  const [removeMetadata, setRemoveMetadata] = useState(true);
 
   useEffect(() => {
     setPreviews(currentImages);
   }, [currentImages]);
 
-  // Compress image function
-  const compressImage = (file: File, maxWidth: number = 1200, quality: number = 0.8): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
+  // Load user's privacy settings on component mount
+  useEffect(() => {
+    const loadPrivacySettings = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const settings = await getUserPrivacySettings(user.id);
+        setRemoveMetadata(settings.remove_image_metadata);
+      }
+    };
 
-      img.onload = () => {
-        // Calculate new dimensions
-        let { width, height } = img;
-        if (width > maxWidth) {
-          height = (height * maxWidth) / width;
-          width = maxWidth;
-        }
+    loadPrivacySettings();
+  }, []);
 
-        canvas.width = width;
-        canvas.height = height;
+  // Compress image function with metadata removal based on user settings
+  const compressImage = async (file: File, maxWidth: number = 1200, quality: number = 0.8): Promise<File> => {
+    try {
+      return await compressImageWithMetadataRemoval(file, maxWidth, quality, removeMetadata);
+    } catch (error) {
+      console.warn('Advanced compression failed, falling back to basic compression:', error);
+      // Fallback to basic compression if advanced fails
+      return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
 
-        // Draw and compress
-        ctx?.drawImage(img, 0, 0, width, height);
-
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const compressedFile = new File([blob], file.name, {
-              type: 'image/jpeg',
-              lastModified: Date.now(),
-            });
-            resolve(compressedFile);
-          } else {
-            reject(new Error('Failed to compress image'));
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
           }
-        }, 'image/jpeg', quality);
-      };
 
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = URL.createObjectURL(file);
-    });
+          canvas.width = width;
+          canvas.height = height;
+          ctx?.drawImage(img, 0, 0, width, height);
+
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const compressedFile = new File([blob], file.name, {
+                type: file.type,
+                lastModified: Date.now(),
+              });
+              resolve(compressedFile);
+            } else {
+              reject(new Error('Failed to compress image'));
+            }
+          }, file.type, quality);
+        };
+
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = URL.createObjectURL(file);
+      });
+    }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

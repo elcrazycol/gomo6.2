@@ -22,6 +22,19 @@ const Settings = () => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [privacySettings, setPrivacySettings] = useState<any>(null);
+
+  interface PrivacySettingsData {
+    visibility_profile: boolean;
+    hide_messages_from_unregistered: boolean;
+    hide_threads_from_unregistered: boolean;
+    block_profile_visits_from_unregistered: boolean;
+    allow_search_by_username: boolean;
+    allow_search_by_id: boolean;
+    allow_search_by_secondary_id: boolean;
+    allow_private_messages: boolean;
+    anonymous_mode: boolean;
+    remove_image_metadata: boolean;
+  }
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [visibilityExpanded, setVisibilityExpanded] = useState(false);
   const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
@@ -41,19 +54,7 @@ const Settings = () => {
   }, []);
 
   const loadPrivacySettings = async () => {
-    // Load from localStorage first
-    const saved = localStorage.getItem(`privacy_settings_${user.id}`);
-    if (saved) {
-      try {
-        const parsedSettings = JSON.parse(saved);
-        setPrivacySettings(parsedSettings);
-        return;
-      } catch (error) {
-        console.error('Error parsing saved privacy settings:', error);
-      }
-    }
-
-    // Try to load from database
+    // Always try to load from database first for consistency across devices
     try {
       const { data, error } = await (supabase as any)
         .from('privacy_settings')
@@ -62,13 +63,13 @@ const Settings = () => {
         .maybeSingle();
 
       if (!error && data) {
+        // Data exists in database - use it and cache in localStorage
         setPrivacySettings(data);
-        // Save to localStorage for faster loading next time
         localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(data));
         return;
       }
 
-      // If no data, create default settings in database
+      // If no data in database (new user), create default settings
       if (error && error.code === 'PGRST116') {
         console.log('Creating default privacy settings for user');
         const defaultSettings = {
@@ -82,23 +83,39 @@ const Settings = () => {
           allow_search_by_secondary_id: true,
           allow_private_messages: true,
           anonymous_mode: false,
+          remove_image_metadata: true,
         };
 
-        const { error: insertError } = await (supabase as any)
+        const { error: insertError, data: insertedData } = await (supabase as any)
           .from('privacy_settings')
-          .insert(defaultSettings);
+          .insert(defaultSettings)
+          .select()
+          .single();
 
-        if (!insertError) {
-          setPrivacySettings(defaultSettings);
-          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(defaultSettings));
+        if (!insertError && insertedData) {
+          setPrivacySettings(insertedData);
+          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(insertedData));
           return;
         }
       }
     } catch (error) {
-      console.log('Privacy settings not found in database, using defaults');
+      console.error('Error loading privacy settings from database:', error);
     }
 
-    // Default settings if nothing in database or localStorage
+    // Fallback to localStorage if database is unavailable
+    const saved = localStorage.getItem(`privacy_settings_${user.id}`);
+    if (saved) {
+      try {
+        const parsedSettings = JSON.parse(saved);
+        setPrivacySettings(parsedSettings);
+        console.log('Loaded privacy settings from localStorage');
+        return;
+      } catch (error) {
+        console.error('Error parsing saved privacy settings:', error);
+      }
+    }
+
+    // Last resort: use hardcoded defaults
     const defaultSettings = {
       visibility_profile: true,
       hide_messages_from_unregistered: false,
@@ -109,8 +126,10 @@ const Settings = () => {
       allow_search_by_secondary_id: true,
       allow_private_messages: true,
       anonymous_mode: false,
+      remove_image_metadata: true,
     };
     setPrivacySettings(defaultSettings);
+    console.log('Using default privacy settings');
   };
 
   const updatePrivacySetting = async (key: string, value: boolean) => {
@@ -121,38 +140,50 @@ const Settings = () => {
       const updatedSettings = { ...privacySettings, [key]: value };
       setPrivacySettings(updatedSettings);
 
+      // Prepare data for database (exclude user_id and any extra fields)
+      const dbData = {
+        visibility_profile: updatedSettings.visibility_profile,
+        hide_messages_from_unregistered: updatedSettings.hide_messages_from_unregistered,
+        hide_threads_from_unregistered: updatedSettings.hide_threads_from_unregistered,
+        block_profile_visits_from_unregistered: updatedSettings.block_profile_visits_from_unregistered,
+        allow_search_by_username: updatedSettings.allow_search_by_username,
+        allow_search_by_id: updatedSettings.allow_search_by_id,
+        allow_search_by_secondary_id: updatedSettings.allow_search_by_secondary_id,
+        allow_private_messages: updatedSettings.allow_private_messages,
+        anonymous_mode: updatedSettings.anonymous_mode,
+        remove_image_metadata: updatedSettings.remove_image_metadata,
+      };
+
       // Try to save to database
       try {
         // First try to update existing record
         const { error: updateError } = await (supabase as any)
           .from('privacy_settings')
-          .update({
-            ...updatedSettings,
-            updated_at: new Date().toISOString(),
-          })
+          .update(dbData)
           .eq('user_id', user.id);
 
-        if (!updateError) {
-          // Save to localStorage too
-          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
-        } else {
-          console.log('Update failed, trying insert:', updateError);
-          // If update failed (no record exists), try to insert
-          const { error: insertError } = await (supabase as any)
+        if (updateError) {
+          console.log('Update failed, trying upsert:', updateError);
+          // If update failed, try upsert (insert or update)
+          const { error: upsertError } = await (supabase as any)
             .from('privacy_settings')
-            .insert({
+            .upsert({
               user_id: user.id,
-              ...updatedSettings,
+              ...dbData,
             });
 
-          if (!insertError) {
-            localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
-          } else {
-            console.error('Insert also failed:', insertError);
+          if (upsertError) {
+            console.error('Upsert also failed:', upsertError);
           }
         }
+
+        // Always save to localStorage for immediate UI updates
+        localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
+
       } catch (error) {
         console.error('Database save error:', error);
+        // Still save to localStorage even if database fails
+        localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
       }
 
       console.log('Privacy setting updated:', key, value);
@@ -229,6 +260,30 @@ const Settings = () => {
   useEffect(() => {
     if (user) {
       loadPrivacySettings();
+
+      // Set up real-time subscription for privacy settings changes
+      const channel = (supabase as any)
+        .channel(`privacy_settings_${user.id}`)
+        .on('postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'privacy_settings',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload: any) => {
+            console.log('Privacy settings updated from another device:', payload);
+            // Update local state and localStorage
+            const updatedSettings = payload.new;
+            setPrivacySettings(updatedSettings);
+            localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [user]);
 
@@ -516,6 +571,39 @@ const Settings = () => {
                             disabled={privacyLoading}
                           />
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Image Security Section */}
+                    <div className="bg-card p-6 border border-border">
+                      <div className="flex items-center gap-2 mb-4">
+                        <h2 className="text-lg font-semibold">Безопасность изображений</h2>
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span>Удалять метаданные с изображений</span>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Удаляет EXIF данные (геолокация, время съемки и др.) для защиты приватности</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <Switch
+                            checked={privacySettings.remove_image_metadata ?? true}
+                            onCheckedChange={(value) => updatePrivacySetting('remove_image_metadata', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Рекомендуется оставить включенным для защиты вашей приватности.
+                          Метаданные могут содержать информацию о местоположении и времени съемки.
+                        </p>
                       </div>
                     </div>
 
