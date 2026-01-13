@@ -142,7 +142,7 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#3498db';
       ctx.stroke();
-    };
+  };
     img.src = originalImage;
   };
 
