@@ -45,9 +45,9 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
   };
 
   return (
-    <Button
-      variant="ghost"
-      size="sm"
+    <Button 
+      variant="ghost" 
+      size="sm" 
       className="relative hover:bg-white/20 hover:text-white transition-colors"
       onClick={() => navigate("/messages")}
     >
