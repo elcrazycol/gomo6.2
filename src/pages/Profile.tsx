@@ -437,25 +437,123 @@ const Profile = () => {
     const { data } = await supabase
       .from("user_achievements")
       .select(`
+        level,
         unlocked_at,
         achievements (
           id,
           name,
           description,
           icon,
-          category
+          category,
+          achievement_type
         )
       `)
       .eq("user_id", userId)
+      .order("level", { ascending: false })
       .order("unlocked_at", { ascending: false });
 
     if (data) {
-      setAchievements(
-        data.map((ua: any) => ({
-          ...ua.achievements,
-          unlocked_at: ua.unlocked_at,
-        }))
-      );
+      // Group by achievement type and keep only the highest level
+      const achievementMap = new Map();
+
+      data.forEach((ua: any) => {
+        const type = ua.achievements.achievement_type || ua.achievements.category;
+        const current = achievementMap.get(type);
+
+        if (!current || ua.level > current.level) {
+          achievementMap.set(type, {
+            ...ua.achievements,
+            level: ua.level,
+            unlocked_at: ua.unlocked_at,
+          });
+        }
+      });
+
+      // Filter to only show base achievements with their correct names based on level
+      const processedAchievements = Array.from(achievementMap.values()).map(achievement => {
+        let displayName = achievement.name;
+        let displayDescription = achievement.description;
+
+        // Achievement processing
+
+        // Customize name and description based on achievement ID (base achievements)
+        if (achievement.id === 'time_10min') {
+          const timeNames = {
+            1: 'Дуралей I',
+            2: 'Дуралей II',
+            3: 'Дуралей III',
+            4: 'Дуралей IV',
+            5: 'Дуралей V',
+            6: 'Дуралей VI',
+            7: 'Дуралей VII',
+            8: 'Дуралей VIII',
+            9: 'Дуралей IX',
+            10: 'Дуралей X'
+          };
+          const timeDescriptions = {
+            1: 'Провёл на сайте 10 минут',
+            2: 'Провёл на сайте 30 минут',
+            3: 'Провёл на сайте 1 час',
+            4: 'Провёл на сайте 5 часов',
+            5: 'Провёл на сайте 10 часов',
+            6: 'Провёл на сайте 25 часов',
+            7: 'Провёл на сайте 50 часов',
+            8: 'Провёл на сайте 100 часов',
+            9: 'Провёл на сайте 250 часов',
+            10: 'Провёл на сайте 500 часов'
+          };
+          displayName = timeNames[achievement.level] || achievement.name;
+          displayDescription = timeDescriptions[achievement.level] || achievement.description;
+        } else if (achievement.id === 'posts_10') {
+          const postNames = {
+            1: 'Первые 10 сообщений',
+            2: 'Первые 100 сообщений',
+            3: 'Болтливый',
+            4: 'Многословный',
+            5: 'Кладезь мудрости',
+            6: 'Мастер слова',
+            7: 'Легенда форума'
+          };
+          const postDescriptions = {
+            1: 'Написал 10 сообщений',
+            2: 'Написал 100 сообщений',
+            3: 'Написал 250 сообщений',
+            4: 'Написал 500 сообщений',
+            5: 'Написал 1000 сообщений',
+            6: 'Написал 2500 сообщений',
+            7: 'Написал 5000 сообщений'
+          };
+          displayName = postNames[achievement.level] || achievement.name;
+          displayDescription = postDescriptions[achievement.level] || achievement.description;
+        } else if (achievement.id === 'threads_5') {
+          const threadNames = {
+            1: 'Создатель',
+            2: 'Творец',
+            3: 'Генератор идей',
+            4: 'Архитектор сообщества',
+            5: 'Мастер дискуссий',
+            6: 'Легенда форума'
+          };
+          const threadDescriptions = {
+            1: 'Создал 5 тредов',
+            2: 'Создал 10 тредов',
+            3: 'Создал 25 тредов',
+            4: 'Создал 50 тредов',
+            5: 'Создал 80 тредов',
+            6: 'Создал 100 тредов'
+          };
+          displayName = threadNames[achievement.level] || achievement.name;
+          displayDescription = threadDescriptions[achievement.level] || achievement.description;
+        }
+
+        return {
+          ...achievement,
+          name: displayName,
+          description: displayDescription
+        };
+      });
+
+      setAchievements(processedAchievements);
     }
   };
 
@@ -951,23 +1049,67 @@ const Profile = () => {
               <p className="text-muted-foreground">Достижений пока нет</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {achievements.map((achievement) => (
-                  <div
-                    key={achievement.id}
-                    className="bg-post-header border border-border p-3 flex items-start gap-3"
-                  >
-                    <span className="text-3xl">{achievement.icon}</span>
-                    <div className="flex-1">
-                      <p className="font-bold">{achievement.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {achievement.description}
-                      </p>
-                      <p className="text-xs text-primary mt-1">
-                        {new Date(achievement.unlocked_at).toLocaleDateString('ru-RU')}
-                      </p>
+                {achievements.map((achievement) => {
+                  // Определяем стиль в зависимости от уровня
+                  const getAchievementStyle = (level: number) => {
+                    const baseClasses = "p-3 flex items-start gap-3 relative overflow-hidden";
+
+                    if (level >= 10) {
+                      return `${baseClasses} bg-gradient-to-br from-purple-900/20 to-purple-600/20 border-2 border-purple-400 shadow-lg shadow-purple-400/20`;
+                    } else if (level >= 8) {
+                      return `${baseClasses} bg-gradient-to-br from-red-900/20 to-red-600/20 border-2 border-red-400 shadow-lg shadow-red-400/20`;
+                    } else if (level >= 6) {
+                      return `${baseClasses} bg-gradient-to-br from-orange-900/20 to-orange-600/20 border-2 border-orange-400 shadow-lg shadow-orange-400/20`;
+                    } else if (level >= 4) {
+                      return `${baseClasses} bg-gradient-to-br from-yellow-900/20 to-yellow-600/20 border-2 border-yellow-400 shadow-lg shadow-yellow-400/20`;
+                    } else if (level >= 2) {
+                      return `${baseClasses} bg-gradient-to-br from-blue-900/20 to-blue-600/20 border-2 border-blue-400 shadow-lg shadow-blue-400/20`;
+                    } else {
+                      return `${baseClasses} bg-post-header border border-border`;
+                    }
+                  };
+
+                  const getLevelBadge = (level: number) => {
+                    if (level <= 1) return null;
+
+                    const colors = {
+                      2: "bg-blue-500",
+                      3: "bg-blue-600",
+                      4: "bg-yellow-500",
+                      5: "bg-yellow-600",
+                      6: "bg-orange-500",
+                      7: "bg-orange-600",
+                      8: "bg-red-500",
+                      9: "bg-red-600",
+                      10: "bg-purple-500",
+                    };
+
+                    return (
+                      <div className={`absolute top-2 right-2 ${colors[level as keyof typeof colors] || "bg-gray-500"} text-white text-xs px-2 py-1 rounded-full font-bold`}>
+                        {level}
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <div
+                      key={achievement.id}
+                      className={getAchievementStyle(achievement.level || 1)}
+                    >
+                      {getLevelBadge(achievement.level || 1)}
+                      <span className="text-3xl relative z-10">{achievement.icon}</span>
+                      <div className="flex-1 relative z-10">
+                        <p className="font-bold">{achievement.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {achievement.description}
+                        </p>
+                        <p className="text-xs text-primary mt-1">
+                          Уровень {achievement.level || 1} • {new Date(achievement.unlocked_at).toLocaleDateString('ru-RU')}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
