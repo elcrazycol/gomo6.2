@@ -49,362 +49,273 @@ interface AvatarCropperProps {
 }
 
 const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete, onCancel }) => {
-  const [circleSizePercent, setCircleSizePercent] = useState(70); // percentage 10-100
-  const [circlePosition, setCirclePosition] = useState({ x: 0, y: 0 }); // relative to container center - starts at center
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
-  const [containerSize, setContainerSize] = useState({ width: 320, height: 320 });
+  // Элементы DOM (React refs)
+  const imageCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Calculate visible image bounds within container
-  const getImageBounds = () => {
-    const imgWidth = imageDimensions.width;
-    const imgHeight = imageDimensions.height;
-    // Use containerSize for consistency, but it should match rect
-    const contWidth = containerSize.width;
-    const contHeight = containerSize.height;
+  // Переменные для работы с изображением (точная копия из оригинального кода)
+  const [originalImage, setOriginalImage] = useState<string>('');
+  const [circleRadius, setCircleRadius] = useState(150);
+  const [circleX, setCircleX] = useState(0);
+  const [circleY, setCircleY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartX, setDragStartX] = useState(0);
+  const [dragStartY, setDragStartY] = useState(0);
+  const [circleStartX, setCircleStartX] = useState(0);
+  const [circleStartY, setCircleStartY] = useState(0);
+  const [scale, setScale] = useState(1);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
-    if (!imgWidth || !imgHeight) return { left: 0, right: contWidth, top: 0, bottom: contHeight };
+  const canvasWidth = 400;
+  const canvasHeight = 400;
 
-    const imgAspect = imgWidth / imgHeight;
-    const containerAspect = contWidth / contHeight;
+  // Загрузка изображения (точная копия из оригинального кода)
+  useEffect(() => {
+    setOriginalImage(imageSrc);
+    loadImage(imageSrc);
+  }, [imageSrc]);
 
-    let drawWidth, drawHeight, offsetX, offsetY;
+  // Функция загрузки изображения (точная копия)
+  const loadImage = (src: string) => {
+    const img = new Image();
+    img.onload = function() {
+      // Рассчитываем масштаб для отображения изображения в канвасе
+      const newScale = Math.min(canvasWidth / img.width, canvasHeight / img.height);
+      setScale(newScale);
 
-    if (imgAspect > containerAspect) {
-      // Image is wider than container (letterboxing on top/bottom)
-      drawWidth = contWidth;
-      drawHeight = contWidth / imgAspect;
-      offsetX = 0;
-      offsetY = (contHeight - drawHeight) / 2;
-    } else {
-      // Image is taller than container (letterboxing on sides)
-      drawHeight = contHeight;
-      drawWidth = contHeight * imgAspect;
-      offsetX = (contWidth - drawWidth) / 2;
-      offsetY = 0;
+      // Устанавливаем начальную позицию круга по центру канваса
+      setCircleX(canvasWidth / 2);
+      setCircleY(canvasHeight / 2);
+
+      setImageLoaded(true);
+      drawImageAndCircle();
+    };
+
+    img.src = src;
+  };
+
+  // Отрисовка изображения и круга (точная копия из оригинального кода)
+  const drawImageAndCircle = () => {
+    if (!imageCanvasRef.current || !imageLoaded) return;
+
+    const ctx = imageCanvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    const img = new Image();
+    img.onload = () => {
+      // Очищаем канвас
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+      // Вычисляем размеры изображения с учетом масштаба
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+
+      // Вычисляем позицию для центрирования изображения
+      const offsetX = (canvasWidth - scaledWidth) / 2;
+      const offsetY = (canvasHeight - scaledHeight) / 2;
+
+      // Рисуем изображение
+      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+
+      // Рисуем обрезанную область (круг) для предпросмотра
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+      ctx.restore();
+
+      // Рисуем границу круга
+      ctx.beginPath();
+      ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#3498db';
+      ctx.stroke();
+
+      // Рисуем перекрестие в центре круга
+      const crossSize = 10;
+      ctx.beginPath();
+      ctx.moveTo(circleX - crossSize, circleY);
+      ctx.lineTo(circleX + crossSize, circleY);
+      ctx.moveTo(circleX, circleY - crossSize);
+      ctx.lineTo(circleX, circleY + crossSize);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#3498db';
+      ctx.stroke();
+    };
+    img.src = originalImage;
+  };
+
+  // Обновление отрисовки при изменении параметров
+  useEffect(() => {
+    if (imageLoaded) {
+      drawImageAndCircle();
     }
+  }, [circleX, circleY, circleRadius, imageLoaded, scale]);
 
-    return {
-      left: offsetX,
-      right: offsetX + drawWidth,
-      top: offsetY,
-      bottom: offsetY + drawHeight,
-      drawWidth,
-      drawHeight
-    };
+  // Обработчики событий для изменения размера круга
+  const handleCircleSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newRadius = parseInt(e.target.value);
+    setCircleRadius(newRadius);
   };
 
-  // Get maximum possible circle size that fits within image bounds
-  const getMaxCircleSize = () => {
-    const bounds = getImageBounds();
-    const imageWidth = bounds.drawWidth;
-    const imageHeight = bounds.drawHeight;
+  // Конвертация координат из видимого размера в внутренний размер canvas
+  const convertCanvasCoordinates = (clientX: number, clientY: number) => {
+    if (!imageCanvasRef.current) return { x: 0, y: 0 };
 
-    // Circle diameter can't be larger than the smaller dimension of the visible image
-    return Math.min(imageWidth, imageHeight);
+    const rect = imageCanvasRef.current.getBoundingClientRect();
+    // Canvas всегда квадратный (400x400), поэтому используем один масштаб
+    const scale = canvasWidth / rect.width;
+
+    const x = (clientX - rect.left) * scale;
+    const y = (clientY - rect.top) * scale;
+
+    return { x, y };
   };
 
-  // Convert percentage to actual pixel size
-  const getCircleSizePixels = () => {
-    const maxSize = getMaxCircleSize();
-    return Math.max(20, (circleSizePercent / 100) * maxSize); // minimum 20px
-  };
-
-  const constrainCirclePosition = (absoluteX: number, absoluteY: number) => {
-    const container = containerRef.current;
-    if (!container) return { x: absoluteX, y: absoluteY };
-
-    const rect = container.getBoundingClientRect();
-    const bounds = getImageBounds();
-    const circleRadius = getCircleSizePixels() / 2;
-
-    // Allow circle to touch image edges
-    const effectiveRadius = circleRadius * 0.95; // Allow 95% of radius to touch edges
-
-    // Convert image bounds to absolute screen coordinates
-    const absBounds = {
-      left: rect.left + bounds.left,
-      right: rect.left + bounds.right,
-      top: rect.top + bounds.top,
-      bottom: rect.top + bounds.bottom
-    };
-
-    const constrainedX = Math.max(absBounds.left + effectiveRadius, Math.min(absBounds.right - effectiveRadius, absoluteX));
-    const constrainedY = Math.max(absBounds.top + effectiveRadius, Math.min(absBounds.bottom - effectiveRadius, absoluteY));
-
-    return { x: constrainedX, y: constrainedY };
-  };
-
+  // Обработчики событий для перетаскивания круга
   const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    setDragStart({
-      x: e.clientX,
-      y: e.clientY
-    });
-  };
+    const coords = convertCanvasCoordinates(e.clientX, e.clientY);
+    const x = coords.x;
+    const y = coords.y;
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
+    // Проверяем, находится ли курсор внутри круга
+    const distance = Math.sqrt((x - circleX) ** 2 + (y - circleY) ** 2);
+
+    if (distance <= circleRadius) {
       setIsDragging(true);
-      const touch = e.touches[0];
-      setDragStart({
-        x: touch.clientX,
-        y: touch.clientY
-      });
+      setDragStartX(x);
+      setDragStartY(y);
+      setCircleStartX(circleX);
+      setCircleStartY(circleY);
+      if (imageCanvasRef.current) {
+        imageCanvasRef.current.style.cursor = 'grabbing';
+      }
     }
-  };
-
-  const updateCirclePosition = (clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const containerCenterX = rect.left + rect.width / 2;
-    const containerCenterY = rect.top + rect.height / 2;
-
-    // Set desired circle center position to mouse/finger position
-    const desiredCenterX = clientX;
-    const desiredCenterY = clientY;
-
-    // Constrain to image bounds
-    const constrained = constrainCirclePosition(desiredCenterX, desiredCenterY);
-
-    // Convert back to relative position from container center
-    setCirclePosition({
-      x: constrained.x - containerCenterX,
-      y: constrained.y - containerCenterY
-    });
   };
 
   const handleMouseMove = (e: MouseEvent) => {
-    if (!isDragging) return;
-    e.preventDefault();
-    updateCirclePosition(e.clientX, e.clientY);
-  };
+    if (!isDragging || !imageCanvasRef.current) return;
 
-  const handleTouchMove = (e: TouchEvent) => {
-    if (!isDragging || e.touches.length !== 1) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    updateCirclePosition(touch.clientX, touch.clientY);
+    const coords = convertCanvasCoordinates(e.clientX, e.clientY);
+    const x = coords.x;
+    const y = coords.y;
+
+    let newCircleX = circleStartX + (x - dragStartX);
+    let newCircleY = circleStartY + (y - dragStartY);
+
+    // Ограничиваем движение круга в пределах канваса
+    const img = new Image();
+    img.onload = () => {
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+      const offsetX = (canvasWidth - scaledWidth) / 2;
+      const offsetY = (canvasHeight - scaledHeight) / 2;
+
+      // Проверяем границы изображения
+      const minX = offsetX + circleRadius;
+      const maxX = offsetX + scaledWidth - circleRadius;
+      const minY = offsetY + circleRadius;
+      const maxY = offsetY + scaledHeight - circleRadius;
+
+      if (newCircleX < minX) newCircleX = minX;
+      if (newCircleX > maxX) newCircleX = maxX;
+      if (newCircleY < minY) newCircleY = minY;
+      if (newCircleY > maxY) newCircleY = maxY;
+
+      setCircleX(newCircleX);
+      setCircleY(newCircleY);
+    };
+    img.src = originalImage;
   };
 
   const handleMouseUp = () => {
-    setIsDragging(false);
+    if (isDragging && imageCanvasRef.current) {
+      setIsDragging(false);
+      imageCanvasRef.current.style.cursor = 'default';
+    }
   };
 
-  // Load image dimensions and container size
-  useEffect(() => {
-    setImageLoaded(false);
-    const img = new Image();
-    img.onload = () => {
-      setImageDimensions({ width: img.width, height: img.height });
-      setImageLoaded(true);
-    };
-    img.src = imageSrc;
-
-    // Update container size
-    const updateContainerSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setContainerSize({ width: rect.width, height: rect.height });
-      }
-    };
-
-    updateContainerSize();
-    window.addEventListener('resize', updateContainerSize);
-    return () => window.removeEventListener('resize', updateContainerSize);
-  }, [imageSrc]);
-
-  // Center the circle when image is fully loaded and dimensions are available
-  useEffect(() => {
-    if (imageLoaded && imageDimensions.width && imageDimensions.height && containerSize.width) {
-      // Small delay to ensure DOM is fully updated
-      const timeoutId = setTimeout(() => {
-        const container = containerRef.current;
-        if (container) {
-          const rect = container.getBoundingClientRect();
-          const bounds = getImageBounds();
-
-          // Center on the visible image area
-          const imageCenterX = rect.left + bounds.left + bounds.drawWidth / 2;
-          const imageCenterY = rect.top + bounds.top + bounds.drawHeight / 2;
-
-          const containerCenterX = rect.left + rect.width / 2;
-          const containerCenterY = rect.top + rect.height / 2;
-
-          // Ensure the position is within bounds
-          const circleRadius = getCircleSizePixels() / 2;
-          const boundsAbs = {
-            left: rect.left + bounds.left,
-            right: rect.left + bounds.right,
-            top: rect.top + bounds.top,
-            bottom: rect.top + bounds.bottom
-          };
-
-              const effectiveRadius = getCircleSizePixels() / 2 * 0.95; // Use 95% radius for centering
-              const constrainedX = Math.max(boundsAbs.left + effectiveRadius, Math.min(boundsAbs.right - effectiveRadius, imageCenterX));
-              const constrainedY = Math.max(boundsAbs.top + effectiveRadius, Math.min(boundsAbs.bottom - effectiveRadius, imageCenterY));
-
-          setCirclePosition({
-            x: constrainedX - containerCenterX,
-            y: constrainedY - containerCenterY
-          });
-        }
-      }, 100); // Small delay for DOM updates
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [imageLoaded, imageDimensions, containerSize, circleSizePercent]);
-
-  // Update circle position when size changes to keep it within bounds
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const rect = container.getBoundingClientRect();
-    const containerCenterX = rect.left + rect.width / 2;
-    const containerCenterY = rect.top + rect.height / 2;
-
-    const currentCenterX = containerCenterX + circlePosition.x;
-    const currentCenterY = containerCenterY + circlePosition.y;
-
-    const constrained = constrainCirclePosition(currentCenterX, currentCenterY);
-
-    if (constrained.x !== currentCenterX || constrained.y !== currentCenterY) {
-      setCirclePosition({
-        x: constrained.x - containerCenterX,
-        y: constrained.y - containerCenterY
-      });
-    }
-  }, [circleSizePercent, imageDimensions]);
-
+  // Глобальные обработчики событий
   useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('touchmove', handleTouchMove, { passive: false });
       document.addEventListener('mouseup', handleMouseUp);
-      document.addEventListener('touchend', handleMouseUp);
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('touchmove', handleTouchMove);
         document.removeEventListener('mouseup', handleMouseUp);
-        document.removeEventListener('touchend', handleMouseUp);
       };
     }
   }, [isDragging]);
 
+
+  // Сброс настроек к начальным
+  const handleReset = () => {
+    if (originalImage) {
+      setCircleRadius(150);
+      loadImage(originalImage);
+    }
+  };
+
+  // Создание обрезанного аватара (точная копия из оригинального кода)
   const handleCrop = () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    if (!imageLoaded) return;
+
+    // Создаем временный канвас для сохранения
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Устанавливаем размеры для высококачественного аватара
+    const avatarSize = 300; // Размер итогового аватара
+    tempCanvas.width = avatarSize;
+    tempCanvas.height = avatarSize;
+
+    // Рассчитываем координаты для обрезки
     const img = new Image();
-
     img.onload = () => {
-      canvas.width = 200;
-      canvas.height = 200;
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+      const offsetX = (canvasWidth - scaledWidth) / 2;
+      const offsetY = (canvasHeight - scaledHeight) / 2;
 
-      // Create circular crop
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(100, 100, 100, 0, 2 * Math.PI);
-      ctx.clip();
+      const sourceX = (circleX - offsetX - circleRadius) / scale;
+      const sourceY = (circleY - offsetY - circleRadius) / scale;
+      const sourceSize = (circleRadius * 2) / scale;
 
-      // Calculate crop coordinates
-      // The image is displayed with object-contain, so we need to calculate
-      // where the circle intersects with the actual image
-      const containerWidth = 320;
-      const containerHeight = 320;
+      // Обрезаем изображение в форме круга
+      tempCtx.save();
+      tempCtx.beginPath();
+      tempCtx.arc(avatarSize/2, avatarSize/2, avatarSize/2, 0, Math.PI * 2);
+      tempCtx.clip();
 
-      // Calculate how the image fits in the container
-      const imgAspect = img.width / img.height;
-      const containerAspect = containerWidth / containerHeight;
-
-      let drawWidth, drawHeight, offsetX, offsetY;
-
-      if (imgAspect > containerAspect) {
-        // Image is wider than container
-        drawWidth = containerWidth;
-        drawHeight = containerWidth / imgAspect;
-        offsetX = 0;
-        offsetY = (containerHeight - drawHeight) / 2;
-      } else {
-        // Image is taller than container
-        drawHeight = containerHeight;
-        drawWidth = containerHeight * imgAspect;
-        offsetX = (containerWidth - drawWidth) / 2;
-        offsetY = 0;
-      }
-
-      // Circle center relative to container
-      const circleCenterX = containerWidth / 2 + circlePosition.x;
-      const circleCenterY = containerHeight / 2 + circlePosition.y;
-      const circleRadius = getCircleSizePixels() / 2;
-
-      // Check if circle intersects with actual image bounds
-      const imageLeft = offsetX;
-      const imageRight = offsetX + drawWidth;
-      const imageTop = offsetY;
-      const imageBottom = offsetY + drawHeight;
-
-      // Constrain circle to image bounds
-      const constrainedCenterX = Math.max(imageLeft + circleRadius, Math.min(imageRight - circleRadius, circleCenterX));
-      const constrainedCenterY = Math.max(imageTop + circleRadius, Math.min(imageBottom - circleRadius, circleCenterY));
-
-      // Convert to image coordinates
-      const imageX = ((constrainedCenterX - offsetX) / drawWidth) * img.width;
-      const imageY = ((constrainedCenterY - offsetY) / drawHeight) * img.height;
-      const cropRadius = (circleRadius / Math.min(drawWidth / img.width, drawHeight / img.height));
-
-      // Draw the cropped circular area
-      ctx.drawImage(
+      // Рисуем обрезанное изображение
+      tempCtx.drawImage(
         img,
-        imageX - cropRadius,
-        imageY - cropRadius,
-        cropRadius * 2,
-        cropRadius * 2,
-        0,
-        0,
-        200,
-        200
+        sourceX, sourceY, sourceSize, sourceSize,
+        0, 0, avatarSize, avatarSize
       );
 
-      ctx.restore();
+      tempCtx.restore();
 
-      const croppedImage = canvas.toDataURL('image/png');
+      const croppedImage = tempCanvas.toDataURL('image/png');
       onCropComplete(croppedImage);
     };
-
-    img.src = imageSrc;
+    img.src = originalImage;
   };
 
   return (
     <div className="space-y-4">
-      <div
-        ref={containerRef}
-        className="relative w-full h-80 bg-muted rounded-lg overflow-hidden touch-none"
-      >
-        <img
-          src={imageSrc}
-          alt="Crop preview"
-          className="w-full h-full object-contain"
-        />
-
-        {/* Crop circle - constrained to image bounds */}
-        <div
-          className="absolute border-2 border-white border-dashed rounded-full cursor-move shadow-lg select-none"
-          style={{
-            width: `${getCircleSizePixels()}px`,
-            height: `${getCircleSizePixels()}px`,
-            left: `calc(50% + ${circlePosition.x}px - ${getCircleSizePixels() / 2}px)`,
-            top: `calc(50% + ${circlePosition.y}px - ${getCircleSizePixels() / 2}px)`,
-            boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.8)',
-            touchAction: 'none',
-          }}
+      <div className="relative w-full aspect-square max-w-md mx-auto bg-muted rounded-lg overflow-hidden">
+        <canvas
+          ref={imageCanvasRef}
+          width={canvasWidth}
+          height={canvasHeight}
+          className="block w-full h-auto max-w-full bg-gray-900 rounded-lg shadow-lg"
           onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
+          style={{
+            cursor: isDragging ? 'grabbing' : 'default',
+            aspectRatio: '1'
+          }}
         />
       </div>
 
@@ -412,19 +323,19 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
         <label className="text-sm font-medium">Размер круга</label>
         <input
           type="range"
-          min="10"
-          max="100"
-          step="5"
-          value={circleSizePercent}
-          onChange={(e) => setCircleSizePercent(Number(e.target.value))}
+          id="circleSize"
+          min="50"
+          max="300"
+          value={circleRadius}
+          onChange={handleCircleSizeChange}
           className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer touch-manipulation"
           style={{
-            background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${((circleSizePercent - 10) / 90) * 100}%, hsl(var(--muted)) ${((circleSizePercent - 10) / 90) * 100}%, hsl(var(--muted)) 100%)`
+            background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${((circleRadius - 50) / 250) * 100}%, hsl(var(--muted)) ${((circleRadius - 50) / 250) * 100}%, hsl(var(--muted)) 100%)`
           }}
         />
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>Маленький</span>
-          <span>Размер: {circleSizePercent}% ({Math.round(getCircleSizePixels())}px)</span>
+          <span>Размер: {circleRadius}px</span>
           <span>Большой</span>
         </div>
       </div>
@@ -433,7 +344,10 @@ const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete,
         <Button onClick={onCancel} variant="outline" className="flex-1">
           Отмена
         </Button>
-        <Button onClick={handleCrop} className="flex-1">
+        <Button onClick={handleReset} variant="secondary" className="flex-1" disabled={!imageLoaded}>
+          Сбросить
+        </Button>
+        <Button onClick={handleCrop} className="flex-1" disabled={!imageLoaded}>
           Сохранить
         </Button>
       </div>
