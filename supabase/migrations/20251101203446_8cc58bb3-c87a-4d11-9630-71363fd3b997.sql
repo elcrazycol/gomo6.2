@@ -1,11 +1,11 @@
 -- Add new achievements
-INSERT INTO public.achievements (id, name, description, category, icon) VALUES
-('thread_50_posts', '50 постов в треде', 'Создал тред, набравший 50 постов', 'social', '💬'),
-('time_10min', 'Дуралей I', 'Провёл на сайте 10 минут', 'time', '⏰'),
-('time_30min', 'Дуралей II', 'Провёл на сайте 30 минут', 'time', '⏱️'),
-('time_1hour', 'Дуралей III', 'Провёл на сайте 1 час', 'time', '⌛'),
-('time_5hours', 'Дуралей IV', 'Провёл на сайте 5 часов', 'time', '🕐'),
-('incel', 'Инцел', 'Зашёл в доску /d/ - Для взрослых', 'boards', '🔞')
+INSERT INTO public.achievements (id, name, description, category, icon, achievement_type) VALUES
+('thread_50_posts', '50 постов в треде', 'Создал тред, набравший 50 постов', 'social', '💬', 'social'),
+('time_10min', 'Дуралей I', 'Провёл на сайте 10 минут', 'time', '⏰', 'time'),
+('time_30min', 'Дуралей II', 'Провёл на сайте 30 минут', 'time', '⏱️', 'time'),
+('time_1hour', 'Дуралей III', 'Провёл на сайте 1 час', 'time', '⌛', 'time'),
+('time_5hours', 'Дуралей IV', 'Провёл на сайте 5 часов', 'time', '🕐', 'time'),
+('incel', 'Инцел', 'Зашёл в доску /d/ - Для взрослых', 'boards', '🔞', 'activity')
 ON CONFLICT (id) DO NOTHING;
 
 -- Create table to track user terms acceptance
