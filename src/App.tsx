@@ -22,6 +22,30 @@ const App = () => {
   const [locationChecked, setLocationChecked] = useState(false);
 
   useEffect(() => {
+    // Apply saved theme immediately to prevent layout flash
+    const savedColor = localStorage.getItem('color-theme') || 'cannabis';
+    const savedMode = localStorage.getItem('dark-mode') === 'true';
+
+    const html = document.documentElement;
+    const themeClass = savedMode ? `theme-${savedColor}-dark` : `theme-${savedColor}`;
+    html.classList.add(themeClass);
+
+    // Apply saved custom font
+    const savedFont = localStorage.getItem('custom_font');
+    if (savedFont) {
+      // Load Google Font
+      const link = document.createElement('link');
+      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(savedFont)}:wght@400;500;600;700&display=swap`;
+      link.rel = 'stylesheet';
+      link.setAttribute('data-google-font', 'true');
+      document.head.appendChild(link);
+
+      // Apply font
+      const fontFamily = `"${savedFont}", system-ui, -apple-system, sans-serif`;
+      document.documentElement.style.setProperty('--font-family', fontFamily);
+      document.body.style.fontFamily = fontFamily;
+    }
+
     // Check if user is from Russia
     const checkLocation = async () => {
       try {
@@ -67,30 +91,6 @@ const App = () => {
     };
 
     checkLocation();
-
-    // Apply saved theme on app load
-    const savedColor = localStorage.getItem('color-theme') || 'cannabis';
-    const savedMode = localStorage.getItem('dark-mode') === 'true';
-
-    const html = document.documentElement;
-    const themeClass = savedMode ? `theme-${savedColor}-dark` : `theme-${savedColor}`;
-    html.classList.add(themeClass);
-
-    // Apply saved custom font
-    const savedFont = localStorage.getItem('custom_font');
-    if (savedFont) {
-      // Load Google Font
-      const link = document.createElement('link');
-      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(savedFont)}:wght@400;500;600;700&display=swap`;
-      link.rel = 'stylesheet';
-      link.setAttribute('data-google-font', 'true');
-      document.head.appendChild(link);
-
-      // Apply font
-      const fontFamily = `"${savedFont}", system-ui, -apple-system, sans-serif`;
-      document.documentElement.style.setProperty('--font-family', fontFamily);
-      document.body.style.fontFamily = fontFamily;
-    }
   }, []);
 
   // Show loading while checking location
