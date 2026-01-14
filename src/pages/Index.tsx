@@ -9,7 +9,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings } from "lucide-react";
+import { Settings, Hammer } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -221,7 +221,9 @@ const Index = () => {
                   </ProfileHoverCard>
                   {isModerator && (
                     <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
+                      <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
+                        <Hammer className="h-4 w-4" />
+                      </Button>
                     </Link>
                   )}
                 </div>

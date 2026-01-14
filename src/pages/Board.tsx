@@ -15,7 +15,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings } from "lucide-react";
+import { Settings, Hammer } from "lucide-react";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -359,6 +359,13 @@ const Board = () => {
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
                     </Link>
                   </ProfileHoverCard>
+                  {isModerator && (
+                    <Link to="/moderation">
+                      <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
+                        <Hammer className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  )}
                   {isModerator && (
                     <Link to="/moderation">
                       <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>

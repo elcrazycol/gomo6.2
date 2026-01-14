@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -10,7 +11,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,9 @@ const Settings = () => {
   const [customFont, setCustomFont] = useState(() => {
     return localStorage.getItem('custom_font') || '';
   });
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
     const getUser = async () => {
@@ -257,6 +261,38 @@ const Settings = () => {
     }
   };
 
+  const handlePasswordChange = async () => {
+    if (!newPassword || !confirmPassword) {
+      toast.error("Заполните все поля");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Пароли не совпадают");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error("Пароль должен быть не менее 6 символов");
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      toast.success("Пароль успешно изменён");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordDialog(false);
+    } catch (error: any) {
+      toast.error("Ошибка изменения пароля: " + error.message);
+    }
+  };
+
   // Load custom font on component mount
   useEffect(() => {
     const savedFont = localStorage.getItem('custom_font');
@@ -318,7 +354,7 @@ const Settings = () => {
               <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
                 gomo6
               </Link>
-              <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
+                <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
                 <ThemeToggle />
                 {user && <NotificationBell userId={user.id} />}
                 {user && <ChatIcon userId={user.id} />}
@@ -446,8 +482,37 @@ const Settings = () => {
                     <div>
                       <label className="text-sm font-medium">Пароль</label>
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
-                        Изменение пароля доступно в профиле
+                        Измените пароль для защиты аккаунта
                       </p>
+                      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+                        <DialogTrigger asChild>
+                          <Button variant="outline">
+                            Сменить пароль
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Изменить пароль</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <Input
+                              type="password"
+                              placeholder="Новый пароль"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                            />
+                            <Input
+                              type="password"
+                              placeholder="Подтвердите новый пароль"
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                            />
+                            <Button onClick={handlePasswordChange} className="w-full">
+                              Изменить пароль
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   </div>
                 </div>
