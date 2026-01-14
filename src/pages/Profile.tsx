@@ -17,7 +17,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
-import { Camera, Edit2, LogOut, User, Settings } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -40,6 +40,9 @@ interface Achievement {
   icon: string;
   category: string;
   unlocked_at: string;
+  level?: number;
+  is_pinned?: boolean;
+  pinned_order?: number;
 }
 
 interface AvatarCropperProps {
@@ -47,6 +50,88 @@ interface AvatarCropperProps {
   onCropComplete: (croppedImage: string) => void;
   onCancel: () => void;
 }
+
+interface AchievementCardProps {
+  achievement: Achievement;
+  onTogglePin: (achievementId: string) => void;
+  isPinned: boolean;
+  isEditing: boolean;
+}
+
+const AchievementCard: React.FC<AchievementCardProps> = ({ achievement, onTogglePin, isPinned, isEditing }) => {
+  // Определяем стиль в зависимости от уровня
+  const getAchievementStyle = (level: number) => {
+    let baseClasses = "p-3 flex items-start gap-3 relative overflow-hidden";
+
+    if (isEditing) {
+      baseClasses += " group";
+    }
+
+    if (level >= 10) {
+      return `${baseClasses} bg-gradient-to-br from-purple-900/20 to-purple-600/20 border-2 border-purple-400 shadow-lg shadow-purple-400/20`;
+    } else if (level >= 8) {
+      return `${baseClasses} bg-gradient-to-br from-red-900/20 to-red-600/20 border-2 border-red-400 shadow-lg shadow-red-400/20`;
+    } else if (level >= 6) {
+      return `${baseClasses} bg-gradient-to-br from-orange-900/20 to-orange-600/20 border-2 border-orange-400 shadow-lg shadow-orange-400/20`;
+    } else if (level >= 4) {
+      return `${baseClasses} bg-gradient-to-br from-yellow-900/20 to-yellow-600/20 border-2 border-yellow-400 shadow-lg shadow-yellow-400/20`;
+    } else if (level >= 2) {
+      return `${baseClasses} bg-gradient-to-br from-blue-900/20 to-blue-600/20 border-2 border-blue-400 shadow-lg shadow-blue-400/20`;
+    } else {
+      return `${baseClasses} bg-post-header border border-border`;
+    }
+  };
+
+  const getLevelBadge = (level: number) => {
+    if (level <= 1) return null;
+
+    const colors = {
+      2: "bg-blue-500",
+      3: "bg-blue-600",
+      4: "bg-yellow-500",
+      5: "bg-yellow-600",
+      6: "bg-orange-500",
+      7: "bg-orange-600",
+      8: "bg-red-500",
+      9: "bg-red-600",
+      10: "bg-purple-500",
+    };
+
+    return (
+      <div className={`absolute top-2 right-2 ${colors[level as keyof typeof colors] || "bg-gray-500"} text-white text-xs px-2 py-1 rounded-full font-bold`}>
+        {level}
+      </div>
+    );
+  };
+
+  return (
+    <div className={getAchievementStyle(achievement.level || 1)}>
+      {getLevelBadge(achievement.level || 1)}
+
+      {/* Pin button - only visible in edit mode */}
+      {isEditing && (
+        <button
+          onClick={() => onTogglePin(achievement.id)}
+          className="absolute bottom-1 right-1 w-7 h-7 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors shadow-md z-20"
+          title={isPinned ? "Открепить достижение" : "Закрепить достижение"}
+        >
+          {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+        </button>
+      )}
+
+      <span className="text-3xl relative z-10">{achievement.icon}</span>
+      <div className="flex-1 relative z-10">
+        <p className="font-bold">{achievement.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {achievement.description}
+        </p>
+        <p className="text-xs text-primary mt-1">
+          Уровень {achievement.level || 1} • {new Date(achievement.unlocked_at).toLocaleDateString('ru-RU')}
+        </p>
+      </div>
+    </div>
+  );
+};
 
 const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete, onCancel }) => {
   // Элементы DOM (React refs)
@@ -360,19 +445,20 @@ const Profile = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [pinnedAchievements, setPinnedAchievements] = useState<Achievement[]>([]);
+  const [regularAchievements, setRegularAchievements] = useState<Achievement[]>([]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [newUsername, setNewUsername] = useState("");
   const [confirmUsername, setConfirmUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isModerator, setIsModerator] = useState(false);
+  const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   const [pageLoading, setPageLoading] = useState(true);
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [minScale, setMinScale] = useState(0.5);
@@ -390,6 +476,43 @@ const Profile = () => {
           .eq("user_id", user.id);
         
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+
+        // Load current user profile and color
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("id", user.id)
+          .single();
+
+        if (profile) {
+          setCurrentUserUsername(profile.username);
+        }
+
+        // Load current user color
+        const { data: achievements } = await supabase
+          .from("user_achievements")
+          .select(`
+            achievement_id,
+            achievements (
+              reward_type,
+              reward_value
+            )
+          `)
+          .eq("user_id", user.id);
+
+        if (achievements) {
+          const colorRewards = achievements
+            .filter((a: any) => a.achievements?.reward_type === "username_color")
+            .map((a: any) => a.achievements.reward_value);
+
+          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+          for (const p of priority) {
+            if (colorRewards.includes(p)) {
+              setCurrentUserColor(p);
+              break;
+            }
+          }
+        }
       }
     };
     checkAuth();
@@ -433,11 +556,29 @@ const Profile = () => {
     }
   };
 
+  const toggleAchievementPin = async (achievementId: string) => {
+    try {
+      const { data, error } = await supabase.rpc('toggle_achievement_pin', {
+        _user_id: userId,
+        _achievement_id: achievementId
+      });
+
+      if (error) throw error;
+
+      // Reload achievements to reflect changes
+      await loadAchievements();
+    } catch (error) {
+      console.error('Error toggling achievement pin:', error);
+    }
+  };
+
   const loadAchievements = async () => {
     const { data } = await supabase
       .from("user_achievements")
       .select(`
         level,
+        is_pinned,
+        pinned_order,
         unlocked_at,
         achievements (
           id,
@@ -449,6 +590,8 @@ const Profile = () => {
         )
       `)
       .eq("user_id", userId)
+      .order("is_pinned", { ascending: false })
+      .order("pinned_order", { ascending: true })
       .order("level", { ascending: false })
       .order("unlocked_at", { ascending: false });
 
@@ -465,6 +608,8 @@ const Profile = () => {
             ...ua.achievements,
             level: ua.level,
             unlocked_at: ua.unlocked_at,
+            is_pinned: ua.is_pinned,
+            pinned_order: ua.pinned_order,
           });
         }
       });
@@ -553,6 +698,12 @@ const Profile = () => {
         };
       });
 
+      // Split achievements into pinned and regular
+      const pinned = processedAchievements.filter(a => a.is_pinned);
+      const regular = processedAchievements.filter(a => !a.is_pinned);
+
+      setPinnedAchievements(pinned);
+      setRegularAchievements(regular);
       setAchievements(processedAchievements);
     }
   };
@@ -691,33 +842,6 @@ const Profile = () => {
     }
   };
 
-  const handlePasswordChange = async () => {
-    if (newPassword !== confirmPassword) {
-      toast.error("Пароли не совпадают");
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      toast.error("Пароль должен быть не менее 6 символов");
-      return;
-    }
-
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword
-      });
-
-      if (error) throw error;
-
-      toast.success("Пароль изменен");
-      setShowPasswordDialog(false);
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (error) {
-      toast.error("Ошибка изменения пароля");
-      console.error(error);
-    }
-  };
 
   const handleSaveAndExit = async () => {
     try {
@@ -819,7 +943,7 @@ const Profile = () => {
             gomo6
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings">
+            <Link to="/settings" className="hidden sm:block">
               <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
@@ -828,23 +952,51 @@ const Profile = () => {
             {currentUser && <ChatIcon userId={currentUser.id} />}
             {currentUser ? (
               <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
-                  {isModerator && (
-                    <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
-                    </Link>
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
+                  {isOwnProfile ? (
+                    <>
+                      {isModerator && (
+                        <Link to="/moderation">
+                          <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
+                            <Hammer className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleLogout}
+                        className="p-2 hover:bg-red-500/20 hover:text-red-400 transition-colors"
+                        title="Выйти из аккаунта"
+                      >
+                        <LogOut className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <ProfileHoverCard userId={currentUser.id}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors ${
+                          currentUserColor === 'purple' ? 'text-purple-500' :
+                          currentUserColor === 'gold' ? 'text-yellow-500' :
+                          currentUserColor === 'orange' ? 'text-orange-500' :
+                          currentUserColor === 'red' ? 'text-red-500' :
+                          currentUserColor === 'blue' ? 'text-blue-500' :
+                          currentUserColor === 'green' ? 'text-green-500' :
+                          currentUserColor === 'yellow' ? 'text-yellow-400' :
+                          currentUserColor === 'cyan' ? 'text-cyan-500' :
+                          'text-quote'
+                        }`}
+                      >
+                        {currentUserUsername || 'Профиль'}
+                      </Button>
+                    </ProfileHoverCard>
                   )}
-                  <ProfileHoverCard userId={currentUser.id}>
-                    <Button variant="ghost" size="sm" className="p-2 hover:bg-primary/10 hover:text-primary transition-colors">
-                      <User className="h-4 w-4" />
-                    </Button>
-                  </ProfileHoverCard>
                 </div>
                 <MobileMenu
                   user={currentUser}
                   isModerator={isModerator}
-                  username={profile?.username}
-                  isAnonymous={profile?.is_anonymous}
                 />
               </>
             ) : (
@@ -948,16 +1100,6 @@ const Profile = () => {
                 />
               </div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="anonymous"
-                  checked={isAnonymous}
-                  onCheckedChange={setIsAnonymous}
-                />
-                <Label htmlFor="anonymous">
-                  Режим анонимности (писать как "Аноним")
-                </Label>
-              </div>
 
               {/* Avatar Crop Dialog */}
               <Dialog open={!!cropImage} onOpenChange={() => setCropImage(null)}>
@@ -980,48 +1122,7 @@ const Profile = () => {
 
 
 
-              {/* Password change button */}
-              <div className="pt-4 border-t">
-                <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="w-full">
-                      Сменить пароль
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Изменить пароль</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <Input
-                        type="password"
-                        placeholder="Новый пароль"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                      />
-                      <Input
-                        type="password"
-                        placeholder="Подтвердите новый пароль"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                      />
-                      <Button onClick={handlePasswordChange} className="w-full">
-                        Изменить пароль
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
 
-              {/* Logout button */}
-              <Button
-                variant="destructive"
-                onClick={handleLogout}
-                className="w-full"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Выйти из аккаунта
-              </Button>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1048,68 +1149,49 @@ const Profile = () => {
             {achievements.length === 0 ? (
               <p className="text-muted-foreground">Достижений пока нет</p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {achievements.map((achievement) => {
-                  // Определяем стиль в зависимости от уровня
-                  const getAchievementStyle = (level: number) => {
-                    const baseClasses = "p-3 flex items-start gap-3 relative overflow-hidden";
-
-                    if (level >= 10) {
-                      return `${baseClasses} bg-gradient-to-br from-purple-900/20 to-purple-600/20 border-2 border-purple-400 shadow-lg shadow-purple-400/20`;
-                    } else if (level >= 8) {
-                      return `${baseClasses} bg-gradient-to-br from-red-900/20 to-red-600/20 border-2 border-red-400 shadow-lg shadow-red-400/20`;
-                    } else if (level >= 6) {
-                      return `${baseClasses} bg-gradient-to-br from-orange-900/20 to-orange-600/20 border-2 border-orange-400 shadow-lg shadow-orange-400/20`;
-                    } else if (level >= 4) {
-                      return `${baseClasses} bg-gradient-to-br from-yellow-900/20 to-yellow-600/20 border-2 border-yellow-400 shadow-lg shadow-yellow-400/20`;
-                    } else if (level >= 2) {
-                      return `${baseClasses} bg-gradient-to-br from-blue-900/20 to-blue-600/20 border-2 border-blue-400 shadow-lg shadow-blue-400/20`;
-                    } else {
-                      return `${baseClasses} bg-post-header border border-border`;
-                    }
-                  };
-
-                  const getLevelBadge = (level: number) => {
-                    if (level <= 1) return null;
-
-                    const colors = {
-                      2: "bg-blue-500",
-                      3: "bg-blue-600",
-                      4: "bg-yellow-500",
-                      5: "bg-yellow-600",
-                      6: "bg-orange-500",
-                      7: "bg-orange-600",
-                      8: "bg-red-500",
-                      9: "bg-red-600",
-                      10: "bg-purple-500",
-                    };
-
-                    return (
-                      <div className={`absolute top-2 right-2 ${colors[level as keyof typeof colors] || "bg-gray-500"} text-white text-xs px-2 py-1 rounded-full font-bold`}>
-                        {level}
-                      </div>
-                    );
-                  };
-
-                  return (
-                    <div
-                      key={achievement.id}
-                      className={getAchievementStyle(achievement.level || 1)}
-                    >
-                      {getLevelBadge(achievement.level || 1)}
-                      <span className="text-3xl relative z-10">{achievement.icon}</span>
-                      <div className="flex-1 relative z-10">
-                        <p className="font-bold">{achievement.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {achievement.description}
-                        </p>
-                        <p className="text-xs text-primary mt-1">
-                          Уровень {achievement.level || 1} • {new Date(achievement.unlocked_at).toLocaleDateString('ru-RU')}
-                        </p>
-                      </div>
+              <div className="space-y-6">
+                {/* Закрепленные достижения */}
+                {pinnedAchievements.length > 0 && (
+                  <div className={isEditing ? "" : "mb-8"}>
+                    {isEditing && (
+                      <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                        <Pin className="w-4 h-4" />
+                        Закрепленные ({pinnedAchievements.length}/4)
+                      </h3>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {pinnedAchievements.map((achievement) => (
+                        <AchievementCard
+                          key={achievement.id}
+                          achievement={achievement}
+                          onTogglePin={toggleAchievementPin}
+                          isPinned={true}
+                          isEditing={isEditing}
+                        />
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+
+                {/* Обычные достижения */}
+                {regularAchievements.length > 0 && (
+                  <div>
+                    {isEditing && pinnedAchievements.length > 0 && (
+                      <h3 className="text-lg font-semibold mb-3">Все достижения</h3>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {regularAchievements.map((achievement) => (
+                        <AchievementCard
+                          key={achievement.id}
+                          achievement={achievement}
+                          onTogglePin={toggleAchievementPin}
+                          isPinned={false}
+                          isEditing={isEditing}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
