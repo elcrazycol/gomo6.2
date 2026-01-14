@@ -924,6 +924,7 @@ const Thread = () => {
                 currentUsername={currentUserUsername}
                 currentUserColor={currentUserColor}
                 postAuthorId={thread.user_id}
+                authorUsername={thread.profiles?.username}
               />
             </p>
           </div>
@@ -1093,6 +1094,7 @@ const Thread = () => {
                       currentUsername={currentUserUsername}
                       currentUserColor={currentUserColor}
                       postAuthorId={post.user_id}
+                      authorUsername={post.profiles?.username}
                     />
                   )}
                 </p>

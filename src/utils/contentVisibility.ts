@@ -5,6 +5,7 @@ interface VisibilityOptions {
   isAdmin: boolean;
   currentUsername: string;
   postAuthorId?: string | null;
+  authorUsername?: string;
 }
 
 export interface VisibilityResult {
@@ -80,7 +81,7 @@ export const processVisibilityTags = async (
   options: VisibilityOptions
 ): Promise<VisibilityResult> => {
   // If no content or no tags, return as-is
-  if (!content || (!content.includes('[seeusers=') && !content.includes('[nousers=') && !content.includes('[adm]'))) {
+  if (!content || (!content.includes('[seeusers=') && !content.includes('[nousers=') && !content.includes('[adm]') && !content.includes('[dude]'))) {
     return {
       processedContent: content,
       isHidden: false,
@@ -96,9 +97,8 @@ export const processVisibilityTags = async (
   let visibleForUsers: string[] = [];
   let hiddenReason: 'seeusers' | 'nousers' | 'adm' | undefined;
 
-  // Process [dude][/dude] first - replace with current username
-  const usernamePlaceholder = `__USERNAME_${options.currentUserId || 'anon'}__`;
-  processed = processed.replace(/\[dude\]\[\/dude\]/g, usernamePlaceholder);
+  // Process [dude][/dude] first - replace with special marker
+  processed = processed.replace(/\[dude\]\[\/dude\]/g, '__DUDE_LINK__');
 
   // FIRST: Process all multiline (closed) tags
 
@@ -238,15 +238,12 @@ export const processVisibilityTags = async (
     }
   }
 
-  // Restore username placeholder to actual username
-  processed = processed.replace(new RegExp(`__USERNAME_${options.currentUserId || 'anon'}__`, 'g'), options.currentUsername);
 
   // Determine if content has hidden parts (contains markers)
   hasHiddenParts = processed.includes('__HIDDEN_CONTENT_') && processed.trim() !== '';
 
   // If processed content is empty, mark as hidden
   const finalIsHidden = isHidden || (!processed || processed.trim() === '');
-
   return {
     processedContent: processed,
     isHidden: finalIsHidden,

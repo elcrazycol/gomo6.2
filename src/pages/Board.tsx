@@ -51,6 +51,11 @@ interface Thread {
   };
 }
 
+// Function to check if content contains visibility tags
+const hasVisibilityTags = (content: string): boolean => {
+  return content.includes('[seeusers=') || content.includes('[nousers=') || content.includes('[adm]');
+};
+
 const Board = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -518,11 +523,13 @@ const Board = () => {
                   </div>
                   {thread.latest_post ? (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      Последний: {thread.latest_post.is_private ? 'Скрытый контент' : renderContent(thread.latest_post.content.substring(0, 100)) + '...'}
+                      Последний: {thread.latest_post.is_private ? 'Скрытый контент' :
+                        hasVisibilityTags(thread.latest_post.content) ? 'зайдите в тему чтобы посмотреть' :
+                        renderContent(thread.latest_post.content.substring(0, 100)) + '...'}
                     </p>
                   ) : (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      {renderContent(thread.content.substring(0, 100))}...
+                      {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : renderContent(thread.content.substring(0, 100)) + '...'}
                     </p>
                   )}
                 </div>
