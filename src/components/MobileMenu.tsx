@@ -3,31 +3,30 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, X, User } from "lucide-react";
+import { Menu, X, User, Settings, Hammer } from "lucide-react";
 import { toast } from "sonner";
 import { UserBadge } from "@/components/UserBadge";
 
 interface MobileMenuProps {
   user: any;
   isModerator: boolean;
-  username?: string;
-  isAnonymous?: boolean;
 }
 
-export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonymous: propIsAnonymous }: MobileMenuProps) => {
+export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const [open, setOpen] = useState(false);
-  const [username, setUsername] = useState<string | undefined>(propUsername);
-  const [isAnonymous, setIsAnonymous] = useState<boolean | undefined>(propIsAnonymous);
+  const [username, setUsername] = useState<string>("");
+  const [isAnonymous, setIsAnonymous] = useState<boolean>(false);
   const [accountNumber, setAccountNumber] = useState<number | undefined>();
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Load user profile if username not provided
-    if (!propUsername && user) {
+    // Always load own user profile
+    if (user) {
       const loadProfile = async () => {
         const { data } = await supabase
           .from("profiles")
-          .select("username, is_anonymous, account_number")
+          .select("username, is_anonymous, account_number, avatar_url")
           .eq("id", user.id)
           .single();
         
@@ -35,11 +34,12 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
           setUsername(data.username);
           setIsAnonymous(data.is_anonymous);
           setAccountNumber(data.account_number);
+          setAvatarUrl(data.avatar_url);
         }
       };
       loadProfile();
     }
-  }, [user, propUsername]);
+  }, [user]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -76,8 +76,12 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
               <div className="p-4 bg-card border border-border rounded-lg hover:bg-card/80 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                    <User className="w-6 h-6 text-muted-foreground" />
+                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt={username || "Пользователь"} className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-6 h-6 text-muted-foreground" />
+                    )}
                   </div>
 
                   {/* User info */}
@@ -96,6 +100,18 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
               </div>
             </Link>
 
+            {/* Settings link */}
+            <Link
+              to="/settings"
+              onClick={() => setOpen(false)}
+              className="block"
+            >
+              <Button variant="ghost" className="w-full justify-start hover:bg-primary/10 hover:text-primary transition-colors">
+                <Settings className="w-4 h-4 mr-2" />
+                Настройки
+              </Button>
+            </Link>
+
             {/* Moderation link */}
             {isModerator && (
               <Link
@@ -104,6 +120,7 @@ export const MobileMenu = ({ user, isModerator, username: propUsername, isAnonym
                 className="block"
               >
                 <Button variant="ghost" className="w-full justify-start hover:bg-primary/10 hover:text-primary transition-colors">
+                  <Hammer className="w-4 h-4 mr-2" />
                   Модерация
                 </Button>
               </Link>

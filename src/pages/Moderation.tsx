@@ -49,6 +49,8 @@ const Moderation = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
+  const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [moderatorNote, setModeratorNote] = useState("");
@@ -91,6 +93,43 @@ const Moderation = () => {
     }
 
     setIsModerator(true);
+
+    // Load current user profile and color
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", user.id)
+      .single();
+
+    if (profile) {
+      setCurrentUserUsername(profile.username);
+    }
+
+    // Load current user color
+    const { data: achievements } = await supabase
+      .from("user_achievements")
+      .select(`
+        achievement_id,
+        achievements (
+          reward_type,
+          reward_value
+        )
+      `)
+      .eq("user_id", user.id);
+
+    if (achievements) {
+      const colorRewards = achievements
+        .filter((a: any) => a.achievements?.reward_type === "username_color")
+        .map((a: any) => a.achievements.reward_value);
+
+      const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+      for (const p of priority) {
+        if (colorRewards.includes(p)) {
+          setCurrentUserColor(p);
+          break;
+        }
+      }
+    }
   };
 
   const loadReports = async () => {
@@ -259,19 +298,34 @@ const Moderation = () => {
             gomo6
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings">
+            <Link to="/settings" className="hidden sm:block">
               <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
             </Link>
             {user && <NotificationBell userId={user.id} />}
             {user && <ChatIcon userId={user.id} />}
-            <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+            <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
               {user && (
                 <ProfileHoverCard userId={user.id}>
-                  <Link to={`/profile/${user.id}`}>
-                    <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
-                  </Link>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                        className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
+                          currentUserColor === 'purple' ? 'text-purple-500' :
+                          currentUserColor === 'gold' ? 'text-yellow-500' :
+                          currentUserColor === 'orange' ? 'text-orange-500' :
+                          currentUserColor === 'red' ? 'text-red-500' :
+                          currentUserColor === 'blue' ? 'text-blue-500' :
+                          currentUserColor === 'green' ? 'text-green-500' :
+                          currentUserColor === 'yellow' ? 'text-yellow-400' :
+                          currentUserColor === 'cyan' ? 'text-cyan-500' :
+                          'text-quote'
+                        }`}
+                    onClick={() => navigate(`/profile/${user.id}`)}
+                  >
+                    {currentUserUsername || 'Профиль'}
+                  </Button>
                 </ProfileHoverCard>
               )}
             </div>
