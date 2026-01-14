@@ -35,6 +35,22 @@ SELECT
 FROM achievements
 ORDER BY achievement_type, category;
 
+-- Check pinned achievements
+SELECT
+  ua.user_id,
+  p.username,
+  a.id as achievement_id,
+  a.name,
+  ua.level,
+  ua.is_pinned,
+  ua.pinned_order,
+  ua.unlocked_at
+FROM user_achievements ua
+JOIN achievements a ON ua.achievement_id = a.id
+JOIN profiles p ON ua.user_id = p.id
+WHERE ua.is_pinned = true
+ORDER BY ua.user_id, ua.pinned_order;
+
 -- Manually recalculate levels for a specific user (replace 'user-id-here' with actual user ID)
 -- You can get user ID from the profiles table
 /*
