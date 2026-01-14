@@ -1,0 +1,9 @@
+Тестовые примеры:
+1. [seeusers=@didko_golodomor]dsasdkjdsaad[/seeusers]kdslakjdskajsda
+2. [seeusers=@didko_golodomor]dsasdkjdsaad
+3. [nousers=@didko_golodomor]скрытый текст[/nousers]видимый текст
+
+Ожидаемое поведение:
+- Закрытый тег [seeusers=...]текст[/seeusers] должен скрывать только текст между тегами
+- Незакрытый тег [seeusers=...] должен скрывать всё после него
+- nousers работает аналогично, но для исключения пользователей

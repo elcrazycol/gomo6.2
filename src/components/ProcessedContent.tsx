@@ -13,6 +13,7 @@ interface ProcessedContentProps {
   currentUsername: string;
   currentUserColor?: string;
   postAuthorId?: string | null;
+  authorUsername?: string;
   showHiddenIndicators?: boolean; // Whether to show indicators for hidden parts
 }
 
@@ -23,22 +24,36 @@ export const ProcessedContent = ({
   currentUsername,
   currentUserColor,
   postAuthorId,
+  authorUsername,
   showHiddenIndicators = true
 }: ProcessedContentProps) => {
   const [visibilityResult, setVisibilityResult] = useState<VisibilityResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(true);
   const [visibleUsernames, setVisibleUsernames] = useState<string[]>([]);
   const [hiddenUsernames, setHiddenUsernames] = useState<string[]>([]);
+  const [authorColor, setAuthorColor] = useState<string>("");
 
   useEffect(() => {
     const processContent = async () => {
       setIsProcessing(true);
       try {
+        // If authorUsername is not provided, try to get it
+        let finalAuthorUsername = authorUsername;
+        if (!finalAuthorUsername && postAuthorId) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', postAuthorId)
+            .single();
+          finalAuthorUsername = data?.username;
+        }
+
         const result = await processVisibilityTags(content, {
           currentUserId,
           isAdmin,
           currentUsername,
-          postAuthorId
+          postAuthorId,
+          authorUsername: finalAuthorUsername
         });
 
         setVisibilityResult(result);
@@ -80,6 +95,41 @@ export const ProcessedContent = ({
     processContent();
   }, [content, currentUserId, isAdmin, currentUsername, postAuthorId]);
 
+  // Load author color
+  useEffect(() => {
+    if (!postAuthorId) return;
+
+    const loadAuthorColor = async () => {
+      const { data } = await supabase
+        .from("user_achievements")
+        .select(`
+          achievement_id,
+          achievements (
+            reward_type,
+            reward_value
+          )
+        `)
+        .eq("user_id", postAuthorId);
+
+      if (data) {
+        // Get the highest priority color
+        const colorRewards = data
+          .filter((a: any) => a.achievements?.reward_type === "username_color")
+          .map((a: any) => a.achievements.reward_value);
+
+        const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+        for (const p of priority) {
+          if (colorRewards.includes(p)) {
+            setAuthorColor(p);
+            break;
+          }
+        }
+      }
+    };
+
+    loadAuthorColor();
+  }, [postAuthorId]);
+
   const renderContent = (text: string) => {
     const elements: React.ReactNode[] = [];
     let currentIndex = 0;
@@ -91,8 +141,34 @@ export const ProcessedContent = ({
     let lastIndex = 0;
 
     const processTextSegment = (segment: string) => {
-      // Split by all formatting including hidden markers
-      return segment.split(/(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|${currentUsername}|\*\*.*?\*\*|\*.*?\*|@\w+|https?:\/\/[^\s]+)/g).map((part, i) => {
+      // Split by all formatting including hidden markers and dude links
+      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|\\*\\*.*?\\*\\*|\\*.*?\\*|@\w+|https?://[^\s]+)`, 'g');
+      const parts = segment.split(regex);
+      return parts.map((part, i) => {
+        // Check for dude links
+        if (part === '__DUDE_LINK__') {
+          const colorClasses: Record<string, string> = {
+            purple: 'text-purple-500 font-bold',
+            gold: 'text-yellow-500 font-bold',
+            orange: 'text-orange-500 font-bold',
+            red: 'text-red-500 font-bold',
+            blue: 'text-blue-500 font-bold',
+            green: 'text-green-500 font-bold',
+            yellow: 'text-yellow-400 font-bold',
+            cyan: 'text-cyan-500 font-bold',
+          };
+
+          return (
+            <Link
+              key={`${key++}-dude-${i}`}
+              to={`/profile/${postAuthorId || ''}`}
+              className={`font-bold hover:underline ${authorColor ? colorClasses[authorColor] : "text-quote"}`}
+            >
+              {authorUsername || 'Автор'}
+            </Link>
+          );
+        }
+
         // Check for hidden content markers
         const hiddenMatch = part.match(/^__HIDDEN_CONTENT_(seeusers|nousers|adm)_([^_]+)__/);
         if (hiddenMatch) {

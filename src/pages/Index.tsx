@@ -7,7 +7,6 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
@@ -293,32 +292,9 @@ const Index = () => {
         </div>
 
         <div className="mb-4 text-center flex gap-3 justify-center flex-wrap">
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
-            </DialogTrigger>
-            <DialogContent className="bg-background border-border">
-              <DialogHeader>
-                <DialogTitle>О проекте gomo6</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 text-sm">
-                <p>gomo6 - это современная имиджборда, вдохновлённая классическими форумами.</p>
-                <p>Здесь вы можете:</p>
-                <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li>Создавать треды и общаться с другими пользователями</li>
-                  <li>Загружать изображения к постам</li>
-                  <li>Зарабатывать достижения за активность</li>
-                  <li>Использовать режим анонимности</li>
-                  <li>Получать уведомления об ответах</li>
-                </ul>
-                <p className="mt-4">
-                  <Link to="/rules" className="text-link hover:underline">
-                    Ознакомьтесь с правилами →
-                  </Link>
-                </p>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Link to="/rules">
+            <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
+          </Link>
 
           <Link to="/bugs">
             <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Баги/Идеи</Button>
