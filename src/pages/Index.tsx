@@ -9,7 +9,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Hammer } from "lucide-react";
+import { Settings } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -48,6 +48,8 @@ const Index = () => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
+  const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   const [randomBoards, setRandomBoards] = useState<Board[]>([]);
   const [randomThread, setRandomThread] = useState<RandomThread | null>(null);
   const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
@@ -70,6 +72,43 @@ const Index = () => {
           .eq("user_id", session.user.id);
         
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+
+        // Load current user profile and color
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profile) {
+          setCurrentUserUsername(profile.username);
+        }
+
+        // Load current user color
+        const { data: achievements } = await supabase
+          .from("user_achievements")
+          .select(`
+            achievement_id,
+            achievements (
+              reward_type,
+              reward_value
+            )
+          `)
+          .eq("user_id", session.user.id);
+
+        if (achievements) {
+          const colorRewards = achievements
+            .filter((a: any) => a.achievements?.reward_type === "username_color")
+            .map((a: any) => a.achievements.reward_value);
+
+          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+          for (const p of priority) {
+            if (colorRewards.includes(p)) {
+              setCurrentUserColor(p);
+              break;
+            }
+          }
+        }
         
         // Check if user has accepted terms
         const { data: termsData } = await supabase
@@ -204,7 +243,7 @@ const Index = () => {
             className="h-4 sm:h-5 md:h-6 w-auto object-contain flex-shrink-0 max-w-[80px] sm:max-w-[100px] md:max-w-[120px]"
           />
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings">
+            <Link to="/settings" className="hidden sm:block">
               <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
@@ -213,19 +252,27 @@ const Index = () => {
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
                   <ProfileHoverCard userId={user.id}>
-                    <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
-                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
+                        currentUserColor === 'purple' ? 'text-purple-500' :
+                        currentUserColor === 'gold' ? 'text-yellow-500' :
+                        currentUserColor === 'orange' ? 'text-orange-500' :
+                        currentUserColor === 'red' ? 'text-red-500' :
+                        currentUserColor === 'blue' ? 'text-blue-500' :
+                        currentUserColor === 'green' ? 'text-green-500' :
+                        currentUserColor === 'yellow' ? 'text-yellow-400' :
+                        currentUserColor === 'cyan' ? 'text-cyan-500' :
+                        'text-quote'
+                      }`}
+                      onClick={() => navigate(`/profile/${user.id}`)}
+                    >
+                      {currentUserUsername || 'Профиль'}
+                    </Button>
                   </ProfileHoverCard>
-                  {isModerator && (
-                    <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
-                        <Hammer className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  )}
                 </div>
                 <MobileMenu
                   user={user}
@@ -245,12 +292,10 @@ const Index = () => {
         <div className="text-center mb-6 sm:mb-8">
         </div>
 
-        <div className="mb-2 text-center">
+        <div className="mb-4 text-center flex gap-3 justify-center flex-wrap">
           <Dialog>
             <DialogTrigger asChild>
-              <Link to="/rules">
-                <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
-              </Link>
+              <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
             </DialogTrigger>
             <DialogContent className="bg-background border-border">
               <DialogHeader>
@@ -274,6 +319,10 @@ const Index = () => {
               </div>
             </DialogContent>
           </Dialog>
+
+          <Link to="/bugs">
+            <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Баги/Идеи</Button>
+          </Link>
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">

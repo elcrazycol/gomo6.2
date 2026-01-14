@@ -1,0 +1,281 @@
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { User } from "lucide-react";
+
+// Cache for user search results
+const searchCache = new Map<string, any[]>();
+
+interface User {
+  id: string;
+  username: string;
+  account_number?: number;
+}
+
+interface UserMentionsProps {
+  content: string;
+  onContentChange: (content: string) => void;
+  onUserSelect: (user: User) => void;
+  textareaRef: React.RefObject<HTMLTextAreaElement>;
+}
+
+export const UserMentions = ({ content, onContentChange, onUserSelect, textareaRef }: UserMentionsProps) => {
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [cursorPosition, setCursorPosition] = useState({ top: 0, left: 0 });
+
+  // Get cursor position in textarea
+  const getCursorPosition = (textarea: HTMLTextAreaElement) => {
+    const { selectionStart } = textarea;
+    const textBeforeCursor = textarea.value.substring(0, selectionStart);
+
+    // Create a temporary div to measure text
+    const div = document.createElement('div');
+    const styles = window.getComputedStyle(textarea);
+
+    // Copy styles from textarea
+    div.style.font = styles.font;
+    div.style.fontSize = styles.fontSize;
+    div.style.fontFamily = styles.fontFamily;
+    div.style.lineHeight = styles.lineHeight;
+    div.style.whiteSpace = 'pre-wrap';
+    div.style.wordWrap = 'break-word';
+    div.style.width = textarea.clientWidth + 'px';
+    div.style.position = 'absolute';
+    div.style.top = '-9999px';
+    div.style.left = '-9999px';
+    div.style.visibility = 'hidden';
+
+    document.body.appendChild(div);
+    div.textContent = textBeforeCursor;
+    const rect = div.getBoundingClientRect();
+    document.body.removeChild(div);
+
+    const textareaRect = textarea.getBoundingClientRect();
+    return {
+      top: textareaRect.top + rect.height - textarea.scrollTop + 5,
+      left: textareaRect.left + 10
+    };
+  };
+
+  // Search users function
+  const searchUsers = async (query: string) => {
+    setLoading(true);
+
+    // Check cache first
+    if (searchCache.has(query)) {
+      setUsers(searchCache.get(query)!);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      let queryBuilder = supabase
+        .from('profiles')
+        .select('id, username, account_number')
+        .not('username', 'is', null)
+        .limit(10);
+
+      if (query.length > 0) {
+        // Build search conditions
+        const conditions: string[] = [`username.ilike.%${query}%`];
+
+        // If query looks like UUID, search by id
+        if (query.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+          conditions.push(`id.eq.${query}`);
+        }
+
+        // If query looks like a number, search by account_number
+        if (/^\d+$/.test(query)) {
+          conditions.push(`account_number.eq.${parseInt(query)}`);
+        }
+
+        queryBuilder = queryBuilder.or(conditions.join(','));
+      }
+
+      const { data, error } = await queryBuilder.order('username');
+
+      if (error) {
+        console.error('Error searching users:', error);
+        setUsers([]);
+        searchCache.set(query, []);
+      } else {
+        const usersData = data || [];
+        setUsers(usersData);
+        searchCache.set(query, usersData);
+      }
+    } catch (error) {
+      console.error('Error searching users:', error);
+      setUsers([]);
+      searchCache.set(query, []);
+    }
+    setLoading(false);
+  };
+
+  // Search for users when @ is typed
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const handleInput = () => {
+      const text = textarea.value;
+      const cursorPos = textarea.selectionStart;
+
+      // Find the @ symbol before cursor
+      const textBeforeCursor = text.substring(0, cursorPos);
+      const atIndex = textBeforeCursor.lastIndexOf('@');
+
+      if (atIndex !== -1 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === ' ' || textBeforeCursor[atIndex - 1] === '\n')) {
+        const query = textBeforeCursor.substring(atIndex + 1);
+        // Check if query doesn't contain space or newline
+        if (!query.includes(' ') && !query.includes('\n')) {
+          // Valid mention - show popup
+          setMentionQuery(query);
+          setShowMentions(true);
+          setCursorPosition(getCursorPosition(textarea));
+          setSelectedIndex(0);
+          searchUsers(query);
+        } else {
+          setShowMentions(false);
+          setUsers([]);
+        }
+      } else {
+        setShowMentions(false);
+        setUsers([]);
+      }
+    };
+
+    textarea.addEventListener('input', handleInput);
+    textarea.addEventListener('keyup', handleInput);
+    textarea.addEventListener('click', handleInput);
+
+    return () => {
+      textarea.removeEventListener('input', handleInput);
+      textarea.removeEventListener('keyup', handleInput);
+      textarea.removeEventListener('click', handleInput);
+    };
+  }, [textareaRef]);
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !showMentions) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!showMentions || users.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev + 1) % users.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => prev === 0 ? users.length - 1 : prev - 1);
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (users[selectedIndex]) {
+          selectUser(users[selectedIndex]);
+        }
+      } else if (e.key === 'Escape') {
+        setShowMentions(false);
+      }
+    };
+
+    textarea.addEventListener('keydown', handleKeyDown);
+    return () => textarea.removeEventListener('keydown', handleKeyDown);
+  }, [showMentions, users, selectedIndex, textareaRef]);
+
+
+  // Select user and insert mention
+  const selectUser = (user: User) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const text = textarea.value;
+    const cursorPos = textarea.selectionStart;
+
+    // Find the @ symbol before cursor
+    const textBeforeCursor = text.substring(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf('@');
+
+    if (atIndex !== -1) {
+      // Replace @query with @username
+      const newText = textBeforeCursor.substring(0, atIndex) + `@${user.username} ` + text.substring(cursorPos);
+      onContentChange(newText);
+
+      // Set cursor after the mention
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(atIndex + user.username.length + 2, atIndex + user.username.length + 2);
+      }, 0);
+    }
+
+    setShowMentions(false);
+    setUsers([]);
+  };
+
+  // Hide mentions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(event.target as Node) &&
+          textareaRef.current && !textareaRef.current.contains(event.target as Node)) {
+        setShowMentions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  if (!showMentions || (users.length === 0 && !loading)) return null;
+
+  // Adjust position for mobile
+  const isMobile = window.innerWidth < 768;
+  const adjustedPosition = {
+    top: isMobile ? Math.min(cursorPosition.top, window.innerHeight - 200) : cursorPosition.top,
+    left: isMobile ? Math.max(10, Math.min(cursorPosition.left, window.innerWidth - 260)) : cursorPosition.left
+  };
+
+  return (
+    <div
+      ref={popupRef}
+      className="fixed z-50 bg-background border border-border rounded-lg shadow-lg max-h-64 overflow-y-auto w-[calc(100vw-20px)] sm:w-auto sm:min-w-[250px] sm:max-w-[300px]"
+      style={{
+        top: adjustedPosition.top,
+        left: adjustedPosition.left
+      }}
+    >
+      {loading ? (
+        <div className="p-3 text-center text-muted-foreground">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mx-auto mb-2"></div>
+          Поиск...
+        </div>
+      ) : (
+        <div className="py-1">
+          {users.map((user, index) => (
+            <button
+              key={user.id}
+              className={`w-full px-3 py-2 text-left hover:bg-muted transition-colors flex items-center gap-3 ${
+                index === selectedIndex ? 'bg-muted' : ''
+              }`}
+              onClick={() => selectUser(user)}
+              onMouseEnter={() => setSelectedIndex(index)}
+            >
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
+                <User className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm truncate">{user.username}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  ID: {user.id.slice(0, 8)} {user.account_number && `(${user.account_number})`}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};

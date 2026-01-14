@@ -988,6 +988,7 @@ const Profile = () => {
                           currentUserColor === 'cyan' ? 'text-cyan-500' :
                           'text-quote'
                         }`}
+                        onClick={() => navigate(`/profile/${currentUser.id}`)}
                       >
                         {currentUserUsername || 'Профиль'}
                       </Button>
