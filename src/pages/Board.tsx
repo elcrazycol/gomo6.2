@@ -15,7 +15,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Hammer } from "lucide-react";
+import { Settings } from "lucide-react";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -58,6 +58,8 @@ const Board = () => {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
+  const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   const [showNewThread, setShowNewThread] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -82,6 +84,43 @@ const Board = () => {
           .eq("user_id", session.user.id);
         
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+
+        // Load current user profile and color
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profile) {
+          setCurrentUserUsername(profile.username);
+        }
+
+        // Load current user color
+        const { data: achievements } = await supabase
+          .from("user_achievements")
+          .select(`
+            achievement_id,
+            achievements (
+              reward_type,
+              reward_value
+            )
+          `)
+          .eq("user_id", session.user.id);
+
+        if (achievements) {
+          const colorRewards = achievements
+            .filter((a: any) => a.achievements?.reward_type === "username_color")
+            .map((a: any) => a.achievements.reward_value);
+
+          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+          for (const p of priority) {
+            if (colorRewards.includes(p)) {
+              setCurrentUserColor(p);
+              break;
+            }
+          }
+        }
       }
     };
     checkAuth();
@@ -344,7 +383,7 @@ const Board = () => {
             <span className="text-base sm:text-lg hidden sm:inline">/{slug}/ - {board.name}</span>
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings">
+            <Link to="/settings" className="hidden sm:block">
               <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
@@ -353,24 +392,27 @@ const Board = () => {
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
                   <ProfileHoverCard userId={user.id}>
-                    <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
-                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
+                        currentUserColor === 'purple' ? 'text-purple-500' :
+                        currentUserColor === 'gold' ? 'text-yellow-500' :
+                        currentUserColor === 'orange' ? 'text-orange-500' :
+                        currentUserColor === 'red' ? 'text-red-500' :
+                        currentUserColor === 'blue' ? 'text-blue-500' :
+                        currentUserColor === 'green' ? 'text-green-500' :
+                        currentUserColor === 'yellow' ? 'text-yellow-400' :
+                        currentUserColor === 'cyan' ? 'text-cyan-500' :
+                        'text-quote'
+                      }`}
+                      onClick={() => navigate(`/profile/${user.id}`)}
+                    >
+                      {currentUserUsername || 'Профиль'}
+                    </Button>
                   </ProfileHoverCard>
-                  {isModerator && (
-                    <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
-                        <Hammer className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  )}
-                  {isModerator && (
-                    <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
-                    </Link>
-                  )}
                 </div>
                 <MobileMenu
                   user={user}
@@ -466,6 +508,7 @@ const Board = () => {
                       userId={thread.user_id}
                       username={thread.profiles?.username || "Аноним"}
                       isAnonymous={thread.profiles?.is_anonymous}
+                      showOutline={false}
                     />
                     {" · "}
                     {formatDistanceToNow(new Date(thread.created_at), {

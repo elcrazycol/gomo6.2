@@ -13,11 +13,15 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff, Hammer } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { TextFormattingToolbar } from "@/components/TextFormattingToolbar";
+import { UserMentions } from "@/components/UserMentions";
+import { MentionLink } from "@/components/MentionLink";
+import { ProcessedContent } from "@/components/ProcessedContent";
+import { SpoilerText } from "@/components/SpoilerText";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -67,23 +71,6 @@ interface Post {
   } | null;
 }
 
-const SpoilerText = ({ content }: { content: string }) => {
-  const [revealed, setRevealed] = useState(false);
-  
-  return (
-    <span
-      onClick={() => setRevealed(!revealed)}
-      className={`cursor-pointer transition-colors px-1 ${
-        revealed
-          ? "bg-transparent"
-          : "bg-foreground text-foreground hover:bg-foreground/80"
-      }`}
-    >
-      {revealed ? content : "████████"}
-    </span>
-  );
-};
-
 const Thread = () => {
   const { slug, threadId } = useParams();
   const navigate = useNavigate();
@@ -92,6 +79,8 @@ const Thread = () => {
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
+  const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [currentUserColor, setCurrentUserColor] = useState("");
   const [content, setContent] = useState("");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -217,6 +206,43 @@ const Thread = () => {
         
         setIsAdmin(roles?.some(r => r.role === 'admin') || false);
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+
+        // Load current user profile and color
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profile) {
+          setCurrentUserUsername(profile.username);
+        }
+
+        // Load current user color
+        const { data: achievements } = await supabase
+          .from("user_achievements")
+          .select(`
+            achievement_id,
+            achievements (
+              reward_type,
+              reward_value
+            )
+          `)
+          .eq("user_id", session.user.id);
+
+        if (achievements) {
+          const colorRewards = achievements
+            .filter((a: any) => a.achievements?.reward_type === "username_color")
+            .map((a: any) => a.achievements.reward_value);
+
+          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+          for (const p of priority) {
+            if (colorRewards.includes(p)) {
+              setCurrentUserColor(p);
+              break;
+            }
+          }
+        }
       }
     };
     checkAuth();
@@ -682,10 +708,9 @@ const Thread = () => {
             </em>
           );
         } else if (part.startsWith('@')) {
+          const username = part.substring(1); // Remove @ symbol
           return (
-            <span key={`${key++}-${i}`} className="text-link hover:underline cursor-pointer font-semibold">
-              {part}
-            </span>
+            <MentionLink key={`${key++}-${i}`} username={username} />
           );
         } else if (part.match(/^https?:\/\/[^\s]+$/)) {
           return (
@@ -749,7 +774,7 @@ const Thread = () => {
             </Link>
           </div>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings">
+            <Link to="/settings" className="hidden sm:block">
               <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
                 <Settings className="h-4 w-4" />
               </Button>
@@ -758,24 +783,27 @@ const Thread = () => {
             {user && <ChatIcon userId={user.id} />}
             {user ? (
               <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center">
+                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
                   <ProfileHoverCard userId={user.id}>
-                    <Link to={`/profile/${user.id}`}>
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Профиль</Button>
-                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
+                        currentUserColor === 'purple' ? 'text-purple-500' :
+                        currentUserColor === 'gold' ? 'text-yellow-500' :
+                        currentUserColor === 'orange' ? 'text-orange-500' :
+                        currentUserColor === 'red' ? 'text-red-500' :
+                        currentUserColor === 'blue' ? 'text-blue-500' :
+                        currentUserColor === 'green' ? 'text-green-500' :
+                        currentUserColor === 'yellow' ? 'text-yellow-400' :
+                        currentUserColor === 'cyan' ? 'text-cyan-500' :
+                        'text-quote'
+                      }`}
+                      onClick={() => navigate(`/profile/${user.id}`)}
+                    >
+                      {currentUserUsername || 'Профиль'}
+                    </Button>
                   </ProfileHoverCard>
-                  {isModerator && (
-                    <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
-                        <Hammer className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  )}
-                  {isModerator && (
-                    <Link to="/moderation">
-                      <Button variant="ghost" size="sm" className="text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors">Модерация</Button>
-                    </Link>
-                  )}
                 </div>
                 <MobileMenu
                   user={user}
@@ -863,6 +891,7 @@ const Thread = () => {
                 userId={thread.user_id}
                 username={thread.profiles?.username || "Аноним"}
                 isAnonymous={thread.profiles?.is_anonymous}
+                showOutline={false}
               />
               {" · "}
               {formatDistanceToNow(new Date(thread.created_at), {
@@ -888,7 +917,14 @@ const Thread = () => {
               </div>
             )}
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
-              {renderContent(thread.content)}
+              <ProcessedContent
+                content={thread.content}
+                currentUserId={user?.id || null}
+                isAdmin={isAdmin}
+                currentUsername={currentUserUsername}
+                currentUserColor={currentUserColor}
+                postAuthorId={thread.user_id}
+              />
             </p>
           </div>
         </div>
@@ -910,6 +946,7 @@ const Thread = () => {
                     userId={post.user_id}
                     username={post.profiles?.username || "Аноним"}
                     isAnonymous={post.profiles?.is_anonymous}
+                    showOutline={false}
                   />
                   {" · "}
                   {formatDistanceToNow(new Date(post.created_at), {
@@ -1049,7 +1086,14 @@ const Thread = () => {
                   {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
                     <span className="text-muted-foreground italic">Скрытый контент</span>
                   ) : (
-                    renderContent(post.content)
+                    <ProcessedContent
+                      content={post.content}
+                      currentUserId={user?.id || null}
+                      isAdmin={isAdmin}
+                      currentUsername={currentUserUsername}
+                      currentUserColor={currentUserColor}
+                      postAuthorId={post.user_id}
+                    />
                   )}
                 </p>
               )}
@@ -1278,7 +1322,7 @@ const Thread = () => {
                       </span>
                     </Button>
                   </label>
-                  <div className="flex-1">
+                  <div className="flex-1 relative">
                     <Textarea
                       ref={textareaRef}
                       placeholder="Напишите сообщение…"
@@ -1295,6 +1339,12 @@ const Thread = () => {
                       autoExpand
                       maxRows={5}
                       className="bg-background/50 border-border/30"
+                    />
+                    <UserMentions
+                      content={content}
+                      onContentChange={setContent}
+                      onUserSelect={() => {}}
+                      textareaRef={textareaRef}
                     />
                   </div>
                   {imageUrls.length > 0 && (
