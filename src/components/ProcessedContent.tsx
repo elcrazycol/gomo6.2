@@ -5,6 +5,7 @@ import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibili
 import { MentionLink } from "./MentionLink";
 import { LinkButton } from "./LinkButton";
 import { SpoilerText } from "@/components/SpoilerText";
+import { EmojiInline } from "@/components/EmojiInline";
 
 interface ProcessedContentProps {
   content: string;
@@ -141,8 +142,8 @@ export const ProcessedContent = ({
     let lastIndex = 0;
 
     const processTextSegment = (segment: string) => {
-      // Split by all formatting including hidden markers, dude links, and me links
-      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|\\*\\*.*?\\*\\*|\\*.*?\\*|@[^\\s]+|https?://[^\\s]+)`, 'g');
+      // Split by all formatting including hidden markers, dude links, me links, and emojis
+      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|:[^:\\s]+:|\\*\\*.*?\\*\\*|\\*.*?\\*|@[^\\s]+|https?://[^\\s]+)`, 'g');
       const parts = segment.split(regex);
       return parts.map((part, i) => {
         // Check for dude links (current user)
@@ -265,6 +266,12 @@ export const ProcessedContent = ({
           return (
             <LinkButton key={`${key++}-link-${i}`} url={part} />
           );
+        } else if (part.startsWith(':') && part.endsWith(':') && part.length > 2) {
+          // Emoji code like :smile:
+          const emojiCode = part.slice(1, -1); // Remove colons
+          return (
+            <EmojiInline key={`${key++}-emoji-${i}`} code={emojiCode} />
+          );
         }
         return part;
       }).flat();
@@ -298,7 +305,7 @@ export const ProcessedContent = ({
   }
 
   if (!visibilityResult) {
-    return <>{renderContent(content)}</>;
+    return <div className="whitespace-pre-wrap text-sm sm:text-base break-words">{renderContent(content)}</div>;
   }
 
   // If processed content is empty (completely hidden)

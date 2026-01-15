@@ -22,12 +22,15 @@ import { UserMentions } from "@/components/UserMentions";
 import { MentionLink } from "@/components/MentionLink";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { SpoilerText } from "@/components/SpoilerText";
+import { EmojiInline } from "@/components/EmojiInline";
+import { EmojiPicker } from "@/components/EmojiPicker";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { LinkButton } from "@/components/LinkButton";
 import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
+import { RichTextEditor, type RichTextEditorHandle } from "@/components/RichTextEditor";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
@@ -115,6 +118,8 @@ const Thread = () => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
   });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<RichTextEditorHandle>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleUploadSuccess = (event: CustomEvent) => {
@@ -553,8 +558,8 @@ const Thread = () => {
     }
   };
 
-  const handleSubmitPost = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmitPost = async (e?: React.FormEvent) => {
+    e?.preventDefault();
 
     if (!user) {
       toast.error("Нужно войти для ответа");
@@ -711,20 +716,25 @@ const Thread = () => {
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const selectedText = content.substring(start, end);
-    const newText = 
-      content.substring(0, start) + 
-      prefix + 
-      selectedText + 
-      suffix + 
+    const newText =
+      content.substring(0, start) +
+      prefix +
+      selectedText +
+      suffix +
       content.substring(end);
-    
+
     setContent(newText);
-    
+
     // Restore cursor position after formatting
     setTimeout(() => {
       textarea.focus();
       textarea.setSelectionRange(start + prefix.length, end + prefix.length);
     }, 0);
+  };
+
+  const handleEmojiSelect = (emojiCode: string) => {
+    // Insert into editor at caret. emojiCode is already like :name:
+    editorRef.current?.insertText(emojiCode);
   };
 
   const renderContent = (text: string) => {
@@ -738,8 +748,8 @@ const Thread = () => {
     let lastIndex = 0;
 
     const processTextSegment = (segment: string) => {
-      // Process bold, italic, mentions and URLs
-      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+|https?:\/\/[^\s]+)/g).map((part, i) => {
+      // Process bold, italic, mentions, URLs and emojis
+      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+|https?:\/\/[^\s]+|:[^:\s]+:)/g).map((part, i) => {
         if (part.startsWith('**') && part.endsWith('**')) {
           return (
             <strong key={`${key++}-${i}`} className="font-bold">
@@ -760,6 +770,12 @@ const Thread = () => {
         } else if (part.match(/^https?:\/\/[^\s]+$/)) {
           return (
             <LinkButton key={`${key++}-${i}`} url={part} />
+          );
+        } else if (part.startsWith(':') && part.endsWith(':') && part.length > 2) {
+          // Emoji code like :smile:
+          const emojiCode = part.slice(1, -1); // Remove colons
+          return (
+            <EmojiInline key={`${key++}-${i}`} code={emojiCode} />
           );
         }
         return part;
@@ -1438,23 +1454,14 @@ const Thread = () => {
                       </span>
                     </Button>
                   </label>
-                  <div className="flex-1 relative">
-                    <Textarea
-                      ref={textareaRef}
-                      placeholder="Напишите сообщение…"
+                  <div className="flex-1">
+                    <RichTextEditor
+                      ref={editorRef}
                       value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      onKeyDown={(e) => {
-                        // Send on Enter only on desktop
-                        if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
-                          e.preventDefault();
-                          handleSubmitPost(e as any);
-                        }
-                      }}
-                      disabled={loading}
-                      autoExpand
-                      maxRows={5}
-                      className="bg-background/50 border-border/30"
+                      onChange={setContent}
+                      onSubmit={() => handleSubmitPost()}
+                      placeholder="Напишите сообщение…"
+                      className="text-sm sm:text-base"
                     />
                   </div>
                   <UserMentions
@@ -1462,7 +1469,44 @@ const Thread = () => {
                     onContentChange={setContent}
                     onUserSelect={() => {}}
                     textareaRef={textareaRef}
+                    getContent={() => editorRef.current?.getValue() ?? content}
+                    setContent={(v) => setContent(v)}
+                    getCursorPos={() => editorRef.current?.getSelectionStart() ?? 0}
+                    getCursorRect={() => editorRef.current?.getCursorRect() ?? null}
+                    getEditorEl={() => editorRef.current?.getElement() ?? null}
+                    focusInput={() => editorRef.current?.focus()}
+                    setCursorPos={(pos) => editorRef.current?.setSelectionStart(pos)}
                   />
+                  <EmojiPicker
+                    onEmojiSelect={handleEmojiSelect}
+                    triggerRef={emojiButtonRef}
+                  >
+                    <Button
+                      ref={emojiButtonRef}
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 rounded-xl shrink-0 hover:bg-primary/10"
+                      title="Эмодзи"
+                    >
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="text-muted-foreground"
+                      >
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                        <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                        <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                      </svg>
+                    </Button>
+                  </EmojiPicker>
                   {imageUrls.length > 0 && (
                     <Button
                       type="button"
