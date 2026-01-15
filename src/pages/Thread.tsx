@@ -579,35 +579,39 @@ const Thread = () => {
     }
 
     setLoading(true);
+    try {
+      // Convert array to JSON for storage, or use first image for backward compatibility
+      const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
+      const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
 
-    // Convert array to JSON for storage, or use first image for backward compatibility
-    const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
-    const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
+      const { error } = await supabase.from("posts").insert({
+        thread_id: threadId,
+        user_id: user.id,
+        content: content.trim(),
+        image_url: imageUrlForDb, // Keep for backward compatibility
+        image_urls: imageUrlsJson, // New field for multiple images
+        reply_to: replyingTo,
+        is_private: isPrivateMessage,
+        private_recipient_id: isPrivateMessage ? privateRecipientId : null,
+      });
 
-    const { error } = await supabase.from("posts").insert({
-      thread_id: threadId,
-      user_id: user.id,
-      content: content.trim(),
-      image_url: imageUrlForDb, // Keep for backward compatibility
-      image_urls: imageUrlsJson, // New field for multiple images
-      reply_to: replyingTo,
-      is_private: isPrivateMessage,
-      private_recipient_id: isPrivateMessage ? privateRecipientId : null,
-    });
+      if (error) {
+        toast.error("Ошибка отправки");
+        return;
+      }
 
-    setLoading(false);
-
-    if (error) {
+      setContent("");
+      setImageUrls([]);
+      setReplyingTo(null);
+      setIsPrivateMessage(false);
+      setPrivateRecipientId(null);
+      loadPosts();
+    } catch (err) {
+      console.error("handleSubmitPost failed:", err);
       toast.error("Ошибка отправки");
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    setContent("");
-    setImageUrls([]);
-    setReplyingTo(null);
-    setIsPrivateMessage(false);
-    setPrivateRecipientId(null);
-    loadPosts();
   };
 
   const handleReport = async (postId: string | null, isThread: boolean) => {

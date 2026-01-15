@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibility";
 import { MentionLink } from "./MentionLink";
 import { LinkButton } from "./LinkButton";
-import { SpoilerText } from "@/components/SpoilerText";
 import { EmojiInline } from "@/components/EmojiInline";
+import { BbCodeSpoiler } from "@/components/BbCodeSpoiler";
+import { CensorBlur } from "@/components/CensorBlur";
 
 interface ProcessedContentProps {
   content: string;
@@ -133,17 +134,11 @@ export const ProcessedContent = ({
 
   const renderContent = (text: string) => {
     const elements: React.ReactNode[] = [];
-    let currentIndex = 0;
     let key = 0;
 
-    // Process spoilers first
-    const spoilerRegex = /\|\|(.*?)\|\|/g;
-    let match;
-    let lastIndex = 0;
-
-    const processTextSegment = (segment: string) => {
+    const processLeafText = (segment: string) => {
       // Split by all formatting including hidden markers, dude links, me links, and emojis
-      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|:[^:\\s]+:|\\*\\*.*?\\*\\*|\\*.*?\\*|@[^\\s]+|https?://[^\\s]+)`, 'g');
+      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|:[^:\\s]+:|@[^\\s]+|https?://[^\\s]+)`, 'g');
       const parts = segment.split(regex);
       return parts.map((part, i) => {
         // Check for dude links (current user)
@@ -277,24 +272,146 @@ export const ProcessedContent = ({
       }).flat();
     };
 
-    while ((match = spoilerRegex.exec(text)) !== null) {
-      // Add text before spoiler
-      if (match.index > lastIndex) {
-        elements.push(...processTextSegment(text.substring(lastIndex, match.index)));
+    type BbNode =
+      | { type: "text"; value: string }
+      | { type: "tag"; name: string; param?: string; children: BbNode[] };
+
+    const parseBbInline = (input: string): BbNode[] => {
+      const root: BbNode[] = [];
+      const stack: Array<{ name: string; param?: string; children: BbNode[] }> = [];
+
+      const pushNode = (n: BbNode) => {
+        if (stack.length > 0) stack[stack.length - 1].children.push(n);
+        else root.push(n);
+      };
+
+      const tagRe = /\[(\/?)(B|I|U|S|blur|col|size)(?:=([^\]]+))?\]/gi;
+      let last = 0;
+      let m: RegExpExecArray | null;
+
+      while ((m = tagRe.exec(input)) !== null) {
+        if (m.index > last) pushNode({ type: "text", value: input.slice(last, m.index) });
+        const isClose = m[1] === "/";
+        const name = (m[2] || "").toLowerCase();
+        const param = m[3];
+
+        if (!isClose) {
+          // opening tag
+          stack.push({ name, param, children: [] });
+        } else {
+          // closing tag: pop until matching (tolerant)
+          let frameIdx = stack.length - 1;
+          while (frameIdx >= 0 && stack[frameIdx].name !== name) frameIdx--;
+          if (frameIdx >= 0) {
+            const frame = stack.splice(frameIdx, 1)[0];
+            const node: BbNode = { type: "tag", name: frame.name, param: frame.param, children: frame.children };
+            if (stack.length > 0) stack[stack.length - 1].children.push(node);
+            else root.push(node);
+          } else {
+            // unmatched close -> treat literally
+            pushNode({ type: "text", value: m[0] });
+          }
+        }
+
+        last = tagRe.lastIndex;
       }
 
-      // Add spoiler
-      const spoilerContent = match[1];
+      if (last < input.length) pushNode({ type: "text", value: input.slice(last) });
+
+      // any unclosed tags -> flatten as literal text
+      while (stack.length > 0) {
+        const frame = stack.shift()!;
+        root.push({ type: "text", value: `[${frame.name}${frame.param ? "=" + frame.param : ""}]` });
+        root.push(...frame.children);
+      }
+
+      return root;
+    };
+
+    const renderBbNodes = (nodes: BbNode[]): React.ReactNode[] => {
+      const out: React.ReactNode[] = [];
+
+      const renderChildren = (children: BbNode[]) => renderBbNodes(children);
+
+      for (const n of nodes) {
+        if (n.type === "text") {
+          out.push(...processLeafText(n.value));
+          continue;
+        }
+
+        const name = n.name;
+        const children = renderChildren(n.children);
+
+        if (name === "b") {
+          out.push(<strong key={`bb-b-${key++}`} className="font-bold">{children}</strong>);
+        } else if (name === "i") {
+          out.push(<em key={`bb-i-${key++}`} className="italic">{children}</em>);
+        } else if (name === "u") {
+          out.push(<u key={`bb-u-${key++}`}>{children}</u>);
+        } else if (name === "s") {
+          out.push(<s key={`bb-s-${key++}`}>{children}</s>);
+        } else if (name === "col") {
+          const color = (n.param ?? "").trim();
+          out.push(
+            <span key={`bb-col-${key++}`} style={{ color }}>
+              {children}
+            </span>
+          );
+        } else if (name === "size") {
+          const raw = parseInt((n.param ?? "").trim(), 10);
+          const clamped = Number.isFinite(raw) ? Math.min(7, Math.max(1, raw)) : 3;
+          // map 1..7 -> 0.75..1.8em
+          const sizeEm = 0.75 + (clamped - 1) * 0.175;
+          out.push(
+            <span key={`bb-size-${key++}`} style={{ fontSize: `${sizeEm}em` }}>
+              {children}
+            </span>
+          );
+        } else if (name === "blur") {
+          out.push(
+            <CensorBlur key={`bb-blur-${key++}`}>
+              {children}
+            </CensorBlur>
+          );
+        } else {
+          // unknown tag -> just render children
+          out.push(...children);
+        }
+      }
+
+      return out;
+    };
+
+    const renderWithInlineBbCode = (segment: string) => {
+      return renderBbNodes(parseBbInline(segment));
+    };
+
+    // BBCode spoilers:
+    // [SPOILER]Simple spoiler[/SPOILER]
+    // [SPOILER=Spoiler Title]Spoiler with a title[/SPOILER]
+    const bbSpoilerRegex = /\[SPOILER(?:=([^\]]+))?\]([\s\S]*?)\[\/SPOILER\]/gi;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = bbSpoilerRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        elements.push(...renderWithInlineBbCode(text.substring(lastIndex, match.index)));
+      }
+
+      const title = match[1] ?? null;
+      const inner = match[2] ?? "";
+
       elements.push(
-        <SpoilerText key={`spoiler-${key++}`} content={spoilerContent} />
+        <BbCodeSpoiler key={`bbspoiler-${key++}`} title={title}>
+          {renderContent(inner)}
+        </BbCodeSpoiler>
       );
 
-      lastIndex = spoilerRegex.lastIndex;
+      lastIndex = bbSpoilerRegex.lastIndex;
     }
 
-    // Add remaining text
     if (lastIndex < text.length) {
-      elements.push(...processTextSegment(text.substring(lastIndex)));
+      elements.push(...renderWithInlineBbCode(text.substring(lastIndex)));
     }
 
     return elements;
