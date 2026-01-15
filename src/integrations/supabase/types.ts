@@ -207,6 +207,42 @@ export type Database = {
           },
         ]
       }
+      post_likes: {
+        Row: {
+          created_at: string
+          id: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_likes_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_likes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -675,12 +711,39 @@ export type Database = {
         Args: { _achievement_id: string; _user_id: string }
         Returns: undefined
       }
+      award_achievement_with_level: {
+        Args: { _user_id: string; _achievement_type: string; _level: number }
+        Returns: undefined
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
           _user_id: string
         }
         Returns: boolean
+      }
+      get_post_likes_count: {
+        Args: { post_uuid: string }
+        Returns: number
+      }
+      get_recent_post_likers: {
+        Args: { post_uuid: string; limit_count?: number }
+        Returns: {
+          username: string
+          id: string
+        }[]
+      }
+      has_user_liked_post: {
+        Args: { post_uuid: string; user_uuid: string }
+        Returns: boolean
+      }
+      get_user_likes_given_count: {
+        Args: { user_uuid: string }
+        Returns: number
+      }
+      get_user_likes_received_count: {
+        Args: { user_uuid: string }
+        Returns: number
       }
     }
     Enums: {
