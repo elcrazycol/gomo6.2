@@ -22,6 +22,7 @@ import { useSessionTime } from "@/hooks/useSessionTime";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
+import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 
 interface Board {
   id: string;
@@ -322,16 +323,7 @@ const Board = () => {
   };
 
   const renderContent = (text: string) => {
-    const elements: React.ReactNode[] = [];
-    let key = 0;
-
-    // Process URLs
-    return text.split(/(https?:\/\/[^\s]+)/g).map((part, i) => {
-      if (part.match(/^https?:\/\/[^\s]+$/)) {
-        return <LinkButton key={`${key++}-${i}`} url={part} />;
-      }
-      return part;
-    });
+    return renderPreviewContent(text, 'board');
   };
 
   const handleAgeConfirm = async () => {
@@ -514,6 +506,7 @@ const Board = () => {
                       username={thread.profiles?.username || "Аноним"}
                       isAnonymous={thread.profiles?.is_anonymous}
                       showOutline={false}
+                      disableLink={true}
                     />
                     {" · "}
                     {formatDistanceToNow(new Date(thread.created_at), {

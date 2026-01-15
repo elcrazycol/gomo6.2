@@ -11,7 +11,7 @@ import Board from "./pages/Board";
 import Thread from "./pages/Thread";
 import Profile from "./pages/Profile";
 import Moderation from "./pages/Moderation";
-import ModerationPosts from "./pages/ModerationPosts";
+import ModerationPosts from "./pages/ModerationPosts.tsx";
 import EmojiModeration from "./pages/EmojiModeration";
 import EmojiCreate from "./pages/EmojiCreate";
 import EmojiEdit from "./pages/EmojiEdit";
