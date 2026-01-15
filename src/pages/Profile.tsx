@@ -605,9 +605,9 @@ const Profile = () => {
 
         if (!current || ua.level > current.level) {
           achievementMap.set(type, {
-            ...ua.achievements,
+          ...ua.achievements,
             level: ua.level,
-            unlocked_at: ua.unlocked_at,
+          unlocked_at: ua.unlocked_at,
             is_pinned: ua.is_pinned,
             pinned_order: ua.pinned_order,
           });
@@ -955,13 +955,13 @@ const Profile = () => {
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
                   {isOwnProfile ? (
                     <>
-                      {isModerator && (
-                        <Link to="/moderation">
+                  {isModerator && (
+                    <Link to="/moderation">
                           <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors" title="Модерация">
                             <Hammer className="h-4 w-4" />
                           </Button>
-                        </Link>
-                      )}
+                    </Link>
+                  )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -973,7 +973,7 @@ const Profile = () => {
                       </Button>
                     </>
                   ) : (
-                    <ProfileHoverCard userId={currentUser.id}>
+                  <ProfileHoverCard userId={currentUser.id}>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -991,8 +991,8 @@ const Profile = () => {
                         onClick={() => navigate(`/profile/${currentUser.id}`)}
                       >
                         {currentUserUsername || 'Профиль'}
-                      </Button>
-                    </ProfileHoverCard>
+                    </Button>
+                  </ProfileHoverCard>
                   )}
                 </div>
                 <MobileMenu
@@ -1160,10 +1160,10 @@ const Profile = () => {
                         Закрепленные ({pinnedAchievements.length}/4)
                       </h3>
                     )}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {pinnedAchievements.map((achievement) => (
                         <AchievementCard
-                          key={achievement.id}
+                    key={achievement.id}
                           achievement={achievement}
                           onTogglePin={toggleAchievementPin}
                           isPinned={true}

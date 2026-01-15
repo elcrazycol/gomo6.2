@@ -292,13 +292,13 @@ const Index = () => {
         </div>
 
         <div className="mb-4 text-center flex gap-3 justify-center flex-wrap">
-          <Link to="/rules">
-            <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
-          </Link>
+              <Link to="/rules">
+                <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Информация</Button>
+              </Link>
 
           <Link to="/bugs">
             <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Баги/Идеи</Button>
-          </Link>
+                  </Link>
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">

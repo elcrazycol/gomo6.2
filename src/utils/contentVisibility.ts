@@ -81,7 +81,7 @@ export const processVisibilityTags = async (
   options: VisibilityOptions
 ): Promise<VisibilityResult> => {
   // If no content or no tags, return as-is
-  if (!content || (!content.includes('[seeusers=') && !content.includes('[nousers=') && !content.includes('[adm]') && !content.includes('[dude]'))) {
+  if (!content || (!content.includes('[seeusers=') && !content.includes('[nousers=') && !content.includes('[adm]') && !content.includes('[dude]') && !content.includes('[me]'))) {
     return {
       processedContent: content,
       isHidden: false,
@@ -97,8 +97,11 @@ export const processVisibilityTags = async (
   let visibleForUsers: string[] = [];
   let hiddenReason: 'seeusers' | 'nousers' | 'adm' | undefined;
 
-  // Process [dude][/dude] first - replace with special marker
+  // Process [dude][/dude] first - replace with special marker for current user
   processed = processed.replace(/\[dude\]\[\/dude\]/g, '__DUDE_LINK__');
+
+  // Process [me]...[/me] - replace with special marker for post author
+  processed = processed.replace(/\[me\](.*?)\[\/me\]/g, '__ME_LINK__$1__');
 
   // FIRST: Process all multiline (closed) tags
 
