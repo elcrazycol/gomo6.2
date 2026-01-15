@@ -10,8 +10,10 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
+import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -58,6 +60,7 @@ const Index = () => {
   const navigate = useNavigate();
   
   useSessionTime(user?.id);
+  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -252,26 +255,7 @@ const Index = () => {
             {user ? (
               <>
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <ProfileHoverCard userId={user.id}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                        currentUserColor === 'purple' ? 'text-purple-500' :
-                        currentUserColor === 'gold' ? 'text-yellow-500' :
-                        currentUserColor === 'orange' ? 'text-orange-500' :
-                        currentUserColor === 'red' ? 'text-red-500' :
-                        currentUserColor === 'blue' ? 'text-blue-500' :
-                        currentUserColor === 'green' ? 'text-green-500' :
-                        currentUserColor === 'yellow' ? 'text-yellow-400' :
-                        currentUserColor === 'cyan' ? 'text-cyan-500' :
-                        'text-quote'
-                      }`}
-                      onClick={() => navigate(`/profile/${user.id}`)}
-                    >
-                      {currentUserUsername || 'Профиль'}
-                    </Button>
-                  </ProfileHoverCard>
+                  <HeaderUsername userId={user.id} />
                 </div>
                 <MobileMenu
                   user={user}
@@ -298,7 +282,11 @@ const Index = () => {
 
           <Link to="/bugs">
             <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">Баги/Идеи</Button>
-                  </Link>
+          </Link>
+
+          <Link to="/faq">
+            <Button variant="outline" className="hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors">FAQ</Button>
+          </Link>
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">
