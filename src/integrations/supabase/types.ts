@@ -702,6 +702,53 @@ export type Database = {
           },
         ]
       }
+      profile_customization: {
+        Row: {
+          id: string
+          user_id: string
+          username_css: string | null
+          username_icon_svg: string | null
+          username_icon_fill: string | null
+          username_icon_stroke: string | null
+          profile_badge_text: string | null
+          profile_badge_css: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          username_css?: string | null
+          username_icon_svg?: string | null
+          username_icon_fill?: string | null
+          username_icon_stroke?: string | null
+          profile_badge_text?: string | null
+          profile_badge_css?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          username_css?: string | null
+          username_icon_svg?: string | null
+          username_icon_fill?: string | null
+          username_icon_stroke?: string | null
+          profile_badge_text?: string | null
+          profile_badge_css?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_customization_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

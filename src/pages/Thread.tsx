@@ -13,6 +13,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { HeaderUsername } from "@/components/HeaderUsername";
 import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
@@ -30,6 +31,7 @@ import { CookieBanner } from "@/components/CookieBanner";
 import { LinkButton } from "@/components/LinkButton";
 import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { RichTextEditor, type RichTextEditorHandle } from "@/components/RichTextEditor";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
@@ -232,6 +234,8 @@ const Thread = () => {
       window.removeEventListener('scroll', handleScroll);
     };
   }, [lastScrollY, showImagePreview, content, imageUrls]);
+
+  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -849,26 +853,7 @@ const Thread = () => {
             {user ? (
               <>
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <ProfileHoverCard userId={user.id}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                        currentUserColor === 'purple' ? 'text-purple-500' :
-                        currentUserColor === 'gold' ? 'text-yellow-500' :
-                        currentUserColor === 'orange' ? 'text-orange-500' :
-                        currentUserColor === 'red' ? 'text-red-500' :
-                        currentUserColor === 'blue' ? 'text-blue-500' :
-                        currentUserColor === 'green' ? 'text-green-500' :
-                        currentUserColor === 'yellow' ? 'text-yellow-400' :
-                        currentUserColor === 'cyan' ? 'text-cyan-500' :
-                        'text-quote'
-                      }`}
-                      onClick={() => navigate(`/profile/${user.id}`)}
-                    >
-                      {currentUserUsername || 'Профиль'}
-                    </Button>
-                  </ProfileHoverCard>
+                  <HeaderUsername userId={user.id} />
                 </div>
                 <MobileMenu
                   user={user}

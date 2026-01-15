@@ -4,6 +4,56 @@ import { LinkButton } from "@/components/LinkButton";
 import { MentionLink } from "@/components/MentionLink";
 import { CensorBlur } from "@/components/CensorBlur";
 
+export type BbNode =
+  | { type: "text"; value: string }
+  | { type: "tag"; name: string; param?: string; children: BbNode[] };
+
+export const parseBbInline = (input: string): BbNode[] => {
+  const root: BbNode[] = [];
+  const stack: Array<{ name: string; param?: string; children: BbNode[] }> = [];
+
+  const pushNode = (n: BbNode) => {
+    if (stack.length > 0) stack[stack.length - 1].children.push(n);
+    else root.push(n);
+  };
+
+  const tagRe = /\[(\/?)(B|I|U|S|blur|col|size|me|dude)(?:=([^\]]+))?\]/gi;
+  let last = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = tagRe.exec(input)) !== null) {
+    if (m.index > last) pushNode({ type: "text", value: input.slice(last, m.index) });
+    const isClose = m[1] === "/";
+    const name = (m[2] || "").toLowerCase();
+    const param = m[3];
+
+    if (!isClose) {
+      stack.push({ name, param, children: [] });
+    } else {
+      let frameIdx = stack.length - 1;
+      while (frameIdx >= 0 && stack[frameIdx].name !== name) frameIdx--;
+      if (frameIdx >= 0) {
+        const frame = stack.splice(frameIdx, 1)[0];
+        const node: BbNode = { type: "tag", name: frame.name, param: frame.param, children: frame.children };
+        if (stack.length > 0) stack[stack.length - 1].children.push(node);
+        else root.push(node);
+      } else {
+        pushNode({ type: "text", value: m[0] });
+      }
+    }
+
+    last = tagRe.lastIndex;
+  }
+
+  if (last < input.length) pushNode({ type: "text", value: input.slice(last) });
+  while (stack.length > 0) {
+    const frame = stack.shift()!;
+    root.push({ type: "text", value: `[${frame.name}${frame.param ? "=" + frame.param : ""}]` });
+    root.push(...frame.children);
+  }
+  return root;
+};
+
 export const processEmojiText = (text: string, keyPrefix: string = 'emoji') => {
   let key = 0;
 
@@ -53,56 +103,6 @@ export const renderPreviewContent = (text: string, keyPrefix: string = 'preview'
       }
       return part;
     }).flat();
-  };
-
-  type BbNode =
-    | { type: "text"; value: string }
-    | { type: "tag"; name: string; param?: string; children: BbNode[] };
-
-  const parseBbInline = (input: string): BbNode[] => {
-    const root: BbNode[] = [];
-    const stack: Array<{ name: string; param?: string; children: BbNode[] }> = [];
-
-    const pushNode = (n: BbNode) => {
-      if (stack.length > 0) stack[stack.length - 1].children.push(n);
-      else root.push(n);
-    };
-
-    const tagRe = /\[(\/?)(B|I|U|S|blur|col|size)(?:=([^\]]+))?\]/gi;
-    let last = 0;
-    let m: RegExpExecArray | null;
-
-    while ((m = tagRe.exec(input)) !== null) {
-      if (m.index > last) pushNode({ type: "text", value: input.slice(last, m.index) });
-      const isClose = m[1] === "/";
-      const name = (m[2] || "").toLowerCase();
-      const param = m[3];
-
-      if (!isClose) {
-        stack.push({ name, param, children: [] });
-      } else {
-        let frameIdx = stack.length - 1;
-        while (frameIdx >= 0 && stack[frameIdx].name !== name) frameIdx--;
-        if (frameIdx >= 0) {
-          const frame = stack.splice(frameIdx, 1)[0];
-          const node: BbNode = { type: "tag", name: frame.name, param: frame.param, children: frame.children };
-          if (stack.length > 0) stack[stack.length - 1].children.push(node);
-          else root.push(node);
-        } else {
-          pushNode({ type: "text", value: m[0] });
-        }
-      }
-
-      last = tagRe.lastIndex;
-    }
-
-    if (last < input.length) pushNode({ type: "text", value: input.slice(last) });
-    while (stack.length > 0) {
-      const frame = stack.shift()!;
-      root.push({ type: "text", value: `[${frame.name}${frame.param ? "=" + frame.param : ""}]` });
-      root.push(...frame.children);
-    }
-    return root;
   };
 
   const renderBbNodes = (nodes: BbNode[]): React.ReactNode[] => {

@@ -8,6 +8,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { HeaderUsername } from "@/components/HeaderUsername";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette, Monitor, Settings2 } from "lucide-react";
+import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette, Monitor, Settings2, Sparkles } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -38,6 +39,8 @@ const Settings = () => {
     allow_private_messages: boolean;
     anonymous_mode: boolean;
     remove_image_metadata: boolean;
+    show_last_seen: boolean;
+    show_online_status: boolean;
   }
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [visibilityExpanded, setVisibilityExpanded] = useState(false);
@@ -148,6 +151,8 @@ const Settings = () => {
           allow_private_messages: true,
           anonymous_mode: false,
           remove_image_metadata: true,
+          show_last_seen: true,
+          show_online_status: true,
         };
 
         const { error: insertError, data: insertedData } = await (supabase as any)
@@ -216,6 +221,8 @@ const Settings = () => {
         allow_private_messages: updatedSettings.allow_private_messages,
         anonymous_mode: updatedSettings.anonymous_mode,
         remove_image_metadata: updatedSettings.remove_image_metadata,
+        show_last_seen: updatedSettings.show_last_seen,
+        show_online_status: updatedSettings.show_online_status,
       };
 
       // Try to save to database
@@ -458,26 +465,7 @@ const Settings = () => {
                 {user && <NotificationBell userId={user.id} />}
                 {user && <ChatIcon userId={user.id} />}
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <ProfileHoverCard userId={user.id}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                        currentUserColor === 'purple' ? 'text-purple-500' :
-                        currentUserColor === 'gold' ? 'text-yellow-500' :
-                        currentUserColor === 'orange' ? 'text-orange-500' :
-                        currentUserColor === 'red' ? 'text-red-500' :
-                        currentUserColor === 'blue' ? 'text-blue-500' :
-                        currentUserColor === 'green' ? 'text-green-500' :
-                        currentUserColor === 'yellow' ? 'text-yellow-400' :
-                        currentUserColor === 'cyan' ? 'text-cyan-500' :
-                        'text-quote'
-                      }`}
-                      onClick={() => navigate(`/profile/${user.id}`)}
-                    >
-                      {currentUserUsername || 'Профиль'}
-                    </Button>
-                  </ProfileHoverCard>
+                  <HeaderUsername userId={user.id} />
                 </div>
                 <MobileMenu user={user} isModerator={false} />
               </div>
@@ -700,6 +688,35 @@ const Settings = () => {
                   </div>
                   </CollapsibleContent>
                 </Collapsible>
+
+                {/* Profile Customization Panel */}
+                <div className="bg-card border border-border p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5" />
+                      <span className="text-lg font-semibold">Кастомизация профиля</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate(`/profile/${user.id}`)}
+                        size="sm"
+                      >
+                        Основная кастомизация
+                      </Button>
+                      <Button
+                        variant="default"
+                        onClick={() => navigate("/settings/custom")}
+                        size="sm"
+                      >
+                        Уникальная кастомизация
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Настройте внешний вид вашего никнейма, иконки и пада профиля
+                  </p>
+                </div>
               </TabsContent>
 
               <TabsContent value="account" className="space-y-4">
@@ -830,6 +847,44 @@ const Settings = () => {
                                 <Switch
                                   checked={privacySettings.block_profile_visits_from_unregistered}
                                   onCheckedChange={(value) => updatePrivacySetting('block_profile_visits_from_unregistered', value)}
+                                  disabled={privacyLoading}
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span>Показывать последнее время захода</span>
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Показывать когда вы последний раз были на сайте</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <Switch
+                                  checked={privacySettings.show_last_seen ?? true}
+                                  onCheckedChange={(value) => updatePrivacySetting('show_last_seen', value)}
+                                  disabled={privacyLoading}
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span>Показывать в сети</span>
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Показывать статус "В сети" когда вы активны</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <Switch
+                                  checked={privacySettings.show_online_status ?? true}
+                                  onCheckedChange={(value) => updatePrivacySetting('show_online_status', value)}
                                   disabled={privacyLoading}
                                 />
                               </div>
