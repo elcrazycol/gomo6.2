@@ -18,18 +18,25 @@ interface UserMentionsProps {
   onContentChange: (content: string) => void;
   onUserSelect: (user: User) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement>;
+  getContent?: () => string;
+  setContent?: (content: string) => void;
+  getCursorPos?: () => number;
+  getCursorRect?: () => DOMRect | null;
+  getEditorEl?: () => HTMLElement | null;
+  focusInput?: () => void;
+  setCursorPos?: (pos: number) => void;
 }
 
-export const UserMentions = ({ content, onContentChange, onUserSelect, textareaRef }: UserMentionsProps) => {
+export const UserMentions = ({ content, onContentChange, onUserSelect, textareaRef, getContent, setContent, getCursorPos, getCursorRect, getEditorEl, focusInput, setCursorPos }: UserMentionsProps) => {
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const popupRef = useRef<HTMLDivElement>(null);
-  const [cursorPosition, setCursorPosition] = useState({ top: 0, left: 0 });
+  const [cursorPosition, setCursorPosition] = useState({ top: 0, left: 0, width: 0 });
 
-  // Get cursor position in textarea
+  // Get cursor position in textarea (fallback)
   const getCursorPosition = (textarea: HTMLTextAreaElement) => {
     const { selectionStart } = textarea;
     const textBeforeCursor = textarea.value.substring(0, selectionStart);
@@ -60,7 +67,8 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
 
     return {
       top: textareaRect.top + rect.height - textarea.scrollTop + 5,
-      left: textareaRect.left + 10
+      left: textareaRect.left + 10,
+      width: 0
     };
   };
 
@@ -143,11 +151,15 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
   // Search for users when @ is typed
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
+    // Support both textarea and external (contentEditable) providers
+    const readText = () => (getContent ? getContent() : (textarea?.value ?? content));
+    const readCursor = () => (getCursorPos ? getCursorPos() : (textarea?.selectionStart ?? 0));
+    const readRect = () => (getCursorRect ? getCursorRect() : null);
 
     const handleInput = () => {
-      const text = textarea.value;
-      const cursorPos = textarea.selectionStart;
+      const text = readText();
+      const cursorPos = readCursor();
+      const caretRect = readRect();
 
       // Find the @ symbol before cursor
       const textBeforeCursor = text.substring(0, cursorPos);
@@ -160,7 +172,12 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
           // Valid mention - show popup
           setMentionQuery(query);
           setShowMentions(true);
-          setCursorPosition(getCursorPosition(textarea));
+          if (textarea) {
+            setCursorPosition(getCursorPosition(textarea));
+          } else if (caretRect) {
+            // Anchor to caret rect in contentEditable
+            setCursorPosition({ top: caretRect.top, left: caretRect.left, width: caretRect.width });
+          }
           setSelectedIndex(0);
           searchUsers(query);
         } else {
@@ -176,21 +193,32 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
       if (showMentions && atIndex !== -1 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === ' ' || textBeforeCursor[atIndex - 1] === '\n')) {
         const currentQuery = textBeforeCursor.substring(atIndex + 1);
         if (!currentQuery.includes(' ') && !currentQuery.includes('\n')) {
-          setCursorPosition(getCursorPosition(textarea));
+          if (textarea) {
+            setCursorPosition(getCursorPosition(textarea));
+          } else if (caretRect) {
+            setCursorPosition({ top: caretRect.top, left: caretRect.left, width: caretRect.width });
+          }
         }
       }
     };
 
-    textarea.addEventListener('input', handleInput);
-    textarea.addEventListener('keyup', handleInput);
-    textarea.addEventListener('click', handleInput);
+    if (textarea) {
+      textarea.addEventListener('input', handleInput);
+      textarea.addEventListener('keyup', handleInput);
+      textarea.addEventListener('click', handleInput);
+    } else {
+      // If no textarea, we still run on content prop changes via dependency below.
+      handleInput();
+    }
 
     return () => {
-      textarea.removeEventListener('input', handleInput);
-      textarea.removeEventListener('keyup', handleInput);
-      textarea.removeEventListener('click', handleInput);
+      if (textarea) {
+        textarea.removeEventListener('input', handleInput);
+        textarea.removeEventListener('keyup', handleInput);
+        textarea.removeEventListener('click', handleInput);
+      }
     };
-  }, [textareaRef.current]); // Depend on textareaRef.current
+  }, [textareaRef.current, content, getContent, getCursorPos, getCursorRect]); // Depend on either textarea or external providers
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -231,10 +259,8 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
   // Select user and insert mention
   const selectUser = (user: User) => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const text = textarea.value;
-    const cursorPos = textarea.selectionStart;
+    const text = getContent ? getContent() : (textarea?.value ?? content);
+    const cursorPos = getCursorPos ? getCursorPos() : (textarea?.selectionStart ?? 0);
 
     // Find the @ symbol before cursor
     const textBeforeCursor = text.substring(0, cursorPos);
@@ -243,12 +269,17 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     if (atIndex !== -1) {
       // Replace @query with @username
       const newText = textBeforeCursor.substring(0, atIndex) + `@${user.username} ` + text.substring(cursorPos);
-      onContentChange(newText);
+      (setContent ? setContent(newText) : onContentChange(newText));
 
       // Set cursor after the mention
       setTimeout(() => {
-        textarea.focus();
-        textarea.setSelectionRange(atIndex + user.username.length + 2, atIndex + user.username.length + 2);
+        if (focusInput) focusInput();
+        if (setCursorPos) {
+          setCursorPos(atIndex + user.username.length + 2);
+        } else if (textarea) {
+          textarea.focus();
+          textarea.setSelectionRange(atIndex + user.username.length + 2, atIndex + user.username.length + 2);
+        }
       }, 0);
     }
 
@@ -259,15 +290,23 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
   // Hide mentions when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(event.target as Node) &&
-          textareaRef.current && !textareaRef.current.contains(event.target as Node)) {
-        setShowMentions(false);
-      }
+      const target = event.target as Node;
+      const popup = popupRef.current;
+      if (!popup) return;
+      if (popup.contains(target)) return;
+
+      const textarea = textareaRef.current;
+      if (textarea && textarea.contains(target)) return;
+
+      const editorEl = getEditorEl ? getEditorEl() : null;
+      if (editorEl && editorEl.contains(target)) return;
+
+      setShowMentions(false);
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [getEditorEl]);
 
   if (!showMentions || (users.length === 0 && !loading)) return null;
 
@@ -276,8 +315,17 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
       ref={popupRef}
       className="fixed z-[9999] bg-background/95 backdrop-blur-sm border border-border rounded-xl shadow-xl max-h-64 overflow-y-auto w-[calc(100vw-20px)] sm:w-auto sm:min-w-[280px] sm:max-w-[320px] animate-in fade-in-0 zoom-in-95 duration-200"
       style={{
-        top: Math.max(10, cursorPosition.top - 280), // Position above cursor with panel height offset
-        left: Math.max(10, cursorPosition.left) // Ensure it's not off-screen
+        top: (() => {
+          const h = popupRef.current?.offsetHeight ?? 280;
+          return Math.max(10, cursorPosition.top - h - 8);
+        })(),
+        left: (() => {
+          const w = popupRef.current?.offsetWidth ?? 320;
+          const centerX = cursorPosition.left + (cursorPosition.width ?? 0) / 2;
+          const unclamped = centerX - w / 2;
+          const maxLeft = Math.max(10, window.innerWidth - w - 10);
+          return Math.min(maxLeft, Math.max(10, unclamped));
+        })()
       }}
     >
       {loading ? (
