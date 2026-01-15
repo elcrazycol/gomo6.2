@@ -13,6 +13,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
@@ -20,6 +21,9 @@ import { CookieBanner } from "@/components/CookieBanner";
 import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
+import { processProfileBio } from "@/utils/profileBio";
 
 interface Profile {
   id: string;
@@ -464,6 +468,11 @@ const Profile = () => {
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [minScale, setMinScale] = useState(0.5);
   const [maxScale, setMaxScale] = useState(3);
+  const [customization, setCustomization] = useState<any>(null);
+  const [lastSeen, setLastSeen] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(false);
+  const [showLastSeen, setShowLastSeen] = useState(true);
+  const [showOnlineStatus, setShowOnlineStatus] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -541,6 +550,9 @@ const Profile = () => {
     }
   }, [userId]);
 
+  // Update online status for current user
+  useOnlineStatus(currentUser?.id);
+
   const loadProfile = async () => {
     const { data } = await supabase
       .from("profiles")
@@ -554,6 +566,24 @@ const Profile = () => {
       setBio(data.bio || "");
       setIsAnonymous(data.is_anonymous);
       setAvatarUrl(data.avatar_url);
+      setLastSeen(data.last_seen_at);
+      setIsOnline(data.is_online || false);
+
+      // Load privacy settings for online status
+      const { data: privacyData } = await supabase
+        .from("privacy_settings")
+        .select("show_last_seen, show_online_status")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (privacyData) {
+        setShowLastSeen(privacyData.show_last_seen ?? true);
+        setShowOnlineStatus(privacyData.show_online_status ?? true);
+      }
+
+      // Load customization
+      const custom = await getProfileCustomization(userId);
+      setCustomization(custom);
 
       // Load likes received count
       const { data: likesData } = await supabase.rpc('get_user_likes_received_count', {
@@ -886,6 +916,10 @@ const Profile = () => {
 
       setIsEditing(false);
       setNewUsername("");
+      
+      // Reload profile to show updated bio with processed tags
+      await loadProfile();
+      
       toast.success("Изменения сохранены");
     } catch (error) {
       toast.error("Ошибка сохранения изменений");
@@ -980,26 +1014,7 @@ const Profile = () => {
                       </Button>
                     </>
                   ) : (
-                  <ProfileHoverCard userId={currentUser.id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`text-xs sm:text-sm hover:bg-white/20 hover:text-white transition-colors ${
-                          currentUserColor === 'purple' ? 'text-purple-500' :
-                          currentUserColor === 'gold' ? 'text-yellow-500' :
-                          currentUserColor === 'orange' ? 'text-orange-500' :
-                          currentUserColor === 'red' ? 'text-red-500' :
-                          currentUserColor === 'blue' ? 'text-blue-500' :
-                          currentUserColor === 'green' ? 'text-green-500' :
-                          currentUserColor === 'yellow' ? 'text-yellow-400' :
-                          currentUserColor === 'cyan' ? 'text-cyan-500' :
-                          'text-quote'
-                        }`}
-                        onClick={() => navigate(`/profile/${currentUser.id}`)}
-                      >
-                        {currentUserUsername || 'Профиль'}
-                    </Button>
-                  </ProfileHoverCard>
+                    <HeaderUsername userId={currentUser.id} />
                   )}
                 </div>
                 <MobileMenu
@@ -1058,12 +1073,49 @@ const Profile = () => {
                       placeholder="Никнейм"
                     />
                   ) : (
-                    <h1 className="text-2xl font-bold">{profile.username}</h1>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h1 
+                        className="text-2xl font-bold"
+                        style={customization?.username_css ? parseCssToStyle(customization.username_css) : {}}
+                      >
+                        {profile.username}
+                      </h1>
+                      {customization?.username_icon_svg && (
+                        <span
+                          className="inline-flex items-center justify-center"
+                          dangerouslySetInnerHTML={{ __html: customization.username_icon_svg }}
+                          style={{
+                            fill: customization.username_icon_fill || undefined,
+                            stroke: customization.username_icon_stroke || undefined,
+                            width: '1em',
+                            height: '1em',
+                          }}
+                        />
+                      )}
+                      {customization?.profile_badge_text && (
+                        <span
+                          className="px-2 py-1 rounded text-xs font-medium ml-2"
+                          style={customization.profile_badge_css ? parseCssToStyle(customization.profile_badge_css) : {}}
+                        >
+                          {customization.profile_badge_text}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
+                  </p>
+                  {showOnlineStatus && isOnline && (
+                    <span className="text-xs text-green-500 font-medium">● В сети</span>
+                  )}
+                  {showLastSeen && !isOnline && lastSeen && (
+                    <span className="text-xs text-muted-foreground">
+                      Был в сети {formatDistanceToNow(new Date(lastSeen), { locale: ru, addSuffix: true })}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1106,6 +1158,12 @@ const Profile = () => {
                   placeholder="Расскажите о себе..."
                   rows={4}
                 />
+                {bio && (
+                  <div className="mt-2 p-3 bg-muted/30 border border-border rounded text-sm">
+                    <Label className="text-xs text-muted-foreground mb-1 block">Предпросмотр:</Label>
+                    <div>{processProfileBio(bio, `preview-${profile.id}`)}</div>
+                  </div>
+                )}
               </div>
 
 
@@ -1134,7 +1192,11 @@ const Profile = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {profile.bio && <p className="text-sm">{profile.bio}</p>}
+              {profile.bio && (
+                <div className="text-sm">
+                  {processProfileBio(profile.bio, `profile-${profile.id}`)}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4 p-4 bg-post-header border border-border">
                 <div>
