@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
@@ -16,7 +15,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, AlertTriangle, Type } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette, Monitor, Settings2 } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -48,6 +49,23 @@ const Settings = () => {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  // Theme settings
+  const [themeExpanded, setThemeExpanded] = useState(false);
+  const [colorTheme, setColorTheme] = useState<'cannabis' | 'pink' | 'blue' | 'blood' | 'pumpkin'>(() => {
+    return (localStorage.getItem('color-theme') as any) || 'cannabis';
+  });
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('dark-mode');
+    return saved !== null ? saved === 'true' : true; // Default to dark mode
+  });
+
+  // Interface settings
+  const [interfaceExpanded, setInterfaceExpanded] = useState(false);
+  const [postsExpanded, setPostsExpanded] = useState(false);
+  const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
+    return (localStorage.getItem('sender-display-type') as any) || 'classic';
+  });
 
   useEffect(() => {
     const getUser = async () => {
@@ -335,6 +353,46 @@ const Settings = () => {
     }
   };
 
+  // Theme functions
+  const applyTheme = (color: typeof colorTheme, dark: boolean) => {
+    const html = document.documentElement;
+
+    // Remove all theme classes
+    html.classList.remove(
+      'theme-cannabis', 'theme-cannabis-dark',
+      'theme-pink', 'theme-pink-dark',
+      'theme-blue', 'theme-blue-dark',
+      'theme-blood', 'theme-blood-dark',
+      'theme-pumpkin', 'theme-pumpkin-dark'
+    );
+
+    // Add new theme class
+    const themeClass = dark ? `theme-${color}-dark` : `theme-${color}`;
+    html.classList.add(themeClass);
+  };
+
+  const handleColorThemeChange = (newColor: typeof colorTheme) => {
+    setColorTheme(newColor);
+    localStorage.setItem('color-theme', newColor);
+    applyTheme(newColor, isDarkMode);
+  };
+
+  const handleDarkModeToggle = (checked: boolean) => {
+    setIsDarkMode(checked);
+    localStorage.setItem('dark-mode', checked.toString());
+    applyTheme(colorTheme, checked);
+  };
+
+  const handleSenderDisplayTypeChange = (value: 'classic' | 'modern') => {
+    setSenderDisplayType(value);
+    localStorage.setItem('sender-display-type', value);
+  };
+
+  // Initialize theme on component mount
+  useEffect(() => {
+    applyTheme(colorTheme, isDarkMode);
+  }, []);
+
   // Load custom font on component mount
   useEffect(() => {
     const savedFont = localStorage.getItem('custom_font');
@@ -397,7 +455,6 @@ const Settings = () => {
                 gomo6
               </Link>
               <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-                <ThemeToggle />
                 {user && <NotificationBell userId={user.id} />}
                 {user && <ChatIcon userId={user.id} />}
                 <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
@@ -463,62 +520,186 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="appearance" className="space-y-4">
-                <div className="bg-card p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Внешний вид</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Тема</label>
-                      <div className="mt-2">
-                        <ThemeToggle />
+                {/* Theme Panel */}
+                <Collapsible open={themeExpanded} onOpenChange={setThemeExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Palette className="h-5 w-5" />
+                        <span className="text-lg font-semibold">Тема</span>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${themeExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent className="space-y-6 pt-6">
+                    <div className="bg-card border border-border p-6">
+                      <div className="space-y-6">
+                        <div>
+                          <Label className="text-base font-semibold mb-4 block">Цветовая схема</Label>
+                          <RadioGroup value={colorTheme} onValueChange={(val) => handleColorThemeChange(val as typeof colorTheme)}>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="cannabis" id="cannabis" />
+                              <Label htmlFor="cannabis" className="cursor-pointer">
+                                🌿 Зелёная каннабиоидная
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="pink" id="pink" />
+                              <Label htmlFor="pink" className="cursor-pointer">
+                                💖 Розовая няшная
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="blue" id="blue" />
+                              <Label htmlFor="blue" className="cursor-pointer">
+                                💙 Синяя депрессивная
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="blood" id="blood" />
+                              <Label htmlFor="blood" className="cursor-pointer">
+                                🩸 Кроваво-красная
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <RadioGroupItem value="pumpkin" id="pumpkin" />
+                              <Label htmlFor="pumpkin" className="cursor-pointer">
+                                🎃 Оранжево-тыквенная
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="dark-mode" className="text-base font-semibold">
+                            Тёмный режим
+                          </Label>
+                          <Switch
+                            id="dark-mode"
+                            checked={isDarkMode}
+                            onCheckedChange={handleDarkModeToggle}
+                          />
+                        </div>
                       </div>
                     </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
-                    <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
-                      <CollapsibleTrigger asChild>
-                        <button className="w-full flex items-center justify-between p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
-                          <div className="flex items-center gap-2">
-                            <Type className="h-4 w-4" />
-                            <span className="text-sm font-medium">Настройки шрифта</span>
-                          </div>
-                          <ChevronDown className={`h-4 w-4 transition-transform ${fontSettingsExpanded ? 'rotate-180' : ''}`} />
-                        </button>
-                      </CollapsibleTrigger>
+                {/* Font Panel */}
+                <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Type className="h-5 w-5" />
+                        <span className="text-lg font-semibold">Шрифт</span>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${fontSettingsExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
 
-                      <CollapsibleContent className="space-y-4 pt-4">
-                        <div>
-                          <Label htmlFor="google-font" className="text-sm font-medium">
-                            Шрифт из Google Fonts
-                          </Label>
-                          <div className="mt-2 space-y-2">
-                            <Input
-                              id="google-font"
-                              type="text"
-                              placeholder="Введите название шрифта (например: Roboto, Open Sans, Montserrat)"
-                              value={customFont}
-                              onChange={(e) => handleFontChange(e.target.value)}
-                              className="w-full"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Введите точное название шрифта из{' '}
-                              <a
-                                href="https://fonts.google.com/"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline"
-                              >
-                                Google Fonts
-                              </a>
-                              . Например: "Roboto", "Open Sans", "Montserrat", "Lato" и т.д.
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              Оставьте поле пустым, чтобы использовать шрифт по умолчанию.
-                            </p>
-                          </div>
+                  <CollapsibleContent className="space-y-4 pt-6">
+                    <div className="bg-card border border-border p-6">
+                      <div>
+                        <Label htmlFor="google-font" className="text-sm font-medium">
+                          Шрифт из Google Fonts
+                        </Label>
+                        <div className="mt-2 space-y-2">
+                          <Input
+                            id="google-font"
+                            type="text"
+                            placeholder="Введите название шрифта (например: Roboto, Open Sans, Montserrat)"
+                            value={customFont}
+                            onChange={(e) => handleFontChange(e.target.value)}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Введите точное название шрифта из{' '}
+                            <a
+                              href="https://fonts.google.com/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              Google Fonts
+                            </a>
+                            . Например: "Roboto", "Open Sans", "Montserrat", "Lato" и т.д.
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Оставьте поле пустым, чтобы использовать шрифт по умолчанию.
+                          </p>
                         </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </div>
-                </div>
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Interface Panel */}
+                <Collapsible open={interfaceExpanded} onOpenChange={setInterfaceExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-2">
+                        <Monitor className="h-5 w-5" />
+                        <span className="text-lg font-semibold">Интерфейс</span>
+                      </div>
+                      <ChevronDown className={`h-5 w-5 transition-transform ${interfaceExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </CollapsibleTrigger>
+
+                  <CollapsibleContent className="space-y-4 pt-6">
+                    <div className="bg-card border border-border">
+                      <Collapsible open={postsExpanded} onOpenChange={setPostsExpanded}>
+                        <CollapsibleTrigger asChild>
+                          <button className="w-full p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                            <div className="flex items-center gap-2">
+                              <Settings2 className="h-4 w-4" />
+                              <span className="text-base font-medium">Посты</span>
+                            </div>
+                            <ChevronDown className={`h-4 w-4 transition-transform ${postsExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                        </CollapsibleTrigger>
+
+                        <CollapsibleContent className="px-6 pb-6">
+                          <div className="space-y-4">
+                            <div>
+                              <Label className="text-sm font-medium mb-3 block">Вид отправителя</Label>
+                                <div className="flex gap-4">
+                                <div className="flex-1">
+                                  <Select value={senderDisplayType} onValueChange={handleSenderDisplayTypeChange}>
+                                    <SelectTrigger className="w-full">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="classic">Классический</SelectItem>
+                                      <SelectItem value="modern">Современный</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">
+                                  {senderDisplayType === 'classic' ? (
+                                    <>
+                                      <div className="font-mono text-primary">#03136507</div>
+                                      <div className="text-muted-foreground">· nickname · 2 дня назад</div>
+                                    </>
+                                  ) : (
+                                    <div className="flex items-start gap-2">
+                                      <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center text-xs">👤</div>
+                                      <div>
+                                        <div className="text-muted-foreground">nickname</div>
+                                        <div className="text-muted-foreground">2 дня назад</div>
+                                        <div className="font-mono text-primary text-[10px]">#03136507</div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </TabsContent>
 
               <TabsContent value="account" className="space-y-4">
