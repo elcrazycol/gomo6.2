@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { HeaderUsername } from "@/components/HeaderUsername";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
@@ -41,7 +41,6 @@ const CustomProfile = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
 
   // Username customization
   const [usernameColor, setUsernameColor] = useState("#d6d6de");
@@ -94,31 +93,6 @@ const CustomProfile = () => {
           setAvatarUrl(profile.avatar_url);
         }
 
-        // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", user.id);
-
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
 
         // Load customization
         await loadCustomization(user.id);
@@ -478,26 +452,7 @@ const CustomProfile = () => {
               {user && <NotificationBell userId={user.id} />}
               {user && <ChatIcon userId={user.id} />}
               <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                <ProfileHoverCard userId={user.id}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                      currentUserColor === 'purple' ? 'text-purple-500' :
-                      currentUserColor === 'gold' ? 'text-yellow-500' :
-                      currentUserColor === 'orange' ? 'text-orange-500' :
-                      currentUserColor === 'red' ? 'text-red-500' :
-                      currentUserColor === 'blue' ? 'text-blue-500' :
-                      currentUserColor === 'green' ? 'text-green-500' :
-                      currentUserColor === 'yellow' ? 'text-yellow-400' :
-                      currentUserColor === 'cyan' ? 'text-cyan-500' :
-                      'text-quote'
-                    }`}
-                    onClick={() => navigate(`/profile/${user.id}`)}
-                  >
-                    {currentUserUsername || 'Профиль'}
-                  </Button>
-                </ProfileHoverCard>
+                <HeaderUsername userId={user.id} />
               </div>
               <MobileMenu user={user} isModerator={false} />
             </div>
