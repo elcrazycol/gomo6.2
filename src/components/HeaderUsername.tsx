@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
+import { AdminBadge } from "./AdminBadge";
 
 interface HeaderUsernameProps {
   userId: string;
@@ -101,9 +102,15 @@ export const HeaderUsername = ({ userId, className = "" }: HeaderUsernameProps) 
               stroke: customization.username_icon_stroke || undefined,
               width: '1em',
               height: '1em',
+              maxHeight: '20px',
+              maxWidth: '20px',
+              maxWidth: '1.5em',
             }}
           />
         )}
+        <div className="transition-transform duration-200 group-hover:translate-x-0.5">
+          <AdminBadge userId={userId} />
+        </div>
       </span>
     </ProfileHoverCard>
   );

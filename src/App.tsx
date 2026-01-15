@@ -1,26 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { RussianBlock } from "@/components/RussianBlock";
-import Index from "./pages/Index";
-import Auth from "./pages/Auth";
-import Board from "./pages/Board";
-import Thread from "./pages/Thread";
-import Profile from "./pages/Profile";
-import Moderation from "./pages/Moderation";
-import ModerationPosts from "./pages/ModerationPosts.tsx";
-import EmojiModeration from "./pages/EmojiModeration";
-import EmojiCreate from "./pages/EmojiCreate";
-import EmojiEdit from "./pages/EmojiEdit";
-import EmojiEditForm from "./pages/EmojiEditForm";
-import Messages from "./pages/Messages";
-import Settings from "./pages/Settings";
-import CustomProfile from "./pages/settings/CustomProfile";
-import Notify from "./pages/Notify";
-import NotFound from "./pages/NotFound";
+import { LazyPage } from "@/components/LazyPage";
+
+// Lazy load pages for better performance
+const Index = lazy(() => import("./pages/Index"));
+const Auth = lazy(() => import("./pages/Auth"));
+const Board = lazy(() => import("./pages/Board"));
+const Thread = lazy(() => import("./pages/Thread"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Moderation = lazy(() => import("./pages/Moderation"));
+const ModerationPosts = lazy(() => import("./pages/ModerationPosts"));
+const EmojiModeration = lazy(() => import("./pages/EmojiModeration"));
+const EmojiCreate = lazy(() => import("./pages/EmojiCreate"));
+const EmojiEdit = lazy(() => import("./pages/EmojiEdit"));
+const EmojiEditForm = lazy(() => import("./pages/EmojiEditForm"));
+const Messages = lazy(() => import("./pages/Messages"));
+const Settings = lazy(() => import("./pages/Settings"));
+const CustomProfile = lazy(() => import("./pages/settings/CustomProfile"));
+const Placeholders = lazy(() => import("./pages/settings/Placeholders"));
+const Notify = lazy(() => import("./pages/Notify"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -122,25 +127,27 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <SpeedInsights />
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/profile/:userId" element={<Profile />} />
-            <Route path="/moderation" element={<Moderation />} />
-            <Route path="/moderation/posts" element={<ModerationPosts />} />
-            <Route path="/moderation/emojis" element={<EmojiModeration />} />
-            <Route path="/moderation/emojis/create" element={<EmojiCreate />} />
-            <Route path="/moderation/emojis/edit" element={<EmojiEdit />} />
-            <Route path="/moderation/emojis/edit/:emojiId" element={<EmojiEditForm />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/settings/custom" element={<CustomProfile />} />
-            <Route path="/notify" element={<Notify />} />
-            <Route path="/:slug" element={<Board />} />
-            <Route path="/:slug/thread/:threadId" element={<Thread />} />
+            <Route path="/" element={<LazyPage component={Index} />} />
+            <Route path="/auth" element={<LazyPage component={Auth} />} />
+            <Route path="/profile/:userId" element={<LazyPage component={Profile} />} />
+            <Route path="/moderation" element={<LazyPage component={Moderation} />} />
+            <Route path="/moderation/posts" element={<LazyPage component={ModerationPosts} />} />
+            <Route path="/moderation/emojis" element={<LazyPage component={EmojiModeration} />} />
+            <Route path="/moderation/emojis/create" element={<LazyPage component={EmojiCreate} />} />
+            <Route path="/moderation/emojis/edit" element={<LazyPage component={EmojiEdit} />} />
+            <Route path="/moderation/emojis/edit/:emojiId" element={<LazyPage component={EmojiEditForm} />} />
+            <Route path="/messages" element={<LazyPage component={Messages} />} />
+            <Route path="/settings" element={<LazyPage component={Settings} />} />
+            <Route path="/settings/custom" element={<LazyPage component={CustomProfile} />} />
+            <Route path="/settings/placeholders" element={<LazyPage component={Placeholders} />} />
+            <Route path="/notify" element={<LazyPage component={Notify} />} />
+            <Route path="/:slug" element={<LazyPage component={Board} />} />
+            <Route path="/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
+            <Route path="*" element={<LazyPage component={NotFound} />} />
           </Routes>
         </BrowserRouter>
       </TooltipProvider>

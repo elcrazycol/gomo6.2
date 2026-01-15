@@ -689,34 +689,77 @@ const Settings = () => {
                   </CollapsibleContent>
                 </Collapsible>
 
-                {/* Profile Customization Panel */}
-                <div className="bg-card border border-border p-6">
-                  <div className="flex items-center justify-between">
+                {/* Customization Panel */}
+                <Collapsible defaultOpen={false} className="bg-card border border-border">
+                  <CollapsibleTrigger className="w-full p-6 flex items-center justify-between hover:bg-card/80 transition-colors">
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-5 w-5" />
-                      <span className="text-lg font-semibold">Кастомизация профиля</span>
+                      <span className="text-lg font-semibold">Кастомизация</span>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => navigate(`/profile/${user.id}`)}
-                        size="sm"
-                      >
-                        Основная кастомизация
-                      </Button>
-                      <Button
-                        variant="default"
-                        onClick={() => navigate("/settings/custom")}
-                        size="sm"
-                      >
-                        Уникальная кастомизация
-                      </Button>
+                    <ChevronDown className="h-4 w-4 transition-transform duration-200 data-[state=open]:rotate-180" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-6 pb-6 space-y-4">
+                    {/* Profile Customization */}
+                    <div className="border-l-2 border-primary pl-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium">Кастомизация профиля</span>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => navigate(`/profile/${user.id}`)}
+                            size="sm"
+                          >
+                            Основная кастомизация
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={() => navigate("/settings/custom")}
+                            size="sm"
+                          >
+                            Уникальная кастомизация
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Настройте внешний вид вашего никнейма, иконки и пада профиля
+                      </p>
                     </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Настройте внешний вид вашего никнейма, иконки и пада профиля
-                  </p>
-                </div>
+
+                    {/* Post Customization */}
+                    <div className="border-l-2 border-primary pl-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium">Кастомизация постов</span>
+                        <Button
+                          variant="outline"
+                          onClick={() => navigate("/settings/posts")}
+                          size="sm"
+                        >
+                          Настроить
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Настройте внешний вид ваших постов
+                      </p>
+                    </div>
+
+                    {/* Placeholders */}
+                    <div className="border-l-2 border-primary pl-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium">Плейсхолдеры</span>
+                        <Button
+                          variant="outline"
+                          onClick={() => navigate("/settings/placeholders")}
+                          size="sm"
+                        >
+                          Настроить
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Выберите плейсхолдеры для отображения при наведении на пользователя
+                      </p>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </TabsContent>
 
               <TabsContent value="account" className="space-y-4">
