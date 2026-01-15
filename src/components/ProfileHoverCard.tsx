@@ -1,7 +1,11 @@
 import { useState, useEffect, cloneElement } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "lucide-react";
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
+import { AdminBadge } from "./AdminBadge";
+import { processProfileBio } from "@/utils/profileBio";
 
 interface ProfileHoverCardProps {
   userId: string;
@@ -28,6 +32,7 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [usernameColor, setUsernameColor] = useState<string>("");
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
+  const [placeholders, setPlaceholders] = useState<any>(null);
 
   useEffect(() => {
     if (showCard && userId) {
@@ -71,6 +76,14 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
           // Load customization
           const custom = await getProfileCustomization(userId);
           setCustomization(custom);
+
+          // Load placeholders
+          const { data: placeholdersData } = await supabase
+            .from("user_placeholders")
+            .select("*")
+            .eq("user_id", userId)
+            .maybeSingle();
+          setPlaceholders(placeholdersData);
         }
       };
       loadProfile();
@@ -138,6 +151,9 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
                       stroke: customization.username_icon_stroke || undefined,
                       width: '1em',
                       height: '1em',
+                      maxHeight: '20px',
+                      maxWidth: '20px',
+                      maxWidth: '1.5em',
                     }}
                   />
                 )}
@@ -149,15 +165,64 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
                     {customization.profile_badge_text}
                   </span>
                 )}
+                <AdminBadge userId={userId} />
               </div>
               <div className="text-sm text-muted-foreground">
                 ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
               </div>
-              {profile.bio && (
-                <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                  {profile.bio}
-                </div>
-              )}
+              {(() => {
+                // Use custom placeholders if set, otherwise use default
+                if (placeholders?.use_custom && placeholders?.custom_placeholder) {
+                  return (
+                    <div className="text-xs text-muted-foreground/70 mt-1">
+                      {processProfileBio(placeholders.custom_placeholder)}
+                    </div>
+                  );
+                }
+
+                // Use preset placeholders if set
+                const placeholder1 = placeholders?.placeholder_1 || 'bio';
+                const placeholder2 = placeholders?.placeholder_2 || 'created_at';
+                const placeholder3 = placeholders?.placeholder_3 || 'post_count';
+
+                const renderPlaceholder = (value: string) => {
+                  switch (value) {
+                    case 'bio':
+                      return profile.bio ? processProfileBio(profile.bio) : null;
+                    case 'created_at':
+                      return profile.created_at ? format(new Date(profile.created_at), "dd.MM.yyyy", { locale: ru }) : null;
+                    case 'post_count':
+                      return profile.post_count !== null ? `${profile.post_count} ${profile.post_count === 1 ? 'пост' : profile.post_count < 5 ? 'поста' : 'постов'}` : null;
+                    case 'thread_count':
+                      return profile.thread_count !== null ? `${profile.thread_count} ${profile.thread_count === 1 ? 'тред' : profile.thread_count < 5 ? 'треда' : 'тредов'}` : null;
+                    case 'account_number':
+                      return profile.account_number ? `#${profile.account_number}` : null;
+                    case 'id':
+                      return profile.id ? profile.id.slice(0, 8) : null;
+                    default:
+                      return null;
+                  }
+                };
+
+                const parts: React.ReactNode[] = [];
+                const values = [placeholder1, placeholder2, placeholder3];
+                
+                values.forEach((value, index) => {
+                  const rendered = renderPlaceholder(value);
+                  if (rendered) {
+                    if (parts.length > 0) {
+                      parts.push(<span key={`sep-${index}`}> | </span>);
+                    }
+                    parts.push(<span key={value}>{rendered}</span>);
+                  }
+                });
+
+                return parts.length > 0 ? (
+                  <div className="text-xs text-muted-foreground/70 mt-1 flex items-center gap-1 flex-wrap">
+                    {parts}
+                  </div>
+                ) : null;
+              })()}
             </div>
           </div>
 

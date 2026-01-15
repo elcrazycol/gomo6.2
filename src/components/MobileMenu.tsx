@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, X, User, Settings, Hammer } from "lucide-react";
+import { Menu, X, User, Settings, Hammer, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { UserBadge } from "@/components/UserBadge";
 
@@ -19,6 +19,10 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const [accountNumber, setAccountNumber] = useState<number | undefined>();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Check if we're on own profile page
+  const isOwnProfile = location.pathname === `/profile/${user?.id}`;
 
   useEffect(() => {
     // Always load own user profile
@@ -124,6 +128,18 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   Модерация
                 </Button>
               </Link>
+            )}
+
+            {/* Logout button - only show when viewing own profile */}
+            {isOwnProfile && (
+              <Button 
+                variant="ghost" 
+                className="w-full justify-start hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                onClick={handleLogout}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Выйти из аккаунта
+              </Button>
             )}
           </div>
         </SheetContent>

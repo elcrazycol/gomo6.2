@@ -24,6 +24,7 @@ import { ru } from "date-fns/locale";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 import { processProfileBio } from "@/utils/profileBio";
+import { AdminBadge } from "@/components/AdminBadge";
 
 interface Profile {
   id: string;
@@ -977,7 +978,7 @@ const Profile = () => {
 
   return (
     <div className="bg-background min-h-screen flex flex-col">
-      <div className="flex-1">
+      <div className="flex-1 min-h-0">
         <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
@@ -985,8 +986,9 @@ const Profile = () => {
           </Link>
           <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
             <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
-                <Settings className="h-4 w-4" />
+              <Button variant="ghost" size="sm" className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group">
+                <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
             </Link>
             {currentUser && <NotificationBell userId={currentUser.id} />}
@@ -1089,6 +1091,9 @@ const Profile = () => {
                             stroke: customization.username_icon_stroke || undefined,
                             width: '1em',
                             height: '1em',
+                            maxHeight: '20px',
+                            maxWidth: '20px',
+                            maxWidth: '1.5em',
                           }}
                         />
                       )}
@@ -1100,6 +1105,7 @@ const Profile = () => {
                           {customization.profile_badge_text}
                         </span>
                       )}
+                      <AdminBadge userId={userId!} />
                     </div>
                   )}
                 </div>
