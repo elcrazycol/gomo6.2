@@ -12,18 +12,22 @@ import { router } from '@inertiajs/react'
 const queryClient = new QueryClient()
 
 // Set initial page data for Inertia
-if (typeof window !== 'undefined' && !window.__inertia_page__) {
-  window.__inertia_page__ = {
-    component: 'Index',
-    props: {
-      boards: [],
-      randomBoards: [],
-      randomThread: null,
-      popularThreads: [],
-      auth: {}
-    },
-    url: '/',
-    version: null
+if (typeof window !== 'undefined') {
+  console.log('Initial page data exists:', !!window.__inertia_page__)
+  if (!window.__inertia_page__) {
+    console.log('Setting fallback initial page data')
+    window.__inertia_page__ = {
+      component: 'Index',
+      props: {
+        boards: [],
+        randomBoards: [],
+        randomThread: null,
+        popularThreads: [],
+        auth: {}
+      },
+      url: '/',
+      version: null
+    }
   }
 }
 
@@ -32,6 +36,7 @@ createInertiaApp({
   resolve: (name) => {
     const pages = import.meta.glob('./pages/**/*.tsx', { eager: true })
     const page = pages[`./pages/${name}.tsx`]
+    console.log('Resolving page:', name, 'found:', !!page)
     return page ? page.default : null
   },
   setup({ el, App, props }) {

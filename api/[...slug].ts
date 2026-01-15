@@ -8,6 +8,8 @@ const supabase = createClient(
 export default async function handler(req, res) {
   const { slug } = req.query
 
+  console.log('API route called with slug:', slug)
+
   if (!Array.isArray(slug)) {
     return res.status(400).json({ error: 'Invalid slug' })
   }
@@ -122,10 +124,15 @@ export default async function handler(req, res) {
       })
     }
 
+    console.log('API route: No matching route for', boardSlug, rest)
     return res.status(404).json({ error: 'Not found' })
 
   } catch (error) {
     console.error('API Error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    // Return fallback for any route to prevent Inertia errors
+    return res.status(200).json({
+      component: 'NotFound',
+      props: {}
+    })
   }
 }

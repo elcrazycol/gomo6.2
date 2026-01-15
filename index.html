@@ -24,6 +24,21 @@
 
   <body>
     <div id="root"></div>
+    <script>
+      // Initial page data for Inertia.js
+      window.__inertia_page__ = {
+        component: 'Index',
+        props: {
+          boards: [],
+          randomBoards: [],
+          randomThread: null,
+          popularThreads: [],
+          auth: {}
+        },
+        url: '/',
+        version: null
+      };
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
