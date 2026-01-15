@@ -447,6 +447,7 @@ const Profile = () => {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [pinnedAchievements, setPinnedAchievements] = useState<Achievement[]>([]);
   const [regularAchievements, setRegularAchievements] = useState<Achievement[]>([]);
+  const [likesReceived, setLikesReceived] = useState(0);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState("");
@@ -553,6 +554,12 @@ const Profile = () => {
       setBio(data.bio || "");
       setIsAnonymous(data.is_anonymous);
       setAvatarUrl(data.avatar_url);
+
+      // Load likes received count
+      const { data: likesData } = await supabase.rpc('get_user_likes_received_count', {
+        user_uuid: userId
+      });
+      setLikesReceived(likesData || 0);
     }
   };
 
@@ -1145,7 +1152,7 @@ const Profile = () => {
 
           <div>
             <h2 className="text-xl font-bold mb-4">
-              Достижения ({achievements.length})
+              Достижения ({achievements.length}) × ♥ {likesReceived}
             </h2>
             {achievements.length === 0 ? (
               <p className="text-muted-foreground">Достижений пока нет</p>
