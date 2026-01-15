@@ -142,7 +142,7 @@ export const ProcessedContent = ({
 
     const processTextSegment = (segment: string) => {
       // Split by all formatting including hidden markers, dude links, and me links
-      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|\\*\\*.*?\\*\\*|\\*.*?\\*|@\w+|https?://[^\s]+)`, 'g');
+      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|\\*\\*.*?\\*\\*|\\*.*?\\*|@[^\\s]+|https?://[^\\s]+)`, 'g');
       const parts = segment.split(regex);
       return parts.map((part, i) => {
         // Check for dude links (current user)

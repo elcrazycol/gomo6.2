@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
+import { User } from "lucide-react";
 
 interface MentionLinkProps {
   username: string;
 }
 
 // Global cache for user mentions
-const userCache = new Map<string, { exists: boolean; data?: any; color?: string }>();
+const userCache = new Map<string, { exists: boolean; data?: any; color?: string; avatarUrl?: string | null }>();
 
 const getColorClass = (color: string): string => {
   const colorClasses: Record<string, string> = {
@@ -27,6 +28,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
   const [userExists, setUserExists] = useState<boolean | null>(null);
   const [userData, setUserData] = useState<any>(null);
   const [color, setColor] = useState<string>("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // Check cache first
@@ -35,6 +37,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
       setUserExists(cached.exists);
       setUserData(cached.data);
       setColor(cached.color || "");
+      setAvatarUrl(cached.avatarUrl || null);
       return;
     }
 
@@ -42,7 +45,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, username, is_anonymous')
+          .select('id, username, is_anonymous, avatar_url')
           .eq('username', username)
           .single();
 
@@ -52,6 +55,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
         } else {
           setUserExists(true);
           setUserData(data);
+          setAvatarUrl(data.avatar_url);
 
           // Load color from achievements
           const { data: achievements } = await supabase
@@ -81,7 +85,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           }
 
           setColor(userColor);
-          userCache.set(username, { exists: true, data, color: userColor });
+          userCache.set(username, { exists: true, data, color: userColor, avatarUrl: data.avatar_url });
         }
       } catch (error) {
         setUserExists(false);
@@ -95,8 +99,13 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
   if (userExists === null) {
     // Loading state
     return (
-      <span className="text-link hover:underline">
-        @{username}
+      <span className="inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/30 border border-border/30 rounded-md">
+        <div className="w-3.5 h-3.5 rounded-full bg-muted flex items-center justify-center animate-pulse">
+          <User className="w-2 h-2 text-muted-foreground" />
+        </div>
+        <span className="text-muted-foreground truncate max-w-20">
+          {username}
+        </span>
       </span>
     );
   }
@@ -106,17 +115,45 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
     return (
       <Link
         to={`/profile/${userData.id}`}
-        className={`${colorClass} hover:underline inline`}
+        className={`inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/50 hover:bg-primary/10 hover:text-primary border border-border/40 hover:border-primary/30 transition-all duration-200 cursor-pointer rounded-md group`}
+        title={`Профиль пользователя ${username}`}
       >
-        @{username}
+        <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex-shrink-0 bg-muted">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={`${username} avatar`}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Fallback to icon if image fails to load
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                const parent = target.parentElement;
+                if (parent) {
+                  parent.innerHTML = '<svg class="w-2 h-2 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>';
+                }
+              }}
+            />
+          ) : (
+            <User className="w-2 h-2 text-muted-foreground group-hover:text-primary transition-colors" />
+          )}
+        </div>
+        <span className={`${colorClass} font-medium truncate max-w-20`}>
+          {username}
+        </span>
       </Link>
     );
   }
 
-  // User doesn't exist, just show as plain text
+  // User doesn't exist, show as disabled panel
   return (
-    <span className="text-muted-foreground">
-      @{username}
+    <span className="inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/20 border border-border/20 rounded-md opacity-60">
+      <div className="w-3.5 h-3.5 rounded-full bg-muted/40 flex items-center justify-center">
+        <User className="w-2 h-2 text-muted-foreground/60" />
+      </div>
+      <span className="text-muted-foreground truncate max-w-20">
+        {username}
+      </span>
     </span>
   );
 };
