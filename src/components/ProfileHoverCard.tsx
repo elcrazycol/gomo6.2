@@ -1,6 +1,7 @@
 import { useState, useEffect, cloneElement } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "lucide-react";
+import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 
 interface ProfileHoverCardProps {
   userId: string;
@@ -26,6 +27,7 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
   const [profile, setProfile] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [usernameColor, setUsernameColor] = useState<string>("");
+  const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
 
   useEffect(() => {
     if (showCard && userId) {
@@ -53,7 +55,6 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
             .eq("user_id", userId);
 
           if (achievements) {
-            // Get the highest priority color
             const colorRewards = achievements
               .filter((a: any) => a.achievements?.reward_type === "username_color")
               .map((a: any) => a.achievements.reward_value);
@@ -66,6 +67,10 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
               }
             }
           }
+
+          // Load customization
+          const custom = await getProfileCustomization(userId);
+          setCustomization(custom);
         }
       };
       loadProfile();
@@ -84,6 +89,18 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
       </div>
     );
   }
+
+  const usernameStyle = customization?.username_css 
+    ? parseCssToStyle(customization.username_css)
+    : {};
+
+  const badgeStyle = customization?.profile_badge_css
+    ? parseCssToStyle(customization.profile_badge_css)
+    : {};
+
+  const usernameClassName = customization?.username_css
+    ? "font-semibold truncate"
+    : `font-semibold truncate ${usernameColor ? getColorClass(usernameColor) : "text-foreground"}`;
 
   return (
     <div className="relative">
@@ -108,8 +125,30 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
 
             {/* User Info */}
             <div className="flex-1 min-w-0">
-              <div className={`font-semibold truncate ${usernameColor ? getColorClass(usernameColor) : "text-foreground"}`}>
-                {profile.username}
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className={usernameClassName} style={usernameStyle}>
+                  {profile.username}
+                </span>
+                {customization?.username_icon_svg && (
+                  <span
+                    className="inline-flex items-center justify-center"
+                    dangerouslySetInnerHTML={{ __html: customization.username_icon_svg }}
+                    style={{
+                      fill: customization.username_icon_fill || undefined,
+                      stroke: customization.username_icon_stroke || undefined,
+                      width: '1em',
+                      height: '1em',
+                    }}
+                  />
+                )}
+                {customization?.profile_badge_text && (
+                  <span
+                    className="px-1.5 py-0.5 rounded text-xs font-medium"
+                    style={badgeStyle}
+                  >
+                    {customization.profile_badge_text}
+                  </span>
+                )}
               </div>
               <div className="text-sm text-muted-foreground">
                 ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}

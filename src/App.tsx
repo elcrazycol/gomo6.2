@@ -18,6 +18,8 @@ import EmojiEdit from "./pages/EmojiEdit";
 import EmojiEditForm from "./pages/EmojiEditForm";
 import Messages from "./pages/Messages";
 import Settings from "./pages/Settings";
+import CustomProfile from "./pages/settings/CustomProfile";
+import Notify from "./pages/Notify";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -133,6 +135,8 @@ const App = () => {
             <Route path="/moderation/emojis/edit/:emojiId" element={<EmojiEditForm />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/custom" element={<CustomProfile />} />
+            <Route path="/notify" element={<Notify />} />
             <Route path="/:slug" element={<Board />} />
             <Route path="/:slug/thread/:threadId" element={<Thread />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

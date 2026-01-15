@@ -21,7 +21,7 @@ export const TextFormattingToolbar = ({ onFormat }: TextFormattingToolbarProps) 
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onFormat("**", "**")}
+              onClick={() => onFormat("[B]", "[/B]")}
             >
               <Bold className="h-4 w-4" />
             </Button>
@@ -37,7 +37,7 @@ export const TextFormattingToolbar = ({ onFormat }: TextFormattingToolbarProps) 
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onFormat("*", "*")}
+              onClick={() => onFormat("[I]", "[/I]")}
             >
               <Italic className="h-4 w-4" />
             </Button>
@@ -53,13 +53,13 @@ export const TextFormattingToolbar = ({ onFormat }: TextFormattingToolbarProps) 
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onFormat("||", "||")}
+              onClick={() => onFormat("[blur]", "[/blur]")}
             >
               <Eye className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Спойлер</p>
+            <p>Blur-спойлер</p>
           </TooltipContent>
         </Tooltip>
 
