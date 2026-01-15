@@ -9,6 +9,12 @@ import { RussianBlock } from "@/components/RussianBlock"
 import { useEffect, useState } from "react"
 import { router } from '@inertiajs/react'
 
+// Import pages statically for reliability
+import Index from '@/pages/Index'
+import Board from '@/pages/Board'
+import Thread from '@/pages/Thread'
+import NotFound from '@/pages/NotFound'
+
 const queryClient = new QueryClient()
 
 // Set initial page data for Inertia immediately
@@ -32,10 +38,19 @@ console.log('InertiaApp starting, initial page:', window.__inertia_page__)
 createInertiaApp({
   title: (title) => `${title} — gomo6 имиджборд`,
   resolve: (name) => {
-    const pages = import.meta.glob('./pages/**/*.tsx', { eager: true })
-    const page = pages[`./pages/${name}.tsx`]
-    console.log('Resolving page:', name, 'found:', !!page)
-    return page ? page.default : null
+    console.log('Resolving page:', name)
+
+    const components = {
+      Index,
+      Board,
+      Thread,
+      NotFound
+    }
+
+    const component = components[name]
+    console.log('Component found:', !!component, 'for name:', name)
+
+    return component || null
   },
   initialPage: {
     component: 'Index',
