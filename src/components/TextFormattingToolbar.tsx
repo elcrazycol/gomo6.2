@@ -62,6 +62,7 @@ export const TextFormattingToolbar = ({ onFormat }: TextFormattingToolbarProps) 
             <p>Спойлер</p>
           </TooltipContent>
         </Tooltip>
+
       </div>
     </TooltipProvider>
   );

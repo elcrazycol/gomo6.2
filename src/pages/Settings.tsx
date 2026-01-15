@@ -535,7 +535,7 @@ const Settings = () => {
                   <CollapsibleContent className="space-y-6 pt-6">
                     <div className="bg-card border border-border p-6">
                       <div className="space-y-6">
-                        <div>
+                    <div>
                           <Label className="text-base font-semibold mb-4 block">Цветовая схема</Label>
                           <RadioGroup value={colorTheme} onValueChange={(val) => handleColorThemeChange(val as typeof colorTheme)}>
                             <div className="flex items-center space-x-2">
@@ -587,47 +587,47 @@ const Settings = () => {
                 </Collapsible>
 
                 {/* Font Panel */}
-                <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
-                  <CollapsibleTrigger asChild>
+                    <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
+                      <CollapsibleTrigger asChild>
                     <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                         <Type className="h-5 w-5" />
                         <span className="text-lg font-semibold">Шрифт</span>
-                      </div>
+                          </div>
                       <ChevronDown className={`h-5 w-5 transition-transform ${fontSettingsExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-                  </CollapsibleTrigger>
+                        </button>
+                      </CollapsibleTrigger>
 
                   <CollapsibleContent className="space-y-4 pt-6">
                     <div className="bg-card border border-border p-6">
-                      <div>
-                        <Label htmlFor="google-font" className="text-sm font-medium">
-                          Шрифт из Google Fonts
-                        </Label>
-                        <div className="mt-2 space-y-2">
-                          <Input
-                            id="google-font"
-                            type="text"
-                            placeholder="Введите название шрифта (например: Roboto, Open Sans, Montserrat)"
-                            value={customFont}
-                            onChange={(e) => handleFontChange(e.target.value)}
-                            className="w-full"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Введите точное название шрифта из{' '}
-                            <a
-                              href="https://fonts.google.com/"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary hover:underline"
-                            >
-                              Google Fonts
-                            </a>
-                            . Например: "Roboto", "Open Sans", "Montserrat", "Lato" и т.д.
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Оставьте поле пустым, чтобы использовать шрифт по умолчанию.
-                          </p>
+                        <div>
+                          <Label htmlFor="google-font" className="text-sm font-medium">
+                            Шрифт из Google Fonts
+                          </Label>
+                          <div className="mt-2 space-y-2">
+                            <Input
+                              id="google-font"
+                              type="text"
+                              placeholder="Введите название шрифта (например: Roboto, Open Sans, Montserrat)"
+                              value={customFont}
+                              onChange={(e) => handleFontChange(e.target.value)}
+                              className="w-full"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Введите точное название шрифта из{' '}
+                              <a
+                                href="https://fonts.google.com/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline"
+                              >
+                                Google Fonts
+                              </a>
+                              . Например: "Roboto", "Open Sans", "Montserrat", "Lato" и т.д.
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Оставьте поле пустым, чтобы использовать шрифт по умолчанию.
+                            </p>
                         </div>
                       </div>
                     </div>
@@ -693,11 +693,11 @@ const Settings = () => {
                                   )}
                                 </div>
                               </div>
-                            </div>
                           </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
                   </CollapsibleContent>
                 </Collapsible>
               </TabsContent>

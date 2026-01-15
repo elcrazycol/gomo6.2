@@ -8,9 +8,10 @@ interface UserBadgeProps {
   username: string;
   isAnonymous?: boolean;
   showOutline?: boolean;
+  disableLink?: boolean;
 }
 
-export const UserBadge = ({ userId, username, isAnonymous, showOutline = true }: UserBadgeProps) => {
+export const UserBadge = ({ userId, username, isAnonymous, showOutline = true, disableLink = false }: UserBadgeProps) => {
   const [color, setColor] = useState<string>("");
 
   useEffect(() => {
@@ -64,6 +65,20 @@ export const UserBadge = ({ userId, username, isAnonymous, showOutline = true }:
     yellow: `text-yellow-400 font-bold ${textSizeClass} ${outlineClass}`,
     cyan: `text-cyan-500 font-bold ${textSizeClass} ${outlineClass}`,
   };
+
+  const badgeContent = (
+    <span className={`font-bold hover:underline ${textSizeClass} ${outlineClass} ${color ? colorClasses[color] : "text-quote"}`}>
+      {username}
+    </span>
+  );
+
+  if (disableLink) {
+    return (
+      <ProfileHoverCard userId={userId}>
+        {badgeContent}
+      </ProfileHoverCard>
+    );
+  }
 
   return (
     <ProfileHoverCard userId={userId}>

@@ -11,6 +11,11 @@ import Board from "./pages/Board";
 import Thread from "./pages/Thread";
 import Profile from "./pages/Profile";
 import Moderation from "./pages/Moderation";
+import ModerationPosts from "./pages/ModerationPosts.tsx";
+import EmojiModeration from "./pages/EmojiModeration";
+import EmojiCreate from "./pages/EmojiCreate";
+import EmojiEdit from "./pages/EmojiEdit";
+import EmojiEditForm from "./pages/EmojiEditForm";
 import Messages from "./pages/Messages";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
@@ -121,6 +126,11 @@ const App = () => {
             <Route path="/auth" element={<Auth />} />
             <Route path="/profile/:userId" element={<Profile />} />
             <Route path="/moderation" element={<Moderation />} />
+            <Route path="/moderation/posts" element={<ModerationPosts />} />
+            <Route path="/moderation/emojis" element={<EmojiModeration />} />
+            <Route path="/moderation/emojis/create" element={<EmojiCreate />} />
+            <Route path="/moderation/emojis/edit" element={<EmojiEdit />} />
+            <Route path="/moderation/emojis/edit/:emojiId" element={<EmojiEditForm />} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/:slug" element={<Board />} />
