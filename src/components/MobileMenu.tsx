@@ -80,7 +80,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     {avatarUrl ? (
                       <img src={avatarUrl} alt={username || "Пользователь"} className="w-full h-full object-cover" />
                     ) : (
-                      <User className="w-6 h-6 text-muted-foreground" />
+                    <User className="w-6 h-6 text-muted-foreground" />
                     )}
                   </div>
 
