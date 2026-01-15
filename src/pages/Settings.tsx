@@ -396,7 +396,7 @@ const Settings = () => {
               <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
                 gomo6
               </Link>
-                <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
+              <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
                 <ThemeToggle />
                 {user && <NotificationBell userId={user.id} />}
                 {user && <ChatIcon userId={user.id} />}

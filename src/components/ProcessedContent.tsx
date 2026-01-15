@@ -141,11 +141,11 @@ export const ProcessedContent = ({
     let lastIndex = 0;
 
     const processTextSegment = (segment: string) => {
-      // Split by all formatting including hidden markers and dude links
-      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|\\*\\*.*?\\*\\*|\\*.*?\\*|@\w+|https?://[^\s]+)`, 'g');
+      // Split by all formatting including hidden markers, dude links, and me links
+      const regex = new RegExp(`(__HIDDEN_CONTENT_(?:seeusers|nousers|adm)_[^_]+__|__DUDE_LINK__|__ME_LINK__.*?__|\\*\\*.*?\\*\\*|\\*.*?\\*|@\w+|https?://[^\s]+)`, 'g');
       const parts = segment.split(regex);
       return parts.map((part, i) => {
-        // Check for dude links
+        // Check for dude links (current user)
         if (part === '__DUDE_LINK__') {
           const colorClasses: Record<string, string> = {
             purple: 'text-purple-500 font-bold',
@@ -161,10 +161,36 @@ export const ProcessedContent = ({
           return (
             <Link
               key={`${key++}-dude-${i}`}
+              to={`/profile/${currentUserId || ''}`}
+              className={`font-bold hover:underline ${currentUserColor ? colorClasses[currentUserColor] : "text-quote"}`}
+            >
+              {currentUsername || 'Ты'}
+            </Link>
+          );
+        }
+
+        // Check for me links (post author)
+        const meMatch = part.match(/^__ME_LINK__(.*?)__$/);
+        if (meMatch) {
+          const text = meMatch[1];
+          const colorClasses: Record<string, string> = {
+            purple: 'text-purple-500 font-bold',
+            gold: 'text-yellow-500 font-bold',
+            orange: 'text-orange-500 font-bold',
+            red: 'text-red-500 font-bold',
+            blue: 'text-blue-500 font-bold',
+            green: 'text-green-500 font-bold',
+            yellow: 'text-yellow-400 font-bold',
+            cyan: 'text-cyan-500 font-bold',
+          };
+
+          return (
+            <Link
+              key={`${key++}-me-${i}`}
               to={`/profile/${postAuthorId || ''}`}
               className={`font-bold hover:underline ${authorColor ? colorClasses[authorColor] : "text-quote"}`}
             >
-              {authorUsername || 'Автор'}
+              {text || (authorUsername || 'Автор')}
             </Link>
           );
         }
@@ -215,30 +241,6 @@ export const ProcessedContent = ({
               </span>
             );
           }
-        }
-
-        // Check if this is the username from [dude][/dude]
-        if (part === currentUsername && currentUserId) {
-          const colorClass = currentUserColor ?
-            (currentUserColor === 'purple' ? 'text-purple-500' :
-             currentUserColor === 'gold' ? 'text-yellow-500' :
-             currentUserColor === 'orange' ? 'text-orange-500' :
-             currentUserColor === 'red' ? 'text-red-500' :
-             currentUserColor === 'blue' ? 'text-blue-500' :
-             currentUserColor === 'green' ? 'text-green-500' :
-             currentUserColor === 'yellow' ? 'text-yellow-400' :
-             currentUserColor === 'cyan' ? 'text-cyan-500' :
-             'text-link') : 'text-link';
-
-          return (
-            <Link
-              key={`${key++}-username-${i}`}
-              to={`/profile/${currentUserId}`}
-              className={`${colorClass} hover:underline`}
-            >
-              {part}
-            </Link>
-          );
         }
 
         // Process other formatting
