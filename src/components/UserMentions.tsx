@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "lucide-react";
 
@@ -9,6 +10,7 @@ interface User {
   id: string;
   username: string;
   account_number?: number;
+  post_count?: number;
 }
 
 interface UserMentionsProps {
@@ -55,6 +57,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     document.body.removeChild(div);
 
     const textareaRect = textarea.getBoundingClientRect();
+
     return {
       top: textareaRect.top + rect.height - textarea.scrollTop + 5,
       left: textareaRect.left + 10
@@ -75,35 +78,57 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     try {
       let queryBuilder = supabase
         .from('profiles')
-        .select('id, username, account_number')
+        .select('id, username, account_number, post_count')
         .not('username', 'is', null)
         .limit(10);
 
       if (query.length > 0) {
-        // Build search conditions
-        const conditions: string[] = [`username.ilike.%${query}%`];
-
-        // If query looks like UUID, search by id
-        if (query.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-          conditions.push(`id.eq.${query}`);
-        }
-
-        // If query looks like a number, search by account_number
+        // If query looks like a number, prioritize exact account_number match
         if (/^\d+$/.test(query)) {
-          conditions.push(`account_number.eq.${parseInt(query)}`);
-        }
+          const accountNum = parseInt(query);
+          queryBuilder = queryBuilder.or(`account_number.eq.${accountNum},username.ilike.%${query}%`);
+        } else {
+          // Build search conditions for username search
+          const conditions: string[] = [`username.ilike.%${query}%`];
 
-        queryBuilder = queryBuilder.or(conditions.join(','));
+          // If query looks like UUID, search by id
+          if (query.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+            conditions.push(`id.eq.${query}`);
+          }
+
+          queryBuilder = queryBuilder.or(conditions.join(','));
+        }
       }
 
-      const { data, error } = await queryBuilder.order('username');
+      const { data, error } = await queryBuilder;
 
       if (error) {
         console.error('Error searching users:', error);
         setUsers([]);
         searchCache.set(query, []);
       } else {
-        const usersData = data || [];
+        let usersData = (data || []).map(user => ({
+          id: user.id,
+          username: user.username,
+          account_number: user.account_number,
+          post_count: user.post_count || 0,
+          color: '' // Will be loaded separately if needed
+        }));
+
+        // If query is a number, sort to prioritize exact account_number matches
+        if (/^\d+$/.test(query)) {
+          const accountNum = parseInt(query);
+          usersData.sort((a, b) => {
+            const aExact = a.account_number === accountNum ? 1 : 0;
+            const bExact = b.account_number === accountNum ? 1 : 0;
+            if (aExact !== bExact) return bExact - aExact;
+            return a.username.localeCompare(b.username);
+          });
+        } else {
+          // Sort by username for text queries
+          usersData.sort((a, b) => a.username.localeCompare(b.username));
+        }
+
         setUsers(usersData);
         searchCache.set(query, usersData);
       }
@@ -146,6 +171,14 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         setShowMentions(false);
         setUsers([]);
       }
+
+      // Update position if mentions are currently shown
+      if (showMentions && atIndex !== -1 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === ' ' || textBeforeCursor[atIndex - 1] === '\n')) {
+        const currentQuery = textBeforeCursor.substring(atIndex + 1);
+        if (!currentQuery.includes(' ') && !currentQuery.includes('\n')) {
+          setCursorPosition(getCursorPosition(textarea));
+        }
+      }
     };
 
     textarea.addEventListener('input', handleInput);
@@ -157,7 +190,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
       textarea.removeEventListener('keyup', handleInput);
       textarea.removeEventListener('click', handleInput);
     };
-  }, [textareaRef]);
+  }, [textareaRef.current]); // Depend on textareaRef.current
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -169,10 +202,10 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex(prev => (prev + 1) % users.length);
+        setSelectedIndex(prev => prev < users.length - 1 ? prev + 1 : 0);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelectedIndex(prev => prev === 0 ? users.length - 1 : prev - 1);
+        setSelectedIndex(prev => prev > 0 ? prev - 1 : users.length - 1);
       } else if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
         if (users[selectedIndex]) {
@@ -186,6 +219,13 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     textarea.addEventListener('keydown', handleKeyDown);
     return () => textarea.removeEventListener('keydown', handleKeyDown);
   }, [showMentions, users, selectedIndex, textareaRef]);
+
+  // Reset selectedIndex when users list changes
+  useEffect(() => {
+    if (users.length > 0 && selectedIndex >= users.length) {
+      setSelectedIndex(0);
+    }
+  }, [users.length, selectedIndex]);
 
 
   // Select user and insert mention
@@ -231,20 +271,13 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
 
   if (!showMentions || (users.length === 0 && !loading)) return null;
 
-  // Adjust position for mobile
-  const isMobile = window.innerWidth < 768;
-  const adjustedPosition = {
-    top: isMobile ? Math.min(cursorPosition.top, window.innerHeight - 200) : cursorPosition.top,
-    left: isMobile ? Math.max(10, Math.min(cursorPosition.left, window.innerWidth - 260)) : cursorPosition.left
-  };
-
-  return (
+  return createPortal(
     <div
       ref={popupRef}
-      className="fixed z-50 bg-background border border-border rounded-lg shadow-lg max-h-64 overflow-y-auto w-[calc(100vw-20px)] sm:w-auto sm:min-w-[250px] sm:max-w-[300px]"
+      className="fixed z-[9999] bg-background/95 backdrop-blur-sm border border-border rounded-xl shadow-xl max-h-64 overflow-y-auto w-[calc(100vw-20px)] sm:w-auto sm:min-w-[280px] sm:max-w-[320px] animate-in fade-in-0 zoom-in-95 duration-200"
       style={{
-        top: adjustedPosition.top,
-        left: adjustedPosition.left
+        top: Math.max(10, cursorPosition.top - 280), // Position above cursor with panel height offset
+        left: Math.max(10, cursorPosition.left) // Ensure it's not off-screen
       }}
     >
       {loading ? (
@@ -253,12 +286,15 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
           Поиск...
         </div>
       ) : (
-        <div className="py-1">
+        <div className="py-2">
+          <div className="px-3 py-1 text-xs font-medium text-muted-foreground border-b border-border/50 mb-1">
+            Выберите пользователя
+          </div>
           {users.map((user, index) => (
             <button
               key={user.id}
-              className={`w-full px-3 py-2 text-left hover:bg-muted transition-colors flex items-center gap-3 ${
-                index === selectedIndex ? 'bg-muted' : ''
+              className={`w-full px-3 py-2.5 text-left hover:bg-muted/60 transition-all duration-150 flex items-center gap-3 rounded-md mx-1 ${
+                index === selectedIndex ? 'bg-muted shadow-sm' : ''
               }`}
               onClick={() => selectUser(user)}
               onMouseEnter={() => setSelectedIndex(index)}
@@ -267,15 +303,19 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
                 <User className="w-4 h-4 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm truncate">{user.username}</div>
+                <div className="font-medium text-sm truncate text-foreground">
+                  {user.username}
+                </div>
                 <div className="text-xs text-muted-foreground truncate">
-                  ID: {user.id.slice(0, 8)} {user.account_number && `(${user.account_number})`}
+                  {user.post_count || 0} постов • ID: {user.id.slice(0, 8)}
+                  {user.account_number && ` (${user.account_number})`}
                 </div>
               </div>
             </button>
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 };

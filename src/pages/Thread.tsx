@@ -1358,13 +1358,13 @@ const Thread = () => {
                       maxRows={5}
                       className="bg-background/50 border-border/30"
                     />
-                    <UserMentions
-                      content={content}
-                      onContentChange={setContent}
-                      onUserSelect={() => {}}
-                      textareaRef={textareaRef}
-                    />
                   </div>
+                  <UserMentions
+                    content={content}
+                    onContentChange={setContent}
+                    onUserSelect={() => {}}
+                    textareaRef={textareaRef}
+                  />
                   {imageUrls.length > 0 && (
                     <Button
                       type="button"
