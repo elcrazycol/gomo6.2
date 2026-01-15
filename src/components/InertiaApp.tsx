@@ -11,25 +11,23 @@ import { router } from '@inertiajs/react'
 
 const queryClient = new QueryClient()
 
-// Set initial page data for Inertia
-if (typeof window !== 'undefined') {
-  console.log('Initial page data exists:', !!window.__inertia_page__)
-  if (!window.__inertia_page__) {
-    console.log('Setting fallback initial page data')
-    window.__inertia_page__ = {
-      component: 'Index',
-      props: {
-        boards: [],
-        randomBoards: [],
-        randomThread: null,
-        popularThreads: [],
-        auth: {}
-      },
-      url: '/',
-      version: null
-    }
+// Set initial page data for Inertia immediately
+if (typeof window !== 'undefined' && !window.__inertia_page__) {
+  window.__inertia_page__ = {
+    component: 'Index',
+    props: {
+      boards: [],
+      randomBoards: [],
+      randomThread: null,
+      popularThreads: [],
+      auth: {}
+    },
+    url: '/',
+    version: null
   }
 }
+
+console.log('InertiaApp starting, initial page:', window.__inertia_page__)
 
 createInertiaApp({
   title: (title) => `${title} — gomo6 имиджборд`,
@@ -38,6 +36,18 @@ createInertiaApp({
     const page = pages[`./pages/${name}.tsx`]
     console.log('Resolving page:', name, 'found:', !!page)
     return page ? page.default : null
+  },
+  initialPage: {
+    component: 'Index',
+    props: {
+      boards: [],
+      randomBoards: [],
+      randomThread: null,
+      popularThreads: [],
+      auth: {}
+    },
+    url: '/',
+    version: null
   },
   setup({ el, App, props }) {
     const root = createRoot(el)
