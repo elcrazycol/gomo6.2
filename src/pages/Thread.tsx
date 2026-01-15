@@ -26,6 +26,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { LinkButton } from "@/components/LinkButton";
+import { LikeButton } from "@/components/LikeButton";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
@@ -850,6 +851,11 @@ const Thread = () => {
           <div className="flex justify-between items-start mb-2 gap-2">
             <h1 className="text-xl sm:text-2xl font-bold break-words flex-1">{thread.title}</h1>
             <div className="flex gap-1 flex-shrink-0">
+              <LikeButton
+                postId={thread.id}
+                currentUserId={user?.id || null}
+                postAuthorId={thread.user_id}
+              />
               {isModerator && thread.user_id && (
                 <ModeratorMenu
                   type="thread"
@@ -927,6 +933,7 @@ const Thread = () => {
                 authorUsername={thread.profiles?.username}
               />
             </p>
+
           </div>
         </div>
 
@@ -977,24 +984,6 @@ const Thread = () => {
                       }}
                       onBan={() => setBanUserId(post.user_id!)}
                     />
-                  )}
-                  {user && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="hover:bg-primary/10 hover:text-primary transition-colors"
-                      onClick={() => {
-                        setReplyingTo(post.id);
-                        setPrivateRecipientId(post.user_id);
-                        setIsInputPanelVisible(true);
-                        // Focus textarea after a short delay to ensure panel is visible
-                        setTimeout(() => {
-                          textareaRef.current?.focus();
-                        }, 300);
-                      }}
-                    >
-                      <Reply className="h-4 w-4" />
-                    </Button>
                   )}
                   {user && post.user_id !== user.id && !isModerator && (
                     <Dialog>
@@ -1099,6 +1088,33 @@ const Thread = () => {
                   )}
                 </p>
               )}
+
+              {/* Нижний блок с действиями */}
+              <div className="flex justify-end items-center gap-1">
+                {user && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="hover:bg-primary/10 hover:text-primary transition-colors h-6 w-6 p-0"
+                    onClick={() => {
+                      setReplyingTo(post.id);
+                      setPrivateRecipientId(post.user_id);
+                      setIsInputPanelVisible(true);
+                      // Focus textarea after a short delay to ensure panel is visible
+                      setTimeout(() => {
+                        textareaRef.current?.focus();
+                      }, 300);
+                    }}
+                  >
+                    <Reply className="h-4 w-4" />
+                  </Button>
+                )}
+                <LikeButton
+                  postId={post.id}
+                  currentUserId={user?.id || null}
+                  postAuthorId={post.user_id}
+                />
+              </div>
             </div>
           ))}
         </div>
