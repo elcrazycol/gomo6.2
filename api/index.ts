@@ -6,6 +6,9 @@ const supabase = createClient(
 )
 
 export default async function handler(req, res) {
+  // Handle Inertia requests - return JSON for SPA navigation
+  const isInertiaRequest = req.headers['x-inertia'] || req.headers['x-requested-with'] === 'XMLHttpRequest'
+
   try {
     // Get data for the index page
     const { data: boards } = await supabase
@@ -50,6 +53,8 @@ export default async function handler(req, res) {
     const shuffled = [...filteredBoards].sort(() => 0.5 - Math.random())
     const randomBoards = shuffled.slice(0, 2)
 
+    console.log('API /index: Returning data for', filteredBoards.length, 'boards')
+
     return res.status(200).json({
       component: 'Index',
       props: {
@@ -63,6 +68,16 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('API Error:', error)
-    res.status(500).json({ error: 'Internal server error' })
+    // Return fallback data instead of 500 error
+    return res.status(200).json({
+      component: 'Index',
+      props: {
+        boards: [],
+        randomBoards: [],
+        randomThread: null,
+        popularThreads: [],
+        auth: {}
+      }
+    })
   }
 }
