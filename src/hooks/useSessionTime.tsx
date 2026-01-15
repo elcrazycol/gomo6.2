@@ -21,7 +21,7 @@ export function useSessionTime(userId: string | null) {
         }, {
           onConflict: 'user_id,visit_date'
         });
-
+      
       if (error) {
         console.error('[Session] Error registering daily visit:', error.message);
       }
@@ -33,7 +33,7 @@ export function useSessionTime(userId: string | null) {
     const updateSessionTime = async () => {
       const currentTime = Date.now();
       const minutesPassed = Math.floor((currentTime - startTime) / 60000);
-
+      
       // Always accumulate time, even if less than a minute
       if (minutesPassed > 0) {
         accumulatedMinutes.current += minutesPassed;
