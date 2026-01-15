@@ -17,7 +17,7 @@ import NotFound from '@/pages/NotFound'
 
 const queryClient = new QueryClient()
 
-// Set initial page data for Inertia immediately
+// Ensure initial page data is set
 if (typeof window !== 'undefined' && !window.__inertia_page__) {
   window.__inertia_page__ = {
     component: 'Index',
@@ -33,7 +33,7 @@ if (typeof window !== 'undefined' && !window.__inertia_page__) {
   }
 }
 
-console.log('InertiaApp starting, initial page:', window.__inertia_page__)
+console.log('InertiaApp: final initial page data:', window.__inertia_page__)
 
 createInertiaApp({
   title: (title) => `${title} — gomo6 имиджборд`,
@@ -51,18 +51,6 @@ createInertiaApp({
     console.log('Component found:', !!component, 'for name:', name)
 
     return component || null
-  },
-  initialPage: {
-    component: 'Index',
-    props: {
-      boards: [],
-      randomBoards: [],
-      randomThread: null,
-      popularThreads: [],
-      auth: {}
-    },
-    url: '/',
-    version: null
   },
   setup({ el, App, props }) {
     const root = createRoot(el)
