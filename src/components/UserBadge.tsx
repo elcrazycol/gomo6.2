@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
+import { AdminBadge } from "./AdminBadge";
 
 interface UserBadgeProps {
   userId: string | null;
@@ -99,6 +100,9 @@ export const UserBadge = ({ userId, username, isAnonymous, showOutline = true, d
             stroke: customization.username_icon_stroke || undefined,
             width: '1em',
             height: '1em',
+            maxHeight: '20px',
+            maxWidth: '20px',
+            maxWidth: '1.5em',
           }}
         />
       )}
@@ -110,6 +114,7 @@ export const UserBadge = ({ userId, username, isAnonymous, showOutline = true, d
           {customization.profile_badge_text}
         </span>
       )}
+      {userId && <AdminBadge userId={userId} />}
     </span>
   );
 
