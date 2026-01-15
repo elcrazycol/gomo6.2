@@ -27,6 +27,7 @@ import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { LinkButton } from "@/components/LinkButton";
 import { LikeButton } from "@/components/LikeButton";
+import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
@@ -48,6 +49,7 @@ interface Thread {
   profiles: {
     username: string;
     is_anonymous: boolean;
+    avatar_url?: string | null;
   } | null;
   boards: {
     slug: string;
@@ -69,6 +71,7 @@ interface Post {
   profiles: {
     username: string;
     is_anonymous: boolean;
+    avatar_url?: string | null;
   } | null;
 }
 
@@ -92,6 +95,7 @@ const Thread = () => {
   const [isInputPanelVisible, setIsInputPanelVisible] = useState(true);
   const [isInputPanelCollapsed, setIsInputPanelCollapsed] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [pulsingPostId, setPulsingPostId] = useState<string | null>(null);
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
@@ -107,6 +111,9 @@ const Thread = () => {
   const [showGallery, setShowGallery] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [removeMetadata, setRemoveMetadata] = useState(true);
+  const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
+    return (localStorage.getItem('sender-display-type') as any) || 'classic';
+  });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -121,6 +128,33 @@ const Thread = () => {
       document.removeEventListener('showUploadSuccess', handleUploadSuccess as EventListener);
     };
   }, []);
+
+  // Listen for sender display type changes
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'sender-display-type') {
+        setSenderDisplayType((e.newValue as 'classic' | 'modern') || 'classic');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Also check for changes within the same tab
+    const checkDisplayType = () => {
+      const current = localStorage.getItem('sender-display-type') as 'classic' | 'modern';
+      if (current && current !== senderDisplayType) {
+        setSenderDisplayType(current || 'classic');
+      }
+    };
+
+    // Check periodically for changes within the same tab
+    const interval = setInterval(checkDisplayType, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [senderDisplayType]);
 
   // Load user's privacy settings
   useEffect(() => {
@@ -255,6 +289,16 @@ const Thread = () => {
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Track mobile/desktop mode
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => {
@@ -395,7 +439,7 @@ const Thread = () => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("username, is_anonymous")
+        .select("username, is_anonymous, avatar_url")
         .eq("id", threadData.user_id!)
         .maybeSingle();
 
@@ -433,7 +477,7 @@ const Thread = () => {
         postsData.map(async (post) => {
           const { data: profile } = await supabase
             .from("profiles")
-            .select("username, is_anonymous")
+            .select("username, is_anonymous, avatar_url")
             .eq("id", post.user_id!)
             .maybeSingle();
           
@@ -891,19 +935,46 @@ const Thread = () => {
           
           <div className="bg-post-header p-2 sm:p-3 border border-border">
             <div className="text-xs text-muted-foreground mb-2 flex-wrap">
-              <span className="font-mono text-primary">#{thread.id.slice(0, 8)}</span>
-              {" · "}
-              <UserBadge
-                userId={thread.user_id}
-                username={thread.profiles?.username || "Аноним"}
-                isAnonymous={thread.profiles?.is_anonymous}
-                showOutline={false}
-              />
-              {" · "}
-              {formatDistanceToNow(new Date(thread.created_at), {
-                locale: ru,
-                addSuffix: true,
-              })}
+              {senderDisplayType === 'modern' ? (
+                <div className="flex items-start gap-2">
+                  <img
+                    src={thread.profiles?.avatar_url || '/placeholder.svg'}
+                    alt="Avatar"
+                    className="w-12 h-12 rounded-full object-cover border border-border"
+                  />
+                  <div>
+                    <UserBadge
+                      userId={thread.user_id}
+                      username={thread.profiles?.username || "Аноним"}
+                      isAnonymous={thread.profiles?.is_anonymous}
+                      showOutline={false}
+                    />
+                    <div className="text-muted-foreground">
+                      {formatDistanceToNow(new Date(thread.created_at), {
+                        locale: ru,
+                        addSuffix: true,
+                      })}
+                    </div>
+                    <div className="font-mono text-primary text-[10px]">#{thread.id.slice(0, 8)}</div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <span className="font-mono text-primary">#{thread.id.slice(0, 8)}</span>
+                  {" · "}
+                  <UserBadge
+                    userId={thread.user_id}
+                    username={thread.profiles?.username || "Аноним"}
+                    isAnonymous={thread.profiles?.is_anonymous}
+                    showOutline={false}
+                  />
+                  {" · "}
+                  {formatDistanceToNow(new Date(thread.created_at), {
+                    locale: ru,
+                    addSuffix: true,
+                  })}
+                </>
+              )}
             </div>
             {((thread as any).imageUrls && (thread as any).imageUrls.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-2">
@@ -948,19 +1019,46 @@ const Thread = () => {
             >
               <div className="flex justify-between items-start gap-2">
                 <div className="text-xs text-muted-foreground mb-2 flex-wrap flex-1">
-                  <span className="font-mono text-primary">#{post.id.slice(0, 8)}</span>
-                  {" · "}
-                  <UserBadge
-                    userId={post.user_id}
-                    username={post.profiles?.username || "Аноним"}
-                    isAnonymous={post.profiles?.is_anonymous}
-                    showOutline={false}
-                  />
-                  {" · "}
-                  {formatDistanceToNow(new Date(post.created_at), {
-                    locale: ru,
-                    addSuffix: true,
-                  })}
+                  {senderDisplayType === 'modern' ? (
+                    <div className="flex items-start gap-2">
+                      <img
+                        src={post.profiles?.avatar_url || '/placeholder.svg'}
+                        alt="Avatar"
+                        className="w-12 h-12 rounded-full object-cover border border-border"
+                      />
+                      <div>
+                        <UserBadge
+                          userId={post.user_id}
+                          username={post.profiles?.username || "Аноним"}
+                          isAnonymous={post.profiles?.is_anonymous}
+                          showOutline={false}
+                        />
+                        <div className="text-muted-foreground">
+                          {formatDistanceToNow(new Date(post.created_at), {
+                            locale: ru,
+                            addSuffix: true,
+                          })}
+                        </div>
+                        <div className="font-mono text-primary text-[10px]">#{post.id.slice(0, 8)}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-mono text-primary">#{post.id.slice(0, 8)}</span>
+                      {" · "}
+                      <UserBadge
+                        userId={post.user_id}
+                        username={post.profiles?.username || "Аноним"}
+                        isAnonymous={post.profiles?.is_anonymous}
+                        showOutline={false}
+                      />
+                      {" · "}
+                      {formatDistanceToNow(new Date(post.created_at), {
+                        locale: ru,
+                        addSuffix: true,
+                      })}
+                    </>
+                  )}
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
                   {user && post.user_id === user.id && (
@@ -1472,6 +1570,11 @@ const Thread = () => {
               <Button onClick={() => navigate("/auth")} size="sm">Войти</Button>
             </div>
           </div>
+        )}
+
+        {/* Scroll to bottom button */}
+        {(!isMobile || !isInputPanelVisible) && (
+          <ScrollToBottomButton />
         )}
       </main>
 
