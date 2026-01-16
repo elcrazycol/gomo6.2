@@ -15,6 +15,19 @@ import Board from '@/pages/Board'
 import Thread from '@/pages/Thread'
 import NotFound from '@/pages/NotFound'
 
+// Configure Inertia router for API calls
+router.on('before', (event) => {
+  console.log('Inertia router before:', event.detail.visit.url)
+})
+
+router.on('success', (event) => {
+  console.log('Inertia router success:', event.detail.page)
+})
+
+router.on('error', (event) => {
+  console.log('Inertia router error:', event.detail.errors)
+})
+
 const queryClient = new QueryClient()
 
 // Ensure initial page data is set
@@ -48,12 +61,20 @@ createInertiaApp({
     }
 
     const component = components[name]
-    console.log('Component found:', !!component, 'for name:', name)
+    console.log('Component found:', !!component, 'for name:', name, 'component:', component)
 
-    return component || null
+    if (!component) {
+      console.error('Component not found for:', name)
+      return NotFound // Return NotFound as fallback
+    }
+
+    return component
   },
   setup({ el, App, props }) {
     const root = createRoot(el)
+
+    // Log what we receive
+    console.log('Inertia setup - received props:', props)
 
     // If no props provided (development), use default initial page data
     const initialProps = props || {
