@@ -12,8 +12,6 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
-    "@inertiajs/progress": "^0.2.7",
-    "@inertiajs/react": "^2.3.10",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-aspect-ratio": "^1.1.7",

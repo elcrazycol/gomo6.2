@@ -13,6 +13,29 @@ export default defineConfig(() => ({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      manifest: {
+        name: 'Gomo6',
+        short_name: 'Gomo6',
+        description: 'Форум и имиджборд',
+        theme_color: '#000000',
+        background_color: '#000000',
+        display: 'standalone',
+        start_url: '/',
+        scope: '/',
+        icons: [
+          {
+            src: '/photoes/gomo6.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: '/photoes/gomo6.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+        ],
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
@@ -22,7 +45,7 @@ export default defineConfig(() => ({
             options: {
               cacheName: 'images-cache',
               expiration: {
-                maxEntries: 50,
+                maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
               },
             },
@@ -38,26 +61,27 @@ export default defineConfig(() => ({
               },
             },
           },
-        ],
-      },
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
-      manifest: {
-        name: 'Gomo6',
-        short_name: 'Gomo6',
-        description: 'Форум и имиджборд',
-        theme_color: '#000000',
-        background_color: '#000000',
-        display: 'standalone',
-        icons: [
           {
-            src: '/photoes/gomo6.png',
-            sizes: '192x192',
-            type: 'image/png',
+            urlPattern: /^https:\/\/.*\.js$/,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'js-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+              },
+            },
           },
           {
-            src: '/photoes/gomo6.png',
-            sizes: '512x512',
-            type: 'image/png',
+            urlPattern: /^https:\/\/.*\.css$/,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'css-cache',
+              expiration: {
+                maxEntries: 20,
+                maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
+              },
+            },
           },
         ],
       },
@@ -77,8 +101,14 @@ export default defineConfig(() => ({
           ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tooltip'],
           supabase: ['@supabase/supabase-js'],
         },
+        // Enable proper hash-based cache busting
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
     chunkSizeWarningLimit: 1000,
+    // Enable source maps for debugging
+    sourcemap: false,
   },
 }));

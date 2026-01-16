@@ -177,20 +177,7 @@ const Placeholders = () => {
   }
 
   return (
-    <div className="bg-background min-h-screen flex flex-col">
-      <div className="flex-1 min-h-0">
-        <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-          <div className="max-w-5xl mx-auto flex items-center gap-4">
-            <Link to="/settings">
-              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <h1 className="text-xl font-bold">Плейсхолдеры</h1>
-          </div>
-        </header>
-
-        <main className="max-w-4xl mx-auto p-4 space-y-6">
+    <main className="max-w-4xl mx-auto p-4 space-y-6">
           <div className="bg-card border border-border p-6">
             <h2 className="text-lg font-semibold mb-4">Настройка плейсхолдеров</h2>
             <p className="text-sm text-muted-foreground mb-6">
@@ -297,8 +284,6 @@ const Placeholders = () => {
             </div>
           </Card>
         </main>
-      </div>
-    </div>
   );
 };
 

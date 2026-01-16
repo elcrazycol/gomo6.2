@@ -22,8 +22,6 @@ import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Footer } from "@/components/Footer";
-import { CookieBanner } from "@/components/CookieBanner";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 
 interface Board {
@@ -356,7 +354,8 @@ const Board = () => {
     navigate('/');
   };
 
-  if (pageLoading || !board) {
+  // Don't show fullscreen loader - let the content loader handle it
+  if (!board) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
@@ -377,50 +376,7 @@ const Board = () => {
   const canCreateThread = user && (!board.is_rules_board || isModerator);
 
   return (
-    <div className="bg-background min-h-screen flex flex-col">
-      <div className="flex-1 min-h-0">
-        <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-          <div className="text-sm sm:text-base flex-1 min-w-0">
-            <Link to="/" className="relative text-lg sm:text-xl font-bold group">
-              gomo6
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Link>
-            <span className="mx-1 sm:mx-2 hidden sm:inline">/</span>
-            <span className="relative text-base sm:text-lg hidden sm:inline group cursor-pointer" onClick={() => navigate(`/${slug}`)}>
-              /{slug}/ - {board.name}
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </span>
-          </div>
-          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group">
-                <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-              </Button>
-            </Link>
-            {user && <NotificationBell userId={user.id} />}
-            {user && <ChatIcon userId={user.id} />}
-            {user ? (
-              <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <HeaderUsername userId={user.id} />
-                </div>
-                <MobileMenu
-                  user={user}
-                  isModerator={isModerator}
-                />
-              </>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-                Войти
-              </Button>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto p-2 sm:p-4 flex-1 relative">
+    <main className="max-w-5xl mx-auto p-2 sm:p-4 flex-1 relative">
         <div className="mb-3 sm:mb-4 text-center">
           <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
         </div>
@@ -553,19 +509,12 @@ const Board = () => {
           ))}
         </div>
 
-        {threads.length === 0 && (
+        {threads.length === 0 && !pageLoading && (
           <div className="text-center text-muted-foreground p-8">
             Тредов пока нет. Будьте первым!
           </div>
         )}
       </main>
-      </div>
-
-      <div className="mt-auto">
-        <Footer />
-        <CookieBanner />
-      </div>
-    </div>
   );
 };
 
