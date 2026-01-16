@@ -24,22 +24,6 @@
 
   <body>
     <div id="root"></div>
-    <script type="module">
-      // Initial page data for Inertia.js - must be set before Inertia loads
-      window.__inertia_page__ = {
-        component: 'Index',
-        props: {
-          boards: [],
-          randomBoards: [],
-          randomThread: null,
-          popularThreads: [],
-          auth: {}
-        },
-        url: '/',
-        version: null
-      };
-      console.log('HTML script: initial page data set', window.__inertia_page__);
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
