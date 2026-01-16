@@ -1,11 +1,11 @@
-import { Suspense, ComponentType } from 'react';
+import { Suspense, ComponentType, memo } from 'react';
 import { PentagramLoader } from './PentagramLoader';
 
 interface LazyPageProps {
   component: ComponentType;
 }
 
-export const LazyPage = ({ component: Component }: LazyPageProps) => (
+export const LazyPage = memo(({ component: Component }: LazyPageProps) => (
   <Suspense
     fallback={
       <div className="bg-background flex items-center justify-center min-h-screen">
@@ -15,4 +15,4 @@ export const LazyPage = ({ component: Component }: LazyPageProps) => (
   >
     <Component />
   </Suspense>
-);
+));
