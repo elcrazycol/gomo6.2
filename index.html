@@ -20,6 +20,15 @@
     <meta name="twitter:title" content="gomo6.wtf — gomo6 имиджборд" />
     <meta name="twitter:description" content="gomo6 — имиджборд (imageboard): треды, доски, эмодзи и обсуждения." />
     <meta name="twitter:image" content="/photoes/gomo6.png" />
+
+    <!-- Preload critical routes for instant navigation -->
+    <link rel="modulepreload" href="/src/pages/Index.tsx" />
+    <link rel="modulepreload" href="/src/pages/Auth.tsx" />
+    <link rel="modulepreload" href="/src/pages/Settings.tsx" />
+
+    <!-- Preload critical fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   </head>
 
   <body>

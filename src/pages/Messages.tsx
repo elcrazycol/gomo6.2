@@ -805,7 +805,7 @@ const Messages = () => {
     toast.success("Вышли");
   };
 
-  if (!user || pageLoading) {
+  if (!user) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
@@ -814,53 +814,8 @@ const Messages = () => {
   }
 
   return (
-    <div className="bg-background">
-      <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-          <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
-            gomo6
-          </Link>
-          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group">
-                <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-              </Button>
-            </Link>
-            <NotificationBell userId={user.id} />
-            <ChatIcon userId={user.id} />
-            <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-              <ProfileHoverCard userId={user.id}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                      className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                        currentUserColor === 'purple' ? 'text-purple-500' :
-                        currentUserColor === 'gold' ? 'text-yellow-500' :
-                        currentUserColor === 'orange' ? 'text-orange-500' :
-                        currentUserColor === 'red' ? 'text-red-500' :
-                        currentUserColor === 'blue' ? 'text-blue-500' :
-                        currentUserColor === 'green' ? 'text-green-500' :
-                        currentUserColor === 'yellow' ? 'text-yellow-400' :
-                        currentUserColor === 'cyan' ? 'text-cyan-500' :
-                        'text-quote'
-                      }`}
-                  onClick={() => navigate(`/profile/${user.id}`)}
-                >
-                  {currentUserUsername || 'Профиль'}
-                </Button>
-              </ProfileHoverCard>
-            </div>
-            <MobileMenu
-              user={user}
-              isModerator={false}
-            />
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-5xl mx-auto p-2 sm:p-4">
-        <div className="bg-card border border-border flex flex-col h-[calc(100vh-120px)] sm:h-[calc(100vh-120px)]">
+    <main className="max-w-5xl mx-auto p-2 sm:p-4">
+        <div className="bg-card border border-border flex flex-col h-[calc(100vh-80px)] sm:h-[calc(100vh-80px)]">
           {/* Mobile: Show either list or chat */}
           <div className="flex flex-1 overflow-hidden">
             {/* Conversations list - hidden on mobile when chat is open */}
@@ -1096,7 +1051,6 @@ const Messages = () => {
           </div>
         </div>
       </main>
-    </div>
   );
 };
 

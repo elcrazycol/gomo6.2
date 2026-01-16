@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { PrefetchLink } from "@/components/PrefetchLink";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -15,8 +16,6 @@ import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Footer } from "@/components/Footer";
-import { CookieBanner } from "@/components/CookieBanner";
 
 interface Board {
   id: string;
@@ -239,75 +238,39 @@ const Index = () => {
   return (
     <div className="bg-background min-h-screen flex flex-col">
       <div className="flex-1 min-h-0">
-        <header className="bg-board-header text-board-header-foreground p-3 sm:p-4 border-b border-border">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
-          <img
-            src="/photoes/gomo6.png"
-            alt="gomo6"
-            className="h-4 sm:h-5 md:h-6 w-auto object-contain flex-shrink-0 max-w-[80px] sm:max-w-[100px] md:max-w-[120px]"
-          />
-          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group">
-                <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-                <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-              </Button>
-            </Link>
-            {user && <NotificationBell userId={user.id} />}
-            {user && <ChatIcon userId={user.id} />}
-            {user ? (
-              <>
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <HeaderUsername userId={user.id} />
-                </div>
-                <MobileMenu
-                  user={user}
-                  isModerator={isModerator}
-                />
-              </>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => navigate("/auth")} className="text-xs sm:text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-                Войти
-              </Button>
-            )}
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-4xl mx-auto p-3 sm:p-6">
         <div className="text-center mb-6 sm:mb-8">
         </div>
 
         <div className="mb-4 text-center flex gap-3 justify-center flex-wrap">
-          <Link to="/rules">
+          <PrefetchLink to="/rules">
             <Button variant="outline" className="relative hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors group">
               Информация
               <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
             </Button>
-          </Link>
+          </PrefetchLink>
 
-          <Link to="/bugs">
+          <PrefetchLink to="/bugs">
             <Button variant="outline" className="relative hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors group">
               Баги/Идеи
               <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
             </Button>
-          </Link>
+          </PrefetchLink>
 
-          <Link to="/faq">
+          <PrefetchLink to="/faq">
             <Button variant="outline" className="relative hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors group">
               FAQ
               <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
             </Button>
-          </Link>
+          </PrefetchLink>
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">Доски</h3>
           <div className="space-y-3">
             {boards.map((board) => (
-              <>
-                <Link
-                  key={board.id}
+              <React.Fragment key={board.id}>
+                <PrefetchLink
                   to={`/${board.slug}`}
                   className="block p-4 border border-border hover:bg-thread-hover transition-colors group"
                 >
@@ -322,12 +285,12 @@ const Index = () => {
                     </div>
                     <div className="text-primary transition-transform duration-200 group-hover:translate-x-0.5">→</div>
                   </div>
-                </Link>
+                </PrefetchLink>
                 {board.slug === 'b' && (
                   <div className="mt-6 pt-4 border-t-2 border-primary">
                   </div>
                 )}
-              </>
+              </React.Fragment>
             ))}
           </div>
         </div>
@@ -336,7 +299,7 @@ const Index = () => {
           <h3 className="text-xl font-bold mb-4">Популярные треды</h3>
           <div className="space-y-2">
             {popularThreads.map((thread) => (
-              <Link
+              <PrefetchLink
                 key={thread.id}
                 to={`/${thread.boards.slug}/thread/${thread.id}`}
                 className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"
@@ -355,7 +318,7 @@ const Index = () => {
                     {thread.post_count} отв.
                   </div>
                 </div>
-              </Link>
+              </PrefetchLink>
             ))}
           </div>
         </div>
@@ -367,7 +330,7 @@ const Index = () => {
               <h4 className="font-semibold mb-2">Случайные доски:</h4>
               <div className="space-y-2">
                 {randomBoards.map((board) => (
-                  <Link
+                  <PrefetchLink
                     key={board.id}
                     to={`/${board.slug}`}
                     className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group relative"
@@ -376,7 +339,7 @@ const Index = () => {
                       /{board.slug}/ - {board.name}
                       <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                     </div>
-                  </Link>
+                  </PrefetchLink>
                 ))}
               </div>
             </div>
@@ -384,7 +347,7 @@ const Index = () => {
             {randomThread && (
               <div>
                 <h4 className="font-semibold mb-2">Случайный тред:</h4>
-                <Link
+                <PrefetchLink
                   to={`/${randomThread.boards.slug}/thread/${randomThread.id}`}
                   className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"
                 >
@@ -392,14 +355,11 @@ const Index = () => {
                     {randomThread.title}
                     <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                   </div>
-                </Link>
+                </PrefetchLink>
               </div>
             )}
           </div>
         </div>
-
-      </main>
-
 
         <TermsOfService
           open={showTerms}
@@ -407,11 +367,7 @@ const Index = () => {
           onDecline={handleDeclineTerms}
           canDecline={true}
         />
-      </div>
-
-      <div className="mt-auto">
-        <Footer />
-        <CookieBanner />
+      </main>
       </div>
     </div>
   );
