@@ -454,25 +454,7 @@ const Settings = () => {
 
   return (
     <TooltipProvider>
-      <div className="bg-background min-h-screen flex flex-col">
-        <div className="flex-1">
-          <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-            <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-              <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
-                gomo6
-              </Link>
-              <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-                {user && <NotificationBell userId={user.id} />}
-                {user && <ChatIcon userId={user.id} />}
-                <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-                  <HeaderUsername userId={user.id} />
-                </div>
-                <MobileMenu user={user} isModerator={false} />
-              </div>
-            </div>
-          </header>
-
-        <main className="max-w-4xl mx-auto p-4">
+      <main className="max-w-4xl mx-auto p-4">
           <div className="space-y-6">
             <div className="text-center">
               <h1 className="text-2xl font-bold mb-2">Настройки</h1>
@@ -1040,7 +1022,6 @@ const Settings = () => {
             </Tabs>
           </div>
         </main>
-      </div>
 
       {/* Anonymous Mode Confirmation Dialog */}
       <Dialog open={showAnonymousConfirm} onOpenChange={setShowAnonymousConfirm}>
@@ -1068,7 +1049,6 @@ const Settings = () => {
           </div>
         </DialogContent>
       </Dialog>
-      </div>
     </TooltipProvider>
   );
 };
