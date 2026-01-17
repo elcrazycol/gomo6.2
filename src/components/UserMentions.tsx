@@ -287,6 +287,34 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     setUsers([]);
   };
 
+  // Update position when mentions panel is shown
+  useEffect(() => {
+    if (!showMentions) return;
+
+    const updatePosition = () => {
+      const textarea = textareaRef.current;
+      const caretRect = getCursorRect ? getCursorRect() : null;
+
+      if (textarea) {
+        setCursorPosition(getCursorPosition(textarea));
+      } else if (caretRect) {
+        setCursorPosition({ top: caretRect.top, left: caretRect.left, width: caretRect.width });
+      }
+    };
+
+    // Update position immediately and after a short delay to ensure DOM is ready
+    updatePosition();
+    const timeout = setTimeout(updatePosition, 10);
+    const raf = requestAnimationFrame(() => {
+      updatePosition();
+    });
+
+    return () => {
+      clearTimeout(timeout);
+      cancelAnimationFrame(raf);
+    };
+  }, [showMentions, getCursorRect]);
+
   // Hide mentions when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -310,22 +338,37 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
 
   if (!showMentions || (users.length === 0 && !loading)) return null;
 
+  // Calculate position - use callback ref to ensure position is calculated after render
+  const calculatePosition = () => {
+    const h = popupRef.current?.offsetHeight ?? 280;
+    const w = popupRef.current?.offsetWidth ?? 320;
+    const centerX = cursorPosition.left + (cursorPosition.width ?? 0) / 2;
+    const unclamped = centerX - w / 2;
+    const maxLeft = Math.max(10, window.innerWidth - w - 10);
+    
+    return {
+      top: Math.max(10, cursorPosition.top - h - 8),
+      left: Math.min(maxLeft, Math.max(10, unclamped))
+    };
+  };
+
   return createPortal(
     <div
-      ref={popupRef}
+      ref={(el) => {
+        popupRef.current = el;
+        // Update position after element is mounted
+        if (el) {
+          requestAnimationFrame(() => {
+            const pos = calculatePosition();
+            el.style.top = `${pos.top}px`;
+            el.style.left = `${pos.left}px`;
+          });
+        }
+      }}
       className="fixed z-[9999] bg-background/95 backdrop-blur-sm border border-border rounded-xl shadow-xl max-h-64 overflow-y-auto w-[calc(100vw-20px)] sm:w-auto sm:min-w-[280px] sm:max-w-[320px] animate-in fade-in-0 zoom-in-95 duration-200"
       style={{
-        top: (() => {
-          const h = popupRef.current?.offsetHeight ?? 280;
-          return Math.max(10, cursorPosition.top - h - 8);
-        })(),
-        left: (() => {
-          const w = popupRef.current?.offsetWidth ?? 320;
-          const centerX = cursorPosition.left + (cursorPosition.width ?? 0) / 2;
-          const unclamped = centerX - w / 2;
-          const maxLeft = Math.max(10, window.innerWidth - w - 10);
-          return Math.min(maxLeft, Math.max(10, unclamped));
-        })()
+        top: calculatePosition().top,
+        left: calculatePosition().left
       }}
     >
       {loading ? (

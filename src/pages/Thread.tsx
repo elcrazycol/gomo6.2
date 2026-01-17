@@ -28,6 +28,7 @@ import { UserMentions } from "@/components/UserMentions";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { SpoilerText } from "@/components/SpoilerText";
 import { EmojiPicker } from "@/components/EmojiPicker";
+import { renderBbCode } from "@/utils/bbcodePlugins";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
@@ -125,152 +126,46 @@ const Thread = () => {
   const renderPreviewContent = (text: string): React.ReactNode[] => {
     if (!text) return [];
 
+    // Process ||spoiler|| format first (simple inline spoilers)
+    let processedText = text;
     const elements: React.ReactNode[] = [];
     let key = 0;
-
-    // Process spoilers first
+    
     const spoilerRegex = /\|\|(.*?)\|\|/g;
-    let match;
+    let match: RegExpExecArray | null;
     let lastIndex = 0;
+    const textSegments: Array<{ type: 'text' | 'spoiler'; content: string }> = [];
 
-    const processTextSegment = (segment: string) => {
-      return segment.split(/(\[\/?[a-zA-Z0-9]+(?:=[^\]]*)?\]|:[^:\s]+:|@[^\s]+|https?:\/\/[^\s]+)/g).map((part, i) => {
-        // BBCode tags
-        if (part.match(/^\[([a-zA-Z0-9]+)(?:=([^\]]*))?\]$/)) {
-          const tagMatch = part.match(/^\[([a-zA-Z0-9]+)(?:=([^\]]*))?\]$/);
-          if (tagMatch) {
-            const [, tagName, param] = tagMatch;
-            // Skip opening tags, handle with closing
-            return null;
-          }
-        } else if (part.match(/^\[\/([a-zA-Z0-9]+)\]$/)) {
-          const tagMatch = part.match(/^\[\/([a-zA-Z0-9]+)\]$/);
-          if (tagMatch) {
-            const [, tagName] = tagMatch;
-            // Skip closing tags
-            return null;
-          }
-        }
-
-        // Regular content
-        if (part.startsWith(':') && part.endsWith(':') && part.length > 2) {
-          const emojiCode = part.slice(1, -1);
-          return <EmojiInline key={`${key++}-${i}`} code={emojiCode} />;
-        } else if (part.startsWith('@')) {
-          const username = part.substring(1);
-          return <MentionLink key={`${key++}-${i}`} username={username} />;
-        } else if (part.match(/^https?:\/\/[^\s]+$/)) {
-          return <LinkButton key={`${key++}-${i}`} url={part} />;
-        }
-        return part;
-      }).filter(Boolean);
-    };
-
-    // Handle spoilers
     while ((match = spoilerRegex.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        elements.push(...processTextSegment(text.substring(lastIndex, match.index)));
+        textSegments.push({ type: 'text', content: text.substring(lastIndex, match.index) });
       }
-
-      const spoilerContent = match[1];
-      elements.push(
-        <span key={key++} className="bg-muted px-1 rounded cursor-pointer hover:bg-muted/80 select-none" title="Спойлер">
-          {spoilerContent}
-        </span>
-      );
-
+      textSegments.push({ type: 'spoiler', content: match[1] });
       lastIndex = match.index + match[0].length;
     }
 
     if (lastIndex < text.length) {
-      elements.push(...processTextSegment(text.substring(lastIndex)));
+      textSegments.push({ type: 'text', content: text.substring(lastIndex) });
     }
 
-    // Process BBCode tags
-    const processBBCode = (input: React.ReactNode[]): React.ReactNode[] => {
-      const result: React.ReactNode[] = [];
-      let i = 0;
-
-      while (i < input.length) {
-        const node = input[i];
-
-        if (typeof node === 'string' && node.match(/^\[([a-zA-Z0-9]+)(?:=([^\]]*))?\]$/)) {
-          const tagMatch = node.match(/^\[([a-zA-Z0-9]+)(?:=([^\]]*))?\]$/);
-          if (tagMatch) {
-            const [, tagName, param] = tagMatch;
-            let content = '';
-            let nestedLevel = 0;
-            let j = i + 1;
-
-            // Find matching closing tag
-            while (j < input.length) {
-              const nextNode = input[j];
-              if (typeof nextNode === 'string' && nextNode.match(new RegExp(`^\\[/\\s*${tagName}\\s*\\]$`))) {
-                if (nestedLevel === 0) break;
-                nestedLevel--;
-              } else if (typeof nextNode === 'string' && nextNode.match(new RegExp(`^\\[\\s*${tagName}(?:=[^\\]]*)?\\]$`))) {
-                nestedLevel++;
-              } else if (typeof nextNode === 'string') {
-                content += nextNode;
-              } else {
-                content += nextNode; // React element
-              }
-              j++;
-            }
-
-            if (j < input.length) {
-              // Found matching closing tag
-              const processedContent = processBBCode([content]);
-
-              switch (tagName.toLowerCase()) {
-                case 'b':
-                  result.push(<strong key={key++}>{processedContent}</strong>);
-                  break;
-                case 'i':
-                  result.push(<em key={key++}>{processedContent}</em>);
-                  break;
-                case 'u':
-                  result.push(<u key={key++}>{processedContent}</u>);
-                  break;
-                case 's':
-                  result.push(<s key={key++}>{processedContent}</s>);
-                  break;
-                case 'col':
-                  result.push(<span key={key++} style={{ color: param || '#000' }}>{processedContent}</span>);
-                  break;
-                case 'size':
-                  const size = Math.min(7, Math.max(1, parseInt(param || '3', 10)));
-                  const fontSize = 0.75 + (size - 1) * 0.175;
-                  result.push(<span key={key++} style={{ fontSize: `${fontSize}em` }}>{processedContent}</span>);
-                  break;
-                case 'blur':
-                  result.push(<CensorBlur key={key++}>{processedContent}</CensorBlur>);
-                  break;
-                case 'spoiler':
-                  result.push(
-                    <span key={key++} className="bg-muted px-1 rounded cursor-pointer hover:bg-muted/80 select-none" title="Спойлер">
-                      {processedContent}
-                    </span>
-                  );
-                  break;
-                default:
-                  result.push(...processedContent);
-              }
-
-              i = j + 1; // Skip the closing tag
-              continue;
-            }
-          }
+    // Render each segment
+    for (const segment of textSegments) {
+      if (segment.type === 'spoiler') {
+        elements.push(
+          <span key={`spoiler-${key++}`} className="bg-muted px-1 rounded cursor-pointer hover:bg-muted/80 select-none" title="Спойлер">
+            {segment.content}
+          </span>
+        );
+      } else {
+        // Use @bbob/react for BB code rendering
+        const rendered = renderBbCode(segment.content, { keyPrefix: `preview-${key++}` });
+        if (rendered) {
+          elements.push(rendered);
         }
-
-        result.push(node);
-        i++;
       }
+    }
 
-      return result;
-    };
-
-    return processBBCode(elements.length > 0 ? elements : processTextSegment(text));
+    return elements;
   };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editorRef = useRef<RichTextEditorHandle>(null);
@@ -985,14 +880,13 @@ const Thread = () => {
   return (
     <>
     <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-24 sm:pb-28">
-        {pageLoading && (
-          <div className="flex items-center justify-center py-20">
-            <PentagramLoader size="lg" />
-          </div>
-        )}
-        {!pageLoading && (
-          <>
-            <div className="mb-4 flex justify-between items-center">
+        <div className="relative">
+          {pageLoading && (
+            <div className="absolute inset-0 bg-card/90 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
+              <PentagramLoader size="lg" />
+            </div>
+          )}
+          <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
             ← Назад к доске
           </Link>
@@ -1134,8 +1028,14 @@ const Thread = () => {
 
           </div>
         </div>
+        </div>
 
-        <div className="space-y-4 mb-4">
+        <div className="space-y-4 mb-4 relative">
+          {pageLoading && (
+            <div className="absolute inset-0 bg-card/90 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
+              <PentagramLoader size="lg" />
+            </div>
+          )}
           {posts.map((post) => (
             <div
               key={post.id}
@@ -1436,74 +1336,191 @@ const Thread = () => {
                         : 'p-4 space-y-3'
                     }`}
                   >
+                {/* Header with reply info */}
                 {replyingTo && (
-                  <div className="flex items-center justify-between mb-1 text-xs text-muted-foreground">
-                    <span>Ответ на #{replyingTo.slice(0, 8)}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setReplyingTo(null)}
-                      className="h-6 text-xs"
-                    >
-                      ✕
-                    </Button>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Ответ на #{replyingTo.slice(0, 8)}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setReplyingTo(null)}
+                        className="h-6 w-6 p-0 text-xs"
+                      >
+                        ✕
+                      </Button>
+                    </div>
                   </div>
                 )}
 
                 {isExpandedView && (
-                  <div className="space-y-4">
-                    {/* Preview */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Предпросмотр</label>
-                      <div className="bg-card border border-border rounded-lg p-3 min-h-[200px] max-h-[300px] overflow-y-auto">
-                        <div className="text-sm break-words">
-                          {content ? (
-                            renderPreviewContent(content)
-                          ) : (
-                            <span className="text-muted-foreground">Начните писать сообщение...</span>
-                          )}
-                        </div>
-                        {imageUrls.length > 0 && (
-                          <div className="mt-3 grid grid-cols-3 gap-2">
-                            {imageUrls.map((url, index) => (
-                              <img
-                                key={index}
-                                src={url}
-                                alt={`Preview ${index + 1}`}
-                                className="w-full h-16 object-cover rounded border border-border"
-                              />
-                            ))}
-                          </div>
-                        )}
+                  <div className="space-y-3 sm:space-y-4">
+                    {/* Header with preview toggle and image upload */}
+                    <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                      <label className="text-xs sm:text-sm font-medium">Предпросмотр</label>
+                      <div className="flex items-center gap-2">
+                        <label className="cursor-pointer shrink-0">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || []);
+                              if (files.length === 0) return;
+
+                              // Compress and upload images with metadata removal
+                              const compressImage = async (file: File, maxWidth: number = 1200): Promise<File> => {
+                                try {
+                                  return await compressImageWithMetadataRemoval(file, maxWidth, 0.8, removeMetadata);
+                                } catch (error) {
+                                  console.warn('Advanced compression failed, falling back to basic compression:', error);
+                                  // Fallback to basic compression
+                                  return new Promise((resolve, reject) => {
+                                    const canvas = document.createElement('canvas');
+                                    const ctx = canvas.getContext('2d');
+                                    const img = new Image();
+
+                                    img.onload = () => {
+                                      let { width, height } = img;
+                                      if (width > maxWidth) {
+                                        height = (height * maxWidth) / width;
+                                        width = maxWidth;
+                                      }
+
+                                      canvas.width = width;
+                                      canvas.height = height;
+                                      ctx?.drawImage(img, 0, 0, width, height);
+
+                                      canvas.toBlob((blob) => {
+                                        if (blob) {
+                                          const compressedFile = new File([blob], file.name, {
+                                            type: 'image/jpeg',
+                                            lastModified: Date.now(),
+                                          });
+                                          resolve(compressedFile);
+                                        } else {
+                                          reject(new Error('Failed to compress image'));
+                                        }
+                                      }, 'image/jpeg', 0.8);
+                                    };
+
+                                    img.onerror = () => reject(new Error('Failed to load image'));
+                                    img.src = URL.createObjectURL(file);
+                                  });
+                                }
+                              };
+
+                              try {
+                                const uploadPromises = files.map(async (file) => {
+                                  const compressed = await compressImage(file);
+                                  const formData = new FormData();
+                                  formData.append('file', compressed);
+                                  const response = await fetch('/api/upload', {
+                                    method: 'POST',
+                                    body: formData,
+                                  });
+                                  if (!response.ok) throw new Error('Upload failed');
+                                  const data = await response.json();
+                                  return data.url;
+                                });
+
+                                const newUrls = await Promise.all(uploadPromises);
+                                setImageUrls(prev => [...prev, ...newUrls]);
+                                // Show success message above the form instead of toast
+                                setTimeout(() => {
+                                  const event = new CustomEvent('showUploadSuccess', {
+                                    detail: { count: newUrls.length }
+                                  });
+                                  document.dispatchEvent(event);
+                                }, 100);
+                              } catch (error) {
+                                toast.error("Ошибка загрузки фото");
+                                console.error(error);
+                              }
+
+                              // Reset input
+                              e.target.value = '';
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl shrink-0"
+                            asChild
+                          >
+                            <span>
+                              <ImagePlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            </span>
+                          </Button>
+                        </label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs shrink-0"
+                          onClick={() => setIsExpandedView(false)}
+                          title="Скрыть предпросмотр"
+                        >
+                          <Minimize2 className="h-3 w-3 mr-1" />
+                          <span className="hidden sm:inline">Скрыть</span>
+                        </Button>
                       </div>
                     </div>
-
-
+                    
+                    {/* Formatting toolbar - only in preview mode */}
+                    <div>
+                      <InlineFormattingToolbar editorRef={editorRef} />
+                    </div>
+                    
+                    {/* Preview */}
+                    <div className="bg-card border border-border rounded-lg p-2 sm:p-3 min-h-[150px] sm:min-h-[200px] max-h-[250px] sm:max-h-[300px] overflow-y-auto">
+                      <div className="text-xs sm:text-sm break-words">
+                        {content ? (
+                          renderPreviewContent(content)
+                        ) : (
+                          <span className="text-muted-foreground">Начните писать сообщение...</span>
+                        )}
+                      </div>
+                      {imageUrls.length > 0 && (
+                        <div className="mt-3 grid grid-cols-3 gap-2">
+                          {imageUrls.map((url, index) => (
+                            <img
+                              key={index}
+                              src={url}
+                              alt={`Preview ${index + 1}`}
+                              className="w-full h-16 object-cover rounded border border-border"
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {!isExpandedView && <InlineFormattingToolbar editorRef={editorRef} />}
-
-                <div className={`flex gap-2 ${isExpandedView ? 'items-start' : 'items-end'}`}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 rounded-xl shrink-0"
-                    onClick={() => setIsExpandedView(!isExpandedView)}
-                    title={isExpandedView ? "Свернуть редактор" : "Расширить редактор"}
-                  >
-                    {isExpandedView ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
-                  </Button>
-
-                  <label className="cursor-pointer">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={async (e) => {
+                <div className={`flex gap-1.5 sm:gap-2 ${isExpandedView ? 'items-start' : 'items-end'}`}>
+                  {!isExpandedView && (
+                    <>
+                      <div className="flex flex-col gap-1.5 sm:gap-2 shrink-0">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
+                          onClick={() => setIsExpandedView(true)}
+                          title="Показать предпросмотр"
+                        >
+                          <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
+                        </Button>
+                        <label className="cursor-pointer shrink-0">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={async (e) => {
                         const files = Array.from(e.target.files || []);
                         if (files.length === 0) return;
 
@@ -1606,22 +1623,25 @@ const Thread = () => {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-10 w-10 rounded-xl shrink-0"
+                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                       asChild
                     >
                       <span>
-                        <ImagePlus className="h-5 w-5" />
+                        <ImagePlus className="h-4 w-4 sm:h-5 sm:w-5" />
                       </span>
                     </Button>
-                  </label>
-                  <div className="flex-1">
+                        </label>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex-1 min-w-0">
                     <RichTextEditor
                       ref={editorRef}
                       value={content}
                       onChange={setContent}
                       onSubmit={() => handleSubmitPost()}
                       placeholder="Напишите сообщение…"
-                      className={`text-sm sm:text-base ${isExpandedView ? 'min-h-[300px]' : ''}`}
+                      className={`text-sm sm:text-base ${isExpandedView ? 'min-h-[200px] sm:min-h-[300px]' : 'min-h-[60px] sm:min-h-[80px]'}`}
                     />
                   </div>
                   <UserMentions
@@ -1646,7 +1666,7 @@ const Thread = () => {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-10 w-10 rounded-xl shrink-0 hover:bg-primary/10"
+                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0 hover:bg-primary/10"
                       title="Эмодзи"
                     >
                       <svg
@@ -1672,10 +1692,10 @@ const Thread = () => {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-10 w-10 rounded-xl shrink-0"
+                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                       onClick={() => setShowImagePreview(true)}
                     >
-                      <span className="text-sm font-bold">{imageUrls.length}</span>
+                      <span className="text-xs sm:text-sm font-bold">{imageUrls.length}</span>
                     </Button>
                   )}
                   {replyingTo && (
@@ -1683,25 +1703,25 @@ const Thread = () => {
                       type="button"
                       variant={isPrivateMessage ? "default" : "ghost"}
                       size="icon"
-                      className="h-10 w-10 rounded-xl shrink-0"
+                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                       onClick={() => setIsPrivateMessage(!isPrivateMessage)}
                       title={isPrivateMessage ? "Отправить как обычное сообщение" : "Отправить как скрытое сообщение"}
                     >
-                      {isPrivateMessage ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      {isPrivateMessage ? <EyeOff className="h-4 w-4 sm:h-5 sm:w-5" /> : <Eye className="h-4 w-4 sm:h-5 sm:w-5" />}
                     </Button>
                   )}
                   <Button
                     type="submit"
                     disabled={loading || (!content.trim() && imageUrls.length === 0)}
                     size="icon"
-                    className="h-10 w-10 rounded-xl shrink-0"
+                    className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                   >
-                    <Send className="h-5 w-5" />
+                    <Send className="h-4 w-4 sm:h-5 sm:w-5" />
                   </Button>
                 </div>
               </form>
-                </div>
-              )}
+                  </div>
+                )}
 
               {/* Image Preview Modal */}
               {showImagePreview && (
@@ -1776,11 +1796,9 @@ const Thread = () => {
           </div>
         )}
 
-            {/* Scroll to bottom button */}
-            {(!isMobile || !isInputPanelVisible) && (
-              <ScrollToBottomButton />
-            )}
-          </>
+        {/* Scroll to bottom button */}
+        {(!isMobile || !isInputPanelVisible) && (
+          <ScrollToBottomButton />
         )}
       </main>
 
