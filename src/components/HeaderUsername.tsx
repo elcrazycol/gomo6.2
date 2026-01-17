@@ -102,9 +102,8 @@ export const HeaderUsername = ({ userId, className = "" }: HeaderUsernameProps) 
               stroke: customization.username_icon_stroke || undefined,
               width: '1em',
               height: '1em',
-              maxHeight: '20px',
-              maxWidth: '20px',
-              maxWidth: '1.5em',
+                maxHeight: '20px',
+                maxWidth: '20px',
             }}
           />
         )}

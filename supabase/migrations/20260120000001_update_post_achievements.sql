@@ -123,23 +123,14 @@ BEGIN
     VALUES (_user_id, achievement_record.id, _level);
     new_achievement := true;
   ELSIF _level > current_level THEN
-    -- Upgrade level
+    -- Upgrade level (preserve pinned status and order)
     UPDATE user_achievements ua
     SET level = _level, unlocked_at = NOW()
     WHERE ua.user_id = _user_id AND ua.achievement_id = achievement_record.id;
     new_achievement := true;
   END IF;
 
-  -- Create notification for new achievement or level up
-  IF new_achievement THEN
-    INSERT INTO notifications (user_id, type, title, message)
-    VALUES (
-      _user_id,
-      'achievement',
-      'Новое достижение!',
-      format('Вы получили достижение "%s"', achievement_record.name)
-    );
-  END IF;
+  -- Note: Notifications are created in the calling functions to avoid duplicates
 END;
 $$;
 
@@ -197,7 +188,36 @@ BEGIN
   END IF;
 
   IF achievement_level >= 1 THEN
+    -- Award the achievement
     PERFORM award_achievement_with_level(NEW.user_id, 'posts', achievement_level);
+
+    -- Create notification for the new achievement
+    INSERT INTO notifications (user_id, type, title, message)
+    SELECT
+      NEW.user_id,
+      'achievement',
+      'Новое достижение!',
+      format('Вы получили достижение "%s"', a.name)
+    FROM achievements a
+    WHERE a.id = CASE achievement_level
+      WHEN 1 THEN 'posts_10'
+      WHEN 2 THEN 'posts_25'
+      WHEN 3 THEN 'posts_50'
+      WHEN 4 THEN 'posts_75'
+      WHEN 5 THEN 'posts_100'
+      WHEN 6 THEN 'posts_150'
+      WHEN 7 THEN 'posts_200'
+      WHEN 8 THEN 'posts_250'
+      WHEN 9 THEN 'posts_300'
+      WHEN 10 THEN 'posts_350'
+      WHEN 11 THEN 'posts_400'
+      WHEN 12 THEN 'posts_500'
+      WHEN 13 THEN 'posts_600'
+      WHEN 14 THEN 'posts_700'
+      WHEN 15 THEN 'posts_800'
+      WHEN 16 THEN 'posts_900'
+      WHEN 17 THEN 'posts_1000'
+    END;
   END IF;
 
   RETURN NEW;
