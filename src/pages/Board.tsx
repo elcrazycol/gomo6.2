@@ -435,12 +435,35 @@ const Board = () => {
         )}
 
         <div className="space-y-2 relative">
-          {pageLoading && (
-            <div className="absolute inset-0 bg-card/90 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-              <PentagramLoader size="lg" />
-            </div>
-          )}
-          {threads.map((thread) => (
+          {pageLoading ? (
+            <>
+              {/* Placeholder threads with blur */}
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div
+                  key={`placeholder-${i}`}
+                  className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
+                >
+                  <div className="flex gap-2 sm:gap-3">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded border border-border flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="h-5 bg-muted rounded mb-2 w-3/4" />
+                      <div className="h-3 bg-muted rounded mb-1 w-1/2" />
+                      <div className="h-3 bg-muted rounded w-full mt-2" />
+                      <div className="h-3 bg-muted rounded w-5/6 mt-1" />
+                    </div>
+                    <div className="text-xs text-muted-foreground text-right flex-shrink-0">
+                      <div className="h-4 bg-muted rounded w-12" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {/* Loader centered in viewport */}
+              <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
+                <PentagramLoader size="lg" />
+              </div>
+            </>
+          ) : (
+            threads.map((thread) => (
             <Link
               key={thread.id}
               to={`/${slug}/thread/${thread.id}`}
@@ -488,12 +511,21 @@ const Board = () => {
                       <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 break-words">
                         {thread.latest_post.is_private ? 'Скрытый контент' :
                           hasVisibilityTags(thread.latest_post.content) ? 'зайдите в тему чтобы посмотреть' :
-                          renderContent(thread.latest_post.content.substring(0, 100)) + '...'}
+                          <>
+                            {renderContent(thread.latest_post.content.substring(0, 100))}
+                            {'...'}
+                          </>
+                        }
                       </p>
                     </div>
                   ) : (
                     <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : renderContent(thread.content.substring(0, 100)) + '...'}
+                      {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                        <>
+                          {renderContent(thread.content.substring(0, 100))}
+                          {'...'}
+                        </>
+                      )}
                     </p>
                   )}
                 </div>
@@ -506,7 +538,8 @@ const Board = () => {
                 </div>
               </div>
             </Link>
-          ))}
+            ))
+          )}
         </div>
 
         {threads.length === 0 && !pageLoading && (

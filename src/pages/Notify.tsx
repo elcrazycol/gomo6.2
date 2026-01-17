@@ -94,15 +94,30 @@ const Notify = () => {
   };
 
   const markAsRead = async (id: string) => {
+    // Immediately update local state
+    setNotifications(prev =>
+      prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+    );
+
+    // Update database
     await supabase
       .from("notifications")
       .update({ is_read: true })
       .eq("id", id);
+
+    // Reload to ensure consistency
     if (user) await loadNotifications(user.id);
   };
 
   const markAllAsRead = async () => {
     if (!user) return;
+
+    // Immediately update local state
+    setNotifications(prev =>
+      prev.map(n => ({ ...n, is_read: true }))
+    );
+
+    // Update database
     await supabase
       .from("notifications")
       .update({ is_read: true })
@@ -186,9 +201,16 @@ const Notify = () => {
                     <Link
                       key={notif.id}
                       to={link}
+                      onMouseEnter={() => {
+                        if (!notif.is_read) {
+                          markAsRead(notif.id);
+                        }
+                      }}
                       onClick={() => markAsRead(notif.id)}
-                      className={`block p-4 border border-border hover:bg-primary/10 hover:border-primary/20 transition-colors rounded ${
-                        !notif.is_read ? "bg-primary/5 border-primary/20" : ""
+                      className={`block p-4 border transition-all duration-200 rounded relative ${
+                        !notif.is_read
+                          ? "bg-muted/30 border-muted-foreground/20 border-l-2 border-l-muted-foreground/40"
+                          : "border-border hover:bg-primary/10 hover:border-primary/20"
                       }`}
                     >
                       <div className="flex items-start justify-between">
@@ -202,9 +224,6 @@ const Notify = () => {
                             })}
                           </p>
                         </div>
-                        {!notif.is_read && (
-                          <span className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-2"></span>
-                        )}
                       </div>
                     </Link>
                   );
