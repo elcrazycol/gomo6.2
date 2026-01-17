@@ -129,7 +129,7 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ achievement, onToggle
           {achievement.description}
         </p>
         <p className="text-xs text-primary mt-1">
-          Уровень {achievement.level || 1} • {new Date(achievement.unlocked_at).toLocaleDateString('ru-RU')}
+          Уровень {achievement.level || 1} • {achievement.unlocked_at ? new Date(achievement.unlocked_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Недавно'}
         </p>
       </div>
     </div>
@@ -632,30 +632,13 @@ const Profile = () => {
       .order("unlocked_at", { ascending: false });
 
     if (data) {
-      // Group by achievement type and keep only the highest level
-      const achievementMap = new Map();
-
-      data.forEach((ua: any) => {
-        const type = ua.achievements.achievement_type || ua.achievements.category;
-        const current = achievementMap.get(type);
-
-        if (!current || ua.level > current.level) {
-          achievementMap.set(type, {
-          ...ua.achievements,
-            level: ua.level,
-          unlocked_at: ua.unlocked_at,
-            is_pinned: ua.is_pinned,
-            pinned_order: ua.pinned_order,
-          });
-        }
-      });
-
-      // Filter to only show base achievements with their correct names based on level
-      const processedAchievements = Array.from(achievementMap.values()).map(achievement => {
+      // Process achievements without grouping by type (show all levels separately)
+      const processedAchievements = data.map((ua: any) => {
+        const achievement = ua.achievements;
         let displayName = achievement.name;
         let displayDescription = achievement.description;
 
-        // Achievement processing
+        // Achievement processing based on achievement ID and level
 
         // Customize name and description based on achievement ID (base achievements)
         if (achievement.id === 'time_10min') {
@@ -683,8 +666,8 @@ const Profile = () => {
             9: 'Провёл на сайте 250 часов',
             10: 'Провёл на сайте 500 часов'
           };
-          displayName = timeNames[achievement.level] || achievement.name;
-          displayDescription = timeDescriptions[achievement.level] || achievement.description;
+          displayName = timeNames[ua.level || 1] || achievement.name;
+          displayDescription = timeDescriptions[ua.level || 1] || achievement.description;
         } else if (achievement.id === 'posts_10') {
           const postNames = {
             1: 'Первые 10 сообщений',
@@ -704,8 +687,8 @@ const Profile = () => {
             6: 'Написал 2500 сообщений',
             7: 'Написал 5000 сообщений'
           };
-          displayName = postNames[achievement.level] || achievement.name;
-          displayDescription = postDescriptions[achievement.level] || achievement.description;
+          displayName = postNames[ua.level || 1] || achievement.name;
+          displayDescription = postDescriptions[ua.level || 1] || achievement.description;
         } else if (achievement.id === 'threads_5') {
           const threadNames = {
             1: 'Создатель',
@@ -723,24 +706,98 @@ const Profile = () => {
             5: 'Создал 80 тредов',
             6: 'Создал 100 тредов'
           };
-          displayName = threadNames[achievement.level] || achievement.name;
-          displayDescription = threadDescriptions[achievement.level] || achievement.description;
+          displayName = threadNames[ua.level || 1] || achievement.name;
+          displayDescription = threadDescriptions[ua.level || 1] || achievement.description;
+        } else if (achievement.id === 'images_1' || achievement.id === 'images_10' || achievement.id === 'images_25' || achievement.id === 'images_50' || achievement.id === 'images_100' || achievement.id === 'images_250' || achievement.id === 'images_500' || achievement.id === 'images_1000') {
+          const imageNames = {
+            1: 'Фотограф-новичок',
+            2: 'Коллекционер',
+            3: 'Фотолюбитель',
+            4: 'Фотограф',
+            5: 'Мастер фотографии',
+            6: 'Профессионал',
+            7: 'Легенда фотографии',
+            8: 'Икона фотографии'
+          };
+          const imageDescriptions = {
+            1: 'Загрузил первое изображение',
+            2: 'Загрузил 10 изображений',
+            3: 'Загрузил 25 изображений',
+            4: 'Загрузил 50 изображений',
+            5: 'Загрузил 100 изображений',
+            6: 'Загрузил 250 изображений',
+            7: 'Загрузил 500 изображений',
+            8: 'Загрузил 1000 изображений'
+          };
+          displayName = imageNames[ua.level || 1] || achievement.name;
+          displayDescription = imageDescriptions[ua.level || 1] || achievement.description;
+        } else if (achievement.id === 'likes_received_1' || achievement.id === 'likes_received_10' || achievement.id === 'likes_received_25' || achievement.id === 'likes_received_50' || achievement.id === 'likes_received_100' || achievement.id === 'likes_received_250' || achievement.id === 'likes_received_500' || achievement.id === 'likes_received_1000') {
+          const likesNames = {
+            1: 'Замеченный',
+            2: 'Популярный',
+            3: 'Уважаемый',
+            4: 'Влиятельный',
+            5: 'Лидер мнений',
+            6: 'Мастер сообщества',
+            7: 'Легенда форума',
+            8: 'Икона сообщества'
+          };
+          const likesDescriptions = {
+            1: 'Получил свой первый лайк',
+            2: 'Получил 10 лайков',
+            3: 'Получил 25 лайков',
+            4: 'Получил 50 лайков',
+            5: 'Получил 100 лайков',
+            6: 'Получил 250 лайков',
+            7: 'Получил 500 лайков',
+            8: 'Получил 1000 лайков'
+          };
+          displayName = likesNames[ua.level || 1] || achievement.name;
+          displayDescription = likesDescriptions[ua.level || 1] || achievement.description;
         }
 
         return {
           ...achievement,
           name: displayName,
-          description: displayDescription
+          description: displayDescription,
+          level: ua.level || 1,
+          unlocked_at: ua.unlocked_at || new Date().toISOString(),
+          is_pinned: ua.is_pinned || false,
+          pinned_order: ua.pinned_order || null
         };
       });
 
+      // Group achievements by type and keep only the highest level for each type
+      // Only group achievements that have achievement_type (time, posts, threads, images, likes_received, likes_given)
+      const achievementMap = new Map<string, typeof processedAchievements[0]>();
+      const groupedTypes = ['time', 'posts', 'threads', 'images', 'likes_received', 'likes_given'];
+      
+      processedAchievements.forEach((achievement) => {
+        // If achievement has a type that should be grouped, group by type
+        // Otherwise, keep as individual achievement
+        if (achievement.achievement_type && groupedTypes.includes(achievement.achievement_type)) {
+          const key = achievement.achievement_type;
+          const existing = achievementMap.get(key);
+          
+          if (!existing || (achievement.level || 1) > (existing.level || 1)) {
+            achievementMap.set(key, achievement);
+          }
+        } else {
+          // For non-grouped achievements, use their ID as key
+          achievementMap.set(achievement.id, achievement);
+        }
+      });
+      
+      // Convert map back to array
+      const groupedAchievements = Array.from(achievementMap.values());
+      
       // Split achievements into pinned and regular
-      const pinned = processedAchievements.filter(a => a.is_pinned);
-      const regular = processedAchievements.filter(a => !a.is_pinned);
+      const pinned = groupedAchievements.filter(a => a.is_pinned);
+      const regular = groupedAchievements.filter(a => !a.is_pinned);
 
       setPinnedAchievements(pinned);
       setRegularAchievements(regular);
-      setAchievements(processedAchievements);
+      setAchievements(groupedAchievements);
     }
   };
 

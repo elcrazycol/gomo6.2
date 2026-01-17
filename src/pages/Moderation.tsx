@@ -1,14 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Shield, Smile } from "lucide-react";
+import { Shield, Smile } from "lucide-react";
 
 const Moderation = () => {
   const navigate = useNavigate();
@@ -88,53 +82,6 @@ const Moderation = () => {
 
   return (
     <div className="bg-background min-h-screen">
-      <header className="bg-board-header text-board-header-foreground p-3 border-b border-border">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-          <Link to="/" className="text-xl font-bold hover:underline flex-shrink-0">
-            gomo6
-          </Link>
-          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
-            <Link to="/settings" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="p-2 hover:bg-white/20 hover:text-white transition-colors">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </Link>
-            {user && <NotificationBell userId={user.id} />}
-            {user && <ChatIcon userId={user.id} />}
-            <div className="hidden sm:flex gap-1 sm:gap-2 items-center ml-2">
-              {user && (
-                <ProfileHoverCard userId={user.id}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`text-sm sm:text-base hover:bg-white/20 hover:text-white transition-colors drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${
-                      currentUserColor === 'purple' ? 'text-purple-500' :
-                      currentUserColor === 'gold' ? 'text-yellow-500' :
-                      currentUserColor === 'orange' ? 'text-orange-500' :
-                      currentUserColor === 'red' ? 'text-red-500' :
-                      currentUserColor === 'blue' ? 'text-blue-500' :
-                      currentUserColor === 'green' ? 'text-green-500' :
-                      currentUserColor === 'yellow' ? 'text-yellow-400' :
-                      currentUserColor === 'cyan' ? 'text-cyan-500' :
-                      'text-quote'
-                    }`}
-                    onClick={() => navigate(`/profile/${user.id}`)}
-                  >
-                    {currentUserUsername || 'Профиль'}
-                  </Button>
-                </ProfileHoverCard>
-              )}
-            </div>
-            {user && (
-              <MobileMenu
-                user={user}
-                isModerator={true}
-              />
-            )}
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-4xl mx-auto p-4">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">Модерация</h1>

@@ -8,6 +8,25 @@ import {
 } from "@/components/ui/tooltip";
 import { RichTextEditorHandle } from "@/components/RichTextEditor";
 
+// Helper function to extract plain text from element (similar to RichTextEditor)
+function extractPlainTextFromNode(root: HTMLElement): string {
+  const out: string[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+  let node: Node | null = walker.currentNode;
+  while (node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const v = node.nodeValue ?? "";
+      out.push(v.replace(/\u200B/g, "")); // Remove zero-width spaces
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      if (el.tagName === "BR") out.push("\n");
+      if (el.dataset?.emojiOriginal) out.push(el.dataset.emojiOriginal);
+    }
+    node = walker.nextNode();
+  }
+  return out.join("");
+}
+
 interface InlineFormattingToolbarProps {
   editorRef?: React.RefObject<RichTextEditorHandle>;
   textareaRef?: React.RefObject<HTMLTextAreaElement>;
@@ -23,8 +42,68 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
     }
 
     if (editorRef?.current) {
-      // RichTextEditor support
-      editorRef.current.insertText(prefix + suffix);
+      // RichTextEditor support - wrap selected text or insert tags
+      const el = editorRef.current.getElement();
+      if (!el) return;
+      
+      el.focus();
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) {
+        // No selection - just insert tags
+        editorRef.current.insertText(prefix + suffix);
+        return;
+      }
+      
+      const range = selection.getRangeAt(0);
+      if (range.collapsed) {
+        // No text selected - just insert tags
+        editorRef.current.insertText(prefix + suffix);
+        return;
+      }
+      
+      // Text is selected - wrap it with tags
+      // Get the plain text from the selection using the editor's method
+      const selectedText = range.toString();
+      if (!selectedText || selectedText.trim().length === 0) {
+        // No text selected - just insert tags
+        editorRef.current.insertText(prefix + suffix);
+        return;
+      }
+      
+      // Get current value and selection positions
+      const currentValue = editorRef.current.getValue();
+      const selectionStart = editorRef.current.getSelectionStart();
+      const selectionEnd = selectionStart; // Since getSelectionStart returns end when text is selected
+      
+      // Calculate actual start position (selectionStart might be at end of selection)
+      // We need to find where the selection actually starts
+      const rangeClone = range.cloneRange();
+      rangeClone.selectNodeContents(el);
+      rangeClone.setEnd(range.startContainer, range.startOffset);
+      const startOffset = extractPlainTextFromNode(el).substring(0, rangeClone.toString().length).length;
+      const endOffset = startOffset + selectedText.length;
+      
+      // Insert tags around selected text
+      const newValue = 
+        currentValue.substring(0, startOffset) + 
+        prefix + selectedText + suffix + 
+        currentValue.substring(endOffset);
+      
+      // Use document.execCommand to replace selection (this will trigger input event)
+      range.deleteContents();
+      const textNode = document.createTextNode(prefix + selectedText + suffix);
+      range.insertNode(textNode);
+      
+      // Move cursor after inserted text
+      const newRange = document.createRange();
+      newRange.setStartAfter(textNode);
+      newRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+      
+      // Trigger change event manually
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      
       setTimeout(() => {
         editorRef.current?.focus();
       }, 0);
@@ -45,17 +124,17 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
 
   return (
     <TooltipProvider>
-      <div className="flex gap-1 flex-wrap relative z-50">
+      <div className="flex gap-0.5 sm:gap-1 flex-wrap relative z-50">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[B]", "[/B]")}
             >
-              <Bold className="h-4 w-4" />
+              <Bold className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -69,10 +148,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[I]", "[/I]")}
             >
-              <Italic className="h-4 w-4" />
+              <Italic className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -86,10 +165,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[U]", "[/U]")}
             >
-              <Underline className="h-4 w-4" />
+              <Underline className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -103,10 +182,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[S]", "[/S]")}
             >
-              <Strikethrough className="h-4 w-4" />
+              <Strikethrough className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -120,10 +199,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[col=#ff0000]", "[/col]")}
             >
-              <Palette className="h-4 w-4" />
+              <Palette className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -137,10 +216,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[size=2]", "[/size]")}
             >
-              <Type className="h-4 w-4" />
+              <Type className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -154,10 +233,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[blur]", "[/blur]")}
             >
-              <Eye className="h-4 w-4" />
+              <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
@@ -171,10 +250,10 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
               onClick={() => insertFormatting("[spoiler]", "[/spoiler]")}
             >
-              <Zap className="h-4 w-4" />
+              <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent className="z-50" side="top">
