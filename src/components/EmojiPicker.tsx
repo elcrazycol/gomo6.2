@@ -55,9 +55,26 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   useEffect(() => {
     if (open) {
       loadEmojis();
-      // Wait for panel to render before positioning
+      // Calculate initial position immediately before rendering
+      if (triggerRef?.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        const estimatedHeight = 400; // Conservative estimate
+        const idealTop = rect.top - estimatedHeight;
+        const top = idealTop >= 8 ? idealTop : rect.bottom;
+        const panelWidth = 320;
+        const buttonCenter = rect.left + rect.width / 2;
+        const panelLeft = buttonCenter - panelWidth / 2;
+        const clampedLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
+        
+        setPosition({ top, left: clampedLeft });
+      }
+      
+      // Update position after render
       requestAnimationFrame(() => {
-        setTimeout(updatePosition, 1);
+        updatePosition();
+        setTimeout(() => {
+          updatePosition();
+        }, 10);
       });
     }
   }, [open]);
@@ -364,14 +381,19 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
             pickerRef.current = el;
             if (el && panelRef.current !== el) {
               panelRef.current = el;
-              // Measure height after render
-              setTimeout(() => {
+              // Measure height and update position after render
+              const updatePos = () => {
                 if (el) {
                   const height = el.offsetHeight;
                   setPanelHeight(height);
                   updatePosition();
                 }
-              }, 1);
+              };
+              // Multiple updates to ensure correct positioning
+              requestAnimationFrame(updatePos);
+              setTimeout(updatePos, 0);
+              setTimeout(updatePos, 10);
+              setTimeout(updatePos, 50);
             }
           }}
           className="fixed z-[100] w-80 bg-background/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden"

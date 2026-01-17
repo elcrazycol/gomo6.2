@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Menu, X, User, Settings, Hammer, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { UserBadge } from "@/components/UserBadge";
+import { HeaderUsername } from "@/components/HeaderUsername";
 
 interface MobileMenuProps {
   user: any;
@@ -88,12 +89,12 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     )}
                   </div>
 
-                  {/* User info */}
+                  {/* User info with HeaderUsername */}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate">
-                      {username || "Пользователь"}
+                      <HeaderUsername userId={user.id} className="text-base font-semibold" />
                     </div>
-                    <div className="text-sm text-muted-foreground">
+                    <div className="text-sm text-muted-foreground mt-1">
                       ID: {user.id.slice(0, 8)} {accountNumber && `(${accountNumber})`}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 line-clamp-2">

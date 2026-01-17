@@ -22,7 +22,6 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showCard, setShowCard] = useState(false);
-  const [viewedNotifications, setViewedNotifications] = useState<Set<string>>(new Set());
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -90,32 +89,6 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
     }
   };
 
-  // Mark notifications as read when viewed
-  useEffect(() => {
-    if (showCard && notifications.length > 0) {
-      const unreadIds = notifications
-        .filter(n => !n.is_read && !viewedNotifications.has(n.id))
-        .map(n => n.id);
-      
-      if (unreadIds.length > 0) {
-        // Mark as read in database
-        supabase
-          .from("notifications")
-          .update({ is_read: true })
-          .in("id", unreadIds);
-        
-        // Add to viewed set
-        setViewedNotifications(prev => {
-          const newSet = new Set(prev);
-          unreadIds.forEach(id => newSet.add(id));
-          return newSet;
-        });
-        
-        // Reload to update count
-        loadNotifications();
-      }
-    }
-  }, [showCard, notifications, viewedNotifications]);
 
   const handleClick = () => {
     navigate("/notify");
@@ -188,8 +161,29 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
                     <Link
                       key={notif.id}
                       to={link}
-                      className={`block p-3 border border-border hover:bg-primary/10 hover:border-primary/20 transition-colors rounded ${
-                        !notif.is_read && !viewedNotifications.has(notif.id) ? "bg-primary/5 border-primary/20" : ""
+                      onMouseEnter={() => {
+                        if (!notif.is_read) {
+                          // Immediately update local state
+                          setNotifications(prev =>
+                            prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
+                          );
+                          // Update unread count immediately
+                          setUnreadCount(prev => Math.max(0, prev - 1));
+                          // Mark as read in database (async)
+                          supabase
+                            .from('notifications')
+                            .update({ is_read: true })
+                            .eq('id', notif.id)
+                            .then(() => {
+                              // Reload notifications to ensure consistency
+                              loadNotifications();
+                            });
+                        }
+                      }}
+                      className={`block p-3 border transition-all duration-200 rounded relative ${
+                        !notif.is_read
+                          ? "bg-muted/30 border-muted-foreground/20 border-l-2 border-l-muted-foreground/40"
+                          : "border-border hover:bg-primary/10 hover:border-primary/20"
                       }`}
                     >
                       <p className="font-bold text-sm">{notif.title}</p>
