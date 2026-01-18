@@ -18,6 +18,7 @@ import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, Ey
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
+import { Poll } from "@/components/Poll";
 
 // Tag label helper functions
 const getContentTagLabel = (value: string) => {
@@ -158,6 +159,7 @@ const Thread = () => {
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
   });
+  const [pollData, setPollData] = useState<any>(null);
 
   // Simple BBCode renderer for preview
   const renderPreviewContent = (text: string): React.ReactNode[] => {
@@ -542,6 +544,36 @@ const Thread = () => {
         boards: board!,
         profiles: profile,
       });
+
+      // Load poll data if exists
+      const { data: poll } = await supabase
+        .from('polls')
+        .select('*')
+        .eq('thread_id', threadData.id)
+        .maybeSingle();
+
+      if (poll) {
+        // Get user votes for this poll
+        let userVotes: string[] = [];
+        if (user?.id) {
+          const { data: userVote } = await supabase
+            .from('poll_votes')
+            .select('option_ids')
+            .eq('poll_id', poll.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          userVotes = userVote?.option_ids || [];
+        }
+
+        // Set poll data without results (they will be loaded in Poll component)
+        const pollData = {
+          ...poll,
+          user_votes: userVotes
+        };
+
+        setPollData(pollData);
+      }
 
       // Track thread visit for achievements
       if (user) {
@@ -1052,6 +1084,7 @@ const Thread = () => {
                 ))}
               </div>
             )}
+
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
               <ProcessedContent
                 content={thread.content}
@@ -1144,6 +1177,17 @@ const Thread = () => {
               <PentagramLoader size="lg" />
             </div>
           )}
+
+          {/* Poll */}
+          {pollData && (
+            <Poll
+              poll={pollData}
+              threadId={threadId}
+              currentUserId={user?.id || null}
+              isPageLoading={pageLoading}
+            />
+          )}
+
           {posts.map((post) => (
             <div
               key={post.id}
