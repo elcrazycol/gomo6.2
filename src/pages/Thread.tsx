@@ -920,6 +920,7 @@ const Thread = () => {
                 postId={thread.id}
                 currentUserId={user?.id || null}
                 postAuthorId={thread.user_id}
+                isThread={true}
               />
               {isModerator && thread.user_id && (
                 <ModeratorMenu

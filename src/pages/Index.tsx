@@ -9,10 +9,11 @@ import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings } from "lucide-react";
+import { Settings, Plus, Grid3X3 } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
+import { ThreadFeed } from "@/components/ThreadFeed";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -24,35 +25,12 @@ interface Board {
   description: string;
 }
 
-interface RandomThread {
-  id: string;
-  title: string;
-  board_id: string;
-  boards: {
-    slug: string;
-  };
-}
-
-interface PopularThread {
-  id: string;
-  title: string;
-  post_count: number;
-  board_id: string;
-  boards: {
-    slug: string;
-    name: string;
-  };
-}
-
 const Index = () => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
-  const [randomBoards, setRandomBoards] = useState<Board[]>([]);
-  const [randomThread, setRandomThread] = useState<RandomThread | null>(null);
-  const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
   const [showTerms, setShowTerms] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -148,58 +126,11 @@ const Index = () => {
         // Filter out /faq/ and /bugs/ boards from the main list
         const filteredBoards = data.filter(board => board.slug !== 'faq' && board.slug !== 'bugs');
         setBoards(filteredBoards);
-
-        // Get 2 random boards from filtered list
-        const shuffled = [...filteredBoards].sort(() => 0.5 - Math.random());
-        setRandomBoards(shuffled.slice(0, 2));
       }
     };
 
-    const loadRandomThread = async () => {
-      const { data } = await supabase
-        .from("threads")
-        .select(`
-          id,
-          title,
-          board_id,
-          boards!inner(slug)
-        `)
-        .limit(100);
-
-      if (data && data.length > 0) {
-        const randomIndex = Math.floor(Math.random() * data.length);
-        setRandomThread(data[randomIndex]);
-      }
-    };
-
-    const loadPopularThreads = async () => {
-      const { data } = await supabase
-        .from("threads")
-        .select(`
-          id,
-          title,
-          post_count,
-          board_id,
-          boards!inner(slug, name)
-        `)
-        .order("post_count", { ascending: false })
-        .limit(5);
-
-      if (data) {
-        setPopularThreads(data);
-      }
-    };
-
-    const loadAll = async () => {
-      setLoading(true);
-      await Promise.all([
-        loadBoards(),
-        loadRandomThread(),
-        loadPopularThreads(),
-      ]);
-      setLoading(false);
-    };
-    loadAll();
+    loadBoards();
+    setLoading(false);
   }, []);
 
   const handleLogout = async () => {
@@ -236,139 +167,108 @@ const Index = () => {
   }
 
   return (
-    <div className="bg-background min-h-screen flex flex-col">
-      <div className="flex-1 min-h-0">
-      <main className="max-w-4xl mx-auto p-3 sm:p-6">
-        <div className="text-center mb-6 sm:mb-8">
-        </div>
+    <div className="bg-background min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6">
+          {/* Main Feed */}
+          <div className="lg:col-span-3">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold">Поток тредов</h1>
+            </div>
 
-        <div className="mb-4 text-center flex gap-3 justify-center flex-wrap">
-          <PrefetchLink to="/rules">
-            <Button variant="outline" className="relative hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors group">
-              Информация
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-          </PrefetchLink>
+            <ThreadFeed
+              currentUserId={user?.id}
+              currentUsername={currentUserUsername}
+              currentUserColor={currentUserColor}
+            />
+          </div>
 
-          <PrefetchLink to="/bugs">
-            <Button variant="outline" className="relative hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors group">
-              Баги/Идеи
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-          </PrefetchLink>
-
-          <PrefetchLink to="/faq">
-            <Button variant="outline" className="relative hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors group">
-              FAQ
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-          </PrefetchLink>
-        </div>
-
-        <div className="bg-card border border-border p-6 mb-6">
-          <h3 className="text-xl font-bold mb-4">Доски</h3>
-          <div className="space-y-3">
-            {boards.map((board) => (
-              <React.Fragment key={board.id}>
-                <PrefetchLink
-                  to={`/${board.slug}`}
-                  className="block p-4 border border-border hover:bg-thread-hover transition-colors group"
+          {/* Sidebar - Desktop */}
+          <div className="hidden lg:block lg:col-span-1">
+            <div className="space-y-6">
+              {/* Create Thread Button */}
+              <div className="bg-card border border-border rounded-lg p-4">
+                <Button
+                  onClick={() => navigate("/boards")}
+                  className="w-full mb-3 relative group hover:translate-x-0.5 transition-transform duration-200"
+                  size="lg"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="relative flex-1">
-                      <h4 className="text-lg font-bold text-primary relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Создать тред
+                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                </Button>
+
+                <Button
+                  onClick={() => navigate("/boards")}
+                  variant="outline"
+                  className="w-full relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50"
+                >
+                  <Grid3X3 className="h-4 w-4 mr-2" />
+                  Просмотр по доскам
+                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                </Button>
+              </div>
+
+              {/* Boards List */}
+              <div className="bg-card border border-border rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-4">Доски</h3>
+                <div className="space-y-2">
+                  {boards.map((board) => (
+                    <PrefetchLink
+                      key={board.id}
+                      to={`/${board.slug}`}
+                      className="block p-3 border border-border rounded hover:bg-thread-hover transition-colors group hover:translate-x-0.5 transition-transform duration-200"
+                    >
+                      <div className="font-medium text-primary relative">
                         /{board.slug}/
                         <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                      </h4>
-                      <p className="text-base font-semibold transition-transform duration-200 group-hover:translate-x-0.5">{board.name}</p>
-                      <p className="text-sm text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5">{board.description}</p>
-                    </div>
-                    <div className="text-primary transition-transform duration-200 group-hover:translate-x-0.5">→</div>
-                  </div>
-                </PrefetchLink>
-                {board.slug === 'b' && (
-                  <div className="mt-6 pt-4 border-t-2 border-primary">
-                  </div>
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-card border border-border p-6 mb-6">
-          <h3 className="text-xl font-bold mb-4">Популярные треды</h3>
-          <div className="space-y-2">
-            {popularThreads.map((thread) => (
-              <PrefetchLink
-                key={thread.id}
-                to={`/${thread.boards.slug}/thread/${thread.id}`}
-                className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 relative">
-                    <div className="font-bold relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                      {thread.title}
-                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                    </div>
-                    <div className="text-sm text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5">
-                      /{thread.boards.slug}/ - {thread.boards.name}
-                    </div>
-                  </div>
-                  <div className="text-sm text-muted-foreground ml-2 transition-transform duration-200 group-hover:translate-x-0.5">
-                    {thread.post_count} отв.
-                  </div>
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {board.name}
+                      </div>
+                    </PrefetchLink>
+                  ))}
                 </div>
-              </PrefetchLink>
-            ))}
-          </div>
-        </div>
+              </div>
 
-        <div className="bg-card border border-border p-6 mb-6">
-          <h3 className="text-xl font-bold mb-4">Случайность</h3>
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-semibold mb-2">Случайные доски:</h4>
-              <div className="space-y-2">
-                {randomBoards.map((board) => (
-                  <PrefetchLink
-                    key={board.id}
-                    to={`/${board.slug}`}
-                    className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group relative"
-                  >
-                    <div className="font-bold text-primary relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                      /{board.slug}/ - {board.name}
+              {/* Quick Links */}
+              <div className="bg-card border border-border rounded-lg p-4">
+                <h3 className="text-lg font-semibold mb-4">Быстрые ссылки</h3>
+                <div className="space-y-2">
+                  <PrefetchLink to="/rules">
+                    <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
+                      Информация
                       <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                    </div>
+                    </Button>
                   </PrefetchLink>
-                ))}
+
+                  <PrefetchLink to="/bugs">
+                    <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
+                      Баги/Идеи
+                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                    </Button>
+                  </PrefetchLink>
+
+                  <PrefetchLink to="/faq">
+                    <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
+                      FAQ
+                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                    </Button>
+                  </PrefetchLink>
+                </div>
               </div>
             </div>
-            
-            {randomThread && (
-              <div>
-                <h4 className="font-semibold mb-2">Случайный тред:</h4>
-                <PrefetchLink
-                  to={`/${randomThread.boards.slug}/thread/${randomThread.id}`}
-                  className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"
-                >
-                  <div className="font-bold relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                    {randomThread.title}
-                    <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                  </div>
-                </PrefetchLink>
-              </div>
-            )}
           </div>
-        </div>
 
-        <TermsOfService
-          open={showTerms}
-          onAccept={handleAcceptTerms}
-          onDecline={handleDeclineTerms}
-          canDecline={true}
-        />
-      </main>
+        </div>
       </div>
+
+      <TermsOfService
+        open={showTerms}
+        onAccept={handleAcceptTerms}
+        onDecline={handleDeclineTerms}
+        canDecline={true}
+      />
     </div>
   );
 };
