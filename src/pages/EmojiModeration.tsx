@@ -151,8 +151,8 @@ const EmojiModeration = () => {
           <Link to="/moderation/emojis/create" className="group">
             <div className="bg-card/80 backdrop-blur-sm border border-border/50 rounded-2xl p-8 hover:bg-card/90 transition-all duration-300 hover:scale-105 hover:shadow-xl group-hover:border-primary/30">
               <div className="flex flex-col items-center text-center space-y-4">
-                <div className="p-4 bg-green-500/10 rounded-full group-hover:bg-green-500/20 transition-colors">
-                  <Plus className="h-8 w-8 text-green-500" />
+                <div className="p-4 bg-primary/10 rounded-full group-hover:bg-primary/20 transition-colors">
+                  <Plus className="h-8 w-8 text-primary" />
                 </div>
                 <h3 className="text-xl font-semibold">Создать</h3>
                 <p className="text-sm text-muted-foreground">

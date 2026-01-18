@@ -9,18 +9,20 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { MentionLink } from "./MentionLink";
+import { UserBadge } from "./UserBadge";
 
 interface LikeButtonProps {
   postId: string;
   currentUserId: string | null;
   postAuthorId?: string | null;
   onLikeChange?: (liked: boolean, count: number) => void;
+  isThread?: boolean; // New prop to distinguish between posts and threads
 }
 
-export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }: LikeButtonProps) => {
+export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange, isThread = false }: LikeButtonProps) => {
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
-  const [recentLikers, setRecentLikers] = useState<{ username: string; id: string }[]>([]);
+  const [recentLikers, setRecentLikers] = useState<{ username: string; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
 
@@ -30,16 +32,18 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
       if (!currentUserId) return;
 
       try {
-        // Check if user liked this post
-        const { data: hasLiked } = await supabase.rpc('has_user_liked_post', {
-          post_uuid: postId,
+        // Check if user liked this post/thread
+        const hasLikedFunction = isThread ? 'has_user_liked_thread' : 'has_user_liked_post';
+        const { data: hasLiked } = await supabase.rpc(hasLikedFunction, {
+          [isThread ? 'thread_uuid' : 'post_uuid']: postId,
           user_uuid: currentUserId
         });
         setIsLiked(hasLiked);
 
         // Get likes count
-        const { data: count } = await supabase.rpc('get_post_likes_count', {
-          post_uuid: postId
+        const countFunction = isThread ? 'get_thread_likes_count' : 'get_post_likes_count';
+        const { data: count } = await supabase.rpc(countFunction, {
+          [isThread ? 'thread_uuid' : 'post_uuid']: postId
         });
         setLikesCount(count || 0);
       } catch (error) {
@@ -48,7 +52,7 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
     };
 
     loadLikeData();
-  }, [postId, currentUserId]);
+  }, [postId, currentUserId, isThread]);
 
   // Load recent likers when tooltip opens
   useEffect(() => {
@@ -56,8 +60,9 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
       if (!tooltipOpen || likesCount === 0) return;
 
       try {
-        const { data: likers } = await supabase.rpc('get_recent_post_likers', {
-          post_uuid: postId,
+        const likersFunction = isThread ? 'get_recent_thread_likers' : 'get_recent_post_likers';
+        const { data: likers } = await supabase.rpc(likersFunction, {
+          [isThread ? 'thread_uuid' : 'post_uuid']: postId,
           limit_count: 3
         });
         setRecentLikers(likers || []);
@@ -67,17 +72,19 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
     };
 
     loadRecentLikers();
-  }, [tooltipOpen, postId, likesCount]);
+  }, [tooltipOpen, postId, likesCount, isThread]);
 
   const checkAchievements = async (userId: string, achievementType: string) => {
     try {
       let count = 0;
 
       if (achievementType === 'likes_given') {
-        const { data } = await supabase.rpc('get_user_likes_given_count', { user_uuid: userId });
+        const countFunction = isThread ? 'get_user_thread_likes_given_count' : 'get_user_likes_given_count';
+        const { data } = await supabase.rpc(countFunction, { user_uuid: userId });
         count = data || 0;
       } else if (achievementType === 'likes_received') {
-        const { data } = await supabase.rpc('get_user_likes_received_count', { user_uuid: userId });
+        const countFunction = isThread ? 'get_user_thread_likes_received_count' : 'get_user_likes_received_count';
+        const { data } = await supabase.rpc(countFunction, { user_uuid: userId });
         count = data || 0;
       }
 
@@ -87,10 +94,10 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
       else if (count >= 500) level = 7;
       else if (count >= 250) level = 6;
       else if (count >= 100) level = 5;
-      else if (count >= 50) level = 4;
-      else if (count >= 25) level = 3;
-      else if (count >= 10) level = 2;
-      else if (count >= 1) level = 1;
+      else if (count >= 75) level = 4;
+      else if (count >= 50) level = 3;
+      else if (count >= 25) level = 2;
+      else if (count >= 10) level = 1;
 
       if (level > 0) {
         // Award achievement using the RPC function
@@ -108,7 +115,7 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
   const handleLikeToggle = async () => {
     if (!currentUserId || isLoading) return;
 
-    // Prevent liking your own posts
+    // Prevent liking your own posts/threads
     if (postAuthorId && currentUserId === postAuthorId) return;
 
     setIsLoading(true);
@@ -116,9 +123,9 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
       if (isLiked) {
         // Remove like
         const { error } = await supabase
-          .from('post_likes')
+          .from(isThread ? 'thread_likes' : 'post_likes')
           .delete()
-          .eq('post_id', postId)
+          .eq(isThread ? 'thread_id' : 'post_id', postId)
           .eq('user_id', currentUserId);
 
         if (!error) {
@@ -135,9 +142,9 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
       } else {
         // Add like
         const { error } = await supabase
-          .from('post_likes')
+          .from(isThread ? 'thread_likes' : 'post_likes')
           .insert({
-            post_id: postId,
+            [isThread ? 'thread_id' : 'post_id']: postId,
             user_id: currentUserId
           });
 
@@ -207,7 +214,7 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
             variant="ghost"
             size="sm"
             onClick={handleLikeToggle}
-            disabled={isLoading || isOwnPost}
+            disabled={isLoading}
             className={`flex items-center gap-1 h-auto p-1 hover:bg-transparent ${
               isOwnPost
                 ? 'text-muted-foreground/50 cursor-not-allowed'
@@ -226,24 +233,27 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange }
             )}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>
-          <div className="space-y-1">
+        <TooltipContent className="bg-card border border-border">
+          <div className="space-y-2">
+            <div className="text-muted-foreground text-xs mb-2">
+              {likesCount > 3 ? `+${likesCount - 3} других` : `${likesCount} лайков`}
+            </div>
             {recentLikers.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {recentLikers.map((liker, index) => (
-                  <span key={liker.id}>
-                    <MentionLink username={liker.username} />
-                    {index < recentLikers.length - 1 && ', '}
-                  </span>
+              <div className="space-y-2">
+                {recentLikers.slice(0, 3).map((liker) => (
+                  <div key={liker.id} className="flex items-center">
+                    <UserBadge
+                      userId={liker.id}
+                      username={liker.is_anonymous ? "Аноним" : liker.username}
+                      isAnonymous={liker.is_anonymous}
+                      showOutline={false}
+                      className="text-xs"
+                    />
+                  </div>
                 ))}
-                {likesCount > recentLikers.length && (
-                  <span className="text-muted-foreground">
-                    {' '}и ещё {likesCount - recentLikers.length}
-                  </span>
-                )}
               </div>
             ) : (
-              <p>{getTooltipContent()}</p>
+              <p className="text-xs">{getTooltipContent()}</p>
             )}
           </div>
         </TooltipContent>
