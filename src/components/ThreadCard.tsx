@@ -17,7 +17,12 @@ interface ThreadCardProps {
     image_url: string | null;
     image_urls?: string[] | null;
     created_at: string;
+    updated_at: string;
     user_id: string | null;
+    tags?: any; // Thread tags object
+    ephemeral_type?: string | null;
+    ephemeral_value?: number | null;
+    auto_delete_at?: string | null;
     profiles: {
       username: string;
       is_anonymous: boolean;
@@ -32,7 +37,7 @@ interface ThreadCardProps {
   currentUserId: string | null;
   currentUsername: string;
   currentUserColor?: string;
-  showPreview?: boolean; // Whether to show recent posts preview
+  showPreview?: boolean;
 }
 
 interface RecentPost {
@@ -47,7 +52,105 @@ interface RecentPost {
   } | null;
 }
 
-export const ThreadCard = ({
+export // Helper function to render tags
+const renderTags = (tags: any, layout: 'inline' | 'block' = 'block', thread?: any) => {
+  const containerClass = layout === 'inline'
+    ? "flex flex-wrap gap-1"
+    : "flex flex-wrap gap-1 mt-1";
+
+  return (
+    <div className={containerClass}>
+      {/* Ephemeral tag */}
+      {thread?.ephemeral_type && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = `/b?flag=ephemeral`;
+          }}
+          className="inline-block px-2 py-0.5 text-xs bg-orange-500/10 text-orange-700 rounded-full
+                   hover:bg-orange-500/20 hover:text-orange-800 transition-colors duration-200
+                   border border-orange-500/20 hover:border-orange-500/40"
+        >
+          Временный
+        </button>
+      )}
+
+      {/* Content tag */}
+      {tags?.content && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = `/b?content=${tags.content}`;
+          }}
+          className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full
+                   hover:bg-blue-500/20 hover:text-blue-700 transition-colors duration-200
+                   border border-blue-500/20 hover:border-blue-500/40"
+        >
+          {tags.content === 'anime' && 'Аниме'}
+          {tags.content === 'games' && 'Игры'}
+          {tags.content === 'music' && 'Музыка'}
+          {tags.content === 'movies' && 'Фильмы'}
+          {tags.content === 'comics' && 'Комиксы'}
+          {tags.content === 'humor' && 'Юмор'}
+          {tags.content === 'literature' && 'Литература'}
+          {tags.content === 'stories' && 'Истории'}
+        </button>
+      )}
+
+      {/* Format tag */}
+      {tags?.format && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = `/b?format=${tags.format}`;
+          }}
+          className="inline-block px-2 py-0.5 text-xs bg-green-500/10 text-green-600 rounded-full
+                   hover:bg-green-500/20 hover:text-green-700 transition-colors duration-200
+                   border border-green-500/20 hover:border-green-500/40"
+        >
+          {tags.format === 'shitpost' && 'Щитпост'}
+          {tags.format === 'discussion' && 'Обсуждение'}
+          {tags.format === 'question' && 'Вопрос'}
+          {tags.format === 'confession' && 'Признание'}
+          {tags.format === 'story' && 'Рассказ'}
+          {tags.format === 'guide' && 'Гайд'}
+        </button>
+      )}
+
+      {/* Atmosphere tag */}
+      {tags?.atmosphere && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.location.href = `/b?atmosphere=${tags.atmosphere}`;
+          }}
+          className="inline-block px-2 py-0.5 text-xs bg-purple-500/10 text-purple-600 rounded-full
+                   hover:bg-purple-500/20 hover:text-purple-700 transition-colors duration-200
+                   border border-purple-500/20 hover:border-purple-500/40"
+        >
+          {tags.atmosphere === 'serious' && 'Серьёзно'}
+          {tags.atmosphere === 'irony' && 'Ирония'}
+          {tags.atmosphere === 'vent' && 'Выплеск'}
+          {tags.atmosphere === 'doom' && 'Тьма'}
+        </button>
+      )}
+
+      {/* Night tag */}
+      {tags?.flag === 'night' && (
+        <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full
+               border border-blue-500/20">
+          Ночной
+        </span>
+      )}
+    </div>
+  );
+};
+
+const ThreadCard = ({
   thread,
   currentUserId,
   currentUsername,
@@ -60,7 +163,10 @@ export const ThreadCard = ({
   const [isLoadingPosts, setIsLoadingPosts] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [imagesExpanded, setImagesExpanded] = useState(false);
-  const [lastPostDate, setLastPostDate] = useState<string | null>(null);
+  // Calculate last post date from thread updated_at if it's different from created_at
+  const lastPostDate = thread.updated_at && thread.updated_at !== thread.created_at
+    ? thread.updated_at
+    : null;
   const [recentLikers, setRecentLikers] = useState<{username: string, id: string, avatar_url: string | null, is_anonymous: boolean}[]>([]);
   const [hasOverflowImages, setHasOverflowImages] = useState(false);
 
@@ -98,7 +204,6 @@ export const ThreadCard = ({
 
       if (postsError || !postsData || postsData.length === 0) {
         setRecentPosts([]);
-        setLastPostDate(null);
         return;
       }
 
@@ -119,10 +224,8 @@ export const ThreadCard = ({
 
       if (data && data.length > 0) {
         setRecentPosts(data.reverse()); // Reverse to show oldest first
-        // Set the date of the most recent post (first in the array since we reverse)
-        setLastPostDate(data[0].created_at);
       } else {
-        setLastPostDate(null);
+        setRecentPosts([]);
       }
     } catch (error) {
       console.error("Error loading recent posts:", error);
@@ -251,18 +354,48 @@ export const ThreadCard = ({
                   locale: ru,
                   addSuffix: true,
                 })}
+                {lastPostDate && (
+                  <span className="hidden group-hover/title:inline">
+                    {' | '}{formatDistanceToNow(new Date(lastPostDate), {
+                      locale: ru,
+                      addSuffix: true,
+                    })}
+                  </span>
+                )}
               </span>
             </div>
 
             <h3 className="font-bold text-lg mb-2 break-words relative group/title">
               <span className="relative">
                 {thread.title}
+                {thread.ephemeral_type && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full">
+                    {thread.ephemeral_type === 'time'
+                      ? `${thread.ephemeral_value}ч`
+                      : `${thread.ephemeral_value}сообщ.`
+                    }
+                  </span>
+                )}
+                {thread.tags?.flag === 'night' && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+                    Ночной
+                  </span>
+                )}
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px]
                   bg-current transition-all duration-300
                   group-hover/title:w-full">
                 </span>
               </span>
+              {/* Desktop: inline tags */}
+              <div className="hidden md:inline ml-2">
+                {renderTags(thread.tags, 'inline', thread)}
+              </div>
             </h3>
+
+            {/* Mobile: tags below title */}
+            <div className="md:hidden">
+              {renderTags(thread.tags, 'block', thread)}
+            </div>
           </div>
 
         </div>
@@ -459,3 +592,5 @@ export const ThreadCard = ({
     </Link>
   );
 };
+
+export { ThreadCard };

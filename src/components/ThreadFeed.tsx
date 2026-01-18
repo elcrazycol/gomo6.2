@@ -67,6 +67,10 @@ export const ThreadFeed = ({
           updated_at,
           user_id,
           board_id,
+          tags,
+          ephemeral_type,
+          ephemeral_value,
+          auto_delete_at,
           post_count,
           boards!inner (
             slug,
@@ -102,6 +106,10 @@ export const ThreadFeed = ({
               updated_at,
               user_id,
               board_id,
+              tags,
+              ephemeral_type,
+              ephemeral_value,
+              auto_delete_at,
               post_count,
               boards!inner (
                 slug,

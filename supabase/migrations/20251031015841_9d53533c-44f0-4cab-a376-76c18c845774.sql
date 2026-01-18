@@ -69,9 +69,39 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
+DECLARE
+  image_count INTEGER;
 BEGIN
-  IF NEW.image_url IS NOT NULL THEN
-    PERFORM award_achievement(NEW.user_id, 'first_image_post');
+  IF NEW.image_url IS NOT NULL OR NEW.image_urls IS NOT NULL THEN
+    -- Count user's image uploads
+    SELECT COALESCE(image_upload_count, 0) INTO image_count
+    FROM profiles WHERE id = NEW.user_id;
+
+    -- Award achievements based on image count
+    IF image_count >= 1 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 1);
+    END IF;
+    IF image_count >= 10 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 2);
+    END IF;
+    IF image_count >= 25 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 3);
+    END IF;
+    IF image_count >= 50 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 4);
+    END IF;
+    IF image_count >= 100 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 5);
+    END IF;
+    IF image_count >= 250 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 6);
+    END IF;
+    IF image_count >= 500 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 7);
+    END IF;
+    IF image_count >= 1000 THEN
+      PERFORM award_achievement_with_level(NEW.user_id, 'images', 8);
+    END IF;
   END IF;
   RETURN NEW;
 END;
