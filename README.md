@@ -64,6 +64,37 @@ This project is built with:
 
 Simply open [Lovable](https://lovable.dev/projects/69da28ed-e08a-4018-ade5-32fc265161ee) and click on Share -> Publish.
 
+### Production Build
+
+For production deployment:
+
+```sh
+# Build the project
+npm run build
+
+# The dist/ folder contains the production build
+```
+
+## Troubleshooting Cache Issues
+
+If you encounter loading errors after deployment:
+
+### Clear Browser Cache
+- **Chrome/Edge**: Ctrl+Shift+R (hard refresh) or Ctrl+Shift+Delete → Clear browsing data
+- **Firefox**: Ctrl+F5 or Ctrl+Shift+R
+
+### Service Worker Issues
+The app automatically clears old caches, but if problems persist:
+
+1. Open DevTools (F12)
+2. Go to Application → Storage → Clear storage
+3. Or go to Application → Service Workers → Unregister old workers
+
+### Vercel Deployment
+If deployed on Vercel, the cache headers are configured to:
+- Assets: 1 day with stale-while-revalidate
+- Service Worker files: No cache (must-revalidate)
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes, you can!
@@ -71,4 +102,3 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
-temp

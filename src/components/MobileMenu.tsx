@@ -75,7 +75,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             {/* Create thread button */}
             <Button
               onClick={() => {
-                navigate("/boards");
+                navigate("/");
                 setOpen(false);
               }}
               className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"

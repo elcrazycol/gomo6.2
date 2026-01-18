@@ -1,0 +1,660 @@
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { X, Plus, Eye, EyeOff, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
+import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
+import { renderPreviewContent } from "@/utils/emojiUtils";
+
+interface Board {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+}
+
+interface ThreadTags {
+  content?: string;
+  format?: string;
+  atmosphere?: string;
+  flag: string; // required
+}
+
+const CONTENT_TAGS = [
+  { value: 'anime', label: 'Аниме', description: 'Обсуждение аниме и манги' },
+  { value: 'games', label: 'Игры', description: 'Компьютерные и видеоигры' },
+  { value: 'music', label: 'Музыка', description: 'Музыка и музыканты' },
+  { value: 'movies', label: 'Фильмы', description: 'Обсуждение фильмов и сериалов' },
+  { value: 'comics', label: 'Комиксы', description: 'Комиксы и графические романы' },
+  { value: 'humor', label: 'Юмор', description: 'Мемы, шутки, абсурд' },
+  { value: 'literature', label: 'Литература', description: 'Книги и писатели' },
+  { value: 'stories', label: 'Истории', description: 'Рассказы и повествования' }
+];
+
+const FORMAT_TAGS = [
+  { value: 'shitpost', label: 'Щитпост', description: 'Мемы, юмор, абсурд' },
+  { value: 'discussion', label: 'Обсуждение', description: 'Обычная дискуссия' },
+  { value: 'question', label: 'Вопрос', description: 'Вопросы, советы' },
+  { value: 'confession', label: 'Признание', description: 'Личные истории' },
+  { value: 'story', label: 'Рассказ', description: 'Короткие рассказы' },
+  { value: 'guide', label: 'Гайд', description: 'Инструкции, гайды' }
+];
+
+const ATMOSPHERE_TAGS = [
+  { value: 'serious', label: 'Серьёзно', description: 'Серьёзная дискуссия' },
+  { value: 'irony', label: 'Ирония', description: 'Ироничные посты, сарказм' },
+  { value: 'vent', label: 'Выплеск', description: 'Жалобы, эмоции' },
+  { value: 'doom', label: 'Тьма', description: 'Пессимистические темы' }
+];
+
+const FLAG_TAGS = [
+  { value: 'normal', label: 'Обычный', description: 'Обычный тред' },
+  { value: 'ephemeral', label: 'Временный', description: 'Самоуничтожение' },
+  { value: 'night', label: 'Ночной', description: 'Ночные треды' }
+];
+
+const CreateThread = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const boardSlug = searchParams.get('board');
+
+  const [board, setBoard] = useState<Board | null>(null);
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [threadImageUrl, setThreadImageUrl] = useState('');
+  const [tags, setTags] = useState<ThreadTags>({ flag: 'normal' });
+
+  const [ephemeralSettings, setEphemeralSettings] = useState<{
+    type: 'time' | 'messages';
+    value: number;
+  }>({
+    type: 'time',
+    value: 24 // 24 часа по умолчанию
+  });
+  const [isExpandedView, setIsExpandedView] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
+  useEffect(() => {
+    const loadBoard = async () => {
+      if (!boardSlug) {
+        // If no board specified, redirect to home to select board
+        navigate('/');
+        return;
+      }
+
+      const { data: boardData } = await supabase
+        .from("boards")
+        .select("*")
+        .eq("slug", boardSlug)
+        .single();
+
+      if (!boardData) {
+        // If board not found, redirect to home
+        navigate('/');
+        return;
+      }
+
+      setBoard(boardData);
+    };
+
+    loadBoard();
+  }, [boardSlug, navigate]);
+
+  const handleTagSelect = (category: keyof ThreadTags, value: string) => {
+    setTags(prev => ({ ...prev, [category]: value }));
+  };
+
+  const handleCreateThread = async () => {
+    if (!board || !title.trim() || !content.trim()) {
+      toast.error('Заполните все обязательные поля');
+      return;
+    }
+
+    if (!tags.flag) {
+      toast.error('Выберите тип треда');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Необходимо войти в систему');
+        return;
+      }
+
+      const threadData: any = {
+        board_id: board.id,
+        user_id: user.id,
+        title: title.trim(),
+        content: content.trim(),
+        image_url: threadImageUrl || null,
+        tags: tags
+      };
+
+      // Explicitly set image_urls field
+      if (imageUrls.length > 0) {
+        threadData.image_urls = imageUrls;
+      }
+
+
+      // Add ephemeral settings if applicable
+      if (tags.flag === 'ephemeral') {
+        threadData.ephemeral_type = ephemeralSettings.type;
+        threadData.ephemeral_value = ephemeralSettings.value;
+      }
+
+      const { data, error } = await supabase
+        .from('threads')
+        .insert(threadData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Process ephemeral thread after creation
+      if (tags.flag === 'ephemeral') {
+        const { error: ephemeralError } = await supabase.rpc('process_ephemeral_thread', {
+          p_thread_id: data.id,
+          p_ephemeral_type: ephemeralSettings.type,
+          p_ephemeral_value: ephemeralSettings.value
+        });
+
+        if (ephemeralError) {
+          console.error('Error processing ephemeral thread:', ephemeralError);
+          // Don't fail the creation, just log the error
+        }
+      }
+
+      toast.success('Тред создан!');
+      navigate(`/${board.slug}/thread/${data.id}`);
+    } catch (error) {
+      console.error('Error creating thread:', error);
+      toast.error('Ошибка при создании треда');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!board) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="sticky top-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border">
+        <div className="max-w-4xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Назад
+              </Button>
+              <div>
+                <h1 className="text-lg font-semibold">Создание треда</h1>
+                <p className="text-sm text-muted-foreground">в /{board.slug}/ - {board.name}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPreview(!showPreview)}
+              >
+                {showPreview ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
+                {showPreview ? 'Редактор' : 'Предпросмотр'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-4xl mx-auto p-4">
+        {!showPreview ? (
+          <div className="space-y-6">
+            {/* Title */}
+            <div>
+              <label className="text-sm font-medium mb-2 block">Заголовок</label>
+              <Input
+                placeholder="Тема треда..."
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="text-lg"
+              />
+            </div>
+
+            {/* Thread Image */}
+            <div>
+              <label className="text-sm font-medium mb-2 block">Основное изображение треда</label>
+              <div className="flex gap-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="thread-image"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      try {
+                        const { data, error } = await supabase.storage
+                          .from('post-images')
+                          .upload(`threads/${Date.now()}-${file.name}`, file);
+
+                        if (error) throw error;
+
+                        const { data: { publicUrl } } = supabase.storage
+                          .from('post-images')
+                          .getPublicUrl(data.path);
+
+                        setThreadImageUrl(publicUrl);
+                      } catch (error) {
+                        console.error('Error uploading thread image:', error);
+                        toast.error('Ошибка загрузки изображения');
+                      } finally {
+                        // Reset input value to allow selecting the same file again
+                        e.target.value = '';
+                      }
+                    }
+                  }}
+                />
+                <label
+                  htmlFor="thread-image"
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors cursor-pointer"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  {threadImageUrl ? 'Изменить' : 'Добавить изображение'}
+                </label>
+                {threadImageUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setThreadImageUrl('')}
+                    className="hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50 transition-colors"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Удалить
+                  </Button>
+                )}
+              </div>
+              {threadImageUrl && (
+                <div className="mt-3 p-3 border rounded-lg bg-muted/20">
+                  <p className="text-xs text-muted-foreground mb-2">Предпросмотр основного изображения:</p>
+                  <img src={threadImageUrl} alt="Thread image" className="max-h-48 w-full object-cover rounded border" />
+                </div>
+              )}
+            </div>
+
+            {/* Content */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium">Содержание</label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsExpandedView(!isExpandedView)}
+                >
+                  {isExpandedView ? <Minimize2 className="h-4 w-4 mr-2" /> : <Maximize2 className="h-4 w-4 mr-2" />}
+                  {isExpandedView ? 'Свернуть' : 'Расширить'}
+                </Button>
+              </div>
+
+              {isExpandedView ? (
+                <div className="space-y-4">
+                  <InlineFormattingToolbar onFormat={(prefix, suffix) => {
+                    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+                    if (textarea) {
+                      const start = textarea.selectionStart;
+                      const end = textarea.selectionEnd;
+                      const selectedText = content.substring(start, end);
+                      const newText = prefix + selectedText + suffix;
+                      setContent(content.substring(0, start) + newText + content.substring(end));
+                      setTimeout(() => {
+                        textarea.focus();
+                        textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+                      }, 0);
+                    }
+                  }} />
+
+                  <Textarea
+                    placeholder="Напишите содержание треда..."
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    className="min-h-[400px] resize-none"
+                  />
+                </div>
+              ) : (
+                <Textarea
+                  placeholder="Напишите содержание треда..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="min-h-[120px] resize-none"
+                />
+              )}
+            </div>
+
+            {/* Additional Images */}
+            <div>
+              <label className="text-sm font-medium mb-2 block">Дополнительные изображения</label>
+              <div className="space-y-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  id="additional-images"
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length === 0) return;
+
+                    try {
+                      const uploadPromises = files.map(async (file) => {
+                        const { data, error } = await supabase.storage
+                          .from('post-images')
+                          .upload(`threads/${Date.now()}-${Math.random()}-${file.name}`, file);
+
+                        if (error) throw error;
+
+                        const { data: { publicUrl } } = supabase.storage
+                          .from('post-images')
+                          .getPublicUrl(data.path);
+
+                        return publicUrl;
+                      });
+
+                      const uploadedUrls = await Promise.all(uploadPromises);
+                      setImageUrls(prev => [...prev, ...uploadedUrls]);
+                    } catch (error) {
+                      console.error('Error uploading images:', error);
+                      toast.error('Ошибка загрузки изображений');
+                    } finally {
+                      // Reset input value to allow selecting the same files again
+                      e.target.value = '';
+                    }
+                  }}
+                />
+                <label
+                  htmlFor="additional-images"
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors cursor-pointer"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  Добавить изображения
+                </label>
+              </div>
+
+              {imageUrls.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-muted-foreground mb-2">Предпросмотр изображений:</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {imageUrls.map((url, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={url}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-16 object-cover rounded border border-border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setImageUrls(prev => prev.filter((_, i) => i !== index))}
+                          className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tags */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Теги</h3>
+
+              {/* Required flag tag */}
+              <div>
+                <h4 className="font-medium mb-3 text-red-600">* Обязательно: Тип треда</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {FLAG_TAGS.map((tag) => (
+                    <button
+                      key={tag.value}
+                      onClick={() => handleTagSelect('flag', tag.value)}
+                      className={`p-3 border rounded-lg text-left hover:bg-primary/5 transition-colors ${
+                        tags.flag === tag.value ? 'border-primary bg-primary/10 text-primary' : 'border-border'
+                      }`}
+                    >
+                      <div className="font-medium text-sm">{tag.label}</div>
+                      <div className="text-xs text-muted-foreground">{tag.description}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Ephemeral settings */}
+                {tags.flag === 'ephemeral' && (
+                  <div className="mt-4 p-4 border border-orange-200 bg-orange-50/50 rounded-lg">
+                    <h5 className="font-medium mb-3 text-orange-800">⚠️ Настройки самоуничтожения</h5>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Тип уничтожения:</label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="ephemeral-type"
+                              value="time"
+                              checked={ephemeralSettings.type === 'time'}
+                              onChange={(e) => setEphemeralSettings(prev => ({
+                                ...prev,
+                                type: e.target.value as 'time' | 'messages'
+                              }))}
+                            />
+                            <span className="text-sm">По времени</span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="ephemeral-type"
+                              value="messages"
+                              checked={ephemeralSettings.type === 'messages'}
+                              onChange={(e) => setEphemeralSettings(prev => ({
+                                ...prev,
+                                type: e.target.value as 'time' | 'messages'
+                              }))}
+                            />
+                            <span className="text-sm">По количеству сообщений</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">
+                          {ephemeralSettings.type === 'time' ? 'Время уничтожения (часы):' : 'Количество сообщений:'}
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={ephemeralSettings.type === 'time' ? 168 : 100}
+                          value={ephemeralSettings.value}
+                          onChange={(e) => setEphemeralSettings(prev => ({
+                            ...prev,
+                            value: parseInt(e.target.value) || 1
+                          }))}
+                          className="px-3 py-2 border border-border rounded-md text-sm w-32"
+                        />
+                        <span className="text-xs text-muted-foreground ml-2">
+                          {ephemeralSettings.type === 'time'
+                            ? `(макс. 168 часов = 7 дней)`
+                            : `(макс. 100 сообщений)`
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Night thread validation */}
+                {tags.flag === 'night' && (
+                  <div className="mt-4 p-4 border border-blue-200 bg-blue-50/50 rounded-lg">
+                    <h5 className="font-medium mb-2 text-blue-800">🌙 Ночной тред</h5>
+                    <p className="text-sm text-blue-700">
+                      Ночные треды можно создавать только с 23:00 до 6:00. Тред будет автоматически удален в 6:00 утра.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Content tag */}
+              <div>
+                <h4 className="font-medium mb-3">Тематика (опционально)</h4>
+                <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                  {CONTENT_TAGS.map((tag) => (
+                    <button
+                      key={tag.value}
+                      onClick={() => handleTagSelect('content', tag.value)}
+                      className={`p-2 border rounded text-sm hover:bg-primary/5 transition-colors ${
+                        tags.content === tag.value ? 'border-blue-500 bg-blue-500/10 text-blue-600' : 'border-border'
+                      }`}
+                    >
+                      {tag.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Format tag */}
+              <div>
+                <h4 className="font-medium mb-3">Формат (опционально)</h4>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                  {FORMAT_TAGS.map((tag) => (
+                    <button
+                      key={tag.value}
+                      onClick={() => handleTagSelect('format', tag.value)}
+                      className={`p-2 border rounded text-sm hover:bg-primary/5 transition-colors ${
+                        tags.format === tag.value ? 'border-green-600 bg-green-600/10 text-green-700' : 'border-border'
+                      }`}
+                    >
+                      {tag.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Atmosphere tag */}
+              <div>
+                <h4 className="font-medium mb-3">Атмосфера (опционально)</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {ATMOSPHERE_TAGS.map((tag) => (
+                    <button
+                      key={tag.value}
+                      onClick={() => handleTagSelect('atmosphere', tag.value)}
+                      className={`p-2 border rounded text-sm hover:bg-primary/5 transition-colors ${
+                        tags.atmosphere === tag.value ? 'border-purple-600 bg-purple-600/10 text-purple-700' : 'border-border'
+                      }`}
+                    >
+                      {tag.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Create Button */}
+            <div className="flex justify-end pt-6">
+              <Button onClick={handleCreateThread} disabled={loading} size="lg">
+                {loading ? 'Создание...' : 'Создать тред'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Preview */
+          <Card className="max-w-2xl mx-auto">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                  <span className="text-sm font-medium">Вы</span>
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold">Ваш тред</div>
+                  <div className="text-xs text-muted-foreground">
+                    в /{board.slug}/ • только что
+                  </div>
+                </div>
+              </div>
+
+              <CardTitle className="text-left">{title || 'Заголовок треда'}</CardTitle>
+
+              {/* Preview tags */}
+              <div className="flex flex-wrap gap-1 mt-2">
+                {tags.content && (
+                  <Badge variant="secondary" className="text-xs">
+                    {CONTENT_TAGS.find(t => t.value === tags.content)?.label}
+                  </Badge>
+                )}
+                {tags.format && (
+                  <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600">
+                    {FORMAT_TAGS.find(t => t.value === tags.format)?.label}
+                  </Badge>
+                )}
+                {tags.atmosphere && (
+                  <Badge variant="secondary" className="text-xs bg-purple-500/10 text-purple-600">
+                    {ATMOSPHERE_TAGS.find(t => t.value === tags.atmosphere)?.label}
+                  </Badge>
+                )}
+                {tags.flag && tags.flag !== 'normal' && (
+                  <Badge variant="secondary" className="text-xs bg-orange-500/10 text-orange-600">
+                    {FLAG_TAGS.find(t => t.value === tags.flag)?.label}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+
+            <CardContent>
+              {threadImageUrl && (
+                <div className="mb-4">
+                  <img src={threadImageUrl} alt="Thread" className="w-full max-h-64 object-cover rounded" />
+                </div>
+              )}
+
+              <div className="text-sm break-words">
+                {content ? (
+                  <div>{renderPreviewContent(content, 'thread')}</div>
+                ) : (
+                  <span className="text-muted-foreground">Содержание треда...</span>
+                )}
+              </div>
+
+              {imageUrls.length > 0 && (
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {imageUrls.map((url, index) => (
+                    <img
+                      key={index}
+                      src={url}
+                      alt={`Image ${index + 1}`}
+                      className="w-full h-16 object-cover rounded border border-border"
+                    />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default CreateThread;
