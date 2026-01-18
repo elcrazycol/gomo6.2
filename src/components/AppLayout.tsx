@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -21,6 +22,18 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const { scrollY } = useScroll();
+
+  // Header animation logic
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    const previous = scrollY.getPrevious();
+    if (previous !== undefined && latest > previous && latest > 100) {
+      setIsHeaderVisible(false);
+    } else if (previous !== undefined && latest < previous) {
+      setIsHeaderVisible(true);
+    }
+  });
 
   useEffect(() => {
     const getUser = async () => {
@@ -95,7 +108,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
   return (
     <div className="bg-background min-h-screen flex flex-col">
-      <header className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border">
+      <motion.header
+        className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border fixed top-0 left-0 right-0 z-50"
+        initial={{ y: 0 }}
+        animate={{ y: isHeaderVisible ? 0 : -100 }}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
+      >
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <Link to="/" className="text-lg sm:text-xl font-bold flex-shrink-0 relative group">
             gomo6
@@ -128,9 +146,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             )}
           </div>
         </div>
-      </header>
+      </motion.header>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 pt-16 sm:pt-20">
         {children}
       </div>
 

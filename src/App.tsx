@@ -12,6 +12,7 @@ import { LazyPage } from "@/components/LazyPage";
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
 const BoardsView = lazy(() => import("./pages/BoardsView"));
+const CreateThread = lazy(() => import("./pages/CreateThread"));
 const Auth = lazy(() => import("./pages/Auth"));
 const Board = lazy(() => import("./pages/Board"));
 const Thread = lazy(() => import("./pages/Thread"));
@@ -166,6 +167,7 @@ const App = () => {
               <Route path="settings/custom" element={<LazyPage component={CustomProfile} />} />
               <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
               <Route path="notify" element={<LazyPage component={Notify} />} />
+              <Route path="create" element={<LazyPage component={CreateThread} />} />
               <Route path=":slug" element={<LazyPage component={Board} />} />
               <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />
             </Route>

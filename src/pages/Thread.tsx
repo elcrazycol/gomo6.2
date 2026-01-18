@@ -18,6 +18,43 @@ import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, Ey
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
+
+// Tag label helper functions
+const getContentTagLabel = (value: string) => {
+  const labels: Record<string, string> = {
+    anime: 'Аниме',
+    games: 'Игры',
+    music: 'Музыка',
+    movies: 'Фильмы',
+    comics: 'Комиксы',
+    humor: 'Юмор',
+    literature: 'Литература',
+    stories: 'Истории'
+  };
+  return labels[value] || value;
+};
+
+const getFormatTagLabel = (value: string) => {
+  const labels: Record<string, string> = {
+    shitpost: 'Щитпост',
+    discussion: 'Обсуждение',
+    question: 'Вопрос',
+    confession: 'Признание',
+    story: 'Рассказ',
+    guide: 'Гайд'
+  };
+  return labels[value] || value;
+};
+
+const getAtmosphereTagLabel = (value: string) => {
+  const labels: Record<string, string> = {
+    serious: 'Серьёзно',
+    irony: 'Ирония',
+    vent: 'Выплеск',
+    doom: 'Тьма'
+  };
+  return labels[value] || value;
+};
 import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { MentionLink } from "@/components/MentionLink";
@@ -998,16 +1035,16 @@ const Thread = () => {
                 </>
               )}
             </div>
-            {((thread as any).imageUrls && (thread as any).imageUrls.length > 0) && (
+            {(((thread as any).image_urls || (thread as any).imageUrls) && ((thread as any).image_urls || (thread as any).imageUrls).length > 0) && (
               <div className="mb-2 flex flex-wrap gap-2">
-                {(thread as any).imageUrls.map((img: string, idx: number) => (
+                {((thread as any).image_urls || (thread as any).imageUrls).map((img: string, idx: number) => (
                   <img
                     key={idx}
                     src={img}
                     alt={`Thread image ${idx + 1}`}
                     className="max-w-32 max-h-32 border border-border cursor-pointer rounded"
                     onClick={() => {
-                      setGalleryImages((thread as any).imageUrls);
+                      setGalleryImages((thread as any).image_urls || (thread as any).imageUrls);
                       setGalleryIndex(idx);
                       setShowGallery(true);
                     }}
@@ -1026,6 +1063,76 @@ const Thread = () => {
                 authorUsername={thread.profiles?.username}
               />
             </p>
+
+            {/* Thread tags */}
+            {((thread as any).tags) && (
+              <div className="flex flex-wrap gap-1 mt-3">
+                {/* Ephemeral indicator */}
+                {(thread as any).ephemeral_type && (
+                  <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full border border-orange-200">
+                    {(thread as any).ephemeral_type === 'time'
+                      ? `${(thread as any).ephemeral_value}ч`
+                      : `${(thread as any).ephemeral_value}сообщ.`
+                    }
+                  </span>
+                )}
+
+                {/* Ephemeral tag */}
+                {(thread as any).ephemeral_type && (
+                  <button
+                    onClick={() => navigate('/b?flag=ephemeral')}
+                    className="inline-block px-2 py-0.5 text-xs bg-orange-500/10 text-orange-700 rounded-full
+                             hover:bg-orange-500/20 hover:text-orange-800 transition-colors duration-200
+                             border border-orange-500/20 hover:border-orange-500/40"
+                  >
+                    Временный
+                  </button>
+                )}
+
+                {/* Content tag */}
+                {(thread as any).tags.content && (
+                  <button
+                    onClick={() => navigate(`/b?content=${(thread as any).tags.content}`)}
+                    className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full
+                             hover:bg-blue-500/20 hover:text-blue-700 transition-colors duration-200
+                             border border-blue-500/20 hover:border-blue-500/40"
+                  >
+                    {getContentTagLabel((thread as any).tags.content)}
+                  </button>
+                )}
+
+                {/* Format tag */}
+                {(thread as any).tags.format && (
+                  <button
+                    onClick={() => navigate(`/b?format=${(thread as any).tags.format}`)}
+                    className="inline-block px-2 py-0.5 text-xs bg-green-500/10 text-green-600 rounded-full
+                             hover:bg-green-500/20 hover:text-green-700 transition-colors duration-200
+                             border border-green-500/20 hover:border-green-500/40"
+                  >
+                    {getFormatTagLabel((thread as any).tags.format)}
+                  </button>
+                )}
+
+                {/* Atmosphere tag */}
+                {(thread as any).tags.atmosphere && (
+                  <button
+                    onClick={() => navigate(`/b?atmosphere=${(thread as any).tags.atmosphere}`)}
+                    className="inline-block px-2 py-0.5 text-xs bg-purple-500/10 text-purple-600 rounded-full
+                             hover:bg-purple-500/20 hover:text-purple-700 transition-colors duration-200
+                             border border-purple-500/20 hover:border-purple-500/40"
+                  >
+                    {getAtmosphereTagLabel((thread as any).tags.atmosphere)}
+                  </button>
+                )}
+
+                {/* Night tag */}
+                {(thread as any).tags.flag === 'night' && (
+                  <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full border border-blue-500/20">
+                    Ночной
+                  </span>
+                )}
+              </div>
+            )}
 
           </div>
         </div>
