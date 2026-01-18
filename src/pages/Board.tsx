@@ -51,12 +51,12 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
-import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
+import { renderTags } from "@/components/ThreadCard";
 
 interface Board {
   id: string;
@@ -75,7 +75,7 @@ interface Thread {
   updated_at: string;
   post_count: number;
   user_id: string | null;
-  tag?: string | null; // Added tag field
+  tags?: any; // Thread tags object
   profiles: {
     username: string;
     is_anonymous: boolean;
@@ -106,17 +106,11 @@ const Board = () => {
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
-  const [showNewThread, setShowNewThread] = useState(false);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const [searchParams] = useSearchParams();
-  const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
-
+  
   useSessionTime(user?.id);
 
   useEffect(() => {
@@ -295,19 +289,34 @@ const Board = () => {
             .eq("id", thread.user_id!)
             .maybeSingle();
           
-          // Get latest post with author info
+          // Get latest post
           const { data: latestPost } = await supabase
             .from("posts")
-            .select("content, created_at, is_private, user_id, profiles(username, is_anonymous)")
+            .select("content, created_at, is_private, user_id")
             .eq("thread_id", thread.id)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
 
+          // Get profile for latest post if it exists
+          let latestPostWithProfile = latestPost;
+          if (latestPost && latestPost.user_id) {
+            const { data: postProfile } = await supabase
+              .from("profiles")
+              .select("username, is_anonymous")
+              .eq("id", latestPost.user_id)
+              .maybeSingle();
+
+            latestPostWithProfile = {
+              ...latestPost,
+              profiles: postProfile
+            };
+          }
+
           return {
             ...thread,
             profiles: profile,
-            latest_post: latestPost,
+            latest_post: latestPostWithProfile,
           };
         })
       );
@@ -315,78 +324,6 @@ const Board = () => {
     }
   };
 
-  const handleCreateThread = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!user) {
-      toast.error("Нужно войти для создания треда");
-      navigate("/auth");
-      return;
-    }
-
-    if (!title.trim() || !content.trim()) {
-      toast.error("Заполните все поля");
-      return;
-    }
-
-    // Check if it's a rules board and user has permissions
-    if (board?.is_rules_board && !isModerator) {
-      toast.error("Только модераторы могут создавать треды здесь");
-      return;
-    }
-
-    setLoading(true);
-
-    // Convert array to JSON for storage, or use first image for backward compatibility
-    const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
-    const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
-
-    const { error } = await supabase.from("threads").insert({
-      board_id: board!.id,
-      user_id: user.id,
-      title: title.trim(),
-      content: content.trim(),
-      image_url: imageUrlForDb, // Keep for backward compatibility
-      image_urls: imageUrlsJson, // New field for multiple images
-    });
-
-    setLoading(false);
-
-    if (error) {
-      toast.error("Ошибка создания треда");
-      return;
-    }
-
-    toast.success("Тред создан");
-    setTitle("");
-    setContent("");
-    setImageUrls([]);
-    setShowNewThread(false);
-    loadThreads(board!.id);
-  };
-
-  const handleFormatText = (prefix: string, suffix: string) => {
-    const textarea = contentTextareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
-    const newText = 
-      content.substring(0, start) + 
-      prefix + 
-      selectedText + 
-      suffix + 
-      content.substring(end);
-    
-    setContent(newText);
-    
-    // Restore cursor position after formatting
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
-    }, 0);
-  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -619,58 +556,12 @@ const Board = () => {
           )}
         </div>
 
-        {canCreateThread && !showNewThread && (
-          <Button onClick={() => setShowNewThread(true)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
+        {canCreateThread && (
+          <Button onClick={() => navigate(`/create?board=${board.slug}`)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
             Создать тред
           </Button>
         )}
 
-        {showNewThread && canCreateThread && (
-          <form onSubmit={handleCreateThread} className="bg-post-header p-4 sm:p-5 border border-border mb-3 sm:mb-4 space-y-3">
-            <h3 className="font-bold mb-2">Новый тред</h3>
-            <Input
-              placeholder="Тема"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="mb-2"
-              disabled={loading}
-            />
-            <InlineFormattingToolbar onFormat={handleFormatText} />
-            <Textarea
-              ref={contentTextareaRef}
-              placeholder="Сообщение"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              onKeyDown={(e) => {
-                // Send on Enter only on desktop
-                if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
-                  e.preventDefault();
-                  handleCreateThread(e as any);
-                }
-              }}
-              className="mb-2"
-              rows={4}
-              disabled={loading}
-            />
-            <ImageUpload
-              onImagesUploaded={setImageUrls}
-              currentImages={imageUrls}
-            />
-            <div className="flex gap-2 mt-3">
-              <Button type="submit" disabled={loading}>
-                {loading ? "Отправка..." : "Отправить"}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setShowNewThread(false)}
-                disabled={loading}
-              >
-                Отмена
-              </Button>
-            </div>
-          </form>
-        )}
 
         <div className="space-y-2 relative">
           {pageLoading ? (
@@ -681,16 +572,20 @@ const Board = () => {
                   key={`placeholder-${i}`}
                   className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
                 >
-                  <div className="flex gap-2 sm:gap-3">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded border border-border flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="h-5 bg-muted rounded mb-2 w-3/4" />
-                      <div className="h-3 bg-muted rounded mb-1 w-1/2" />
-                      <div className="h-3 bg-muted rounded w-full mt-2" />
-                      <div className="h-3 bg-muted rounded w-5/6 mt-1" />
+                  <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded flex-shrink-0" />
+                    <div className="flex-shrink-0 max-w-[200px] sm:max-w-[250px]">
+                      <div className="h-5 bg-muted rounded mb-2 w-full" />
+                      <div className="h-3 bg-muted rounded w-1/2" />
                     </div>
-                    <div className="text-xs text-muted-foreground text-right flex-shrink-0">
-                      <div className="h-4 bg-muted rounded w-12" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="h-3 bg-muted rounded w-1/2" />
+                    </div>
+                    <div className="absolute bottom-2 right-2">
+                      <div className="h-3 bg-muted rounded w-8" />
+                    </div>
+                    <div className="absolute top-2 right-2">
+                      <div className="w-6 h-6 bg-muted rounded-full" />
                     </div>
                   </div>
                 </div>
@@ -707,72 +602,63 @@ const Board = () => {
               to={`/${slug}/thread/${thread.id}`}
               className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
             >
-              <div className="flex gap-2 sm:gap-3">
+              <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
+                {/* Фото слева */}
                 {thread.image_url && (
-                  <img
-                    src={thread.image_url}
-                    alt="Thread"
-                    className="w-16 h-16 sm:w-20 sm:h-20 object-cover border border-border flex-shrink-0"
-                  />
+                  <div className="flex-shrink-0">
+                    <img
+                      src={thread.image_url}
+                      alt="Thread"
+                      className="w-16 h-16 sm:w-20 sm:h-20 object-cover border border-border rounded"
+                    />
+                    <div className="text-xs text-muted-foreground mt-1 text-center">
+                      {formatDistanceToNow(new Date(thread.created_at), {
+                        locale: ru,
+                        addSuffix: true,
+                      })}
+                    </div>
+                  </div>
                 )}
-                <div className="flex-1 min-w-0">
+
+                {/* Название треда слева рядом с фото */}
+                <div className="flex-shrink-0 max-w-[200px] sm:max-w-[250px]">
                   <h3 className="font-bold text-base sm:text-lg break-words relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
                     {thread.title}
                     <span className="absolute bottom-1 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                   </h3>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    <UserBadge
-                      userId={thread.user_id}
-                      username={thread.profiles?.username || "Аноним"}
-                      isAnonymous={thread.profiles?.is_anonymous}
-                      showOutline={false}
-                      disableLink={true}
-                    />
-                    {" · "}
-                    {formatDistanceToNow(new Date(thread.created_at), {
-                      locale: ru,
-                      addSuffix: true,
-                    })}
+                  <div className="mt-1">
+                    {renderTags(thread.tags, 'board')}
                   </div>
-                  {thread.latest_post ? (
-                    <div className="mt-1">
-                      {thread.latest_post.profiles && (
-                        <div className="flex items-center gap-1 mb-1">
-                          <UserBadge
-                            userId={thread.latest_post.user_id}
-                            username={thread.latest_post.profiles.username || "Аноним"}
-                            isAnonymous={thread.latest_post.profiles.is_anonymous}
-                            showOutline={false}
-                          />
-                        </div>
-                      )}
-                      <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 break-words">
-                        {thread.latest_post.is_private ? 'Скрытый контент' :
-                          hasVisibilityTags(thread.latest_post.content) ? 'зайдите в тему чтобы посмотреть' :
-                          <>
-                            {renderContent(thread.latest_post.content.substring(0, 100))}
-                            {'...'}
-                          </>
-                        }
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1 break-words">
-                      {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
-                        <>
-                          {renderContent(thread.content.substring(0, 100))}
-                          {'...'}
-                        </>
-                      )}
-                    </p>
-                  )}
                 </div>
-                <div className="text-xs text-muted-foreground text-right flex-shrink-0">
-                  <div className="font-bold whitespace-nowrap">
-                    {thread.post_count > 0 
-                      ? `${thread.post_count} ${thread.post_count === 1 ? 'отв.' : 'отв.'}`
-                      : '0 отв.'}
-                  </div>
+
+                {/* Контент треда абсолютно центрирован */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 break-words text-center max-w-[60%]">
+                    {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                      <>
+                        {renderContent(thread.content.substring(0, 200))}
+                        {thread.content.length > 200 && '...'}
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                {/* Количество ответов в правом нижнем углу */}
+                <div className="absolute bottom-2 right-2 text-xs text-muted-foreground">
+                  {thread.post_count > 0
+                    ? `${thread.post_count} ${thread.post_count === 1 ? 'отв.' : 'отв.'}`
+                    : '0 отв.'}
+                </div>
+
+                {/* Никнейм в правом верхнем углу */}
+                <div className="absolute top-2 right-2">
+                  <UserBadge
+                    userId={thread.user_id}
+                    username={thread.profiles?.username || "Аноним"}
+                    isAnonymous={thread.profiles?.is_anonymous}
+                    showOutline={false}
+                    disableLink={true}
+                  />
                 </div>
               </div>
             </Link>

@@ -26,6 +26,19 @@ interface ThreadTags {
   flag: string; // required
 }
 
+interface PollOption {
+  id: string;
+  text: string;
+}
+
+interface Poll {
+  question: string;
+  options: PollOption[];
+  allow_multiple: boolean;
+  show_results: boolean;
+  allow_change_vote: boolean;
+}
+
 const CONTENT_TAGS = [
   { value: 'anime', label: 'Аниме', description: 'Обсуждение аниме и манги' },
   { value: 'games', label: 'Игры', description: 'Компьютерные и видеоигры' },
@@ -81,6 +94,58 @@ const CreateThread = () => {
   const [isExpandedView, setIsExpandedView] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showPoll, setShowPoll] = useState(false);
+  const [poll, setPoll] = useState<Poll>({
+    question: '',
+    options: [
+      { id: '1', text: '' },
+      { id: '2', text: '' }
+    ],
+    allow_multiple: false,
+    show_results: false,
+    allow_change_vote: false
+  });
+
+  // Poll management functions
+  const addPollOption = () => {
+    const newId = (poll.options.length + 1).toString();
+    setPoll(prev => ({
+      ...prev,
+      options: [...prev.options, { id: newId, text: '' }]
+    }));
+  };
+
+  const updatePollOption = (id: string, text: string) => {
+    setPoll(prev => ({
+      ...prev,
+      options: prev.options.map(option =>
+        option.id === id ? { ...option, text } : option
+      )
+    }));
+  };
+
+  const removePollOption = (id: string) => {
+    if (poll.options.length > 2) {
+      setPoll(prev => ({
+        ...prev,
+        options: prev.options.filter(option => option.id !== id)
+      }));
+    }
+  };
+
+  const resetPoll = () => {
+    setPoll({
+      question: '',
+      options: [
+        { id: '1', text: '' },
+        { id: '2', text: '' }
+      ],
+      allow_multiple: false,
+      show_results: false,
+      allow_change_vote: false
+    });
+    setShowPoll(false);
+  };
 
   useEffect(() => {
     const loadBoard = async () => {
@@ -123,6 +188,18 @@ const CreateThread = () => {
       return;
     }
 
+    // Validate poll if enabled
+    if (showPoll) {
+      if (!poll.question.trim()) {
+        toast.error('Введите вопрос голосования');
+        return;
+      }
+      if (poll.options.filter(option => option.text.trim()).length < 2) {
+        toast.error('Добавьте минимум 2 варианта ответа');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -145,6 +222,18 @@ const CreateThread = () => {
         threadData.image_urls = imageUrls;
       }
 
+      // Add poll if enabled
+      if (showPoll && poll.question.trim()) {
+        threadData.poll = {
+          question: poll.question.trim(),
+          options: poll.options.filter(option => option.text.trim()).map(option => ({
+            text: option.text.trim()
+          })),
+          allow_multiple: poll.allow_multiple,
+          show_results: poll.show_results,
+          allow_change_vote: poll.allow_change_vote
+        };
+      }
 
       // Add ephemeral settings if applicable
       if (tags.flag === 'ephemeral') {
@@ -159,6 +248,19 @@ const CreateThread = () => {
         .single();
 
       if (error) throw error;
+
+      // Auto-subscribe to thread notifications
+      const { error: subscriptionError } = await supabase
+        .from('thread_subscriptions')
+        .insert({
+          user_id: user.id,
+          thread_id: data.id
+        });
+
+      if (subscriptionError && subscriptionError.code !== '23505') { // Ignore duplicate key error
+        console.error('Error subscribing to thread:', subscriptionError);
+        // Don't fail creation if subscription fails
+      }
 
       // Process ephemeral thread after creation
       if (tags.flag === 'ephemeral') {
@@ -199,7 +301,7 @@ const CreateThread = () => {
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+              <Button variant="outline" size="sm" onClick={() => navigate('/')} className="hover:bg-primary hover:text-primary-foreground">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Назад
               </Button>
@@ -213,6 +315,7 @@ const CreateThread = () => {
                 variant="outline"
                 size="sm"
                 onClick={() => setShowPreview(!showPreview)}
+                className="hover:bg-primary hover:text-primary-foreground"
               >
                 {showPreview ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
                 {showPreview ? 'Редактор' : 'Предпросмотр'}
@@ -304,9 +407,10 @@ const CreateThread = () => {
                 <label className="text-sm font-medium">Содержание</label>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => setIsExpandedView(!isExpandedView)}
+                  className="hover:bg-primary hover:text-primary-foreground"
                 >
                   {isExpandedView ? <Minimize2 className="h-4 w-4 mr-2" /> : <Maximize2 className="h-4 w-4 mr-2" />}
                   {isExpandedView ? 'Свернуть' : 'Расширить'}
@@ -418,6 +522,135 @@ const CreateThread = () => {
                     ))}
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* Poll */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium">Голосование</label>
+                {!showPoll && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowPoll(true)}
+                    className="text-xs"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Добавить голосование
+                  </Button>
+                )}
+              </div>
+
+              {showPoll && (
+                <Card className="p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">Настройки голосования</h4>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetPoll}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Вопрос голосования</label>
+                    <Input
+                      placeholder="Введите вопрос голосования..."
+                      value={poll.question}
+                      onChange={(e) => setPoll(prev => ({ ...prev, question: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Варианты ответов</label>
+                    <div className="space-y-2">
+                      {poll.options.map((option, index) => (
+                        <div key={option.id} className="flex gap-2">
+                          <Input
+                            placeholder={`Вариант ${index + 1}`}
+                            value={option.text}
+                            onChange={(e) => updatePollOption(option.id, e.target.value)}
+                          />
+                          {poll.options.length > 2 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => removePollOption(option.id)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addPollOption}
+                        className="w-full"
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Добавить вариант
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Количество ответов</label>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant={poll.allow_multiple === false ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPoll(prev => ({ ...prev, allow_multiple: false }))}
+                        >
+                          1 ответ
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={poll.allow_multiple === true ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setPoll(prev => ({ ...prev, allow_multiple: true }))}
+                        >
+                          Неограниченно
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="show-results"
+                        checked={poll.show_results}
+                        onChange={(e) => setPoll(prev => ({ ...prev, show_results: e.target.checked }))}
+                        className="rounded"
+                      />
+                      <label htmlFor="show-results" className="text-sm">
+                        Разрешить видеть, кто как проголосовал
+                      </label>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="allow-change"
+                        checked={poll.allow_change_vote}
+                        onChange={(e) => setPoll(prev => ({ ...prev, allow_change_vote: e.target.checked }))}
+                        className="rounded"
+                      />
+                      <label htmlFor="allow-change" className="text-sm">
+                        Разрешить проголосовавшим изменять свой голос
+                      </label>
+                    </div>
+                  </div>
+                </Card>
               )}
             </div>
 
@@ -647,6 +880,27 @@ const CreateThread = () => {
                       className="w-full h-16 object-cover rounded border border-border"
                     />
                   ))}
+                </div>
+              )}
+
+              {showPoll && poll.question.trim() && (
+                <div className="mt-4 p-3 border border-border rounded-lg bg-muted/50">
+                  <h4 className="font-medium text-sm mb-2">📊 {poll.question}</h4>
+                  <div className="space-y-1">
+                    {poll.options.filter(option => option.text.trim()).map((option, index) => (
+                      <div key={option.id} className="flex items-center gap-2 text-sm">
+                        <div className="w-4 h-4 border border-border rounded flex items-center justify-center text-xs">
+                          {index + 1}
+                        </div>
+                        <span>{option.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {poll.allow_multiple ? 'Можно выбрать несколько вариантов' : 'Можно выбрать 1 вариант'}
+                    {poll.show_results && ' • Результаты видны'}
+                    {poll.allow_change_vote && ' • Можно изменить голос'}
+                  </div>
                 </div>
               )}
             </CardContent>

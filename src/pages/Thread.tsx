@@ -167,7 +167,7 @@ const Thread = () => {
     let processedText = text;
     const elements: React.ReactNode[] = [];
     let key = 0;
-    
+
     const spoilerRegex = /\|\|(.*?)\|\|/g;
     let match: RegExpExecArray | null;
     let lastIndex = 0;
@@ -191,16 +191,16 @@ const Thread = () => {
         elements.push(
           <span key={`spoiler-${key++}`} className="bg-muted px-1 rounded cursor-pointer hover:bg-muted/80 select-none" title="Спойлер">
             {segment.content}
-          </span>
-        );
+                    </span>
+                  );
       } else {
         // Use @bbob/react for BB code rendering
         const rendered = renderBbCode(segment.content, { keyPrefix: `preview-${key++}` });
         if (rendered) {
           elements.push(rendered);
+            }
+          }
         }
-      }
-    }
 
     return elements;
   };
@@ -918,12 +918,12 @@ const Thread = () => {
     <>
     <main className="max-w-5xl mx-auto p-2 sm:p-4 pb-24 sm:pb-28">
         <div className="relative">
-          {pageLoading && (
+        {pageLoading && (
             <div className="absolute inset-0 bg-card/90 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-              <PentagramLoader size="lg" />
-            </div>
-          )}
-          <div className="mb-4 flex justify-between items-center">
+            <PentagramLoader size="lg" />
+          </div>
+        )}
+            <div className="mb-4 flex justify-between items-center">
           <Link to={`/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
             ← Назад к доске
           </Link>
@@ -1135,7 +1135,7 @@ const Thread = () => {
             )}
 
           </div>
-        </div>
+          </div>
         </div>
 
         <div className="space-y-4 mb-4 relative">
@@ -1448,16 +1448,16 @@ const Thread = () => {
                 {replyingTo && (
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Ответ на #{replyingTo.slice(0, 8)}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setReplyingTo(null)}
+                    <span>Ответ на #{replyingTo.slice(0, 8)}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setReplyingTo(null)}
                         className="h-6 w-6 p-0 text-xs"
-                      >
-                        ✕
-                      </Button>
+                    >
+                      ✕
+                    </Button>
                     </div>
                   </div>
                 )}
@@ -1586,25 +1586,25 @@ const Thread = () => {
                     {/* Preview */}
                     <div className="bg-card border border-border rounded-lg p-2 sm:p-3 min-h-[150px] sm:min-h-[200px] max-h-[250px] sm:max-h-[300px] overflow-y-auto">
                       <div className="text-xs sm:text-sm break-words">
-                        {content ? (
-                          renderPreviewContent(content)
-                        ) : (
-                          <span className="text-muted-foreground">Начните писать сообщение...</span>
+                          {content ? (
+                            renderPreviewContent(content)
+                          ) : (
+                            <span className="text-muted-foreground">Начните писать сообщение...</span>
+                          )}
+                        </div>
+                        {imageUrls.length > 0 && (
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+                            {imageUrls.map((url, index) => (
+                              <img
+                                key={index}
+                                src={url}
+                                alt={`Preview ${index + 1}`}
+                                className="w-full h-16 object-cover rounded border border-border"
+                              />
+                            ))}
+                          </div>
                         )}
                       </div>
-                      {imageUrls.length > 0 && (
-                        <div className="mt-3 grid grid-cols-3 gap-2">
-                          {imageUrls.map((url, index) => (
-                            <img
-                              key={index}
-                              src={url}
-                              alt={`Preview ${index + 1}`}
-                              className="w-full h-16 object-cover rounded border border-border"
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 )}
 
@@ -1612,23 +1612,23 @@ const Thread = () => {
                   {!isExpandedView && (
                     <>
                       <div className="flex flex-col gap-1.5 sm:gap-2 shrink-0">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
                           className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                           onClick={() => setIsExpandedView(true)}
                           title="Показать предпросмотр"
-                        >
+                  >
                           <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
-                        </Button>
+                  </Button>
                         <label className="cursor-pointer shrink-0">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={async (e) => {
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={async (e) => {
                         const files = Array.from(e.target.files || []);
                         if (files.length === 0) return;
 
@@ -1738,7 +1738,7 @@ const Thread = () => {
                         <ImagePlus className="h-4 w-4 sm:h-5 sm:w-5" />
                       </span>
                     </Button>
-                        </label>
+                  </label>
                       </div>
                     </>
                   )}
@@ -1828,8 +1828,8 @@ const Thread = () => {
                   </Button>
                 </div>
               </form>
-                  </div>
-                )}
+                </div>
+              )}
 
               {/* Image Preview Modal */}
               {showImagePreview && (
@@ -1904,9 +1904,9 @@ const Thread = () => {
           </div>
         )}
 
-        {/* Scroll to bottom button */}
-        {(!isMobile || !isInputPanelVisible) && (
-          <ScrollToBottomButton />
+            {/* Scroll to bottom button */}
+            {(!isMobile || !isInputPanelVisible) && (
+              <ScrollToBottomButton />
         )}
       </main>
 
