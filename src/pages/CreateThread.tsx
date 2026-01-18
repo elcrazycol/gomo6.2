@@ -227,6 +227,7 @@ const CreateThread = () => {
         threadData.poll = {
           question: poll.question.trim(),
           options: poll.options.filter(option => option.text.trim()).map(option => ({
+            id: option.id,
             text: option.text.trim()
           })),
           allow_multiple: poll.allow_multiple,
