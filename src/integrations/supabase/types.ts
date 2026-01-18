@@ -792,6 +792,31 @@ export type Database = {
         Args: { user_uuid: string }
         Returns: number
       }
+      get_thread_likes_count: {
+        Args: { thread_uuid: string }
+        Returns: number
+      }
+      get_recent_thread_likers: {
+        Args: { thread_uuid: string; limit_count?: number }
+        Returns: {
+          username: string
+          id: string
+          avatar_url: string | null
+          is_anonymous: boolean
+        }[]
+      }
+      has_user_liked_thread: {
+        Args: { thread_uuid: string; user_uuid: string }
+        Returns: boolean
+      }
+      get_user_thread_likes_given_count: {
+        Args: { user_uuid: string }
+        Returns: number
+      }
+      get_user_thread_likes_received_count: {
+        Args: { user_uuid: string }
+        Returns: number
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"

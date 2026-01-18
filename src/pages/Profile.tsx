@@ -31,6 +31,7 @@ interface Profile {
   is_anonymous: boolean;
   thread_count: number;
   post_count: number;
+  thread_likes_received_count: number;
   created_at: string;
   avatar_url?: string | null;
   account_number?: number | null;
@@ -560,7 +561,16 @@ const Profile = () => {
       .single();
 
     if (data) {
-      setProfile(data);
+      // Load thread likes count
+      const { data: threadLikesData } = await supabase.rpc(
+        "get_user_thread_likes_received_count",
+        { user_uuid: userId }
+      );
+
+      setProfile({
+        ...data,
+        thread_likes_received_count: threadLikesData || 0
+      });
       setUsername(data.username);
       setBio(data.bio || "");
       setIsAnonymous(data.is_anonymous);
@@ -790,7 +800,7 @@ const Profile = () => {
       
       // Convert map back to array
       const groupedAchievements = Array.from(achievementMap.values());
-      
+
       // Split achievements into pinned and regular
       const pinned = groupedAchievements.filter(a => a.is_pinned);
       const regular = groupedAchievements.filter(a => !a.is_pinned);
@@ -1209,7 +1219,7 @@ const Profile = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 p-4 bg-post-header border border-border">
+              <div className="grid grid-cols-3 gap-4 p-4 bg-post-header border border-border">
                 <div>
                   <p className="text-sm text-muted-foreground">Тредов создано</p>
                   <p className="text-2xl font-bold">{profile.thread_count}</p>
@@ -1217,6 +1227,10 @@ const Profile = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Постов написано</p>
                   <p className="text-2xl font-bold">{profile.post_count}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Лайков на треды</p>
+                  <p className="text-2xl font-bold">{profile.thread_likes_received_count}</p>
                 </div>
               </div>
 
