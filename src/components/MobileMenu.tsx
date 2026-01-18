@@ -162,8 +162,8 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
             {/* Logout button - only show when viewing own profile */}
             {isOwnProfile && (
-              <Button
-                variant="ghost"
+              <Button 
+                variant="ghost" 
                 className="w-full justify-start relative group !hover:bg-red-500/10 !hover:text-red-500"
                 onClick={handleLogout}
               >
