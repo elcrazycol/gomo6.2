@@ -132,7 +132,7 @@ const Index = () => {
     };
 
     loadBoards();
-    setLoading(false);
+      setLoading(false);
   }, []);
 
   const handleLogout = async () => {
@@ -176,7 +176,7 @@ const Index = () => {
           <div className="lg:col-span-3">
             <div className="mb-6">
               <h1 className="text-2xl font-bold">Поток тредов</h1>
-            </div>
+        </div>
 
             <ThreadFeed
               currentUserId={user?.id}
@@ -197,8 +197,8 @@ const Index = () => {
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Создать тред
-                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                </Button>
+              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+            </Button>
 
                 <Button
                   onClick={() => navigate("/boards")}
@@ -207,36 +207,36 @@ const Index = () => {
                 >
                   <Grid3X3 className="h-4 w-4 mr-2" />
                   Просмотр по доскам
-                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                </Button>
-              </div>
+              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+            </Button>
+        </div>
 
               {/* Boards List */}
               <div className="bg-card border border-border rounded-lg p-4">
                 <h3 className="text-lg font-semibold mb-4">Доски</h3>
                 <div className="space-y-2">
-                  {boards.map((board) => (
-                    <PrefetchLink
+            {boards.map((board) => (
+                <PrefetchLink
                       key={board.id}
-                      to={`/${board.slug}`}
+                  to={`/${board.slug}`}
                       className="block p-3 border border-border rounded hover:bg-thread-hover transition-colors group hover:translate-x-0.5 transition-transform duration-200"
-                    >
+                >
                       <div className="font-medium text-primary relative">
                         /{board.slug}/
                         <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                      </div>
+                    </div>
                       <div className="text-sm text-muted-foreground">
                         {board.name}
-                      </div>
-                    </PrefetchLink>
-                  ))}
                 </div>
-              </div>
+              </PrefetchLink>
+            ))}
+          </div>
+        </div>
 
               {/* Quick Links */}
               <div className="bg-card border border-border rounded-lg p-4">
                 <h3 className="text-lg font-semibold mb-4">Быстрые ссылки</h3>
-                <div className="space-y-2">
+              <div className="space-y-2">
                   <PrefetchLink to="/rules">
                     <Button variant="outline" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50">
                       Информация
@@ -262,15 +262,15 @@ const Index = () => {
             </div>
           </div>
 
+          </div>
         </div>
-      </div>
 
-      <TermsOfService
-        open={showTerms}
-        onAccept={handleAcceptTerms}
-        onDecline={handleDeclineTerms}
-        canDecline={true}
-      />
+        <TermsOfService
+          open={showTerms}
+          onAccept={handleAcceptTerms}
+          onDecline={handleDeclineTerms}
+          canDecline={true}
+        />
 
       {showCreateWizard && (
         <CreateThreadWizard
