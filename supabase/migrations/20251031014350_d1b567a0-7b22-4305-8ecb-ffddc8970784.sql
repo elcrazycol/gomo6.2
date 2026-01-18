@@ -107,20 +107,7 @@ CREATE TRIGGER on_thread_created
   FOR EACH ROW
   EXECUTE FUNCTION check_first_thread_achievement();
 
--- Trigger for image upload achievement
-CREATE OR REPLACE FUNCTION public.check_image_achievement()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF NEW.image_url IS NOT NULL THEN
-    PERFORM award_achievement(NEW.user_id, 'first_image');
-  END IF;
-  RETURN NEW;
-END;
-$$;
+-- Trigger for image upload achievement (deprecated - replaced by newer version)
 
 DROP TRIGGER IF EXISTS on_post_with_image ON posts;
 CREATE TRIGGER on_post_with_image

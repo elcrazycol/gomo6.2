@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,6 +7,40 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+
+// Tag constants (duplicated from CreateThread.tsx for filtering)
+const CONTENT_TAGS = [
+  { value: 'anime', label: 'Аниме' },
+  { value: 'games', label: 'Игры' },
+  { value: 'music', label: 'Музыка' },
+  { value: 'movies', label: 'Фильмы' },
+  { value: 'comics', label: 'Комиксы' },
+  { value: 'humor', label: 'Юмор' },
+  { value: 'literature', label: 'Литература' },
+  { value: 'stories', label: 'Истории' }
+];
+
+const FORMAT_TAGS = [
+  { value: 'shitpost', label: 'Щитпост' },
+  { value: 'discussion', label: 'Обсуждение' },
+  { value: 'question', label: 'Вопрос' },
+  { value: 'confession', label: 'Признание' },
+  { value: 'story', label: 'Рассказ' },
+  { value: 'guide', label: 'Гайд' }
+];
+
+const ATMOSPHERE_TAGS = [
+  { value: 'serious', label: 'Серьёзно' },
+  { value: 'irony', label: 'Ирония' },
+  { value: 'vent', label: 'Выплеск' },
+  { value: 'doom', label: 'Тьма' }
+];
+
+const FLAG_TAGS = [
+  { value: 'normal', label: 'Обычный' },
+  { value: 'ephemeral', label: 'Временный' },
+  { value: 'night', label: 'Ночной' }
+];
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -41,6 +75,7 @@ interface Thread {
   updated_at: string;
   post_count: number;
   user_id: string | null;
+  tag?: string | null; // Added tag field
   profiles: {
     username: string;
     is_anonymous: boolean;
@@ -79,8 +114,9 @@ const Board = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
+  const [searchParams] = useSearchParams();
   const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
-  
+
   useSessionTime(user?.id);
 
   useEffect(() => {
@@ -188,7 +224,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user]);
+  }, [slug, user, searchParams]);
 
   useEffect(() => {
     if (!board) return;
@@ -216,11 +252,39 @@ const Board = () => {
   }, [board]);
 
   const loadThreads = async (boardId: string) => {
-    const { data: threadsData } = await supabase
+    const contentFilter = searchParams.get('content');
+    const formatFilter = searchParams.get('format');
+    const atmosphereFilter = searchParams.get('atmosphere');
+    const flagFilter = searchParams.get('flag');
+
+    let query = supabase
       .from("threads")
       .select("*")
-      .eq("board_id", boardId)
-      .order("updated_at", { ascending: false });
+      .eq("board_id", boardId);
+
+    // Filter by new tag system
+    if (contentFilter) {
+      query = query.eq("tags->>content", contentFilter);
+    }
+    if (formatFilter) {
+      query = query.eq("tags->>format", formatFilter);
+    }
+    if (atmosphereFilter) {
+      query = query.eq("tags->>atmosphere", atmosphereFilter);
+    }
+    if (flagFilter) {
+      query = query.eq("tags->>flag", flagFilter);
+    }
+
+    // Backward compatibility: filter by old tag field if no new filters
+    if (!contentFilter && !formatFilter && !atmosphereFilter && !flagFilter) {
+      const oldTagFilter = searchParams.get('tag');
+      if (oldTagFilter) {
+        query = query.or(`tag.eq.${oldTagFilter},tags->>content.eq.${oldTagFilter}`);
+      }
+    }
+
+    const { data: threadsData } = await query.order("updated_at", { ascending: false });
 
     if (threadsData) {
       const threadsWithData = await Promise.all(
@@ -379,6 +443,180 @@ const Board = () => {
     <main className="max-w-5xl mx-auto p-2 sm:p-4 flex-1 relative">
         <div className="mb-3 sm:mb-4 text-center">
           <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
+
+          {/* Compact filters */}
+          <div className="mt-3 flex flex-wrap justify-center gap-1 max-w-4xl mx-auto">
+            {/* Content filters */}
+            <div className="flex flex-wrap gap-1">
+              <span className="text-xs text-muted-foreground self-center mr-1">Тема:</span>
+              {CONTENT_TAGS.map(tag => (
+                <button
+                  key={tag.value}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    if (params.get('content') === tag.value) {
+                      params.delete('content');
+                    } else {
+                      params.set('content', tag.value);
+                    }
+                    navigate(`?${params.toString()}`);
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    searchParams.get('content') === tag.value
+                      ? 'bg-blue-500/20 text-blue-700 border-blue-500/40'
+                      : 'bg-background hover:bg-blue-500/10 border-border hover:border-blue-500/30'
+                  }`}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Format filters */}
+            <div className="flex flex-wrap gap-1">
+              <span className="text-xs text-muted-foreground self-center mr-1">Формат:</span>
+              {FORMAT_TAGS.map(tag => (
+                <button
+                  key={tag.value}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    if (params.get('format') === tag.value) {
+                      params.delete('format');
+                    } else {
+                      params.set('format', tag.value);
+                    }
+                    navigate(`?${params.toString()}`);
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    searchParams.get('format') === tag.value
+                      ? 'bg-green-500/20 text-green-700 border-green-500/40'
+                      : 'bg-background hover:bg-green-500/10 border-border hover:border-green-500/30'
+                  }`}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Atmosphere filters */}
+            <div className="flex flex-wrap gap-1">
+              <span className="text-xs text-muted-foreground self-center mr-1">Атмосфера:</span>
+              {ATMOSPHERE_TAGS.map(tag => (
+                <button
+                  key={tag.value}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    if (params.get('atmosphere') === tag.value) {
+                      params.delete('atmosphere');
+                    } else {
+                      params.set('atmosphere', tag.value);
+                    }
+                    navigate(`?${params.toString()}`);
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    searchParams.get('atmosphere') === tag.value
+                      ? 'bg-purple-500/20 text-purple-700 border-purple-500/40'
+                      : 'bg-background hover:bg-purple-500/10 border-border hover:border-purple-500/30'
+                  }`}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Flag filters */}
+            <div className="flex flex-wrap gap-1">
+              <span className="text-xs text-muted-foreground self-center mr-1">Тип:</span>
+              {FLAG_TAGS.map(tag => (
+                <button
+                  key={tag.value}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    if (params.get('flag') === tag.value) {
+                      params.delete('flag');
+                    } else {
+                      params.set('flag', tag.value);
+                    }
+                    navigate(`?${params.toString()}`);
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    searchParams.get('flag') === tag.value
+                      ? 'bg-orange-500/20 text-orange-700 border-orange-500/40'
+                      : 'bg-background hover:bg-orange-500/10 border-border hover:border-orange-500/30'
+                  }`}
+                >
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {(searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag') || searchParams.get('tag')) && (
+            <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">Фильтр:</span>
+
+              {searchParams.get('content') && (
+                <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full border border-blue-500/20">
+                  {searchParams.get('content') === 'anime' && 'Аниме'}
+                  {searchParams.get('content') === 'games' && 'Игры'}
+                  {searchParams.get('content') === 'music' && 'Музыка'}
+                  {searchParams.get('content') === 'movies' && 'Фильмы'}
+                  {searchParams.get('content') === 'comics' && 'Комиксы'}
+                  {searchParams.get('content') === 'humor' && 'Юмор'}
+                  {searchParams.get('content') === 'literature' && 'Литература'}
+                  {searchParams.get('content') === 'stories' && 'Истории'}
+                </span>
+              )}
+
+              {searchParams.get('format') && (
+                <span className="inline-block px-2 py-0.5 text-xs bg-green-500/10 text-green-600 rounded-full border border-green-500/20">
+                  {searchParams.get('format') === 'shitpost' && 'Щитпост'}
+                  {searchParams.get('format') === 'discussion' && 'Обсуждение'}
+                  {searchParams.get('format') === 'question' && 'Вопрос'}
+                  {searchParams.get('format') === 'confession' && 'Признание'}
+                  {searchParams.get('format') === 'story' && 'Рассказ'}
+                  {searchParams.get('format') === 'guide' && 'Гайд'}
+                </span>
+              )}
+
+              {searchParams.get('atmosphere') && (
+                <span className="inline-block px-2 py-0.5 text-xs bg-purple-500/10 text-purple-600 rounded-full border border-purple-500/20">
+                  {searchParams.get('atmosphere') === 'serious' && 'Серьёзно'}
+                  {searchParams.get('atmosphere') === 'irony' && 'Ирония'}
+                  {searchParams.get('atmosphere') === 'vent' && 'Выплеск'}
+                  {searchParams.get('atmosphere') === 'doom' && 'Тьма'}
+                </span>
+              )}
+
+              {searchParams.get('flag') && searchParams.get('flag') !== 'normal' && (
+                <span className="inline-block px-2 py-0.5 text-xs bg-orange-500/10 text-orange-600 rounded-full border border-orange-500/20">
+                  {searchParams.get('flag') === 'ephemeral' && 'Временный'}
+                  {searchParams.get('flag') === 'night' && 'Ночной'}
+                </span>
+              )}
+
+              {/* Backward compatibility for old tag system */}
+              {searchParams.get('tag') && !searchParams.get('content') && (
+                <span className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full border border-primary/20">
+                  {searchParams.get('tag') === 'anime' && '🎬 Аниме'}
+                  {searchParams.get('tag') === 'games' && '🎮 Игры'}
+                  {searchParams.get('tag') === 'music' && '🎵 Музыка'}
+                  {searchParams.get('tag') === 'sports' && '⚽ Спорт'}
+                  {searchParams.get('tag') === 'movies' && '🎥 Фильмы'}
+                  {searchParams.get('tag') === 'comics' && '📚 Комиксы'}
+                  {searchParams.get('tag') === 'humor' && '😂 Юмор'}
+                  {searchParams.get('tag') === 'literature' && '📖 Литература'}
+                  {searchParams.get('tag') === 'stories' && '📝 Истории'}
+                </span>
+              )}
+
+              <button
+                onClick={() => navigate(`/${board.slug}`)}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors underline"
+              >
+                Сбросить
+              </button>
+            </div>
+          )}
         </div>
 
         {canCreateThread && !showNewThread && (

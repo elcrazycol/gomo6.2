@@ -14,6 +14,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
+import { CreateThreadWizard } from "@/components/CreateThreadWizard";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -34,6 +35,7 @@ const Index = () => {
   const [showTerms, setShowTerms] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
   const navigate = useNavigate();
   
   useSessionTime(user?.id);
@@ -189,7 +191,7 @@ const Index = () => {
               {/* Create Thread Button */}
               <div className="bg-card border border-border rounded-lg p-4">
                 <Button
-                  onClick={() => navigate("/boards")}
+                  onClick={() => setShowCreateWizard(true)}
                   className="w-full mb-3 relative group hover:translate-x-0.5 transition-transform duration-200"
                   size="lg"
                 >
@@ -269,6 +271,14 @@ const Index = () => {
         onDecline={handleDeclineTerms}
         canDecline={true}
       />
+
+      {showCreateWizard && (
+        <CreateThreadWizard
+          boards={boards}
+          onClose={() => setShowCreateWizard(false)}
+        />
+      )}
+
     </div>
   );
 };

@@ -234,6 +234,10 @@ export const createCustomBbPreset = (options?: {
         content: node.content
       };
     },
+    // Line break [br]
+    br: () => ({
+      tag: 'br'
+    }),
     // [me] tag - highlight for post author
     me: (node) => {
       const colorClasses: Record<string, string> = {
@@ -297,11 +301,14 @@ export const renderBbCode = (text: string, options?: {
 }): React.ReactNode => {
   if (!text) return null;
 
+  // Process line breaks - replace \n with [br] tag for BB code processing
+  const processedText = text.replace(/\n/g, '[br]');
+
   const presetFactory = createCustomBbPreset(options);
   const preset = presetFactory();
-  
+
   // Render BB code using @bbob/react render function (returns array)
-  const renderedArray = render(text, preset, { caseFreeTags: true });
+  const renderedArray = render(processedText, preset, { caseFreeTags: true });
   
   if (!renderedArray || renderedArray.length === 0) {
     return null;
