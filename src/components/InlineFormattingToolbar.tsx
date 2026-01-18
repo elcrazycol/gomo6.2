@@ -66,7 +66,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
       const selectedText = range.toString();
       if (!selectedText || selectedText.trim().length === 0) {
         // No text selected - just insert tags
-        editorRef.current.insertText(prefix + suffix);
+      editorRef.current.insertText(prefix + suffix);
         return;
       }
       
