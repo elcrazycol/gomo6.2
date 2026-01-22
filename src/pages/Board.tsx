@@ -602,14 +602,78 @@ const Board = () => {
               to={`/${slug}/thread/${thread.id}`}
               className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
             >
-              <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
+              {/* Mobile Layout */}
+              <div className="md:hidden">
+                <div className="space-y-3">
+                  {/* User info and time */}
+                  <div className="flex items-center justify-between">
+                    <UserBadge
+                      userId={thread.user_id}
+                      username={thread.profiles?.username || "Аноним"}
+                      isAnonymous={thread.profiles?.is_anonymous}
+                      showOutline={false}
+                      disableLink={true}
+                      className="text-sm"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(thread.created_at), {
+                        locale: ru,
+                        addSuffix: true,
+                      })}
+                    </span>
+                  </div>
+
+                  {/* Thread Title */}
+                  <h3 className="font-bold text-lg break-words">
+                    {thread.title}
+                  </h3>
+
+                  {/* Tags */}
+                  <div>
+                    {renderTags(thread.tags, 'mobile')}
+                  </div>
+
+                  {/* Thread Content Preview */}
+                  <div className="text-sm text-muted-foreground line-clamp-3 break-words">
+                    {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                      <>
+                        {renderContent(thread.content.substring(0, 200))}
+                        {thread.content.length > 200 && '...'}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Thread Image - Large and prominent at bottom */}
+                  {thread.image_url && (
+                    <div className="w-full">
+                      <img
+                        src={thread.image_url}
+                        alt="Thread"
+                        className="w-full h-48 object-cover border border-border rounded-lg"
+                      />
+                    </div>
+                  )}
+
+                  {/* Reply count */}
+                  <div className="flex justify-end">
+                    <span className="text-xs text-muted-foreground">
+                      {thread.post_count > 0
+                        ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
+                        : 'нет ответов'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop Layout */}
+              <div className="hidden md:block relative min-h-[100px]">
                 {/* Фото слева */}
                 {thread.image_url && (
-                  <div className="flex-shrink-0">
-                    <img
-                      src={thread.image_url}
-                      alt="Thread"
-                      className="w-16 h-16 sm:w-20 sm:h-20 object-cover border border-border rounded"
+                  <div className="absolute left-3 top-3 flex-shrink-0">
+                  <img
+                    src={thread.image_url}
+                    alt="Thread"
+                      className="w-20 h-20 object-cover border border-border rounded"
                     />
                     <div className="text-xs text-muted-foreground mt-1 text-center">
                       {formatDistanceToNow(new Date(thread.created_at), {
@@ -621,8 +685,8 @@ const Board = () => {
                 )}
 
                 {/* Название треда слева рядом с фото */}
-                <div className="flex-shrink-0 max-w-[200px] sm:max-w-[250px]">
-                  <h3 className="font-bold text-base sm:text-lg break-words relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
+                <div className="absolute left-28 top-3 max-w-[250px]">
+                  <h3 className="font-bold text-lg break-words relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
                     {thread.title}
                     <span className="absolute bottom-1 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                   </h3>
@@ -633,7 +697,7 @@ const Board = () => {
 
                 {/* Контент треда абсолютно центрирован */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 break-words text-center max-w-[60%]">
+                  <p className="text-sm text-muted-foreground line-clamp-2 break-words text-center max-w-[60%]">
                     {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
                       <>
                         {renderContent(thread.content.substring(0, 200))}
@@ -652,13 +716,13 @@ const Board = () => {
 
                 {/* Никнейм в правом верхнем углу */}
                 <div className="absolute top-2 right-2">
-                  <UserBadge
-                    userId={thread.user_id}
-                    username={thread.profiles?.username || "Аноним"}
-                    isAnonymous={thread.profiles?.is_anonymous}
-                    showOutline={false}
-                    disableLink={true}
-                  />
+                    <UserBadge
+                      userId={thread.user_id}
+                      username={thread.profiles?.username || "Аноним"}
+                      isAnonymous={thread.profiles?.is_anonymous}
+                      showOutline={false}
+                      disableLink={true}
+                    />
                 </div>
               </div>
             </Link>
