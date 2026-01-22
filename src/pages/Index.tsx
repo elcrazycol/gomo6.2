@@ -45,14 +45,21 @@ const Index = () => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
         const { data: roles } = await supabase
           .from("user_roles")
           .select("role")
           .eq("user_id", session.user.id);
-        
+
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+
+        // Check if we need to open create wizard (from mobile menu)
+        const shouldOpenWizard = localStorage.getItem('open_create_wizard');
+        if (shouldOpenWizard === 'true') {
+          localStorage.removeItem('open_create_wizard');
+          setShowCreateWizard(true);
+        }
 
         // Load current user profile and color
         const { data: profile } = await supabase

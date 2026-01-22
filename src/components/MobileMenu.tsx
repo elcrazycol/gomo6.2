@@ -75,6 +75,8 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             {/* Create thread button */}
             <Button
               onClick={() => {
+                // Set flag to open create wizard on home page
+                localStorage.setItem('open_create_wizard', 'true');
                 navigate("/");
                 setOpen(false);
               }}
