@@ -53,9 +53,11 @@ interface RecentPost {
 }
 
 export // Helper function to render tags
-const renderTags = (tags: any, layout: 'inline' | 'block' = 'block', thread?: any) => {
+const renderTags = (tags: any, layout: 'inline' | 'block' | 'mobile' | 'board' = 'block', thread?: any) => {
   const containerClass = layout === 'inline'
     ? "flex flex-wrap gap-1"
+    : layout === 'mobile'
+    ? "flex flex-wrap gap-1 text-xs"
     : "flex flex-wrap gap-1 mt-1";
 
   return (
