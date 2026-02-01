@@ -23,6 +23,8 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 import { processProfileBio } from "@/utils/profileBio";
 import { AdminBadge } from "@/components/AdminBadge";
+import { ProfileWall } from "@/components/ProfileWall";
+import { ThreadCard } from "@/components/ThreadCard";
 
 interface Profile {
   id: string;
@@ -473,6 +475,12 @@ const Profile = () => {
   const [isOnline, setIsOnline] = useState(false);
   const [showLastSeen, setShowLastSeen] = useState(true);
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
+  const [showProfileWall, setShowProfileWall] = useState(true);
+  const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
+  const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads'>('achievements');
+  const [showThreadsTab, setShowThreadsTab] = useState(true);
+  const [userThreads, setUserThreads] = useState<any[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -578,16 +586,19 @@ const Profile = () => {
       setLastSeen(data.last_seen_at);
       setIsOnline(data.is_online || false);
 
-      // Load privacy settings for online status
+      // Load privacy settings for online status and wall
       const { data: privacyData } = await supabase
         .from("privacy_settings")
-        .select("show_last_seen, show_online_status")
+        .select("show_last_seen, show_online_status, show_profile_wall, allow_wall_posts_from_others, show_threads_tab")
         .eq("user_id", userId)
         .maybeSingle();
 
       if (privacyData) {
         setShowLastSeen(privacyData.show_last_seen ?? true);
         setShowOnlineStatus(privacyData.show_online_status ?? true);
+        setShowProfileWall(privacyData.show_profile_wall ?? true);
+        setAllowWallPostsFromOthers(privacyData.allow_wall_posts_from_others ?? true);
+        setShowThreadsTab(privacyData.show_threads_tab ?? true);
       }
 
       // Load customization
@@ -601,6 +612,92 @@ const Profile = () => {
       setLikesReceived(likesData || 0);
     }
   };
+
+  // Set default tab based on wall visibility
+  useEffect(() => {
+    if (showProfileWall) {
+      setActiveTab('wall');
+    } else {
+      setActiveTab('achievements');
+    }
+  }, [showProfileWall]);
+
+  const loadUserThreads = async () => {
+    if (!userId) return;
+
+    setThreadsLoading(true);
+    try {
+      const { data: threadsData, error } = await supabase
+        .from('threads')
+        .select(`
+          id,
+          title,
+          content,
+          image_url,
+          image_urls,
+          created_at,
+          updated_at,
+          user_id,
+          tags,
+          ephemeral_type,
+          ephemeral_value,
+          auto_delete_at,
+          boards (
+            slug,
+            name
+          )
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
+      if (threadsData) {
+        // Get profiles for all threads
+        const userIds = [...new Set(threadsData.map(t => t.user_id).filter(Boolean))];
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, username, is_anonymous, avatar_url')
+          .in('id', userIds);
+
+        // Get post counts for threads
+        const threadIds = threadsData.map(t => t.id);
+        const { data: postCounts } = await supabase
+          .from('posts')
+          .select('thread_id')
+          .in('thread_id', threadIds);
+
+        // Count posts per thread
+        const postCountMap = postCounts?.reduce((acc, post) => {
+          acc[post.thread_id] = (acc[post.thread_id] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>) || {};
+
+        // Combine data
+        const threadsWithData = threadsData.map(thread => ({
+          ...thread,
+          profiles: profilesData?.find(p => p.id === thread.user_id) || null,
+          post_count: postCountMap[thread.id] || 0
+        }));
+
+        setUserThreads(threadsWithData);
+      } else {
+        setUserThreads([]);
+      }
+    } catch (error) {
+      console.error('Error loading user threads:', error);
+      toast.error('Ошибка загрузки тредов');
+    } finally {
+      setThreadsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'threads' && userThreads.length === 0) {
+      loadUserThreads();
+    }
+  }, [activeTab, userId]);
 
   const toggleAchievementPin = async (achievementId: string) => {
     try {
@@ -1229,18 +1326,69 @@ const Profile = () => {
                   <p className="text-2xl font-bold">{profile.post_count}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Лайков на треды</p>
-                  <p className="text-2xl font-bold">{profile.thread_likes_received_count}</p>
+                  <p className="text-sm text-muted-foreground">Лайков</p>
+                  <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
+                </div>
+              </div>
+
+              {/* Profile Tabs */}
+              <div className="border-b border-border">
+                <div className="flex gap-0">
+                  {showProfileWall && (
+                    <button
+                      onClick={() => setActiveTab('wall')}
+                      className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                        activeTab === 'wall'
+                          ? 'text-primary border-b-2 border-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Стена
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setActiveTab('achievements')}
+                    className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                      activeTab === 'achievements'
+                        ? 'text-primary border-b-2 border-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Достижения ({achievements.length})
+                  </button>
+                  {showThreadsTab && (
+                    <button
+                      onClick={() => setActiveTab('threads')}
+                      className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                        activeTab === 'threads'
+                          ? 'text-primary border-b-2 border-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Треды
+                    </button>
+                  )}
                 </div>
               </div>
 
             </div>
           )}
 
-          <div>
-            <h2 className="text-xl font-bold mb-4">
-              Достижения ({achievements.length}) × ♥ {likesReceived}
-            </h2>
+          {/* Tab Content */}
+          {activeTab === 'wall' && (
+            <div>
+              <ProfileWall
+                profileUserId={userId!}
+                currentUserId={currentUser?.id || null}
+                currentUsername={currentUserUsername}
+                canPost={currentUser?.id === userId || allowWallPostsFromOthers}
+                showWall={showProfileWall}
+              />
+            </div>
+          )}
+
+          {activeTab === 'achievements' && (
+            <div>
             {achievements.length === 0 ? (
               <p className="text-muted-foreground">Достижений пока нет</p>
             ) : (
@@ -1289,7 +1437,34 @@ const Profile = () => {
                 )}
               </div>
             )}
-          </div>
+            </div>
+          )}
+
+          {activeTab === 'threads' && (
+            <div>
+              <h2 className="text-xl font-bold mb-4">Треды ({userThreads.length})</h2>
+              {threadsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <PentagramLoader size="lg" />
+                </div>
+              ) : userThreads.length === 0 ? (
+                <p className="text-muted-foreground">У пользователя пока нет тредов</p>
+              ) : (
+                <div className="space-y-4">
+                  {userThreads.map((thread) => (
+                    <ThreadCard
+                      key={thread.id}
+                      thread={thread}
+                      currentUserId={currentUser?.id || null}
+                      currentUsername={currentUserUsername}
+                      currentUserColor={currentUserColor}
+                      showPreview={true}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         )}
       </main>

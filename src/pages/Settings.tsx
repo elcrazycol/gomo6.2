@@ -15,10 +15,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette, Monitor, Settings2, Sparkles } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -41,9 +41,10 @@ const Settings = () => {
     remove_image_metadata: boolean;
     show_last_seen: boolean;
     show_online_status: boolean;
+    show_profile_wall: boolean;
+    allow_wall_posts_from_others: boolean;
   }
   const [privacyLoading, setPrivacyLoading] = useState(false);
-  const [visibilityExpanded, setVisibilityExpanded] = useState(false);
   const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
   const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
   const [customFont, setCustomFont] = useState(() => {
@@ -64,8 +65,6 @@ const Settings = () => {
   });
 
   // Interface settings
-  const [interfaceExpanded, setInterfaceExpanded] = useState(false);
-  const [postsExpanded, setPostsExpanded] = useState(false);
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
   });
@@ -153,6 +152,8 @@ const Settings = () => {
           remove_image_metadata: true,
           show_last_seen: true,
           show_online_status: true,
+          show_profile_wall: true,
+          allow_wall_posts_from_others: true,
         };
 
         const { error: insertError, data: insertedData } = await (supabase as any)
@@ -196,6 +197,8 @@ const Settings = () => {
       allow_private_messages: true,
       anonymous_mode: false,
       remove_image_metadata: true,
+      show_profile_wall: true,
+      allow_wall_posts_from_others: true,
     };
     setPrivacySettings(defaultSettings);
     console.log('Using default privacy settings');
@@ -223,6 +226,8 @@ const Settings = () => {
         remove_image_metadata: updatedSettings.remove_image_metadata,
         show_last_seen: updatedSettings.show_last_seen,
         show_online_status: updatedSettings.show_online_status,
+        show_profile_wall: updatedSettings.show_profile_wall,
+        allow_wall_posts_from_others: updatedSettings.allow_wall_posts_from_others,
       };
 
       // Try to save to database
@@ -462,15 +467,16 @@ const Settings = () => {
             </div>
 
             <Tabs defaultValue="appearance" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="general">Основные</TabsTrigger>
-                <TabsTrigger value="appearance">Внешний вид</TabsTrigger>
-                <TabsTrigger value="account">Аккаунт</TabsTrigger>
-                <TabsTrigger value="privacy">Приватность</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-5 h-auto p-1">
+                <TabsTrigger value="general" className="text-xs sm:text-sm px-2 py-2">Основные</TabsTrigger>
+                <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">Внешний вид</TabsTrigger>
+                <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">Профиль</TabsTrigger>
+                <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">Аккаунт</TabsTrigger>
+                <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">Приватность</TabsTrigger>
               </TabsList>
 
               <TabsContent value="general" className="space-y-4">
-                <div className="bg-card p-6 border border-border">
+                <div className="bg-card p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">Основные настройки</h2>
                   <div className="space-y-4">
                     <div>
@@ -493,7 +499,7 @@ const Settings = () => {
                 {/* Theme Panel */}
                 <Collapsible open={themeExpanded} onOpenChange={setThemeExpanded}>
                   <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <Palette className="h-5 w-5" />
                         <span className="text-lg font-semibold">Тема</span>
@@ -502,8 +508,8 @@ const Settings = () => {
                     </button>
                   </CollapsibleTrigger>
 
-                  <CollapsibleContent className="space-y-6 pt-6">
-                    <div className="bg-card border border-border p-6">
+                  <CollapsibleContent className="space-y-6 pt-4 sm:pt-6">
+                    <div className="bg-card border border-border p-4 sm:p-6">
                       <div className="space-y-6">
                     <div>
                           <Label className="text-base font-semibold mb-4 block">Цветовая схема</Label>
@@ -559,7 +565,7 @@ const Settings = () => {
                 {/* Font Panel */}
                     <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>
                       <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
+                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
                           <div className="flex items-center gap-2">
                         <Type className="h-5 w-5" />
                         <span className="text-lg font-semibold">Шрифт</span>
@@ -568,8 +574,8 @@ const Settings = () => {
                         </button>
                       </CollapsibleTrigger>
 
-                  <CollapsibleContent className="space-y-4 pt-6">
-                    <div className="bg-card border border-border p-6">
+                  <CollapsibleContent className="space-y-4 pt-4 sm:pt-6">
+                    <div className="bg-card border border-border p-4 sm:p-6">
                         <div>
                           <Label htmlFor="google-font" className="text-sm font-medium">
                             Шрифт из Google Fonts
@@ -604,148 +610,172 @@ const Settings = () => {
                   </CollapsibleContent>
                 </Collapsible>
 
-                {/* Interface Panel */}
-                <Collapsible open={interfaceExpanded} onOpenChange={setInterfaceExpanded}>
-                  <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center gap-2">
-                        <Monitor className="h-5 w-5" />
-                        <span className="text-lg font-semibold">Интерфейс</span>
-                      </div>
-                      <ChevronDown className={`h-5 w-5 transition-transform ${interfaceExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-                  </CollapsibleTrigger>
 
-                  <CollapsibleContent className="space-y-4 pt-6">
-                    <div className="bg-card border border-border">
-                      <Collapsible open={postsExpanded} onOpenChange={setPostsExpanded}>
-                        <CollapsibleTrigger asChild>
-                          <button className="w-full p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
-                            <div className="flex items-center gap-2">
-                              <Settings2 className="h-4 w-4" />
-                              <span className="text-base font-medium">Посты</span>
-                            </div>
-                            <ChevronDown className={`h-4 w-4 transition-transform ${postsExpanded ? 'rotate-180' : ''}`} />
-                          </button>
-                        </CollapsibleTrigger>
+              </TabsContent>
 
-                        <CollapsibleContent className="px-6 pb-6">
-                          <div className="space-y-4">
-                            <div>
-                              <Label className="text-sm font-medium mb-3 block">Вид отправителя</Label>
-                                <div className="flex gap-4">
-                                <div className="flex-1">
-                                  <Select value={senderDisplayType} onValueChange={handleSenderDisplayTypeChange}>
-                                    <SelectTrigger className="w-full">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="classic">Классический</SelectItem>
-                                      <SelectItem value="modern">Современный</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">
-                                  {senderDisplayType === 'classic' ? (
-                                    <>
-                                      <div className="font-mono text-primary">#03136507</div>
-                                      <div className="text-muted-foreground">· nickname · 2 дня назад</div>
-                                    </>
-                                  ) : (
-                                    <div className="flex items-start gap-2">
-                                      <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center text-xs">👤</div>
-                                      <div>
-                                        <div className="text-muted-foreground">nickname</div>
-                                        <div className="text-muted-foreground">2 дня назад</div>
-                                        <div className="font-mono text-primary text-[10px]">#03136507</div>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                          </div>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
+              <TabsContent value="profile" className="space-y-4">
+                {/* Profile Wall Settings */}
+                <div className="bg-card p-4 sm:p-6 border border-border">
+                  <div className="flex items-center gap-2 mb-4">
+                    <h2 className="text-lg font-semibold">Стена профиля</h2>
+                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  </CollapsibleContent>
-                </Collapsible>
 
-                {/* Customization Panel */}
-                <Collapsible defaultOpen={false} className="bg-card border border-border">
-                  <CollapsibleTrigger className="w-full p-6 flex items-center justify-between hover:bg-card/80 transition-colors">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-5 w-5" />
-                      <span className="text-lg font-semibold">Кастомизация</span>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>Показывать стену профиля</span>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Если отключено, никто не увидит стену на вашем профиле</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Switch
+                        checked={privacySettings.show_profile_wall ?? true}
+                        onCheckedChange={(value) => updatePrivacySetting('show_profile_wall', value)}
+                        disabled={privacyLoading}
+                      />
                     </div>
-                    <ChevronDown className="h-4 w-4 transition-transform duration-200 data-[state=open]:rotate-180" />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="px-6 pb-6 space-y-4">
-                    {/* Profile Customization */}
-                    <div className="border-l-2 border-primary pl-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">Кастомизация профиля</span>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => navigate(`/profile/${user.id}`)}
-                            size="sm"
-                          >
-                            Основная кастомизация
-                          </Button>
-                          <Button
-                            variant="default"
-                            onClick={() => navigate("/settings/custom")}
-                            size="sm"
-                          >
-                            Уникальная кастомизация
-                          </Button>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>Разрешить писать на стене другим пользователям</span>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Если отключено, только вы сможете оставлять посты на своей стене</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Switch
+                        checked={privacySettings.allow_wall_posts_from_others ?? true}
+                        onCheckedChange={(value) => updatePrivacySetting('allow_wall_posts_from_others', value)}
+                        disabled={privacyLoading}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      На стене профиля пользователи могут оставлять посты с текстом, изображениями и заголовками.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Profile Customization */}
+                <div className="bg-card p-4 sm:p-6 border border-border">
+                  <h2 className="text-lg font-semibold mb-4">Кастомизация профиля</h2>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Основная кастомизация</label>
+                      <p className="text-sm text-muted-foreground mt-1 mb-3">
+                        Настройте никнейм, аватар, био и другие элементы профиля
+                      </p>
+                      <Link to={`/profile/${user.id}`}>
+                        <Button variant="outline">
+                          Перейти в профиль
+                        </Button>
+                      </Link>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Уникальная кастомизация</label>
+                      <p className="text-sm text-muted-foreground mt-1 mb-3">
+                        Расширенные настройки внешнего вида профиля
+                      </p>
+                      <Button
+                        variant="default"
+                        onClick={() => navigate("/settings/custom")}
+                      >
+                        Настроить
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Post Customization */}
+                <div className="bg-card p-4 sm:p-6 border border-border">
+                  <h2 className="text-lg font-semibold mb-4">Кастомизация постов</h2>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Внешний вид постов</label>
+                      <p className="text-sm text-muted-foreground mt-1 mb-3">
+                        Настройте как выглядят ваши посты в треддах
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate("/settings/posts")}
+                      >
+                        Настроить
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interface Settings */}
+                <div className="bg-card p-4 sm:p-6 border border-border">
+                  <h2 className="text-lg font-semibold mb-4">Интерфейс постов</h2>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium mb-3 block">Вид отправителя</Label>
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <Select value={senderDisplayType} onValueChange={handleSenderDisplayTypeChange}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="classic">Классический</SelectItem>
+                              <SelectItem value="modern">Современный</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">
+                          {senderDisplayType === 'classic' ? (
+                            <>
+                              <div className="font-mono text-primary">#03136507</div>
+                              <div className="text-muted-foreground">· nickname · 2 дня назад</div>
+                            </>
+                          ) : (
+                            <div className="flex items-start gap-2">
+                              <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center text-xs">👤</div>
+                              <div>
+                                <div className="text-muted-foreground">nickname</div>
+                                <div className="text-muted-foreground">2 дня назад</div>
+                                <div className="font-mono text-primary text-[10px]">#03136507</div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        Настройте внешний вид вашего никнейма, иконки и пада профиля
-                      </p>
                     </div>
+                  </div>
+                </div>
 
-                    {/* Post Customization */}
-                    <div className="border-l-2 border-primary pl-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">Кастомизация постов</span>
-                        <Button
-                          variant="outline"
-                          onClick={() => navigate("/settings/posts")}
-                          size="sm"
-                        >
-                          Настроить
-                        </Button>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Настройте внешний вид ваших постов
-                      </p>
-                    </div>
-
-                    {/* Placeholders */}
-                    <div className="border-l-2 border-primary pl-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">Плейсхолдеры</span>
-                        <Button
-                          variant="outline"
-                          onClick={() => navigate("/settings/placeholders")}
-                          size="sm"
-                        >
-                          Настроить
-                        </Button>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
+                {/* Placeholders */}
+                <div className="bg-card p-4 sm:p-6 border border-border">
+                  <h2 className="text-lg font-semibold mb-4">Плейсхолдеры</h2>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Плейсхолдеры профиля</label>
+                      <p className="text-sm text-muted-foreground mt-1 mb-3">
                         Выберите плейсхолдеры для отображения при наведении на пользователя
                       </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate("/settings/placeholders")}
+                      >
+                        Настроить
+                      </Button>
                     </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="account" className="space-y-4">
-                <div className="bg-card p-6 border border-border">
+                <div className="bg-card p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">Аккаунт</h2>
                   <div className="space-y-4">
                     <div>
@@ -802,23 +832,16 @@ const Settings = () => {
                 {privacySettings && (
                   <>
                     {/* Profile Visibility Section */}
-                    <div className="bg-card border border-border">
-                      <button
-                        onClick={() => setVisibilityExpanded(!visibilityExpanded)}
-                        className="w-full p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg font-semibold">Видимость профиля</span>
-                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <ChevronDown className={`h-5 w-5 transition-transform ${visibilityExpanded ? 'rotate-180' : ''}`} />
-                      </button>
+                    <div className="bg-card p-4 sm:p-6 border border-border">
+                      <div className="flex items-center gap-2 mb-4">
+                        <h2 className="text-lg font-semibold">Видимость профиля</h2>
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                      </div>
 
-                      {visibilityExpanded && (
-                        <div className="px-6 pb-6 space-y-6">
-                          <div>
-                            <h3 className="text-base font-medium mb-4">Общая видимость</h3>
-                            <div className="space-y-3">
+                      <div className="space-y-4">
+                        <div>
+                          <h3 className="text-base font-medium mb-3">Общая видимость</h3>
+                          <div className="space-y-3">
                               <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span>Не показывать сообщения <u>НП</u></span>
@@ -916,11 +939,10 @@ const Settings = () => {
                             </div>
                           </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
 
                     {/* Private Chat Section */}
-                    <div className="bg-card p-6 border border-border">
+                    <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
                         <h2 className="text-lg font-semibold">Личный чат</h2>
                         <AlertTriangle className="h-4 w-4 text-orange-500 cursor-help" />
@@ -967,7 +989,7 @@ const Settings = () => {
                     </div>
 
                     {/* Image Security Section */}
-                    <div className="bg-card p-6 border border-border">
+                    <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
                         <h2 className="text-lg font-semibold">Безопасность изображений</h2>
                         <HelpCircle className="h-4 w-4 text-muted-foreground" />
@@ -1000,7 +1022,7 @@ const Settings = () => {
                     </div>
 
                     {/* Anonymous Mode */}
-                    <div className="bg-card p-6 border border-border border-red-200">
+                    <div className="bg-card p-4 sm:p-6 border border-border border-red-200">
                       <div className="flex items-center justify-between">
                         <div>
                           <h2 className="text-lg font-semibold text-red-600">Режим анонимности</h2>

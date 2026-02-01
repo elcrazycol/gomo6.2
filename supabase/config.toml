@@ -5,6 +5,3 @@ verify_jwt = false
 
 [functions.delete-expired-threads]
 verify_jwt = false
-
-[functions.delete-expired-threads.cron]
-schedule = "*/5 * * * *"  # Every 5 minutes
