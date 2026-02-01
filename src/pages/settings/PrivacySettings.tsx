@@ -19,6 +19,7 @@ interface PrivacySettingsData {
   allow_private_messages: boolean;
   anonymous_mode: boolean;
   remove_image_metadata: boolean;
+  show_threads_tab: boolean;
 }
 
 const PrivacySettings = () => {
@@ -94,6 +95,7 @@ const PrivacySettings = () => {
           allow_private_messages: true,
           anonymous_mode: false,
           remove_image_metadata: true,
+          show_threads_tab: true,
         };
         setSettings(defaultSettings);
       }
@@ -250,6 +252,21 @@ const PrivacySettings = () => {
                           disabled={saving}
                         />
                       </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span>Показывать вкладку тредов в профиле</span>
+                          <HelpCircle
+                            className="h-4 w-4 text-muted-foreground cursor-help"
+                            title="Показывать вкладку с вашими тредами в профиле"
+                          />
+                        </div>
+                        <Switch
+                          checked={settings.show_threads_tab ?? true}
+                          onCheckedChange={(value) => updateSetting('show_threads_tab', value)}
+                          disabled={saving}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -300,6 +317,92 @@ const PrivacySettings = () => {
                     disabled={saving}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Profile Wall Section */}
+            <div className="bg-card p-6 border border-border">
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-lg font-semibold">Стена профиля</h2>
+                <HelpCircle className="h-4 w-4 text-muted-foreground" />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>Показывать стену профиля</span>
+                    <HelpCircle
+                      className="h-4 w-4 text-muted-foreground cursor-help"
+                      title="Если отключено, никто не увидит стену на вашем профиле"
+                    />
+                  </div>
+                  <Switch
+                    checked={settings.show_profile_wall}
+                    onCheckedChange={(value) => updateSetting('show_profile_wall', value)}
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>Разрешить писать на стене другим пользователям</span>
+                    <HelpCircle
+                      className="h-4 w-4 text-muted-foreground cursor-help"
+                      title="Если отключено, только вы сможете оставлять посты на своей стене"
+                    />
+                  </div>
+                  <Switch
+                    checked={settings.allow_wall_posts_from_others}
+                    onCheckedChange={(value) => updateSetting('allow_wall_posts_from_others', value)}
+                    disabled={saving}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  На стене профиля пользователи могут оставлять посты с текстом, изображениями и заголовками.
+                </p>
+              </div>
+            </div>
+
+            {/* Profile Wall Section */}
+            <div className="bg-card p-6 border border-border">
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-lg font-semibold">Стена профиля</h2>
+                <HelpCircle className="h-4 w-4 text-muted-foreground" />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>Показывать стену профиля</span>
+                    <HelpCircle
+                      className="h-4 w-4 text-muted-foreground cursor-help"
+                      title="Если отключено, никто не увидит стену на вашем профиле"
+                    />
+                  </div>
+                  <Switch
+                    checked={settings.show_profile_wall}
+                    onCheckedChange={(value) => updateSetting('show_profile_wall', value)}
+                    disabled={saving}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span>Разрешить писать на стене другим пользователям</span>
+                    <HelpCircle
+                      className="h-4 w-4 text-muted-foreground cursor-help"
+                      title="Если отключено, только вы сможете оставлять посты на своей стене"
+                    />
+                  </div>
+                  <Switch
+                    checked={settings.allow_wall_posts_from_others}
+                    onCheckedChange={(value) => updateSetting('allow_wall_posts_from_others', value)}
+                    disabled={saving}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  На стене профиля пользователи могут оставлять посты с текстом, изображениями и заголовками.
+                </p>
               </div>
             </div>
 
