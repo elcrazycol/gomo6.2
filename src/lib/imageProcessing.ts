@@ -127,3 +127,11 @@ export const compressImageWithMetadataRemoval = async (
     img.src = URL.createObjectURL(file);
   });
 };
+
+// Объект с утилитами для обработки изображений
+export const imageProcessing = {
+  processImage: compressImageWithMetadataRemoval,
+  removeExifData,
+  getUserPrivacySettings,
+  compressImageWithMetadataRemoval,
+};
