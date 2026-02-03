@@ -5,46 +5,50 @@ export const useOnlineStatus = (userId: string | undefined) => {
   useEffect(() => {
     if (!userId) return;
 
-    // Update online status and last seen
-    const updateStatus = async () => {
+    const setStatus = async (online: boolean) => {
       await supabase
         .from("profiles")
         .update({
-          is_online: true,
-          last_seen_at: new Date().toISOString()
+          is_online: online,
+          last_seen_at: online ? new Date().toISOString() : new Date().toISOString(),
         })
         .eq("id", userId);
     };
 
-    // Update on mount
-    updateStatus();
+    const goOnline = () => setStatus(true);
+    const goOffline = () => setStatus(false);
 
-    // Update every 30 seconds while active
-    const interval = setInterval(updateStatus, 30000);
+    // Initial heartbeat
+    goOnline();
 
-    // Update on visibility change
+    // Heartbeat while tab is visible
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        goOnline();
+      }
+    }, 25000);
+
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        updateStatus();
+      if (document.visibilityState === "visible") {
+        goOnline();
       } else {
-        // Set offline when tab is hidden
-        supabase
-          .from("profiles")
-          .update({ is_online: false })
-          .eq("id", userId);
+        goOffline();
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const handleUnload = () => {
+      goOffline();
+    };
 
-    // Set offline on unmount
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("pagehide", handleUnload);
+
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      supabase
-        .from("profiles")
-        .update({ is_online: false })
-        .eq("id", userId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("pagehide", handleUnload);
     };
   }, [userId]);
 };

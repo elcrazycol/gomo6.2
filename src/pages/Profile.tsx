@@ -481,6 +481,7 @@ const Profile = () => {
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [userThreads, setUserThreads] = useState<any[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
+  const [repliesToUserThreads, setRepliesToUserThreads] = useState(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -558,6 +559,30 @@ const Profile = () => {
     }
   }, [userId]);
 
+  // Realtime updates for online status of viewed profile
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`profile-status-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
+        (payload) => {
+          const updated = payload.new as any;
+          if (updated) {
+            setIsOnline(updated.is_online || false);
+            setLastSeen(updated.last_seen_at || null);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
   // Update online status for current user
   useOnlineStatus(currentUser?.id);
 
@@ -610,6 +635,15 @@ const Profile = () => {
         user_uuid: userId
       });
       setLikesReceived(likesData || 0);
+
+      // Count replies in user's threads (excluding author's own posts)
+      const { count: repliesCount } = await supabase
+        .from("posts")
+        .select("id, threads!inner(user_id)", { count: "exact", head: true })
+        .eq("threads.user_id", userId)
+        .neq("user_id", userId);
+
+      setRepliesToUserThreads(repliesCount || 0);
     }
   };
 
@@ -1316,7 +1350,7 @@ const Profile = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-4 p-4 bg-post-header border border-border">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-post-header border border-border">
                 <div>
                   <p className="text-sm text-muted-foreground">Тредов создано</p>
                   <p className="text-2xl font-bold">{profile.thread_count}</p>
@@ -1328,6 +1362,10 @@ const Profile = () => {
                 <div>
                   <p className="text-sm text-muted-foreground">Лайков</p>
                   <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Постов в тредах</p>
+                  <p className="text-2xl font-bold">{repliesToUserThreads}</p>
                 </div>
               </div>
 
