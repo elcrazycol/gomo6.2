@@ -1376,7 +1376,7 @@ const Profile = () => {
 
           {/* Tab Content */}
           {activeTab === 'wall' && (
-            <div>
+          <div>
               <ProfileWall
                 profileUserId={userId!}
                 currentUserId={currentUser?.id || null}
@@ -1437,7 +1437,7 @@ const Profile = () => {
                 )}
               </div>
             )}
-            </div>
+          </div>
           )}
 
           {activeTab === 'threads' && (

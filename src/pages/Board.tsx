@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -50,7 +52,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings } from "lucide-react";
+import { Settings, Filter, X } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -110,6 +112,7 @@ const Board = () => {
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const [searchParams] = useSearchParams();
+  const [showFilters, setShowFilters] = useState(false);
   
   useSessionTime(user?.id);
 
@@ -381,110 +384,260 @@ const Board = () => {
         <div className="mb-3 sm:mb-4 text-center">
           <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
 
-          {/* Compact filters */}
-          <div className="mt-3 flex flex-wrap justify-center gap-1 max-w-4xl mx-auto">
-            {/* Content filters */}
-            <div className="flex flex-wrap gap-1">
-              <span className="text-xs text-muted-foreground self-center mr-1">Тема:</span>
-              {CONTENT_TAGS.map(tag => (
-                <button
-                  key={tag.value}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams);
-                    if (params.get('content') === tag.value) {
-                      params.delete('content');
-                    } else {
-                      params.set('content', tag.value);
-                    }
-                    navigate(`?${params.toString()}`);
-                  }}
-                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                    searchParams.get('content') === tag.value
-                      ? 'bg-blue-500/20 text-blue-700 border-blue-500/40'
-                      : 'bg-background hover:bg-blue-500/10 border-border hover:border-blue-500/30'
-                  }`}
-                >
-                  {tag.label}
-                </button>
-              ))}
-            </div>
+          {/* Mobile Filters Button */}
+          <div className="md:hidden mt-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 mx-auto"
+            >
+              <Filter className="w-4 h-4" />
+              Фильтры
+              {(searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag')) && (
+                <Badge variant="secondary" className="ml-1">
+                  {[searchParams.get('content'), searchParams.get('format'), searchParams.get('atmosphere'), searchParams.get('flag')].filter(Boolean).length}
+                </Badge>
+              )}
+            </Button>
 
-            {/* Format filters */}
-            <div className="flex flex-wrap gap-1">
-              <span className="text-xs text-muted-foreground self-center mr-1">Формат:</span>
-              {FORMAT_TAGS.map(tag => (
-                <button
-                  key={tag.value}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams);
-                    if (params.get('format') === tag.value) {
-                      params.delete('format');
-                    } else {
-                      params.set('format', tag.value);
-                    }
-                    navigate(`?${params.toString()}`);
-                  }}
-                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                    searchParams.get('format') === tag.value
-                      ? 'bg-green-500/20 text-green-700 border-green-500/40'
-                      : 'bg-background hover:bg-green-500/10 border-border hover:border-green-500/30'
-                  }`}
-                >
-                  {tag.label}
-                </button>
-              ))}
-            </div>
+            {showFilters && (
+              <Card className="mt-3 p-4 mx-auto max-w-md">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium">Фильтры</h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowFilters(false)}
+                      className="h-6 w-6 p-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
 
-            {/* Atmosphere filters */}
-            <div className="flex flex-wrap gap-1">
-              <span className="text-xs text-muted-foreground self-center mr-1">Атмосфера:</span>
-              {ATMOSPHERE_TAGS.map(tag => (
-                <button
-                  key={tag.value}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams);
-                    if (params.get('atmosphere') === tag.value) {
-                      params.delete('atmosphere');
-                    } else {
-                      params.set('atmosphere', tag.value);
-                    }
-                    navigate(`?${params.toString()}`);
-                  }}
-                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                    searchParams.get('atmosphere') === tag.value
-                      ? 'bg-purple-500/20 text-purple-700 border-purple-500/40'
-                      : 'bg-background hover:bg-purple-500/10 border-border hover:border-purple-500/30'
-                  }`}
-                >
-                  {tag.label}
-                </button>
-              ))}
-            </div>
+                  {/* Content filters */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Тема:</label>
+                    <div className="flex flex-wrap gap-1">
+                      {CONTENT_TAGS.map(tag => (
+                        <button
+                          key={tag.value}
+                          onClick={() => {
+                            const params = new URLSearchParams(searchParams);
+                            if (params.get('content') === tag.value) {
+                              params.delete('content');
+                            } else {
+                              params.set('content', tag.value);
+                            }
+                            navigate(`?${params.toString()}`);
+                          }}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            searchParams.get('content') === tag.value
+                              ? 'bg-blue-500/20 text-blue-700 border-blue-500/40'
+                              : 'bg-background hover:bg-blue-500/10 border-border hover:border-blue-500/30'
+                          }`}
+                        >
+                          {tag.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-            {/* Flag filters */}
-            <div className="flex flex-wrap gap-1">
-              <span className="text-xs text-muted-foreground self-center mr-1">Тип:</span>
-              {FLAG_TAGS.map(tag => (
-                <button
-                  key={tag.value}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams);
-                    if (params.get('flag') === tag.value) {
-                      params.delete('flag');
-                    } else {
-                      params.set('flag', tag.value);
-                    }
-                    navigate(`?${params.toString()}`);
-                  }}
-                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                    searchParams.get('flag') === tag.value
-                      ? 'bg-orange-500/20 text-orange-700 border-orange-500/40'
-                      : 'bg-background hover:bg-orange-500/10 border-border hover:border-orange-500/30'
-                  }`}
-                >
-                  {tag.label}
-                </button>
-              ))}
+                  {/* Format filters */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Формат:</label>
+                    <div className="flex flex-wrap gap-1">
+                      {FORMAT_TAGS.map(tag => (
+                        <button
+                          key={tag.value}
+                          onClick={() => {
+                            const params = new URLSearchParams(searchParams);
+                            if (params.get('format') === tag.value) {
+                              params.delete('format');
+                            } else {
+                              params.set('format', tag.value);
+                            }
+                            navigate(`?${params.toString()}`);
+                          }}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            searchParams.get('format') === tag.value
+                              ? 'bg-green-500/20 text-green-700 border-green-500/40'
+                              : 'bg-background hover:bg-green-500/10 border-border hover:border-green-500/30'
+                          }`}
+                        >
+                          {tag.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Atmosphere filters */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Атмосфера:</label>
+                    <div className="flex flex-wrap gap-1">
+                      {ATMOSPHERE_TAGS.map(tag => (
+                        <button
+                          key={tag.value}
+                          onClick={() => {
+                            const params = new URLSearchParams(searchParams);
+                            if (params.get('atmosphere') === tag.value) {
+                              params.delete('atmosphere');
+                            } else {
+                              params.set('atmosphere', tag.value);
+                            }
+                            navigate(`?${params.toString()}`);
+                          }}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            searchParams.get('atmosphere') === tag.value
+                              ? 'bg-purple-500/20 text-purple-700 border-purple-500/40'
+                              : 'bg-background hover:bg-purple-500/10 border-border hover:border-purple-500/30'
+                          }`}
+                        >
+                          {tag.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Flag filters */}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground mb-2 block">Тип:</label>
+                    <div className="flex flex-wrap gap-1">
+                      {FLAG_TAGS.map(tag => (
+                        <button
+                          key={tag.value}
+                          onClick={() => {
+                            const params = new URLSearchParams(searchParams);
+                            if (params.get('flag') === tag.value) {
+                              params.delete('flag');
+                            } else {
+                              params.set('flag', tag.value);
+                            }
+                            navigate(`?${params.toString()}`);
+                          }}
+                          className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            searchParams.get('flag') === tag.value
+                              ? 'bg-orange-500/20 text-orange-700 border-orange-500/40'
+                              : 'bg-background hover:bg-orange-500/10 border-border hover:border-orange-500/30'
+                          }`}
+                        >
+                          {tag.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+          </div>
+
+          {/* Desktop filters - keep original style */}
+          <div className="hidden md:block mt-3">
+            <div className="flex flex-wrap justify-center gap-1 max-w-4xl mx-auto">
+              {/* Content filters */}
+              <div className="flex flex-wrap gap-1">
+                <span className="text-xs text-muted-foreground self-center mr-1">Тема:</span>
+                {CONTENT_TAGS.map(tag => (
+                  <button
+                    key={tag.value}
+                    onClick={() => {
+                      const params = new URLSearchParams(searchParams);
+                      if (params.get('content') === tag.value) {
+                        params.delete('content');
+                      } else {
+                        params.set('content', tag.value);
+                      }
+                      navigate(`?${params.toString()}`);
+                    }}
+                    className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                      searchParams.get('content') === tag.value
+                        ? 'bg-blue-500/20 text-blue-700 border-blue-500/40'
+                        : 'bg-background hover:bg-blue-500/10 border-border hover:border-blue-500/30'
+                    }`}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Format filters */}
+              <div className="flex flex-wrap gap-1">
+                <span className="text-xs text-muted-foreground self-center mr-1">Формат:</span>
+                {FORMAT_TAGS.map(tag => (
+                  <button
+                    key={tag.value}
+                    onClick={() => {
+                      const params = new URLSearchParams(searchParams);
+                      if (params.get('format') === tag.value) {
+                        params.delete('format');
+                      } else {
+                        params.set('format', tag.value);
+                      }
+                      navigate(`?${params.toString()}`);
+                    }}
+                    className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                      searchParams.get('format') === tag.value
+                        ? 'bg-green-500/20 text-green-700 border-green-500/40'
+                        : 'bg-background hover:bg-green-500/10 border-border hover:border-green-500/30'
+                    }`}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Atmosphere filters */}
+              <div className="flex flex-wrap gap-1">
+                <span className="text-xs text-muted-foreground self-center mr-1">Атмосфера:</span>
+                {ATMOSPHERE_TAGS.map(tag => (
+                  <button
+                    key={tag.value}
+                    onClick={() => {
+                      const params = new URLSearchParams(searchParams);
+                      if (params.get('atmosphere') === tag.value) {
+                        params.delete('atmosphere');
+                      } else {
+                        params.set('atmosphere', tag.value);
+                      }
+                      navigate(`?${params.toString()}`);
+                    }}
+                    className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                      searchParams.get('atmosphere') === tag.value
+                        ? 'bg-purple-500/20 text-purple-700 border-purple-500/40'
+                        : 'bg-background hover:bg-purple-500/10 border-border hover:border-purple-500/30'
+                    }`}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Flag filters */}
+              <div className="flex flex-wrap gap-1">
+                <span className="text-xs text-muted-foreground self-center mr-1">Тип:</span>
+                {FLAG_TAGS.map(tag => (
+                  <button
+                    key={tag.value}
+                    onClick={() => {
+                      const params = new URLSearchParams(searchParams);
+                      if (params.get('flag') === tag.value) {
+                        params.delete('flag');
+                      } else {
+                        params.set('flag', tag.value);
+                      }
+                        navigate(`?${params.toString()}`);
+                    }}
+                    className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                      searchParams.get('flag') === tag.value
+                        ? 'bg-orange-500/20 text-orange-700 border-orange-500/40'
+                        : 'bg-background hover:bg-orange-500/10 border-border hover:border-orange-500/30'
+                    }`}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           {(searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag') || searchParams.get('tag')) && (
@@ -557,7 +710,7 @@ const Board = () => {
         </div>
 
         {canCreateThread && (
-          <Button onClick={() => navigate(`/create?board=${board.slug}`)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
+          <Button onClick={() => navigate(`/create`)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
             Создать тред
           </Button>
         )}
@@ -666,63 +819,67 @@ const Board = () => {
               </div>
 
               {/* Desktop Layout */}
-              <div className="hidden md:block relative min-h-[100px]">
-                {/* Фото слева */}
-                {thread.image_url && (
-                  <div className="absolute left-3 top-3 flex-shrink-0">
-                  <img
-                    src={thread.image_url}
-                    alt="Thread"
-                      className="w-20 h-20 object-cover border border-border rounded"
-                    />
-                    <div className="text-xs text-muted-foreground mt-1 text-center">
-                      {formatDistanceToNow(new Date(thread.created_at), {
-                        locale: ru,
-                        addSuffix: true,
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Название треда слева рядом с фото */}
-                <div className="absolute left-28 top-3 max-w-[250px]">
-                  <h3 className="font-bold text-lg break-words relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                    {thread.title}
-                    <span className="absolute bottom-1 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                  </h3>
-                  <div className="mt-1">
-                    {renderTags(thread.tags, 'board')}
-                  </div>
-                </div>
-
-                {/* Контент треда абсолютно центрирован */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <p className="text-sm text-muted-foreground line-clamp-2 break-words text-center max-w-[60%]">
-                    {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
-                      <>
-                        {renderContent(thread.content.substring(0, 200))}
-                        {thread.content.length > 200 && '...'}
-                      </>
+              <div className="hidden md:block">
+                <div className="flex gap-4">
+                  {/* Thread Image */}
+                  <div className="flex-shrink-0">
+                    {thread.image_url ? (
+                      <img
+                        src={thread.image_url}
+                        alt="Thread"
+                        className="w-24 h-24 object-cover border border-border rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 bg-muted border border-border rounded-lg flex items-center justify-center">
+                        <span className="text-xs text-muted-foreground">Нет фото</span>
+                      </div>
                     )}
-                  </p>
-                </div>
+                  </div>
 
-                {/* Количество ответов в правом нижнем углу */}
-                <div className="absolute bottom-2 right-2 text-xs text-muted-foreground">
-                  {thread.post_count > 0
-                    ? `${thread.post_count} ${thread.post_count === 1 ? 'отв.' : 'отв.'}`
-                    : '0 отв.'}
-                </div>
+                  {/* Thread Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="font-bold text-lg break-words pr-4 transition-transform duration-200 group-hover:translate-x-0.5">
+                        {thread.title}
+                      </h3>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-sm text-muted-foreground">
+                          {thread.post_count > 0
+                            ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
+                            : 'нет ответов'}
+                        </span>
+                        <UserBadge
+                          userId={thread.user_id}
+                          username={thread.profiles?.username || "Аноним"}
+                          isAnonymous={thread.profiles?.is_anonymous}
+                          showOutline={false}
+                          disableLink={true}
+                          className="text-sm"
+                        />
+                      </div>
+                    </div>
 
-                {/* Никнейм в правом верхнем углу */}
-                <div className="absolute top-2 right-2">
-                    <UserBadge
-                      userId={thread.user_id}
-                      username={thread.profiles?.username || "Аноним"}
-                      isAnonymous={thread.profiles?.is_anonymous}
-                      showOutline={false}
-                      disableLink={true}
-                    />
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm text-muted-foreground">
+                        {formatDistanceToNow(new Date(thread.created_at), {
+                          locale: ru,
+                          addSuffix: true,
+                        })}
+                      </span>
+                      <div className="flex-1">
+                        {renderTags(thread.tags, 'inline')}
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-muted-foreground line-clamp-2 break-words">
+                      {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                        <>
+                          {renderContent(thread.content.substring(0, 300))}
+                          {thread.content.length > 300 && '...'}
+                        </>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
             </Link>

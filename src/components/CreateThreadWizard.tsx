@@ -70,7 +70,7 @@ const FLAG_TAGS = [
 export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps) => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState<WizardStep>('board');
-  const [selectedBoard, setSelectedBoard] = useState<Board | null>(null);
+  const [selectedBoard, setSelectedBoard] = useState<Board | null>(boards?.[0] || null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageUrls, setImageUrls] = useState<string[]>([]);
