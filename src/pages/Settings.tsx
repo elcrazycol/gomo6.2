@@ -400,10 +400,16 @@ const Settings = () => {
     localStorage.setItem('sender-display-type', value);
   };
 
-  // Initialize theme on component mount
+  // Initialize theme on component mount (only update if changed)
   useEffect(() => {
-    applyTheme(colorTheme, isDarkMode);
-  }, []);
+    // Only apply theme if it differs from current settings
+    const currentTheme = localStorage.getItem('color-theme');
+    const currentMode = localStorage.getItem('dark-mode');
+
+    if (currentTheme !== colorTheme || currentMode !== isDarkMode.toString()) {
+      applyTheme(colorTheme, isDarkMode);
+    }
+  }, [colorTheme, isDarkMode]);
 
   // Load custom font on component mount
   useEffect(() => {
@@ -642,7 +648,7 @@ const Settings = () => {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
                         <span>Разрешить писать на стене другим пользователям</span>
                         <Tooltip>
                           <TooltipTrigger>
@@ -652,7 +658,7 @@ const Settings = () => {
                             <p>Если отключено, только вы сможете оставлять посты на своей стене</p>
                           </TooltipContent>
                         </Tooltip>
-                      </div>
+                            </div>
                       <Switch
                         checked={privacySettings.allow_wall_posts_from_others ?? true}
                         onCheckedChange={(value) => updatePrivacySetting('allow_wall_posts_from_others', value)}
@@ -717,42 +723,42 @@ const Settings = () => {
                 {/* Interface Settings */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">Интерфейс постов</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium mb-3 block">Вид отправителя</Label>
-                      <div className="flex gap-4">
-                        <div className="flex-1">
-                          <Select value={senderDisplayType} onValueChange={handleSenderDisplayTypeChange}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="classic">Классический</SelectItem>
-                              <SelectItem value="modern">Современный</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">
-                          {senderDisplayType === 'classic' ? (
-                            <>
-                              <div className="font-mono text-primary">#03136507</div>
-                              <div className="text-muted-foreground">· nickname · 2 дня назад</div>
-                            </>
-                          ) : (
-                            <div className="flex items-start gap-2">
-                              <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center text-xs">👤</div>
-                              <div>
-                                <div className="text-muted-foreground">nickname</div>
-                                <div className="text-muted-foreground">2 дня назад</div>
-                                <div className="font-mono text-primary text-[10px]">#03136507</div>
+                          <div className="space-y-4">
+                            <div>
+                              <Label className="text-sm font-medium mb-3 block">Вид отправителя</Label>
+                                <div className="flex gap-4">
+                                <div className="flex-1">
+                                  <Select value={senderDisplayType} onValueChange={handleSenderDisplayTypeChange}>
+                                    <SelectTrigger className="w-full">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="classic">Классический</SelectItem>
+                                      <SelectItem value="modern">Современный</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex-1 bg-muted/30 border border-border p-3 rounded text-xs">
+                                  {senderDisplayType === 'classic' ? (
+                                    <>
+                                      <div className="font-mono text-primary">#03136507</div>
+                                      <div className="text-muted-foreground">· nickname · 2 дня назад</div>
+                                    </>
+                                  ) : (
+                                    <div className="flex items-start gap-2">
+                                      <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center text-xs">👤</div>
+                                      <div>
+                                        <div className="text-muted-foreground">nickname</div>
+                                        <div className="text-muted-foreground">2 дня назад</div>
+                                        <div className="font-mono text-primary text-[10px]">#03136507</div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                    </div>
                   </div>
-                </div>
 
                 {/* Placeholders */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
@@ -763,14 +769,14 @@ const Settings = () => {
                       <p className="text-sm text-muted-foreground mt-1 mb-3">
                         Выберите плейсхолдеры для отображения при наведении на пользователя
                       </p>
-                      <Button
-                        variant="outline"
-                        onClick={() => navigate("/settings/placeholders")}
-                      >
-                        Настроить
-                      </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => navigate("/settings/placeholders")}
+                        >
+                          Настроить
+                        </Button>
+                      </div>
                     </div>
-                  </div>
                 </div>
               </TabsContent>
 
@@ -835,13 +841,13 @@ const Settings = () => {
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
                         <h2 className="text-lg font-semibold">Видимость профиля</h2>
-                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                      </div>
+                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        </div>
 
                       <div className="space-y-4">
-                        <div>
+                          <div>
                           <h3 className="text-base font-medium mb-3">Общая видимость</h3>
-                          <div className="space-y-3">
+                            <div className="space-y-3">
                               <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span>Не показывать сообщения <u>НП</u></span>
@@ -939,7 +945,7 @@ const Settings = () => {
                             </div>
                           </div>
                         </div>
-                      </div>
+                    </div>
 
                     {/* Private Chat Section */}
                     <div className="bg-card p-4 sm:p-6 border border-border">

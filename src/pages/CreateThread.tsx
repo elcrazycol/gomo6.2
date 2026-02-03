@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -78,11 +79,14 @@ const CreateThread = () => {
   const boardSlug = searchParams.get('board');
 
   const [board, setBoard] = useState<Board | null>(null);
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [boards, setBoards] = useState<Board[]>([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [threadImageUrl, setThreadImageUrl] = useState('');
   const [tags, setTags] = useState<ThreadTags>({ flag: 'normal' });
+  const [showBoardDialog, setShowBoardDialog] = useState(!boardSlug);
 
   const [ephemeralSettings, setEphemeralSettings] = useState<{
     type: 'time' | 'messages';
@@ -148,10 +152,33 @@ const CreateThread = () => {
   };
 
   useEffect(() => {
+    // Load available boards for picker
+    const loadBoards = async () => {
+      const { data } = await supabase
+        .from("boards")
+        .select("id, slug, name, description")
+        .eq("is_rules_board", false)
+        .order("created_at", { ascending: true });
+
+      if (data) {
+        // Hide service boards
+        const filtered = data.filter(b => b.slug !== 'faq' && b.slug !== 'bugs');
+        setBoards(filtered);
+      }
+    };
+
+    loadBoards();
+  }, []);
+
+  useEffect(() => {
     const loadBoard = async () => {
+      setBoardLoading(true);
+
       if (!boardSlug) {
-        // If no board specified, redirect to home to select board
-        navigate('/');
+        // If no board specified, open board picker
+        setShowBoardDialog(true);
+        setBoard(null);
+        setBoardLoading(false);
         return;
       }
 
@@ -162,16 +189,25 @@ const CreateThread = () => {
         .single();
 
       if (!boardData) {
-        // If board not found, redirect to home
-        navigate('/');
+        toast.error('Доска не найдена, выберите другую');
+        setShowBoardDialog(true);
+        setBoard(null);
+        setBoardLoading(false);
         return;
       }
 
       setBoard(boardData);
+      setBoardLoading(false);
     };
 
     loadBoard();
   }, [boardSlug, navigate]);
+
+  const handleBoardChoose = (selected: Board) => {
+    setShowBoardDialog(false);
+    // Keep UX simple: reload with query param for consistency
+    navigate(`/create?board=${selected.slug}`);
+  };
 
   const handleTagSelect = (category: keyof ThreadTags, value: string) => {
     setTags(prev => ({ ...prev, [category]: value }));
@@ -287,10 +323,47 @@ const CreateThread = () => {
     }
   };
 
+  const renderBoardDialog = (
+    <Dialog open={showBoardDialog} onOpenChange={setShowBoardDialog}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Выберите доску</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 max-h-[480px] overflow-y-auto">
+          {boards.map((b) => (
+            <Card
+              key={b.id}
+              className="cursor-pointer hover:bg-accent transition-colors"
+              onClick={() => handleBoardChoose(b)}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">/{b.slug}/</div>
+                    <div className="text-sm text-muted-foreground">{b.name}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{b.description}</div>
+                  </div>
+                  <div className="text-2xl">📌</div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (!board) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        {boardLoading ? (
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        ) : (
+          <div className="text-center text-muted-foreground">
+            Выберите доску для создания треда
+          </div>
+        )}
+        {renderBoardDialog}
       </div>
     );
   }
@@ -312,6 +385,14 @@ const CreateThread = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBoardDialog(true)}
+                className="hover:bg-primary hover:text-primary-foreground"
+              >
+                Сменить доску
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -908,6 +989,8 @@ const CreateThread = () => {
           </Card>
         )}
       </div>
+
+      {renderBoardDialog}
     </div>
   );
 };
