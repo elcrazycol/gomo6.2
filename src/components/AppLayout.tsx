@@ -61,6 +61,45 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => mq.removeEventListener("change", updateMatch);
   }, []);
 
+  // Restore last audio session on load (paused)
+  useEffect(() => {
+    const saved = localStorage.getItem("audio-last");
+    if (!saved) return;
+    try {
+      const data = JSON.parse(saved);
+      if (!data?.id || !data?.src) return;
+
+      const audio = new Audio(data.src);
+      audio.crossOrigin = "anonymous";
+      audio.currentTime = data.position || 0;
+      audio.volume = typeof data.volume === "number" ? data.volume : 1;
+
+      const id = data.id;
+      const title = data.title || "Аудио";
+
+      audioMapRef.current.set(id, { inst: audio, title });
+      setQueue((q) => (q.includes(id) ? q : [...q, id]));
+      setNowPlaying({ id, title, instance: audio });
+      setVolume(audio.volume);
+      setProgress({ current: audio.currentTime || 0, duration: audio.duration || 0 });
+
+      const update = () => {
+        const now = performance.now();
+        if (now - lastProgressUpdateRef.current < 200) return;
+        lastProgressUpdateRef.current = now;
+        setProgress({
+          current: audio.currentTime || 0,
+          duration: audio.duration || 0,
+        });
+      };
+      audio.addEventListener("timeupdate", update);
+      audio.addEventListener("loadedmetadata", update);
+      audio.addEventListener("ended", () => setProgress({ current: 0, duration: audio.duration || 0 }));
+    } catch (e) {
+      console.error("Failed to restore audio-last", e);
+    }
+  }, []);
+
   useEffect(() => {
     const handleAudioPlay = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -68,6 +107,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
+      const src = detail.src;
 
       audioMapRef.current.set(id, { inst: detail.instance, title });
       setQueue((q) => (q.includes(id) ? q : [...q, id]));
@@ -76,7 +116,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       setVolume(typeof initialVolume === "number" ? Math.max(0, Math.min(initialVolume, 1)) : 1);
 
       const inst = detail.instance;
-      if (inst?.on) {
+      const attachProgress = () => {
         const update = () => {
           const now = performance.now();
           if (now - lastProgressUpdateRef.current < 200) return; // throttle to reduce re-renders
@@ -89,10 +129,31 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               : prev
           );
         };
-        inst.on("timeupdate", update);
-        inst.on("loadedmetadata", update);
-        inst.on("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        if (typeof inst.on === "function") {
+          inst.on("timeupdate", update);
+          inst.on("loadedmetadata", update);
+          inst.on("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        } else if (inst?.addEventListener) {
+          inst.addEventListener("timeupdate", update);
+          inst.addEventListener("loadedmetadata", update);
+          inst.addEventListener("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        }
         update();
+      };
+      attachProgress();
+
+      // persist meta
+      if (src) {
+        localStorage.setItem(
+          "audio-last",
+          JSON.stringify({
+            id,
+            title,
+            src,
+            volume: initialVolume,
+            position: detail.instance?.currentTime || 0,
+          })
+        );
       }
     };
 
@@ -146,7 +207,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         return;
       }
 
-      nowPlaying.instance?.pause?.();
+      if (nowPlaying.instance?.pause) nowPlaying.instance.pause();
       entry.inst.play();
       setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
       const currentVolume = entry.inst.volume ?? volume;
@@ -167,7 +228,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     }
 
     if (action === "toggle") {
-      currentEntry.inst.playing ? currentEntry.inst.pause() : currentEntry.inst.play();
+      const isPlaying = currentEntry.inst.playing ?? !currentEntry.inst.paused;
+      isPlaying ? currentEntry.inst.pause() : currentEntry.inst.play();
       return;
     }
     if (action === "mute") {
