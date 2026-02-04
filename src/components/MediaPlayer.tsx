@@ -73,12 +73,14 @@ interface MediaPlayerProps {
   className?: string;
   playerId?: string;
   title?: string;
+  playlistId?: string;
+  playlistIndex?: number;
   onReady?: (instance: any) => void;
   onPlay?: (instance: any) => void;
   onPause?: (instance: any) => void;
 }
 
-export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, onReady, onPlay, onPause }: MediaPlayerProps) => {
+export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
@@ -122,12 +124,19 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           storage: { enabled: false },
         });
         onReady?.(instance);
+        if (kind === "audio" && playlistId !== undefined && playlistIndex !== undefined) {
+          window.dispatchEvent(
+            new CustomEvent("global-audio-register", {
+              detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src, playlistId, playlistIndex },
+            })
+          );
+        }
         instance.on("play", () => {
           onPlay?.(instance);
           if (kind === "audio") {
             window.dispatchEvent(
               new CustomEvent("global-audio-play", {
-                detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src },
+                detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src, playlistId, playlistIndex },
               })
             );
           }
@@ -150,6 +159,13 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
             // ensure playback keeps running after move
             setTimeout(() => instance.play().catch(() => {}), 0);
           }
+        }
+        if (playlistId !== undefined && playlistIndex !== undefined) {
+          window.dispatchEvent(
+            new CustomEvent("global-audio-unregister", {
+              detail: { playerId: playerKey, playlistId, playlistIndex },
+            })
+          );
         }
       } else {
         instance.destroy?.();
