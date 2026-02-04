@@ -61,6 +61,45 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => mq.removeEventListener("change", updateMatch);
   }, []);
 
+  // Restore last audio session on load (paused)
+  useEffect(() => {
+    const saved = localStorage.getItem("audio-last");
+    if (!saved) return;
+    try {
+      const data = JSON.parse(saved);
+      if (!data?.id || !data?.src) return;
+
+      const audio = new Audio(data.src);
+      audio.crossOrigin = "anonymous";
+      audio.currentTime = data.position || 0;
+      audio.volume = typeof data.volume === "number" ? data.volume : 1;
+
+      const id = data.id;
+      const title = data.title || "Аудио";
+
+      audioMapRef.current.set(id, { inst: audio, title });
+      setQueue((q) => (q.includes(id) ? q : [...q, id]));
+      setNowPlaying({ id, title, instance: audio });
+      setVolume(audio.volume);
+      setProgress({ current: audio.currentTime || 0, duration: audio.duration || 0 });
+
+      const update = () => {
+        const now = performance.now();
+        if (now - lastProgressUpdateRef.current < 200) return;
+        lastProgressUpdateRef.current = now;
+        setProgress({
+          current: audio.currentTime || 0,
+          duration: audio.duration || 0,
+        });
+      };
+      audio.addEventListener("timeupdate", update);
+      audio.addEventListener("loadedmetadata", update);
+      audio.addEventListener("ended", () => setProgress({ current: 0, duration: audio.duration || 0 }));
+    } catch (e) {
+      console.error("Failed to restore audio-last", e);
+    }
+  }, []);
+
   useEffect(() => {
     const handleAudioPlay = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -68,11 +107,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
-
-      // Pause other players when a new one starts.
-      audioMapRef.current.forEach((entry, key) => {
-        if (key !== id) entry.inst?.pause?.();
-      });
+      const src = detail.src;
 
       audioMapRef.current.set(id, { inst: detail.instance, title });
       setQueue((q) => (q.includes(id) ? q : [...q, id]));
@@ -81,7 +116,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       setVolume(typeof initialVolume === "number" ? Math.max(0, Math.min(initialVolume, 1)) : 1);
 
       const inst = detail.instance;
-      if (inst?.on) {
+      const attachProgress = () => {
         const update = () => {
           const now = performance.now();
           if (now - lastProgressUpdateRef.current < 200) return; // throttle to reduce re-renders
@@ -94,15 +129,61 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               : prev
           );
         };
-        inst.on("timeupdate", update);
-        inst.on("loadedmetadata", update);
-        inst.on("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        if (typeof inst.on === "function") {
+          inst.on("timeupdate", update);
+          inst.on("loadedmetadata", update);
+          inst.on("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        } else if (inst?.addEventListener) {
+          inst.addEventListener("timeupdate", update);
+          inst.addEventListener("loadedmetadata", update);
+          inst.addEventListener("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        }
         update();
+      };
+      attachProgress();
+
+      // persist meta
+      if (src) {
+        localStorage.setItem(
+          "audio-last",
+          JSON.stringify({
+            id,
+            title,
+            src,
+            volume: initialVolume,
+            position: detail.instance?.currentTime || 0,
+          })
+        );
       }
     };
 
     window.addEventListener("global-audio-play", handleAudioPlay as EventListener);
     return () => window.removeEventListener("global-audio-play", handleAudioPlay as EventListener);
+  }, []);
+
+  useEffect(() => {
+    const handleAudioDestroy = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const id = detail?.playerId;
+      if (!id) return;
+
+      audioMapRef.current.delete(id);
+      setQueue((q) => q.filter((k) => k !== id));
+      setNowPlaying((cur) => {
+        if (cur?.id !== id) return cur;
+        const remaining = Array.from(audioMapRef.current.keys());
+        if (remaining.length > 0) {
+          const nextId = remaining[0];
+          const entry = audioMapRef.current.get(nextId);
+          return entry ? { id: nextId, title: entry.title, instance: entry.inst } : null;
+        }
+        setProgress({ current: 0, duration: 0 });
+        return null;
+      });
+    };
+
+    window.addEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
+    return () => window.removeEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
   }, []);
 
   useEffect(() => {
@@ -120,24 +201,35 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     const playByKey = (key: string) => {
       const entry = audioMapRef.current.get(key);
-      if (entry?.inst) {
-        nowPlaying.instance?.pause?.();
-        entry.inst.play();
-        setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
-        const currentVolume = entry.inst.volume ?? volume;
-        setVolume(typeof currentVolume === "number" ? currentVolume : volume);
-        setProgress({
-          current: entry.inst.currentTime || 0,
-          duration: entry.inst.duration || 0,
-        });
+      if (!entry?.inst?.play || !entry.inst.media) {
+        audioMapRef.current.delete(key);
+        setQueue((q) => q.filter((k) => k !== key));
+        return;
       }
+
+      if (nowPlaying.instance?.pause) nowPlaying.instance.pause();
+      entry.inst.play();
+      setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
+      const currentVolume = entry.inst.volume ?? volume;
+      setVolume(typeof currentVolume === "number" ? currentVolume : volume);
+      setProgress({
+        current: entry.inst.currentTime || 0,
+        duration: entry.inst.duration || 0,
+      });
     };
 
     const currentEntry = audioMapRef.current.get(nowPlaying.id);
-    if (!currentEntry?.inst) return;
+    if (!currentEntry?.inst?.play || !currentEntry.inst.media) {
+      audioMapRef.current.delete(nowPlaying.id);
+      setQueue((q) => q.filter((k) => k !== nowPlaying.id));
+      setNowPlaying(null);
+      setProgress({ current: 0, duration: 0 });
+      return;
+    }
 
     if (action === "toggle") {
-      currentEntry.inst.playing ? currentEntry.inst.pause() : currentEntry.inst.play();
+      const isPlaying = currentEntry.inst.playing ?? !currentEntry.inst.paused;
+      isPlaying ? currentEntry.inst.pause() : currentEntry.inst.play();
       return;
     }
     if (action === "mute") {
