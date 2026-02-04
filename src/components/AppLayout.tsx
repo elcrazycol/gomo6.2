@@ -69,11 +69,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
 
-      // Pause other players when a new one starts.
-      audioMapRef.current.forEach((entry, key) => {
-        if (key !== id) entry.inst?.pause?.();
-      });
-
       audioMapRef.current.set(id, { inst: detail.instance, title });
       setQueue((q) => (q.includes(id) ? q : [...q, id]));
       setNowPlaying({ id, title, instance: detail.instance });
@@ -106,6 +101,31 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, []);
 
   useEffect(() => {
+    const handleAudioDestroy = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const id = detail?.playerId;
+      if (!id) return;
+
+      audioMapRef.current.delete(id);
+      setQueue((q) => q.filter((k) => k !== id));
+      setNowPlaying((cur) => {
+        if (cur?.id !== id) return cur;
+        const remaining = Array.from(audioMapRef.current.keys());
+        if (remaining.length > 0) {
+          const nextId = remaining[0];
+          const entry = audioMapRef.current.get(nextId);
+          return entry ? { id: nextId, title: entry.title, instance: entry.inst } : null;
+        }
+        setProgress({ current: 0, duration: 0 });
+        return null;
+      });
+    };
+
+    window.addEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
+    return () => window.removeEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
+  }, []);
+
+  useEffect(() => {
     const headerPad = isHeaderVisible ? (isDesktop ? 74 : 68) : 24;
     const nowPlayingPad = nowPlaying ? 52 : 0;
     setContentPad(headerPad + nowPlayingPad);
@@ -120,21 +140,31 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     const playByKey = (key: string) => {
       const entry = audioMapRef.current.get(key);
-      if (entry?.inst) {
-        nowPlaying.instance?.pause?.();
-        entry.inst.play();
-        setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
-        const currentVolume = entry.inst.volume ?? volume;
-        setVolume(typeof currentVolume === "number" ? currentVolume : volume);
-        setProgress({
-          current: entry.inst.currentTime || 0,
-          duration: entry.inst.duration || 0,
-        });
+      if (!entry?.inst?.play || !entry.inst.media) {
+        audioMapRef.current.delete(key);
+        setQueue((q) => q.filter((k) => k !== key));
+        return;
       }
+
+      nowPlaying.instance?.pause?.();
+      entry.inst.play();
+      setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
+      const currentVolume = entry.inst.volume ?? volume;
+      setVolume(typeof currentVolume === "number" ? currentVolume : volume);
+      setProgress({
+        current: entry.inst.currentTime || 0,
+        duration: entry.inst.duration || 0,
+      });
     };
 
     const currentEntry = audioMapRef.current.get(nowPlaying.id);
-    if (!currentEntry?.inst) return;
+    if (!currentEntry?.inst?.play || !currentEntry.inst.media) {
+      audioMapRef.current.delete(nowPlaying.id);
+      setQueue((q) => q.filter((k) => k !== nowPlaying.id));
+      setNowPlaying(null);
+      setProgress({ current: 0, duration: 0 });
+      return;
+    }
 
     if (action === "toggle") {
       currentEntry.inst.playing ? currentEntry.inst.pause() : currentEntry.inst.play();
