@@ -201,7 +201,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     const playByKey = (key: string) => {
       const entry = audioMapRef.current.get(key);
-      if (!entry?.inst?.play || !entry.inst.media) {
+      const hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
+      if (!entry?.inst?.play || !hasMedia) {
         audioMapRef.current.delete(key);
         setQueue((q) => q.filter((k) => k !== key));
         return;
@@ -219,7 +220,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     };
 
     const currentEntry = audioMapRef.current.get(nowPlaying.id);
-    if (!currentEntry?.inst?.play || !currentEntry.inst.media) {
+    const hasMedia = !!(currentEntry?.inst?.media || currentEntry?.inst instanceof HTMLMediaElement);
+    if (!currentEntry?.inst?.play || !hasMedia) {
       audioMapRef.current.delete(nowPlaying.id);
       setQueue((q) => q.filter((k) => k !== nowPlaying.id));
       setNowPlaying(null);
