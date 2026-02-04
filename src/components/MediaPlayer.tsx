@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const PLYR_SCRIPT = "https://cdn.plyr.io/3.8.4/plyr.polyfilled.js";
 const PLYR_CSS = "https://cdn.plyr.io/3.8.4/plyr.css";
@@ -25,6 +25,17 @@ const ensurePoolHost = () => {
     document.body.appendChild(host);
   }
   return host;
+};
+
+const moveContainer = (container: HTMLElement, target: HTMLElement) => {
+  if (container.parentElement && container.parentElement !== target) {
+    if (container.parentElement.contains(container)) {
+      container.parentElement.removeChild(container);
+    }
+  }
+  if (container.parentElement !== target) {
+    target.appendChild(container);
+  }
 };
 
 const ensurePlyrAssets = () => {
@@ -70,11 +81,11 @@ interface MediaPlayerProps {
 export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, onReady, onPlay, onPause }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const [usingPooled, setUsingPooled] = useState(false);
+  const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
+  const [usingPooled, setUsingPooled] = useState(() => audioPool.has(playerKey));
 
   useEffect(() => {
     let instance: any;
-    const playerKey = playerId || sources[0]?.src || "global-audio";
     const controls =
       kind === "audio"
         ? ["play", "progress", "current-time", "duration", "mute"]
@@ -85,7 +96,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
       const pooled = audioPool.get(playerKey)!;
       const host = mountRef.current;
       host.innerHTML = "";
-      host.appendChild(pooled.container);
+      moveContainer(pooled.container, host);
       instance = pooled.instance;
       setUsingPooled(true);
       onReady?.(instance);
@@ -95,9 +106,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
       return () => {
         // keep pooled instance alive; no destroy
         const poolHost = ensurePoolHost();
-        if (pooled.container.parentElement !== poolHost) {
-          poolHost.appendChild(pooled.container);
-        }
+        moveContainer(pooled.container, poolHost);
         audioPool.set(playerKey, { ...pooled, wasPlaying: !instance?.paused && !instance?.ended });
       };
     }
@@ -116,7 +125,11 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
         instance.on("play", () => {
           onPlay?.(instance);
           if (kind === "audio") {
-            window.dispatchEvent(new CustomEvent("global-audio-play", { detail: { instance, title, playerId: playerKey } }));
+            window.dispatchEvent(
+              new CustomEvent("global-audio-play", {
+                detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src },
+              })
+            );
           }
         });
         instance.on("pause", () => onPause?.(instance));
@@ -132,9 +145,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           const wasPlaying = !instance.paused && !instance.ended;
           audioPool.set(playerKey, { container, instance, wasPlaying });
           const poolHost = ensurePoolHost();
-          if (container.parentElement !== poolHost) {
-            poolHost.appendChild(container);
-          }
+          moveContainer(container, poolHost);
           if (wasPlaying && instance.play) {
             // ensure playback keeps running after move
             setTimeout(() => instance.play().catch(() => {}), 0);
