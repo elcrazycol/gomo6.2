@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const PLYR_SCRIPT = "https://cdn.plyr.io/3.8.4/plyr.polyfilled.js";
 const PLYR_CSS = "https://cdn.plyr.io/3.8.4/plyr.css";
@@ -10,6 +10,33 @@ declare global {
 }
 
 let plyrLoader: Promise<any> | null = null;
+const audioPool = new Map<string, { container: HTMLElement; instance: any; wasPlaying: boolean }>();
+
+const ensurePoolHost = () => {
+  let host = document.getElementById("global-audio-pool");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "global-audio-pool";
+    host.style.position = "fixed";
+    host.style.opacity = "0";
+    host.style.pointerEvents = "none";
+    host.style.inset = "0";
+    host.style.zIndex = "-1";
+    document.body.appendChild(host);
+  }
+  return host;
+};
+
+const moveContainer = (container: HTMLElement, target: HTMLElement) => {
+  if (container.parentElement && container.parentElement !== target) {
+    if (container.parentElement.contains(container)) {
+      container.parentElement.removeChild(container);
+    }
+  }
+  if (container.parentElement !== target) {
+    target.appendChild(container);
+  }
+};
 
 const ensurePlyrAssets = () => {
   if (typeof window === "undefined") return Promise.resolve(null);
@@ -52,7 +79,10 @@ interface MediaPlayerProps {
 }
 
 export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, onReady, onPlay, onPause }: MediaPlayerProps) => {
-  const ref = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
+  const [usingPooled, setUsingPooled] = useState(() => audioPool.has(playerKey));
 
   useEffect(() => {
     let instance: any;
@@ -61,18 +91,45 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
         ? ["play", "progress", "current-time", "duration", "mute"]
         : ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
 
+    // Reattach pooled audio instance if it exists
+    if (kind === "audio" && audioPool.has(playerKey) && mountRef.current) {
+      const pooled = audioPool.get(playerKey)!;
+      const host = mountRef.current;
+      host.innerHTML = "";
+      moveContainer(pooled.container, host);
+      instance = pooled.instance;
+      setUsingPooled(true);
+      onReady?.(instance);
+      if (pooled.wasPlaying && instance?.play) {
+        setTimeout(() => instance.play().catch(() => {}), 0);
+      }
+      return () => {
+        // keep pooled instance alive; no destroy
+        const poolHost = ensurePoolHost();
+        moveContainer(pooled.container, poolHost);
+        audioPool.set(playerKey, { ...pooled, wasPlaying: !instance?.paused && !instance?.ended });
+      };
+    }
+
     ensurePlyrAssets()
       .then((Plyr) => {
-        if (!Plyr || !ref.current) return;
-        instance = new Plyr(ref.current, {
+        if (!Plyr || !mediaRef.current || !mountRef.current) return;
+        instance = new Plyr(mediaRef.current, {
           ratio: "16:9",
           controls,
+          autopause: false,
+          autoplay: false,
+          storage: { enabled: false },
         });
         onReady?.(instance);
         instance.on("play", () => {
           onPlay?.(instance);
           if (kind === "audio") {
-            window.dispatchEvent(new CustomEvent("global-audio-play", { detail: { instance, title, playerId: playerId || sources[0]?.src } }));
+            window.dispatchEvent(
+              new CustomEvent("global-audio-play", {
+                detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src },
+              })
+            );
           }
         });
         instance.on("pause", () => onPause?.(instance));
@@ -80,7 +137,21 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
       .catch((e) => console.error(e));
 
     return () => {
-      if (instance) {
+      if (!instance) return;
+      if (kind === "audio") {
+        // persist audio instance across route changes
+        const container = instance.elements?.container as HTMLElement | undefined;
+        if (container) {
+          const wasPlaying = !instance.paused && !instance.ended;
+          audioPool.set(playerKey, { container, instance, wasPlaying });
+          const poolHost = ensurePoolHost();
+          moveContainer(container, poolHost);
+          if (wasPlaying && instance.play) {
+            // ensure playback keeps running after move
+            setTimeout(() => instance.play().catch(() => {}), 0);
+          }
+        }
+      } else {
         instance.destroy?.();
       }
     };
@@ -90,18 +161,22 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
 
   return (
     <div className={`w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
-      <Element
-        ref={ref as any}
-        className="w-full"
-        playsInline
-        controls
-        data-poster={poster}
-      >
-        {sources.map((s, i) => (
-          <source key={i} src={s.src} type={s.type} />
-        ))}
-        Ваш браузер не поддерживает воспроизведение.
-      </Element>
+      <div ref={mountRef}>
+        {!usingPooled && (
+          <Element
+            ref={mediaRef as any}
+            className="w-full"
+            playsInline
+            controls
+            data-poster={poster}
+          >
+            {sources.map((s, i) => (
+              <source key={i} src={s.src} type={s.type} />
+            ))}
+            Ваш браузер не поддерживает воспроизведение.
+          </Element>
+        )}
+      </div>
     </div>
   );
 };
