@@ -31,7 +31,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const lastProgressUpdateRef = useRef<number>(0);
   const [volume, setVolume] = useState(1);
   const [isDesktop, setIsDesktop] = useState<boolean>(false);
+  const [contentPad, setContentPad] = useState<number>(72);
   const { scrollY } = useScroll();
+
+  const formatTime = (seconds: number) => {
+    if (!Number.isFinite(seconds)) return "0:00";
+    const s = Math.max(0, Math.floor(seconds));
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
 
   // Header animation logic
   useMotionValueEvent(scrollY, "change", (latest) => {
@@ -95,6 +104,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     window.addEventListener("global-audio-play", handleAudioPlay as EventListener);
     return () => window.removeEventListener("global-audio-play", handleAudioPlay as EventListener);
   }, []);
+
+  useEffect(() => {
+    const headerPad = isHeaderVisible ? (isDesktop ? 74 : 68) : 24;
+    const nowPlayingPad = nowPlaying ? 52 : 0;
+    setContentPad(headerPad + nowPlayingPad);
+  }, [isDesktop, isHeaderVisible, nowPlaying]);
 
   const handleNowPlayingControl = (action: "prev" | "next" | "toggle" | "mute") => {
     if (!nowPlaying || queue.length === 0) return;
@@ -254,7 +269,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       {nowPlaying && (
         <motion.div
           className="fixed left-0 right-0 z-40 px-2 sm:px-4"
-          style={{ top: isHeaderVisible ? (isDesktop ? 64 : 62) : 12 }}
+          style={{ top: isHeaderVisible ? (isDesktop ? 72 : 62) : 12 }}
           animate={{ y: isHeaderVisible ? 0 : -8 }}
           transition={{ duration: 0.18, ease: "easeInOut" }}
         >
@@ -286,6 +301,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <div className="flex-1 min-w-0 font-medium truncate">
                 {nowPlaying.title}
               </div>
+              <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                <span>{formatTime(progress.current)}</span>
+                <span className="text-border">/</span>
+                <span>{formatTime(progress.duration || 0)}</span>
+              </div>
               <div className="hidden sm:flex">
                 <Tooltip delayDuration={0}>
                   <TooltipTrigger asChild>
@@ -296,9 +316,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                       <Volume2 className="w-3 h-3" />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="top" align="center" className="bg-card border border-border px-3 py-2">
-                    <div className="flex items-center gap-2 w-36">
-                      <span className="text-xs text-muted-foreground">0</span>
+                  <TooltipContent
+                    side="bottom"
+                    align="center"
+                    className="bg-card/95 border border-border px-3 py-2 rounded-lg shadow-lg"
+                  >
+                    <div className="flex items-center gap-3 w-36">
                       <input
                         type="range"
                         min={0}
@@ -319,9 +342,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                             inst.muted = false;
                           }
                         }}
-                        className="flex-1 accent-primary"
+                        className="flex-1 accent-primary h-[4px] rounded-full bg-muted/70 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
                       />
-                      <span className="text-xs text-muted-foreground">100</span>
                     </div>
                   </TooltipContent>
                 </Tooltip>
@@ -351,7 +373,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         </motion.div>
       )}
 
-      <div className="flex-1 min-h-0 pt-16 sm:pt-20">
+      <div className="flex-1 min-h-0" style={{ paddingTop: contentPad }}>
         {children}
       </div>
 

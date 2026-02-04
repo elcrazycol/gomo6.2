@@ -56,21 +56,17 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
 
   useEffect(() => {
     let instance: any;
+    const controls =
+      kind === "audio"
+        ? ["play", "progress", "current-time", "duration", "mute"]
+        : ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
+
     ensurePlyrAssets()
       .then((Plyr) => {
         if (!Plyr || !ref.current) return;
         instance = new Plyr(ref.current, {
           ratio: "16:9",
-          controls: [
-            "play",
-            "progress",
-            "current-time",
-            "mute",
-            "volume",
-            "settings",
-            "pip",
-            "fullscreen",
-          ],
+          controls,
         });
         onReady?.(instance);
         instance.on("play", () => {
