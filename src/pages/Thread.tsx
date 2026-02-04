@@ -137,7 +137,8 @@ const parseAttachments = (raw: any): AttachmentMeta[] => {
 
 const renderAttachments = (
   attachments: AttachmentMeta[] | undefined | null,
-  onImageClick?: (urls: string[], index: number) => void
+  onImageClick?: (urls: string[], index: number) => void,
+  playlistKey?: string
 ) => {
   if (!attachments || attachments.length === 0) return null;
   const imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
@@ -196,6 +197,8 @@ const renderAttachments = (
                 className="max-w-md"
                 playerId={`audio-${att.url}`}
                 title={att.name || "Аудио"}
+                playlistId={playlistKey}
+                playlistIndex={idx}
               />
             </div>
           );
@@ -1242,7 +1245,7 @@ const Thread = () => {
     setGalleryImages(urls);
     setGalleryIndex(idx);
     setShowGallery(true);
-  })}
+  }, thread?.id || threadId || slug || "thread")}
 
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
               <ProcessedContent
@@ -1474,7 +1477,7 @@ const Thread = () => {
                 setGalleryImages(urls);
                 setGalleryIndex(idx);
                 setShowGallery(true);
-              })}
+              }, thread?.id || threadId || slug || "thread")}
               {editingPostId === post.id ? (
                 <div className="space-y-2">
                   <Textarea

@@ -16,6 +16,14 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+type NowPlayingState = {
+  id: string;
+  title: string;
+  instance: any;
+  playlistId?: string;
+  playlistIndex?: number;
+};
+
 export const AppLayout = ({ children }: AppLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -24,9 +32,22 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-  const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; instance: any } | null>(null);
+  const [nowPlaying, setNowPlaying] = useState<NowPlayingState | null>(null);
   const [queue, setQueue] = useState<string[]>([]);
-  const audioMapRef = useRef<Map<string, { inst: any; title: string }>>(new Map());
+  const audioMapRef = useRef<Map<string, { inst: any; title: string; playlistId?: string; playlistIndex?: number }>>(
+    new Map()
+  );
+  const playlistMapRef = useRef<
+    Map<
+      string,
+      {
+        id: string;
+        title: string;
+        src?: string;
+        index: number;
+      }[]
+    >
+  >(new Map());
   const [progress, setProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
   const lastProgressUpdateRef = useRef<number>(0);
   const [volume, setVolume] = useState(1);
@@ -34,6 +55,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [contentPad, setContentPad] = useState<number>(72);
   const lastTrackRef = useRef<{ id: string; title: string; src?: string } | null>(null);
   const { scrollY } = useScroll();
+
+  const pauseOthers = (exceptId?: string) => {
+    audioMapRef.current.forEach((entry, key) => {
+      if (key === exceptId) return;
+      if (entry.inst?.pause) entry.inst.pause();
+      if ("paused" in entry.inst && entry.inst.paused === false && entry.inst?.pause) entry.inst.pause();
+    });
+  };
 
   const formatTime = (seconds: number) => {
     if (!Number.isFinite(seconds)) return "0:00";
@@ -90,10 +119,19 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         const now = performance.now();
         if (now - lastProgressUpdateRef.current < 200) return;
         lastProgressUpdateRef.current = now;
-        setProgress({
-          current: audio.currentTime || 0,
-          duration: audio.duration || 0,
-        });
+        const current = audio.currentTime || 0;
+        const duration = audio.duration || 0;
+        setProgress({ current, duration });
+        localStorage.setItem(
+          "audio-last",
+          JSON.stringify({
+            id,
+            title,
+            src: data.src,
+            volume: audio.volume,
+            position: current,
+          })
+        );
       };
       audio.addEventListener("timeupdate", update);
       audio.addEventListener("loadedmetadata", update);
@@ -127,12 +165,17 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
       const src = detail.src;
+      const playlistId = detail.playlistId as string | undefined;
+      const playlistIndex = detail.playlistIndex as number | undefined;
+
+      // Pause other audio instances to avoid overlap
+      pauseOthers(id);
 
       lastTrackRef.current = { id, title, src };
 
-      audioMapRef.current.set(id, { inst: detail.instance, title });
+      audioMapRef.current.set(id, { inst: detail.instance, title, playlistId, playlistIndex });
       setQueue((q) => (q.includes(id) ? q : [...q, id]));
-      setNowPlaying({ id, title, instance: detail.instance });
+      setNowPlaying({ id, title, instance: detail.instance, playlistId, playlistIndex });
       const initialVolume = detail.instance?.volume ?? 1;
       setVolume(typeof initialVolume === "number" ? Math.max(0, Math.min(initialVolume, 1)) : 1);
 
@@ -208,6 +251,45 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, []);
 
   useEffect(() => {
+    const handleAudioRegister = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+      const id = detail.playerId;
+      if (!id) return;
+      const { title, src, playlistId, playlistIndex, instance } = detail;
+      audioMapRef.current.set(id, { inst: instance, title: title || "Аудио", playlistId, playlistIndex });
+      if (playlistId !== undefined && playlistIndex !== undefined) {
+        const list = playlistMapRef.current.get(playlistId) || [];
+        const filtered = list.filter((item) => item.id !== id);
+        filtered.push({ id, title: title || "Аудио", src, index: playlistIndex });
+        filtered.sort((a, b) => a.index - b.index);
+        playlistMapRef.current.set(playlistId, filtered);
+      }
+    };
+
+    const handleAudioUnregister = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.playerId) return;
+      const { playerId, playlistId } = detail;
+      audioMapRef.current.delete(playerId);
+      if (playlistId !== undefined) {
+        const list = playlistMapRef.current.get(playlistId);
+        if (list) {
+          const updated = list.filter((item) => item.id !== playerId);
+          playlistMapRef.current.set(playlistId, updated);
+        }
+      }
+    };
+
+    window.addEventListener("global-audio-register", handleAudioRegister as EventListener);
+    window.addEventListener("global-audio-unregister", handleAudioUnregister as EventListener);
+    return () => {
+      window.removeEventListener("global-audio-register", handleAudioRegister as EventListener);
+      window.removeEventListener("global-audio-unregister", handleAudioUnregister as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleAudioDestroy = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       const id = detail?.playerId;
@@ -241,8 +323,15 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const handleNowPlayingControl = (action: "prev" | "next" | "toggle" | "mute") => {
     if (!nowPlaying || queue.length === 0) return;
 
-    const keys = queue;
-    const idx = keys.findIndex((k) => k === nowPlaying.id);
+    // Determine playlist context if available
+    let orderedIds: string[] = [];
+    if (nowPlaying.playlistId && playlistMapRef.current.has(nowPlaying.playlistId)) {
+      orderedIds = (playlistMapRef.current.get(nowPlaying.playlistId) || []).map((item) => item.id);
+    } else {
+      orderedIds = queue;
+    }
+
+    const idx = orderedIds.findIndex((k) => k === nowPlaying.id);
     if (idx === -1) return;
 
     const playByKey = (key: string) => {
@@ -255,8 +344,17 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       }
 
       if (nowPlaying.instance?.pause) nowPlaying.instance.pause();
+      pauseOthers(key);
       entry.inst.play();
-      setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
+      const list = nowPlaying.playlistId ? playlistMapRef.current.get(nowPlaying.playlistId) || [] : [];
+      const found = list.find((i) => i.id === key);
+      setNowPlaying({
+        id: key,
+        title: entry.title,
+        instance: entry.inst,
+        playlistId: nowPlaying.playlistId,
+        playlistIndex: found?.index,
+      });
       const currentVolume = entry.inst.volume ?? volume;
       setVolume(typeof currentVolume === "number" ? currentVolume : volume);
       setProgress({
@@ -280,7 +378,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         typeof currentEntry.inst.playing === "boolean"
           ? currentEntry.inst.playing
           : currentEntry.inst.paused === false;
-      isPlaying ? currentEntry.inst.pause() : currentEntry.inst.play();
+      if (isPlaying) {
+        currentEntry.inst.pause();
+      } else {
+        pauseOthers(nowPlaying.id);
+        currentEntry.inst.play();
+      }
       return;
     }
     if (action === "mute") {
@@ -288,11 +391,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       return;
     }
     if (action === "next") {
-      const next = (idx + 1) % keys.length;
-      playByKey(keys[next]);
+      const next = (idx + 1) % orderedIds.length;
+      playByKey(orderedIds[next]);
     } else if (action === "prev") {
-      const prev = (idx - 1 + keys.length) % keys.length;
-      playByKey(keys[prev]);
+      const prev = (idx - 1 + orderedIds.length) % orderedIds.length;
+      playByKey(orderedIds[prev]);
     }
   };
 
@@ -428,13 +531,20 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                 >
                   <SkipBack className="w-3 h-3" />
                 </button>
-                <button
-                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
-                  onClick={() => handleNowPlayingControl("toggle")}
-                  aria-label="Пауза/Воспроизведение"
-                >
-                  {nowPlaying.instance?.playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                </button>
+              <button
+                className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                onClick={() => handleNowPlayingControl("toggle")}
+                aria-label="Пауза/Воспроизведение"
+              >
+                {(() => {
+                  const inst = nowPlaying.instance;
+                  const playing =
+                    typeof inst?.playing === "boolean"
+                      ? inst.playing
+                      : inst?.paused === false;
+                  return playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />;
+                })()}
+              </button>
                 <button
                   className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
                   onClick={() => handleNowPlayingControl("next")}
