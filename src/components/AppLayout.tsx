@@ -224,6 +224,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return <>{children}</>;
   }
 
+  const nowPlayingTop = isHeaderVisible ? (isDesktop ? 72 : 62) : 12;
+
   return (
     <div className="bg-background min-h-screen flex flex-col">
       <motion.header
@@ -269,9 +271,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       {nowPlaying && (
         <motion.div
           className="fixed left-0 right-0 z-40 px-2 sm:px-4"
-          style={{ top: isHeaderVisible ? (isDesktop ? 72 : 62) : 12 }}
-          animate={{ y: isHeaderVisible ? 0 : -8 }}
-          transition={{ duration: 0.18, ease: "easeInOut" }}
+          initial={false}
+          animate={{ y: isHeaderVisible ? 0 : -8, top: nowPlayingTop }}
+          transition={{ type: "spring", stiffness: 260, damping: 26 }}
         >
           <div className="max-w-5xl mx-auto bg-card/95 backdrop-blur border border-border shadow-md rounded-md px-3 py-1 flex flex-col gap-1">
             <div className="flex items-center gap-2 text-sm">
