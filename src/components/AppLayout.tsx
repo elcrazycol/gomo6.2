@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,7 +9,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
-import { Settings } from "lucide-react";
+import { Settings, SkipBack, SkipForward, Play, Pause, VolumeX } from "lucide-react";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -23,6 +23,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [nowPlaying, setNowPlaying] = useState<{ id: string; title: string; instance: any } | null>(null);
+  const [queue, setQueue] = useState<string[]>([]);
+  const audioMapRef = useRef<Map<string, { inst: any; title: string }>>(new Map());
+  const [progress, setProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
+  const lastProgressUpdateRef = useRef<number>(0);
   const { scrollY } = useScroll();
 
   // Header animation logic
@@ -34,6 +39,89 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       setIsHeaderVisible(true);
     }
   });
+
+  // Global audio handling: keep a queue of players and expose transport controls.
+  useEffect(() => {
+    const handleAudioPlay = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+
+      const id = detail.playerId || crypto.randomUUID();
+      const title = detail.title || "Аудио";
+
+      // Pause other players when a new one starts.
+      audioMapRef.current.forEach((entry, key) => {
+        if (key !== id) entry.inst?.pause?.();
+      });
+
+      audioMapRef.current.set(id, { inst: detail.instance, title });
+      setQueue((q) => (q.includes(id) ? q : [...q, id]));
+      setNowPlaying({ id, title, instance: detail.instance });
+
+      const inst = detail.instance;
+      if (inst?.on) {
+        const update = () => {
+          const now = performance.now();
+          if (now - lastProgressUpdateRef.current < 200) return; // throttle to reduce re-renders
+          lastProgressUpdateRef.current = now;
+          const current = inst.currentTime || 0;
+          const duration = inst.duration || 0;
+          setProgress((prev) =>
+            prev.current !== current || prev.duration !== duration
+              ? { current, duration }
+              : prev
+          );
+        };
+        inst.on("timeupdate", update);
+        inst.on("loadedmetadata", update);
+        inst.on("ended", () => setProgress({ current: 0, duration: inst.duration || 0 }));
+        update();
+      }
+    };
+
+    window.addEventListener("global-audio-play", handleAudioPlay as EventListener);
+    return () => window.removeEventListener("global-audio-play", handleAudioPlay as EventListener);
+  }, []);
+
+  const handleNowPlayingControl = (action: "prev" | "next" | "toggle" | "mute") => {
+    if (!nowPlaying || queue.length === 0) return;
+
+    const keys = queue;
+    const idx = keys.findIndex((k) => k === nowPlaying.id);
+    if (idx === -1) return;
+
+    const playByKey = (key: string) => {
+      const entry = audioMapRef.current.get(key);
+      if (entry?.inst) {
+        nowPlaying.instance?.pause?.();
+        entry.inst.play();
+        setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
+        setProgress({
+          current: entry.inst.currentTime || 0,
+          duration: entry.inst.duration || 0,
+        });
+      }
+    };
+
+    const currentEntry = audioMapRef.current.get(nowPlaying.id);
+    if (!currentEntry?.inst) return;
+
+    if (action === "toggle") {
+      currentEntry.inst.playing ? currentEntry.inst.pause() : currentEntry.inst.play();
+      return;
+    }
+    if (action === "mute") {
+      currentEntry.inst.muted = !currentEntry.inst.muted;
+      return;
+    }
+    if (action === "next") {
+      const next = (idx + 1) % keys.length;
+      playByKey(keys[next]);
+    } else if (action === "prev") {
+      const prev = (idx - 1 + keys.length) % keys.length;
+      playByKey(keys[prev]);
+    }
+  };
 
   useEffect(() => {
     const getUser = async () => {
@@ -147,6 +235,73 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           </div>
         </div>
       </motion.header>
+
+      {nowPlaying && (
+        <motion.div
+          className="fixed left-0 right-0 z-40 px-2 sm:px-4"
+          style={{ top: isHeaderVisible ? 62 : 12 }}
+          animate={{ y: isHeaderVisible ? 0 : -8 }}
+          transition={{ duration: 0.18, ease: "easeInOut" }}
+        >
+          <div className="max-w-5xl mx-auto bg-card/95 backdrop-blur border border-border shadow-md rounded-md px-3 py-1 flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-sm">
+              <div className="flex gap-1">
+                <button
+                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                  onClick={() => handleNowPlayingControl("prev")}
+                  aria-label="Предыдущий"
+                >
+                  <SkipBack className="w-3 h-3" />
+                </button>
+                <button
+                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                  onClick={() => handleNowPlayingControl("toggle")}
+                  aria-label="Пауза/Воспроизведение"
+                >
+                  {nowPlaying.instance?.playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                </button>
+                <button
+                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                  onClick={() => handleNowPlayingControl("next")}
+                  aria-label="Следующий"
+                >
+                  <SkipForward className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="flex-1 min-w-0 font-medium truncate">
+                {nowPlaying.title}
+              </div>
+              <button
+                className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                onClick={() => handleNowPlayingControl("mute")}
+                aria-label="Mute"
+              >
+                <VolumeX className="w-3 h-3" />
+              </button>
+            </div>
+            <div
+              className="w-full h-[4px] bg-muted/50 rounded-full overflow-hidden cursor-pointer transition-all duration-150 hover:h-[6px]"
+              onClick={(e) => {
+                if (!nowPlaying?.instance) return;
+                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                const ratio = (e.clientX - rect.left) / rect.width;
+                const dur = nowPlaying.instance.duration || 0;
+                if (dur > 0) {
+                  nowPlaying.instance.currentTime = dur * ratio;
+                  setProgress({ current: dur * ratio, duration: dur });
+                }
+              }}
+            >
+              <div
+                className="h-full bg-primary transition-all duration-100"
+                style={{
+                  width: progress.duration ? `${(progress.current / progress.duration) * 100}%` : "0%",
+                }}
+              />
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       <div className="flex-1 min-h-0 pt-16 sm:pt-20">
         {children}

@@ -9,6 +9,9 @@ export default defineConfig(() => ({
     host: "::",
     port: 8080,
   },
+  optimizeDeps: {
+    exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/core"],
+  },
   plugins: [
     react(),
     VitePWA({
