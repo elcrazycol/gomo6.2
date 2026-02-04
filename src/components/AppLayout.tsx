@@ -754,9 +754,60 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   <SkipForward className="w-3 h-3" />
                 </button>
               </div>
-              <div className="flex-1 min-w-0 font-medium truncate">
-                {nowPlaying.title}
-              </div>
+            <div className="flex-1 min-w-0 font-medium truncate">
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <span className="truncate cursor-pointer">{nowPlaying.title}</span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start" className="bg-card/95 border border-border shadow-md p-2 rounded-md max-w-xs">
+                  <div className="flex flex-col gap-1 text-sm">
+                    {(() => {
+                      const list = nowPlaying.playlistId
+                        ? playlistMapRef.current.get(nowPlaying.playlistId) || []
+                        : queue.map((id, idx) => ({
+                            id,
+                            title: audioMapRef.current.get(id)?.title || `Трек ${idx + 1}`,
+                            index: idx,
+                          }));
+                      return list.slice(0, 12).map((item, idx) => (
+                        <button
+                          key={item.id}
+                          className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/60 transition text-left"
+                          onClick={() => {
+                            const targetId = item.id;
+                            setQueue((q) => (q.includes(targetId) ? q : [...q, targetId]));
+                            const entry = audioMapRef.current.get(targetId);
+                            if (entry?.inst?.play) {
+                              pauseOthers(targetId);
+                              entry.inst.play();
+                              setNowPlaying({
+                                id: targetId,
+                                title: entry.title,
+                                instance: entry.inst,
+                                playlistId: nowPlaying.playlistId,
+                                playlistIndex: item.index,
+                              });
+                              setProgress({
+                                current: entry.inst.currentTime || 0,
+                                duration: entry.inst.duration || 0,
+                              });
+                              return;
+                            }
+                            // if no instance available, delegate to next control (will reconstruct)
+                            setTimeout(() => {
+                              controlRef.current?.("next");
+                            }, 0);
+                          }}
+                        >
+                          <span className="truncate">{item.title}</span>
+                          <Play className="w-4 h-4" />
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </div>
               <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-medium">
                 <span>{formatTime(progress.current)}</span>
                 <span className="text-border">/</span>
