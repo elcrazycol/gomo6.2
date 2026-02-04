@@ -2,6 +2,132 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Plyr theme overrides */
+:root,
+.light,
+.theme-cannabis,
+.theme-pink,
+.theme-blue,
+.theme-blood,
+.theme-pumpkin {
+  --plyr-color-main: hsl(var(--primary));
+  --plyr-video-controls-background: hsl(var(--card) / 0.92);
+  --plyr-audio-controls-background: hsl(var(--card) / 0.96);
+  --plyr-audio-controls-text: hsl(var(--foreground));
+}
+
+.dark,
+.theme-cannabis-dark,
+.theme-pink-dark,
+.theme-blue-dark,
+.theme-blood-dark,
+.theme-pumpkin-dark {
+  --plyr-video-controls-background: hsl(var(--card) / 0.9);
+  --plyr-audio-controls-background: hsl(var(--card) / 0.9);
+  --plyr-audio-controls-text: hsl(var(--foreground));
+  --plyr-color-main: hsl(var(--primary));
+}
+
+.plyr--audio {
+  background: var(--plyr-audio-controls-background) !important;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  color: hsl(var(--foreground));
+}
+.plyr--audio .plyr__controls {
+  background: var(--plyr-audio-controls-background) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 0.65rem;
+  padding: 0.28rem 0.42rem;
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.06);
+  gap: 0.32rem;
+  align-items: center;
+}
+.plyr--audio .plyr__control {
+  color: hsl(var(--foreground));
+  width: 32px;
+  height: 32px;
+}
+.plyr--audio .plyr__control svg {
+  fill: currentColor;
+  transform: translateY(-1px);
+}
+.plyr--audio .plyr__controls button[aria-label="Mute"],
+.plyr--audio .plyr__controls .plyr__controls__item.plyr__control--overlaid {
+  color: hsl(var(--primary-foreground, 0 0% 98%));
+  background: hsl(var(--primary));
+}
+.plyr--audio .plyr__controls button:hover {
+  background: color-mix(in srgb, hsl(var(--primary)) 16%, transparent);
+}
+.plyr--audio .plyr__controls button:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+.plyr--audio .plyr__progress input[type="range"] {
+  height: 4px;
+}
+
+.plyr--video .plyr__controls {
+  background: var(--plyr-video-controls-background);
+  backdrop-filter: blur(10px);
+  border-radius: 14px;
+  border: 1px solid hsl(var(--border) / 0.6);
+  padding: 5px 10px 8px;
+  gap: 0.4rem;
+}
+.plyr--video .plyr__control {
+  color: hsl(var(--foreground));
+}
+.plyr__control.plyr__tab-focus {
+  box-shadow: 0 0 0 2px hsl(var(--primary));
+}
+
+.plyr__controls input[type="range"] {
+  accent-color: hsl(var(--primary));
+}
+.plyr__controls input[type="range"]::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  border: 2px solid hsl(var(--card));
+}
+.plyr__controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  border: 2px solid hsl(var(--card));
+}
+
+.plyr__controls {
+  border-radius: 9999px;
+}
+
+@media (max-width: 640px) {
+  .plyr--audio .plyr__controls {
+    gap: 0.2rem;
+    padding: 0.18rem 0.28rem;
+    border-radius: 0.6rem;
+  }
+  .plyr--audio .plyr__control {
+    width: 28px;
+    height: 28px;
+  }
+  .plyr--audio .plyr__progress input[type="range"] {
+    height: 3px;
+  }
+  .plyr--audio .plyr__time {
+    font-size: 12px;
+  }
+  /* hide volume range on mobile, leave mute toggle */
+  .plyr__controls .plyr__volume {
+    display: none;
+  }
+}
+
 /* Inline emoji objects used in RichTextEditor */
 .gomo-emoji {
   display: inline-flex;

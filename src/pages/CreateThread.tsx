@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { X, Plus, Eye, EyeOff, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
 import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { renderPreviewContent } from "@/utils/emojiUtils";
+import { AttachmentUpload } from "@/components/AttachmentUpload";
+import { AttachmentMeta } from "@/utils/mediaUpload";
 
 interface Board {
   id: string;
@@ -83,7 +85,8 @@ const CreateThread = () => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [imageUrls, setImageUrls] = useState<string[]>([]); // legacy image urls
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [threadImageUrl, setThreadImageUrl] = useState('');
   const [tags, setTags] = useState<ThreadTags>({ flag: 'normal' });
   const [showBoardDialog, setShowBoardDialog] = useState(!boardSlug);
@@ -203,6 +206,12 @@ const CreateThread = () => {
     loadBoard();
   }, [boardSlug, navigate]);
 
+  // Keep legacy imageUrls in sync for backward compatibility (old components rely on it)
+  useEffect(() => {
+    const imgs = attachments.filter(att => att.type === 'image').map(att => att.url);
+    setImageUrls(imgs);
+  }, [attachments]);
+
   const handleBoardChoose = (selected: Board) => {
     setShowBoardDialog(false);
     // Keep UX simple: reload with query param for consistency
@@ -244,17 +253,24 @@ const CreateThread = () => {
         return;
       }
 
+      const imageUrlsFromAttachments = attachments
+        .filter(att => att.type === 'image')
+        .map(att => att.url);
+
       const threadData: any = {
         board_id: board.id,
         user_id: user.id,
         title: title.trim(),
         content: content.trim(),
-        image_url: threadImageUrl || null,
-        tags: tags
+        image_url: threadImageUrl || imageUrlsFromAttachments[0] || null,
+        tags: tags,
+        attachments: attachments.length > 0 ? attachments : null,
       };
 
       // Explicitly set image_urls field
-      if (imageUrls.length > 0) {
+      if (imageUrlsFromAttachments.length > 0) {
+        threadData.image_urls = imageUrlsFromAttachments;
+      } else if (imageUrls.length > 0) {
         threadData.image_urls = imageUrls;
       }
 
@@ -315,6 +331,8 @@ const CreateThread = () => {
 
       toast.success('Тред создан!');
       navigate(`/${board.slug}/thread/${data.id}`);
+      setAttachments([]);
+      setImageUrls([]);
     } catch (error) {
       console.error('Error creating thread:', error);
       toast.error('Ошибка при создании треда');
@@ -533,78 +551,10 @@ const CreateThread = () => {
               )}
             </div>
 
-            {/* Additional Images */}
+            {/* Attachments: images, video, audio, files */}
             <div>
-              <label className="text-sm font-medium mb-2 block">Дополнительные изображения</label>
-              <div className="space-y-2">
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  id="additional-images"
-                  onChange={async (e) => {
-                    const files = Array.from(e.target.files || []);
-                    if (files.length === 0) return;
-
-                    try {
-                      const uploadPromises = files.map(async (file) => {
-                        const { data, error } = await supabase.storage
-                          .from('post-images')
-                          .upload(`threads/${Date.now()}-${Math.random()}-${file.name}`, file);
-
-                        if (error) throw error;
-
-                        const { data: { publicUrl } } = supabase.storage
-                          .from('post-images')
-                          .getPublicUrl(data.path);
-
-                        return publicUrl;
-                      });
-
-                      const uploadedUrls = await Promise.all(uploadPromises);
-                      setImageUrls(prev => [...prev, ...uploadedUrls]);
-                    } catch (error) {
-                      console.error('Error uploading images:', error);
-                      toast.error('Ошибка загрузки изображений');
-                    } finally {
-                      // Reset input value to allow selecting the same files again
-                      e.target.value = '';
-                    }
-                  }}
-                />
-                <label
-                  htmlFor="additional-images"
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium border border-border rounded-md bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/50 transition-colors cursor-pointer"
-                >
-                  <ImagePlus className="h-4 w-4" />
-                  Добавить изображения
-                </label>
-              </div>
-
-              {imageUrls.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-xs text-muted-foreground mb-2">Предпросмотр изображений:</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {imageUrls.map((url, index) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={url}
-                          alt={`Preview ${index + 1}`}
-                          className="w-full h-16 object-cover rounded border border-border"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setImageUrls(prev => prev.filter((_, i) => i !== index))}
-                          className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <label className="text-sm font-medium mb-2 block">Файлы / медиа</label>
+              <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
             </div>
 
             {/* Poll */}

@@ -6,7 +6,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-import { ImageUpload } from "@/components/ImageUpload";
 import { ImageGallery } from "@/components/ImageGallery";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -14,7 +13,7 @@ import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
-import { AlertTriangle, Reply, Bell, BellOff, Send, ImagePlus, Settings, Eye, EyeOff } from "lucide-react";
+import { AlertTriangle, Reply, Bell, BellOff, Send, Settings, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
@@ -72,7 +71,7 @@ import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { RichTextEditor, type RichTextEditorHandle } from "@/components/RichTextEditor";
-import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
+import { getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
   DialogContent,
@@ -80,6 +79,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { AttachmentUpload } from "@/components/AttachmentUpload";
+import { AttachmentMeta } from "@/utils/mediaUpload";
+import { FileAudio2, FileVideo2, FileText, Image as ImageIcon, SkipBack, SkipForward, Play, Pause } from "lucide-react";
+import { MediaPlayer } from "@/components/MediaPlayer";
 
 interface Thread {
   id: string;
@@ -88,6 +91,7 @@ interface Thread {
   custom_message?: string | null;
   image_url: string | null;
   image_urls?: string[] | null;
+  attachments?: AttachmentMeta[] | null;
   created_at: string;
   user_id: string | null;
   profiles: {
@@ -107,6 +111,7 @@ interface Post {
   content: string;
   image_url: string | null;
   image_urls?: string[] | null;
+  attachments?: AttachmentMeta[] | null;
   created_at: string;
   user_id: string | null;
   reply_to: string | null;
@@ -118,6 +123,100 @@ interface Post {
     avatar_url?: string | null;
   } | null;
 }
+
+const parseAttachments = (raw: any): AttachmentMeta[] => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as AttachmentMeta[];
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const renderAttachments = (
+  attachments: AttachmentMeta[] | undefined | null,
+  onImageClick?: (urls: string[], index: number) => void
+) => {
+  if (!attachments || attachments.length === 0) return null;
+  const imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
+  const hasManyImages = imageUrls.length > 1;
+
+  return (
+    <div className="space-y-3 mt-2">
+      {hasManyImages && (
+        <div className="flex flex-wrap gap-2 mb-1">
+          {imageUrls.map((url, idx) => (
+            <div
+              key={idx}
+              className="w-20 h-20 sm:w-24 sm:h-24 border border-border rounded-md overflow-hidden bg-muted/40 cursor-pointer"
+              onClick={() => onImageClick?.(imageUrls, idx)}
+            >
+              <img src={url} alt={`img-${idx}`} className="w-full h-full object-cover" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {attachments.map((att, idx) => {
+        if (att.type === "image" && hasManyImages) return null; // already rendered grid
+
+        if (att.type === "image") {
+          const imageIndex = imageUrls.indexOf(att.url);
+          return (
+            <figure key={idx} className="w-full">
+              <img
+                src={att.url}
+                alt={att.name || `img-${idx}`}
+                className="w-full max-h-[70vh] object-contain rounded-lg border border-border bg-muted/30 cursor-pointer"
+                onClick={() => onImageClick?.(imageUrls, imageIndex)}
+              />
+            </figure>
+          );
+        }
+        if (att.type === "video") {
+          return (
+            <div key={idx} className="flex justify-start pb-3">
+              <MediaPlayer
+                kind="video"
+                poster={att.poster}
+                sources={[{ src: att.url, type: att.mime || "video/webm" }]}
+                className="max-w-xl sm:max-w-2xl"
+              />
+            </div>
+          );
+        }
+        if (att.type === "audio") {
+          return (
+            <div key={idx} className="flex justify-start pb-3">
+              <MediaPlayer
+                kind="audio"
+                sources={[{ src: att.url, type: att.mime || "audio/ogg" }]}
+                className="max-w-md"
+                playerId={`audio-${att.url}`}
+                title={att.name || "Аудио"}
+              />
+            </div>
+          );
+        }
+        return (
+          <a
+            key={idx}
+            href={att.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-sm text-primary underline"
+          >
+            <FileText className="w-4 h-4" />
+            <span className="truncate">{att.name || att.url}</span>
+            <span className="text-xs text-muted-foreground">{(att.size / 1024 / 1024).toFixed(1)} МБ</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+};
 
 const Thread = () => {
   const { slug, threadId } = useParams();
@@ -131,6 +230,7 @@ const Thread = () => {
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [content, setContent] = useState("");
   const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [isPrivateMessage, setIsPrivateMessage] = useState(false);
   const [privateRecipientId, setPrivateRecipientId] = useState<string | null>(null);
@@ -290,7 +390,7 @@ const Thread = () => {
           // Only hide/show on mobile and when not in image preview
           if (window.innerWidth < 768 && !showImagePreview) {
             // Check if there's content in the input
-            const hasContent = content.trim().length > 0 || imageUrls.length > 0;
+            const hasContent = content.trim().length > 0 || attachments.length > 0;
 
             // Auto-show when reaching bottom of page
             const isNearBottom = window.innerHeight + currentScrollY >= document.body.scrollHeight - 100;
@@ -320,9 +420,15 @@ const Thread = () => {
     return () => {
       window.removeEventListener('scroll', handleScroll);
     };
-  }, [lastScrollY, showImagePreview, content, imageUrls]);
+  }, [lastScrollY, showImagePreview, content, attachments]);
 
   useOnlineStatus(user?.id);
+
+  // Keep legacy imageUrls state in sync with attachments (used by existing preview/gallery code)
+  useEffect(() => {
+    const imgs = attachments.filter(att => att.type === "image").map(att => att.url);
+    setImageUrls(imgs);
+  }, [attachments]);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -539,10 +645,17 @@ const Thread = () => {
         .eq("id", threadData.user_id!)
         .maybeSingle();
 
+      const attachments = parseAttachments(threadData.attachments);
+      const imageUrlsFromAttachments = attachments
+        .filter(att => att.type === "image")
+        .map(att => att.url);
+
       setThread({
         ...threadData,
         boards: board!,
         profiles: profile,
+        attachments,
+        image_urls: threadData.image_urls || imageUrlsFromAttachments,
       });
 
       // Load poll data if exists
@@ -607,7 +720,9 @@ const Thread = () => {
             .eq("id", post.user_id!)
             .maybeSingle();
           
-          // Parse image_urls if it's a JSON string, or create array from image_url
+          const attachments = parseAttachments((post as any).attachments);
+
+          // Parse image_urls if it's a JSON string, or create array from attachments/image_url
           let imageUrls: string[] = [];
           if (post.image_urls && Array.isArray(post.image_urls)) {
             imageUrls = post.image_urls;
@@ -617,6 +732,8 @@ const Thread = () => {
             } catch {
               imageUrls = [];
             }
+          } else if (attachments.length > 0) {
+            imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
           } else if (post.image_url) {
             imageUrls = [post.image_url];
           }
@@ -625,6 +742,7 @@ const Thread = () => {
             ...post,
             profiles: profile,
             imageUrls,
+            attachments,
           };
         })
       );
@@ -702,8 +820,11 @@ const Thread = () => {
     setLoading(true);
     try {
       // Convert array to JSON for storage, or use first image for backward compatibility
-      const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
-      const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
+      const imageUrlsFromAttachments = attachments
+        .filter(att => att.type === "image")
+        .map(att => att.url);
+      const imageUrlForDb = imageUrlsFromAttachments[0] || null;
+      const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
 
       const { error } = await supabase.from("posts").insert({
         thread_id: threadId,
@@ -711,6 +832,7 @@ const Thread = () => {
         content: content.trim(),
         image_url: imageUrlForDb, // Keep for backward compatibility
         image_urls: imageUrlsJson, // New field for multiple images
+        attachments: attachments.length > 0 ? attachments : null,
         reply_to: replyingTo,
         is_private: isPrivateMessage,
         private_recipient_id: isPrivateMessage ? privateRecipientId : null,
@@ -723,6 +845,7 @@ const Thread = () => {
 
       setContent("");
       setImageUrls([]);
+      setAttachments([]);
       setReplyingTo(null);
       setIsPrivateMessage(false);
       setPrivateRecipientId(null);
@@ -760,6 +883,37 @@ const Thread = () => {
       setReportReason("");
       setReportingPost(null);
     }
+  };
+
+  const handleNowPlayingControl = (direction: 'prev' | 'next' | 'toggle') => {
+    if (!nowPlaying) return;
+    const keys = Array.from(audioMapRef.current.keys());
+    const currentIndex = keys.findIndex(k => k === nowPlaying.key);
+    if (currentIndex === -1) return;
+
+    const playKey = (key: string) => {
+      const entry = audioMapRef.current.get(key);
+      if (!entry?.inst) return;
+      try {
+        entry.inst.play();
+        setNowPlaying({ key, title: entry.title, instance: entry.inst });
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    if (direction === 'toggle') {
+      const entry = audioMapRef.current.get(nowPlaying.key);
+      if (!entry?.inst) return;
+      if (entry.inst.playing) entry.inst.pause();
+      else entry.inst.play();
+      return;
+    }
+
+    let nextIdx = currentIndex;
+    if (direction === 'next') nextIdx = (currentIndex + 1) % keys.length;
+    if (direction === 'prev') nextIdx = (currentIndex - 1 + keys.length) % keys.length;
+    playKey(keys[nextIdx]);
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -1084,6 +1238,11 @@ const Thread = () => {
                 ))}
               </div>
             )}
+  {renderAttachments((thread as any).attachments, (urls, idx) => {
+    setGalleryImages(urls);
+    setGalleryIndex(idx);
+    setShowGallery(true);
+  })}
 
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
               <ProcessedContent
@@ -1309,23 +1468,13 @@ const Thread = () => {
                   <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
                 </a>
               )}
-              {(post as any).imageUrls && (post as any).imageUrls.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {(post as any).imageUrls.map((img: string, idx: number) => (
-                    <img
-                      key={idx}
-                      src={img}
-                      alt={`Post image ${idx + 1}`}
-                      className="max-w-32 max-h-32 border border-border cursor-pointer rounded"
-                      onClick={() => {
-                        setGalleryImages((post as any).imageUrls);
-                        setGalleryIndex(idx);
-                        setShowGallery(true);
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
+              {renderAttachments(((post as any).attachments && (post as any).attachments.length > 0)
+                ? (post as any).attachments
+                : ((post as any).imageUrls || []).map((url: string) => ({ url, type: "image", mime: "image/*", name: url, size: 0 })), (urls, idx) => {
+                setGalleryImages(urls);
+                setGalleryIndex(idx);
+                setShowGallery(true);
+              })}
               {editingPostId === post.id ? (
                 <div className="space-y-2">
                   <Textarea
@@ -1508,118 +1657,20 @@ const Thread = () => {
 
                 {isExpandedView && (
                   <div className="space-y-3 sm:space-y-4">
-                    {/* Header with preview toggle and image upload */}
+                    {/* Header with preview toggle */}
                     <div className="flex items-center justify-between pb-2 border-b border-border/50">
                       <label className="text-xs sm:text-sm font-medium">Предпросмотр</label>
-                      <div className="flex items-center gap-2">
-                        <label className="cursor-pointer shrink-0">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={async (e) => {
-                              const files = Array.from(e.target.files || []);
-                              if (files.length === 0) return;
-
-                              // Compress and upload images with metadata removal
-                              const compressImage = async (file: File, maxWidth: number = 1200): Promise<File> => {
-                                try {
-                                  return await compressImageWithMetadataRemoval(file, maxWidth, 0.8, removeMetadata);
-                                } catch (error) {
-                                  console.warn('Advanced compression failed, falling back to basic compression:', error);
-                                  // Fallback to basic compression
-                                  return new Promise((resolve, reject) => {
-                                    const canvas = document.createElement('canvas');
-                                    const ctx = canvas.getContext('2d');
-                                    const img = new Image();
-
-                                    img.onload = () => {
-                                      let { width, height } = img;
-                                      if (width > maxWidth) {
-                                        height = (height * maxWidth) / width;
-                                        width = maxWidth;
-                                      }
-
-                                      canvas.width = width;
-                                      canvas.height = height;
-                                      ctx?.drawImage(img, 0, 0, width, height);
-
-                                      canvas.toBlob((blob) => {
-                                        if (blob) {
-                                          const compressedFile = new File([blob], file.name, {
-                                            type: 'image/jpeg',
-                                            lastModified: Date.now(),
-                                          });
-                                          resolve(compressedFile);
-                                        } else {
-                                          reject(new Error('Failed to compress image'));
-                                        }
-                                      }, 'image/jpeg', 0.8);
-                                    };
-
-                                    img.onerror = () => reject(new Error('Failed to load image'));
-                                    img.src = URL.createObjectURL(file);
-                                  });
-                                }
-                              };
-
-                              try {
-                                const uploadPromises = files.map(async (file) => {
-                                  const compressed = await compressImage(file);
-                                  const formData = new FormData();
-                                  formData.append('file', compressed);
-                                  const response = await fetch('/api/upload', {
-                                    method: 'POST',
-                                    body: formData,
-                                  });
-                                  if (!response.ok) throw new Error('Upload failed');
-                                  const data = await response.json();
-                                  return data.url;
-                                });
-
-                                const newUrls = await Promise.all(uploadPromises);
-                                setImageUrls(prev => [...prev, ...newUrls]);
-                                // Show success message above the form instead of toast
-                                setTimeout(() => {
-                                  const event = new CustomEvent('showUploadSuccess', {
-                                    detail: { count: newUrls.length }
-                                  });
-                                  document.dispatchEvent(event);
-                                }, 100);
-                              } catch (error) {
-                                toast.error("Ошибка загрузки фото");
-                                console.error(error);
-                              }
-
-                              // Reset input
-                              e.target.value = '';
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl shrink-0"
-                            asChild
-                          >
-                            <span>
-                              <ImagePlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            </span>
-                          </Button>
-                        </label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs shrink-0"
-                          onClick={() => setIsExpandedView(false)}
-                          title="Скрыть предпросмотр"
-                        >
-                          <Minimize2 className="h-3 w-3 mr-1" />
-                          <span className="hidden sm:inline">Скрыть</span>
-                        </Button>
-                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs shrink-0"
+                        onClick={() => setIsExpandedView(false)}
+                        title="Скрыть предпросмотр"
+                      >
+                        <Minimize2 className="h-3 w-3 mr-1" />
+                        <span className="hidden sm:inline">Скрыть</span>
+                      </Button>
                     </div>
                     
                     {/* Formatting toolbar - only in preview mode */}
@@ -1666,123 +1717,7 @@ const Thread = () => {
                   >
                           <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                   </Button>
-                        <label className="cursor-pointer shrink-0">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files || []);
-                        if (files.length === 0) return;
-
-                        // Compress and upload images with metadata removal
-                        const compressImage = async (file: File, maxWidth: number = 1200): Promise<File> => {
-                          try {
-                            return await compressImageWithMetadataRemoval(file, maxWidth, 0.8, removeMetadata);
-                          } catch (error) {
-                            console.warn('Advanced compression failed, falling back to basic compression:', error);
-                            // Fallback to basic compression
-                            return new Promise((resolve, reject) => {
-                              const canvas = document.createElement('canvas');
-                              const ctx = canvas.getContext('2d');
-                              const img = new Image();
-
-                              img.onload = () => {
-                                let { width, height } = img;
-                                if (width > maxWidth) {
-                                  height = (height * maxWidth) / width;
-                                  width = maxWidth;
-                                }
-
-                                canvas.width = width;
-                                canvas.height = height;
-                                ctx?.drawImage(img, 0, 0, width, height);
-
-                                canvas.toBlob((blob) => {
-                                  if (blob) {
-                                    const compressedFile = new File([blob], file.name, {
-                                      type: 'image/jpeg',
-                                      lastModified: Date.now(),
-                                    });
-                                    resolve(compressedFile);
-                                  } else {
-                                    reject(new Error('Failed to compress image'));
-                                  }
-                                }, 'image/jpeg', 0.8);
-                              };
-
-                              img.src = URL.createObjectURL(file);
-                            });
-                          }
-                        };
-
-                        try {
-                          const compressedFiles = await Promise.all(
-                            files.map(file => compressImage(file).catch(() => file))
-                          );
-
-                          const { data: { user } } = await supabase.auth.getUser();
-                          if (!user) {
-                            toast.error("Нужно войти для загрузки изображений");
-                            return;
-                          }
-
-                          const uploadPromises = compressedFiles.map(async (file) => {
-                            const fileExt = file.name.split('.').pop() || 'jpg';
-                            const timestamp = Date.now();
-                            const randomStr = Math.random().toString(36).substring(2, 9);
-                            const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
-
-                            const { error: uploadError } = await supabase.storage
-                              .from('post-images')
-                              .upload(fileName, file, {
-                                cacheControl: '3600',
-                                upsert: false
-                              });
-
-                            if (uploadError) {
-                              console.error('Upload error:', uploadError);
-                              throw new Error(uploadError.message || 'Ошибка загрузки файла');
-                            }
-
-                            const { data: { publicUrl } } = supabase.storage
-                              .from('post-images')
-                              .getPublicUrl(fileName);
-
-                            return publicUrl;
-                          });
-
-                          const newUrls = await Promise.all(uploadPromises);
-                          setImageUrls(prev => [...prev, ...newUrls]);
-                          // Show success message above the form instead of toast
-                          setTimeout(() => {
-                            const event = new CustomEvent('showUploadSuccess', {
-                              detail: { count: newUrls.length }
-                            });
-                            document.dispatchEvent(event);
-                          }, 100);
-                        } catch (error) {
-                          toast.error("Ошибка загрузки фото");
-                          console.error(error);
-                        }
-
-                        // Reset input
-                        e.target.value = '';
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
-                      asChild
-                    >
-                      <span>
-                        <ImagePlus className="h-4 w-4 sm:h-5 sm:w-5" />
-                      </span>
-                    </Button>
-                  </label>
+                        <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
                       </div>
                     </>
                   )}
@@ -1864,7 +1799,7 @@ const Thread = () => {
                   )}
                   <Button
                     type="submit"
-                    disabled={loading || (!content.trim() && imageUrls.length === 0)}
+                    disabled={loading || (!content.trim() && attachments.length === 0)}
                     size="icon"
                     className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                   >
@@ -1906,7 +1841,7 @@ const Thread = () => {
                               size="sm"
                               className="absolute top-1 right-1 h-6 w-6 p-0"
                               onClick={() => {
-                                setImageUrls(prev => prev.filter((_, i) => i !== index));
+                                setAttachments(prev => prev.filter(att => att.type !== "image" || att.url !== imageUrls[index]));
                               }}
                             >
                               ✕
