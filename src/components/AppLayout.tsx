@@ -9,7 +9,8 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
-import { Settings, SkipBack, SkipForward, Play, Pause, VolumeX } from "lucide-react";
+import { Settings, SkipBack, SkipForward, Play, Pause, Volume2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -28,6 +29,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const audioMapRef = useRef<Map<string, { inst: any; title: string }>>(new Map());
   const [progress, setProgress] = useState<{ current: number; duration: number }>({ current: 0, duration: 0 });
   const lastProgressUpdateRef = useRef<number>(0);
+  const [volume, setVolume] = useState(1);
+  const [isDesktop, setIsDesktop] = useState<boolean>(false);
   const { scrollY } = useScroll();
 
   // Header animation logic
@@ -41,6 +44,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   });
 
   // Global audio handling: keep a queue of players and expose transport controls.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 640px)");
+    const updateMatch = () => setIsDesktop(mq.matches);
+    updateMatch();
+    mq.addEventListener("change", updateMatch);
+    return () => mq.removeEventListener("change", updateMatch);
+  }, []);
+
   useEffect(() => {
     const handleAudioPlay = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -57,6 +68,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       audioMapRef.current.set(id, { inst: detail.instance, title });
       setQueue((q) => (q.includes(id) ? q : [...q, id]));
       setNowPlaying({ id, title, instance: detail.instance });
+      const initialVolume = detail.instance?.volume ?? 1;
+      setVolume(typeof initialVolume === "number" ? Math.max(0, Math.min(initialVolume, 1)) : 1);
 
       const inst = detail.instance;
       if (inst?.on) {
@@ -96,6 +109,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         nowPlaying.instance?.pause?.();
         entry.inst.play();
         setNowPlaying({ id: key, title: entry.title, instance: entry.inst });
+        const currentVolume = entry.inst.volume ?? volume;
+        setVolume(typeof currentVolume === "number" ? currentVolume : volume);
         setProgress({
           current: entry.inst.currentTime || 0,
           duration: entry.inst.duration || 0,
@@ -239,7 +254,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       {nowPlaying && (
         <motion.div
           className="fixed left-0 right-0 z-40 px-2 sm:px-4"
-          style={{ top: isHeaderVisible ? 62 : 12 }}
+          style={{ top: isHeaderVisible ? (isDesktop ? 64 : 62) : 12 }}
           animate={{ y: isHeaderVisible ? 0 : -8 }}
           transition={{ duration: 0.18, ease: "easeInOut" }}
         >
@@ -271,13 +286,46 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <div className="flex-1 min-w-0 font-medium truncate">
                 {nowPlaying.title}
               </div>
-              <button
-                className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
-                onClick={() => handleNowPlayingControl("mute")}
-                aria-label="Mute"
-              >
-                <VolumeX className="w-3 h-3" />
-              </button>
+              <div className="hidden sm:flex">
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <button
+                      className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                      aria-label="Громкость"
+                    >
+                      <Volume2 className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" align="center" className="bg-card border border-border px-3 py-2">
+                    <div className="flex items-center gap-2 w-36">
+                      <span className="text-xs text-muted-foreground">0</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={volume}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setVolume(val);
+                          const inst = nowPlaying?.instance;
+                          if (!inst) return;
+                          if (typeof inst.volume === "function") {
+                            inst.volume(val);
+                          } else {
+                            inst.volume = val;
+                          }
+                          if ("muted" in inst && inst.muted && val > 0) {
+                            inst.muted = false;
+                          }
+                        }}
+                        className="flex-1 accent-primary"
+                      />
+                      <span className="text-xs text-muted-foreground">100</span>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
             <div
               className="w-full h-[4px] bg-muted/50 rounded-full overflow-hidden cursor-pointer transition-all duration-150 hover:h-[6px]"
