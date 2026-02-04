@@ -2,6 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Plyr theme overrides */
+:root,
+.light,
+.theme-cannabis,
+.theme-pink,
+.theme-blue,
+.theme-blood,
+.theme-pumpkin {
+  --plyr-color-main: hsl(var(--primary));
+  --plyr-video-controls-background: rgba(255,255,255,0.8);
+  --plyr-audio-controls-background: rgba(245,245,245,0.9);
+  --plyr-audio-controls-text: rgba(20,20,20,0.9);
+}
+
+.dark,
+.theme-cannabis-dark,
+.theme-pink-dark,
+.theme-blue-dark,
+.theme-blood-dark,
+.theme-pumpkin-dark {
+  --plyr-video-controls-background: rgba(17,17,17,0.75);
+  --plyr-audio-controls-background: rgba(17,17,17,0.85);
+  --plyr-audio-controls-text: rgba(255,255,255,0.9);
+  --plyr-color-main: hsl(var(--primary));
+}
+
+.plyr--audio {
+  background: var(--plyr-audio-controls-background);
+  color: var(--plyr-audio-controls-text);
+  border-radius: 0.75rem;
+}
+.plyr--audio .plyr__control {
+  color: hsl(var(--foreground));
+}
+.plyr--audio .plyr__control svg {
+  fill: currentColor;
+}
+.plyr--audio .plyr__controls button[aria-label="Mute"],
+.plyr--audio .plyr__controls .plyr__controls__item.plyr__control--overlaid {
+  color: hsl(var(--primary-foreground, 0 0% 98%));
+  background: hsl(var(--primary));
+}
+.plyr--audio .plyr__controls button:hover {
+  background: color-mix(in srgb, hsl(var(--primary)) 18%, transparent);
+}
+.plyr--audio .plyr__controls button:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+.plyr__controls {
+  border-radius: 9999px;
+}
+
+@media (max-width: 640px) {
+  /* hide volume range on mobile, leave mute toggle */
+  .plyr__controls .plyr__volume {
+    display: none;
+  }
+}
+
 /* Inline emoji objects used in RichTextEditor */
 .gomo-emoji {
   display: inline-flex;
