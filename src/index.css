@@ -39,7 +39,7 @@
   background: var(--plyr-audio-controls-background) !important;
   border: 1px solid hsl(var(--border)) !important;
   border-radius: 0.65rem;
-  padding: 0.28rem 0.42rem;
+  padding: 5px 10px 5px !important;
   box-shadow: 0 12px 22px rgba(0, 0, 0, 0.06);
   gap: 0.32rem;
   align-items: center;
@@ -72,10 +72,11 @@
 .plyr--video .plyr__controls {
   background: var(--plyr-video-controls-background);
   backdrop-filter: blur(10px);
-  border-radius: 14px;
+  border-radius: 10px;
   border: 1px solid hsl(var(--border) / 0.6);
-  padding: 5px 10px 8px;
-  gap: 0.4rem;
+  --plyr-control-spacing: 6px;
+  padding: 5px 10px 6px !important;
+  gap: 0.35rem;
 }
 .plyr--video .plyr__control {
   color: hsl(var(--foreground));
