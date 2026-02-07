@@ -26,6 +26,7 @@ const Messages = lazy(() => import("./pages/Messages"));
 const Settings = lazy(() => import("./pages/Settings"));
 const CustomProfile = lazy(() => import("./pages/settings/CustomProfile"));
 const Placeholders = lazy(() => import("./pages/settings/Placeholders"));
+const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -99,6 +100,7 @@ const App = () => {
               <Route path="settings" element={<LazyPage component={Settings} />} />
               <Route path="settings/custom" element={<LazyPage component={CustomProfile} />} />
               <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
+              <Route path="stats" element={<LazyPage component={Stats} />} />
               <Route path="notify" element={<LazyPage component={Notify} />} />
               <Route path="create" element={<LazyPage component={CreateThread} />} />
               <Route path=":slug" element={<LazyPage component={Board} />} />
