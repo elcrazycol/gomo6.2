@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,26 +25,52 @@ interface ProfileSummary {
   post_count: number;
   thread_count: number;
 }
+interface Privacy {
+  show_profile_stats: boolean;
+  show_detailed_stats: boolean;
+  stats_visibility: Record<string, boolean>;
+}
 
 interface TimeStats {
   total_minutes: number;
   last_updated?: string | null;
 }
 
+type Range = "1d" | "30d" | "90d" | "180d" | "365d" | "all";
+type Mode = "cumulative" | "period";
+
 interface StatPoint {
-  date: string;
+  label: string;
   value: number;
+  ts: number;
 }
 
-const groupByDate = (timestamps: string[], weight = 1): StatPoint[] => {
-  const map = new Map<string, number>();
+const groupByInterval = (timestamps: string[], interval: "hour" | "day" | "month", weight = 1): StatPoint[] => {
+  const map = new Map<string, { value: number; ts: number; label: string }>();
   timestamps.forEach((ts) => {
-    const key = ts.slice(0, 10); // YYYY-MM-DD
-    map.set(key, (map.get(key) || 0) + weight);
+    const d = new Date(ts);
+    const label =
+      interval === "hour"
+        ? `${d.getHours().toString().padStart(2, "0")}:00`
+        : interval === "month"
+          ? `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`
+          : ts.slice(0, 10); // day
+    const key = `${interval}-${label}`;
+    if (!map.has(key)) {
+      map.set(key, { value: weight, ts: d.getTime(), label });
+    } else {
+      const prev = map.get(key)!;
+      map.set(key, { value: prev.value + weight, ts: prev.ts, label: prev.label });
+    }
   });
-  return Array.from(map.entries())
-    .map(([date, value]) => ({ date, value }))
-    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  return Array.from(map.values())
+    .map((entry) => ({
+      label: entry.label,
+      value: entry.value,
+      ts: entry.ts,
+    }))
+    .sort((a, b) => a.ts - b.ts);
 };
 
 const accumulate = (points: StatPoint[]): StatPoint[] => {
@@ -64,17 +89,19 @@ const scaleSeries = (series: StatPoint[], target: number) => {
   return series.map((p) => ({ ...p, value: p.value * k }));
 };
 
-const filterByRange = (series: StatPoint[], range: "30d" | "90d" | "180d" | "365d" | "all") => {
+const filterByRange = (series: StatPoint[], range: Range) => {
   if (range === "all") return series;
-  const daysMap = {
+  const daysMap: Record<Range, number> = {
+    "1d": 1,
     "30d": 30,
     "90d": 90,
     "180d": 180,
     "365d": 365,
-  } as const;
+    all: 0,
+  };
   const days = daysMap[range];
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  return series.filter((p) => new Date(p.date).getTime() >= cutoff);
+  return series.filter((p) => p.ts >= cutoff);
 };
 
 export default function Stats() {
@@ -83,61 +110,82 @@ export default function Stats() {
   const urlInitDone = useRef(false);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<ProfileSummary | null>(null);
+  const [privacy, setPrivacy] = useState<Privacy | null>(null);
+  const [viewedUserId, setViewedUserId] = useState<string | null>(null);
+  const [selfId, setSelfId] = useState<string | null>(null);
   const [timeStats, setTimeStats] = useState<TimeStats | null>(null);
-  const [postsRaw, setPostsRaw] = useState<StatPoint[]>([]);
-  const [threadsRaw, setThreadsRaw] = useState<StatPoint[]>([]);
-  const [postLikesRaw, setPostLikesRaw] = useState<StatPoint[]>([]);
-  const [threadLikesRaw, setThreadLikesRaw] = useState<StatPoint[]>([]);
-  const [repliesRaw, setRepliesRaw] = useState<StatPoint[]>([]);
+  const [postsTs, setPostsTs] = useState<string[]>([]);
+  const [threadsTs, setThreadsTs] = useState<string[]>([]);
+  const [postLikesTs, setPostLikesTs] = useState<string[]>([]);
+  const [threadLikesTs, setThreadLikesTs] = useState<string[]>([]);
+  const [repliesTs, setRepliesTs] = useState<string[]>([]);
   const [metric, setMetric] = useState("garma");
-  const [range, setRange] = useState<"30d" | "90d" | "180d" | "365d" | "all">("all");
+  const [range, setRange] = useState<Range>("all");
+  const [mode, setMode] = useState<Mode>("cumulative");
 
   useEffect(() => {
     const load = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData.session?.user.id;
-      if (!userId) {
+      const self = sessionData.session?.user.id;
+      if (!self) {
         navigate("/auth");
         return;
       }
+      setSelfId(self);
+      const targetUserId = searchParams.get("user") || self;
+      setViewedUserId(targetUserId);
 
       setLoading(true);
 
-      const [profileRes, postsRes, threadsRes, postLikesRes, threadLikesRes, repliesRes, timeRes] = await Promise.all([
-        supabase.from("profiles").select("username, garma, post_count, thread_count").eq("id", userId).single(),
-        supabase.from("posts").select("created_at").eq("user_id", userId).order("created_at", { ascending: true }),
-        supabase.from("threads").select("created_at").eq("user_id", userId).order("created_at", { ascending: true }),
+      const [profileRes, postsRes, threadsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
+        supabase.from("profiles").select("username, garma, post_count, thread_count").eq("id", targetUserId).single(),
+        supabase.from("posts").select("created_at").eq("user_id", targetUserId).order("created_at", { ascending: true }),
+        supabase.from("threads").select("created_at").eq("user_id", targetUserId).order("created_at", { ascending: true }),
         supabase
           .from("post_likes")
           .select("created_at, posts!inner(user_id)")
-          .eq("posts.user_id", userId)
+          .eq("posts.user_id", targetUserId)
           .order("created_at", { ascending: true }),
         supabase
           .from("thread_likes")
           .select("created_at, threads!inner(user_id)")
-          .eq("threads.user_id", userId)
+          .eq("threads.user_id", targetUserId)
           .order("created_at", { ascending: true }),
         supabase
           .from("posts")
           .select("created_at, threads!inner(user_id)")
-          .eq("threads.user_id", userId)
-          .neq("user_id", userId)
+          .eq("threads.user_id", targetUserId)
+          .neq("user_id", targetUserId)
           .order("created_at", { ascending: true }),
         supabase
           .from("user_session_time")
           .select("total_minutes, last_updated")
-          .eq("user_id", userId)
+          .eq("user_id", targetUserId)
+          .maybeSingle(),
+        supabase
+          .from("privacy_settings")
+          .select("show_profile_stats, show_detailed_stats, stats_visibility")
+          .eq("user_id", targetUserId)
           .maybeSingle(),
       ]);
 
       if (profileRes.data) setProfile(profileRes.data);
+      if (privacyRes.data) {
+        setPrivacy({
+          show_profile_stats: privacyRes.data.show_profile_stats ?? false,
+          show_detailed_stats: privacyRes.data.show_detailed_stats ?? false,
+          stats_visibility: privacyRes.data.stats_visibility || {},
+        });
+      } else {
+        setPrivacy({ show_profile_stats: false, show_detailed_stats: false, stats_visibility: {} });
+      }
       if (timeRes.data) setTimeStats(timeRes.data);
 
-      setPostsRaw(groupByDate(postsRes.data?.map((p) => p.created_at) || []));
-      setThreadsRaw(groupByDate(threadsRes.data?.map((t) => t.created_at) || []));
-      setPostLikesRaw(groupByDate(postLikesRes.data?.map((l) => l.created_at) || []));
-      setThreadLikesRaw(groupByDate(threadLikesRes.data?.map((l) => l.created_at) || []));
-      setRepliesRaw(groupByDate(repliesRes.data?.map((r) => r.created_at) || []));
+      setPostsTs(postsRes.data?.map((p) => p.created_at) || []);
+      setThreadsTs(threadsRes.data?.map((t) => t.created_at) || []);
+      setPostLikesTs(postLikesRes.data?.map((l) => l.created_at) || []);
+      setThreadLikesTs(threadLikesRes.data?.map((l) => l.created_at) || []);
+      setRepliesTs(repliesRes.data?.map((r) => r.created_at) || []);
 
       setLoading(false);
     };
@@ -148,54 +196,128 @@ export default function Stats() {
   const applyWeight = (points: StatPoint[], weight: number) =>
     points.map((p) => ({ ...p, value: p.value * weight }));
 
+  const postsDaily = useMemo(() => groupByInterval(postsTs, "day"), [postsTs]);
+  const threadsDaily = useMemo(() => groupByInterval(threadsTs, "day"), [threadsTs]);
+  const postLikesDaily = useMemo(() => groupByInterval(postLikesTs, "day"), [postLikesTs]);
+  const threadLikesDaily = useMemo(() => groupByInterval(threadLikesTs, "day"), [threadLikesTs]);
+  const repliesDaily = useMemo(() => groupByInterval(repliesTs, "day"), [repliesTs]);
+
+  const pickInterval = (r: Range): "hour" | "day" | "month" => {
+    if (r === "1d") return "hour";
+    if (r === "30d" || r === "90d" || r === "180d") return "day";
+    return "month";
+  };
+
+  const filterTimestamps = (ts: string[], r: Range) => {
+    if (r === "all") return ts;
+    const daysMap: Record<Range, number> = { "1d": 1, "30d": 30, "90d": 90, "180d": 180, "365d": 365, all: 0 };
+    const days = daysMap[r];
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return ts.filter((t) => new Date(t).getTime() >= cutoff);
+  };
+
   const garmaSeries = useMemo(() => {
     const timePoints: StatPoint[] = timeStats?.total_minutes
-      ? [{ date: (timeStats.last_updated || new Date().toISOString()).slice(0, 10), value: Math.floor(timeStats.total_minutes / 30) }]
+      ? [
+          {
+            label: (timeStats.last_updated || new Date().toISOString()).slice(0, 10),
+            value: Math.floor(timeStats.total_minutes / 30),
+            ts: new Date(timeStats.last_updated || new Date().toISOString()).getTime(),
+          },
+        ]
       : [];
     const merged = [
-      ...applyWeight(postsRaw, 0.5),
-      ...applyWeight(threadsRaw, 4),
-      ...applyWeight(postLikesRaw, 2),
-      ...applyWeight(threadLikesRaw, 3),
-      ...applyWeight(repliesRaw, 0.25),
+      ...applyWeight(postsDaily, 0.5),
+      ...applyWeight(threadsDaily, 4),
+      ...applyWeight(postLikesDaily, 2),
+      ...applyWeight(threadLikesDaily, 3),
+      ...applyWeight(repliesDaily, 0.25),
       ...timePoints,
     ];
-    const mergedMap = new Map<string, number>();
-    merged.forEach(({ date, value }) => mergedMap.set(date, (mergedMap.get(date) || 0) + value));
+    const mergedMap = new Map<number, number>();
+    merged.forEach(({ ts, value }) => mergedMap.set(ts, (mergedMap.get(ts) || 0) + value));
     const acc = accumulate(
       Array.from(mergedMap.entries())
-        .map(([date, value]) => ({ date, value }))
-        .sort((a, b) => (a.date < b.date ? -1 : 1))
+        .sort((a, b) => a[0] - b[0])
+        .map(([ts, value]) => ({ ts, label: new Date(ts).toISOString().slice(0, 10), value }))
     );
     const target = profile?.garma ?? (acc.length ? acc[acc.length - 1].value : 0);
     return scaleSeries(acc, target);
-  }, [postsRaw, threadsRaw, postLikesRaw, threadLikesRaw, repliesRaw, timeStats, profile]);
+  }, [postsDaily, threadsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
 
   const currentSeries = useMemo(() => {
+    const interval = pickInterval(range);
+    const build = (ts: string[], weight = 1) => {
+      const filtered = filterTimestamps(ts, range);
+      const grouped = groupByInterval(filtered, interval, weight);
+      return mode === "cumulative" ? accumulate(grouped) : grouped;
+    };
+
     switch (metric) {
       case "posts":
-        return scaleSeries(accumulate(filterByRange(postsRaw, range)), profile?.post_count || 0);
+        return mode === "cumulative"
+          ? scaleSeries(filterByRange(accumulate(postsDaily), range), profile?.post_count || 0)
+          : build(postsTs);
       case "threads":
-        return scaleSeries(accumulate(filterByRange(threadsRaw, range)), profile?.thread_count || 0);
+        return mode === "cumulative"
+          ? scaleSeries(filterByRange(accumulate(threadsDaily), range), profile?.thread_count || 0)
+          : build(threadsTs);
       case "postLikes":
-        return accumulate(filterByRange(postLikesRaw, range));
+        return mode === "cumulative" ? accumulate(filterByRange(postLikesDaily, range)) : build(postLikesTs);
       case "threadLikes":
-        return accumulate(filterByRange(threadLikesRaw, range));
+        return mode === "cumulative" ? accumulate(filterByRange(threadLikesDaily, range)) : build(threadLikesTs);
       case "replies":
-        return accumulate(filterByRange(repliesRaw, range));
+        return mode === "cumulative" ? accumulate(filterByRange(repliesDaily, range)) : build(repliesTs);
       case "garma":
-      default:
-        return filterByRange(garmaSeries, range);
+      default: {
+        if (mode === "cumulative") {
+          return filterByRange(garmaSeries, range);
+        }
+        const filteredWeights = [
+          ...groupByInterval(filterTimestamps(postsTs, range), interval, 0.5),
+          ...groupByInterval(filterTimestamps(threadsTs, range), interval, 4),
+          ...groupByInterval(filterTimestamps(postLikesTs, range), interval, 2),
+          ...groupByInterval(filterTimestamps(threadLikesTs, range), interval, 3),
+          ...groupByInterval(filterTimestamps(repliesTs, range), interval, 0.25),
+        ];
+        const mergedMap = new Map<number, number>();
+        filteredWeights.forEach((p) => mergedMap.set(p.ts, (mergedMap.get(p.ts) || 0) + p.value));
+        const series = Array.from(mergedMap.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([ts, value]) => ({
+            ts,
+            label: interval === "hour" ? `${new Date(ts).getHours().toString().padStart(2, "0")}:00` : new Date(ts).toISOString().slice(0, 10),
+            value,
+          }));
+        return series;
+      }
     }
-  }, [metric, postsRaw, threadsRaw, postLikesRaw, threadLikesRaw, repliesRaw, garmaSeries, range, profile?.post_count, profile?.thread_count]);
+  }, [
+    metric,
+    postsDaily,
+    threadsDaily,
+    postLikesDaily,
+    threadLikesDaily,
+    repliesDaily,
+    postsTs,
+    threadsTs,
+    postLikesTs,
+    threadLikesTs,
+    repliesTs,
+    garmaSeries,
+    range,
+    profile?.post_count,
+    profile?.thread_count,
+    mode,
+  ]);
 
   const garmaBreakdown = useMemo(() => {
     const sum = (arr: StatPoint[]) => arr.reduce((s, p) => s + p.value, 0);
-    const postsVal = sum(postsRaw) * 0.5;
-    const threadsVal = sum(threadsRaw) * 4;
-    const postLikesVal = sum(postLikesRaw) * 2;
-    const threadLikesVal = sum(threadLikesRaw) * 3;
-    const repliesVal = sum(repliesRaw) * 0.25;
+    const postsVal = sum(postsDaily) * 0.5;
+    const threadsVal = sum(threadsDaily) * 4;
+    const postLikesVal = sum(postLikesDaily) * 2;
+    const threadLikesVal = sum(threadLikesDaily) * 3;
+    const repliesVal = sum(repliesDaily) * 0.25;
     const timeVal = timeStats ? Math.floor(timeStats.total_minutes / 30) : 0;
     const total = postsVal + threadsVal + postLikesVal + threadLikesVal + repliesVal + timeVal;
     const target = profile?.garma && profile.garma > 0 ? profile.garma : total;
@@ -208,7 +330,7 @@ export default function Stats() {
       { label: "Ответы в моих тредах", value: repliesVal * k, color: "#ef4444" },
       { label: "Время на сайте", value: timeVal * k, color: "#0ea5e9" },
     ];
-  }, [postsRaw, threadsRaw, postLikesRaw, threadLikesRaw, repliesRaw, timeStats, profile]);
+  }, [postsDaily, threadsDaily, postLikesDaily, threadLikesDaily, repliesDaily, timeStats, profile]);
 
   // Инициализируем метрику из query-параметра
   useEffect(() => {
@@ -220,7 +342,12 @@ export default function Stats() {
     urlInitDone.current = true;
   }, [searchParams]);
 
-  const formatDate = (d: string) => format(new Date(d), "dd.MM");
+  const formatDate = (ts: number, r: Range) => {
+    const interval = pickInterval(r);
+    if (interval === "hour") return format(new Date(ts), "HH:mm");
+    if (interval === "month") return format(new Date(ts), "LLL yy");
+    return format(new Date(ts), "dd.MM");
+  };
 
   if (loading) {
     return (
@@ -234,6 +361,20 @@ export default function Stats() {
     return (
       <div className="max-w-5xl mx-auto p-4">
         <p className="text-muted-foreground">Не удалось загрузить профиль</p>
+      </div>
+    );
+  }
+
+  const isOwn = viewedUserId && selfId ? viewedUserId === selfId : false;
+  const canViewDetailed = isOwn || (privacy?.show_detailed_stats ?? false);
+  const metricAllowed = (m: string) =>
+    isOwn || (canViewDetailed && (privacy?.stats_visibility?.[m] ?? false));
+  const summaryAllowed = isOwn || (privacy?.show_profile_stats ?? false);
+
+  if (!isOwn && !canViewDetailed) {
+    return (
+      <div className="max-w-5xl mx-auto p-4">
+        <div className="text-muted-foreground">Статистика этого пользователя скрыта</div>
       </div>
     );
   }
@@ -262,7 +403,10 @@ export default function Stats() {
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Время на сайте</CardTitle></CardHeader>
-          <CardContent className="flex items-center gap-2 text-2xl font-bold"><Clock3 className="h-5 w-5 text-primary" />{Math.floor((timeStats?.total_minutes || 0) / 60)} ч</CardContent>
+          <CardContent className="flex items-center gap-2 text-2xl font-bold">
+            <Clock3 className="h-5 w-5 text-primary" />
+            {timeStats?.total_minutes != null ? Math.max(0, Math.floor(timeStats.total_minutes / 60)) + " ч" : "—"}
+          </CardContent>
         </Card>
       </div>
 
@@ -286,6 +430,7 @@ export default function Stats() {
             </Select>
             <div className="flex gap-1 flex-wrap">
               {[
+                { key: "1d", label: "1д" },
                 { key: "30d", label: "30д" },
                 { key: "90d", label: "90д" },
                 { key: "180d", label: "180д" },
@@ -303,10 +448,28 @@ export default function Stats() {
                 </Button>
               ))}
             </div>
+            <div className="flex gap-1 flex-wrap">
+              <Button
+                size="sm"
+                variant={mode === "cumulative" ? "default" : "outline"}
+                onClick={() => setMode("cumulative")}
+              >
+                Накопительно
+              </Button>
+              <Button
+                size="sm"
+                variant={mode === "period" ? "default" : "outline"}
+                onClick={() => setMode("period")}
+              >
+                За интервал
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {currentSeries.length === 0 ? (
+          {!metricAllowed(metric) && !isOwn ? (
+            <p className="text-sm text-muted-foreground">Эта метрика скрыта владельцем</p>
+          ) : currentSeries.length === 0 ? (
             <p className="text-sm text-muted-foreground">Недостаточно данных</p>
           ) : (
             <div className="h-72 sm:h-80">
@@ -319,9 +482,9 @@ export default function Stats() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                  <XAxis dataKey="date" tickFormatter={formatDate} tickMargin={8} />
+                  <XAxis dataKey="ts" tickFormatter={(v) => formatDate(v as number, range)} tickMargin={8} type="number" domain={["dataMin", "dataMax"]} />
                   <YAxis tickMargin={8} width={60} allowDecimals={false} />
-                  <RechartsTooltip formatter={(v: number) => v.toFixed(2)} labelFormatter={(d) => formatDate(d as string)} />
+                  <RechartsTooltip formatter={(v: number) => v.toFixed(2)} labelFormatter={(d) => formatDate(d as number, range)} />
                   <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="url(#colorA)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>

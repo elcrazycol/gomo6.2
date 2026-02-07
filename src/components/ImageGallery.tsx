@@ -15,6 +15,7 @@ type Box = { x: number; y: number; w: number; h: number };
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }: ImageGalleryProps) => {
+  const canEdit = !!onEditImage;
   const [localImages, setLocalImages] = useState(images);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -528,16 +529,16 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
           onLoad={refreshRenderRect}
         />
 
-        {isEditing && renderRect && (
+        {isEditing && canEdit && renderRect && (
           <canvas
             ref={canvasRef}
             className="absolute z-10 select-none touch-none cursor-crosshair"
             style={{
-              left: `${renderRect.x}px`,
-              top: `${renderRect.y}px`,
-              width: `${renderRect.w}px`,
-              height: `${renderRect.h}px`,
-            }}
+            left: `${renderRect.x}px`,
+            top: `${renderRect.y}px`,
+            width: `${renderRect.w}px`,
+            height: `${renderRect.h}px`,
+          }}
             onPointerDown={handleEditorPointerDown}
             onPointerMove={handleEditorPointerMove}
             onPointerUp={handleEditorPointerUp}
@@ -601,7 +602,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
       )}
 
       {/* Edit toolbar */}
-      {showControls && (
+      {showControls && canEdit && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-wrap sm:flex-nowrap gap-2 bg-black/40 backdrop-blur px-3 py-2 rounded-2xl max-w-[92vw] justify-center">
           <Button
             variant={isEditing && tool === "crop" ? "default" : "ghost"}
@@ -609,6 +610,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
             className="h-8 px-3 text-white"
             onClick={(e) => {
               e.stopPropagation();
+              if (!canEdit) return;
               setIsEditing(true);
               setTool("crop");
               setRedacts([]);
