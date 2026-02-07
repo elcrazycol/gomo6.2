@@ -75,9 +75,17 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
       const prev = window.history.scrollRestoration;
-      window.history.scrollRestoration = "manual";
+      try {
+        window.history.scrollRestoration = "manual";
+      } catch (e) {
+        console.warn("Unable to set scrollRestoration:", e);
+      }
       return () => {
-        window.history.scrollRestoration = prev;
+        try {
+          window.history.scrollRestoration = prev;
+        } catch {
+          /* ignore */
+        }
       };
     }
   }, []);
