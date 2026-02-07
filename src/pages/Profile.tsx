@@ -65,6 +65,7 @@ interface AchievementCardProps {
   isEditing: boolean;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const formatGarmaLabel = (value: number) => {
   const abs = Math.abs(value);
   const mod10 = abs % 10;
@@ -1366,10 +1367,8 @@ const Profile = () => {
                   <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">gарма</p>
-                  <p className="text-2xl font-bold">
-                    {profile.garma} {formatGarmaLabel(profile.garma)}
-                  </p>
+                  <p className="text-sm text-muted-foreground">gармы</p>
+                  <p className="text-2xl font-bold">{profile.garma}</p>
                 </div>
               </div>
 

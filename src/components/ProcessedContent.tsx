@@ -131,7 +131,6 @@ export const ProcessedContent = ({
 
   const renderContent = (text: string) => {
     // Process special markers first (before BB code parsing)
-    let processedText = text;
     const elements: React.ReactNode[] = [];
     let key = 0;
 

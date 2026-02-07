@@ -82,9 +82,9 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
     }
   } finally {
     // cleanup to free wasm memory
-    try { ffmpeg.deleteFile(inputName); } catch {}
-    try { ffmpeg.deleteFile(outputName); } catch {}
-    try { ffmpeg.deleteFile(posterName); } catch {}
+    try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
+    try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
+    try { ffmpeg.deleteFile(posterName); } catch (e) { console.debug("ffmpeg cleanup poster failed", e); }
   }
 };
 
@@ -140,9 +140,12 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       } else if (file.size > MAX_FILE_SIZE) {
         throw new Error("Файл больше 25MB — прикрепите меньший");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Compression error", error);
-      const msg = typeof error?.message === "string" ? error.message : "Не удалось сжать, загружаю оригинал";
+      const message = error && typeof (error as { message?: string }).message === "string"
+        ? (error as { message: string }).message
+        : "Не удалось сжать, загружаю оригинал";
+      const msg = message;
       toast.warning(msg);
       if (original.size > MAX_FILE_SIZE) {
         throw new Error("Файл слишком большой и не удалось сжать");
