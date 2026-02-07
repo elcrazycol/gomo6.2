@@ -25,7 +25,7 @@ type NowPlayingState = {
 };
 
 export const AppLayout = ({ children }: AppLayoutProps) => {
-  const APP_VERSION = "v1.3";
+  const APP_VERSION = "v1.4";
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState<any>(null);
@@ -70,6 +70,95 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       if (entry.inst?.pause) entry.inst.pause();
       if ("paused" in entry.inst && entry.inst.paused === false && entry.inst?.pause) entry.inst.pause();
     });
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
+      const prev = window.history.scrollRestoration;
+      window.history.scrollRestoration = "manual";
+      return () => {
+        window.history.scrollRestoration = prev;
+      };
+    }
+  }, []);
+
+  const getOrderedIds = () => {
+    if (nowPlaying?.playlistId) {
+      const list = playlistMapRef.current.get(nowPlaying.playlistId) || [];
+      if (list.length) return list.map((i) => i.id);
+    }
+    return queue;
+  };
+
+  const playTrackById = (targetId: string) => {
+    let entry = audioMapRef.current.get(targetId);
+    let hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
+
+    // Reconstruct from playlist cache if missing
+    if (!entry?.inst?.play || !hasMedia) {
+      const orderedIds = getOrderedIds();
+      const playlistId = nowPlaying?.playlistId;
+      const list = playlistId ? playlistMapRef.current.get(playlistId) || [] : [];
+      const meta = list.find((i) => i.id === targetId);
+      if (meta?.src) {
+        const audio = new Audio(meta.src);
+        audio.preload = "auto";
+        const v = storedVolumeRef.current !== null ? storedVolumeRef.current : volume;
+        audio.volume = v;
+        audioMapRef.current.set(targetId, {
+          inst: audio,
+          title: meta.title || "Аудио",
+          playlistId,
+          playlistIndex: meta.index,
+        });
+
+        const persist = () => {
+          const now = performance.now();
+          if (now - lastProgressUpdateRef.current < 200) return;
+          lastProgressUpdateRef.current = now;
+          setProgress({ current: audio.currentTime || 0, duration: audio.duration || 0 });
+          localStorage.setItem(
+            "audio-last",
+            JSON.stringify({
+              id: targetId,
+              title: meta.title || "Аудио",
+              src: meta.src,
+              volume: v,
+              position: audio.currentTime || 0,
+              playlistId,
+              playlistIndex: meta.index,
+            })
+          );
+        };
+        audio.addEventListener("timeupdate", persist);
+        audio.addEventListener("loadedmetadata", persist);
+        audio.addEventListener("ended", () => {
+          setProgress({ current: 0, duration: audio.duration || 0 });
+          controlRef.current?.("next");
+        });
+        audio.addEventListener("playing", () => setNowPlaying((cur) => (cur ? { ...cur, instance: audio } : cur)));
+        audio.addEventListener("pause", () => setNowPlaying((cur) => (cur ? { ...cur, instance: audio } : cur)));
+        hasMedia = true;
+        entry = audioMapRef.current.get(targetId);
+        setQueue((q) => (q.includes(targetId) ? q : [...q, targetId]));
+      }
+    }
+
+    if (!entry?.inst?.play || !hasMedia) return;
+
+    pauseOthers(targetId);
+    entry.inst.play();
+    const playlistId = entry.playlistId ?? nowPlaying?.playlistId;
+    const list = playlistId ? playlistMapRef.current.get(playlistId) || [] : [];
+    const found = list.find((i) => i.id === targetId);
+    setNowPlaying({
+      id: targetId,
+      title: entry.title,
+      instance: entry.inst,
+      playlistId,
+      playlistIndex: found?.index,
+    });
+    setProgress({ current: entry.inst.currentTime || 0, duration: entry.inst.duration || 0 });
   };
 
   const formatTime = (seconds: number) => {
@@ -455,109 +544,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [isDesktop, isHeaderVisible, nowPlaying]);
 
   const handleNowPlayingControl = (action: "prev" | "next" | "toggle" | "mute") => {
-    if (!nowPlaying || queue.length === 0) return;
+    if (!nowPlaying) return;
 
-    // Determine playlist context if available
-    let orderedIds: string[] = [];
-    if (nowPlaying.playlistId) {
-      const list = playlistMapRef.current.get(nowPlaying.playlistId) || [];
-      orderedIds = list.map((item) => item.id);
-      // Fallback if playlist empty (e.g., outside thread)
-      if (orderedIds.length === 0) {
-        orderedIds = queue;
-      }
-    } else {
-      orderedIds = queue;
-    }
+    const orderedIds = getOrderedIds();
+    if (orderedIds.length === 0) return;
 
     const idx = orderedIds.findIndex((k) => k === nowPlaying.id);
     if (idx === -1) return;
-
-    const playByKey = (key: string) => {
-      let entry = audioMapRef.current.get(key);
-      let hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
-
-      if (!entry?.inst?.play || !hasMedia) {
-        // try to reconstruct from playlist cache
-        if (nowPlaying.playlistId) {
-          const list = playlistMapRef.current.get(nowPlaying.playlistId) || [];
-          const meta = list.find((i) => i.id === key);
-          if (meta?.src) {
-            const audio = new Audio(meta.src);
-            audio.preload = "auto";
-            const v = storedVolumeRef.current !== null ? storedVolumeRef.current : volume;
-            audio.volume = v;
-            const title = meta.title || "Аудио";
-            audioMapRef.current.set(key, {
-              inst: audio,
-              title,
-              playlistId: nowPlaying.playlistId,
-              playlistIndex: meta.index,
-            });
-            const current = () => {
-              const now = performance.now();
-              if (now - lastProgressUpdateRef.current < 200) return;
-              lastProgressUpdateRef.current = now;
-              setProgress({ current: audio.currentTime || 0, duration: audio.duration || 0 });
-              localStorage.setItem(
-                "audio-last",
-                JSON.stringify({
-                  id: key,
-                  title,
-                  src: meta.src,
-                  volume: v,
-                  position: audio.currentTime || 0,
-                  playlistId: nowPlaying.playlistId,
-                  playlistIndex: meta.index,
-                })
-              );
-            };
-            audio.addEventListener("timeupdate", current);
-            audio.addEventListener("loadedmetadata", current);
-            audio.addEventListener("ended", () => {
-              setProgress({ current: 0, duration: audio.duration || 0 });
-              controlRef.current?.("next");
-            });
-            audio.addEventListener("playing", () =>
-              setNowPlaying((cur) => (cur ? { ...cur, instance: audio } : cur))
-            );
-            audio.addEventListener("pause", () =>
-              setNowPlaying((cur) => (cur ? { ...cur, instance: audio } : cur))
-            );
-            entry = audioMapRef.current.get(key);
-            hasMedia = !!audio;
-            setQueue((q) => (q.includes(key) ? q : [...q, key]));
-          }
-        }
-      }
-
-      entry = audioMapRef.current.get(key);
-      hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
-      if (!entry?.inst?.play || !hasMedia) {
-        audioMapRef.current.delete(key);
-        setQueue((q) => q.filter((k) => k !== key));
-        return;
-      }
-
-      if (nowPlaying.instance?.pause) nowPlaying.instance.pause();
-      pauseOthers(key);
-      entry.inst.play();
-      const list = nowPlaying.playlistId ? playlistMapRef.current.get(nowPlaying.playlistId) || [] : [];
-      const found = list.find((i) => i.id === key);
-      setNowPlaying({
-        id: key,
-        title: entry.title,
-        instance: entry.inst,
-        playlistId: nowPlaying.playlistId,
-        playlistIndex: found?.index,
-      });
-      const currentVolume = entry.inst.volume ?? volume;
-      setVolume(typeof currentVolume === "number" ? currentVolume : volume);
-      setProgress({
-        current: entry.inst.currentTime || 0,
-        duration: entry.inst.duration || 0,
-      });
-    };
 
     const currentEntry = audioMapRef.current.get(nowPlaying.id);
     const hasMedia = !!(currentEntry?.inst?.media || currentEntry?.inst instanceof HTMLMediaElement);
@@ -586,13 +579,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       currentEntry.inst.muted = !currentEntry.inst.muted;
       return;
     }
-    if (action === "next") {
-      const next = (idx + 1) % orderedIds.length;
-      playByKey(orderedIds[next]);
-    } else if (action === "prev") {
-      const prev = (idx - 1 + orderedIds.length) % orderedIds.length;
-      playByKey(orderedIds[prev]);
-    }
+
+    if (orderedIds.length === 1) return;
+
+    const targetIdx =
+      action === "next" ? (idx + 1) % orderedIds.length : (idx - 1 + orderedIds.length) % orderedIds.length;
+
+    playTrackById(orderedIds[targetIdx]);
   };
 
   // keep latest handler for event listeners
