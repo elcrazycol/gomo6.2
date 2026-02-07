@@ -66,9 +66,9 @@ export const parseCssToStyle = (css: string): React.CSSProperties => {
 
     // Handle special cases
     if (reactProperty === 'webkitBackgroundClip') {
-      style.WebkitBackgroundClip = value as any;
+      style.WebkitBackgroundClip = value as string;
     } else if (reactProperty === 'webkitTextFillColor') {
-      style.WebkitTextFillColor = value as any;
+      style.WebkitTextFillColor = value as string;
     } else if (reactProperty === 'background') {
       style.background = value;
     } else if (reactProperty === 'backgroundImage') {
@@ -84,7 +84,7 @@ export const parseCssToStyle = (css: string): React.CSSProperties => {
     } else if (reactProperty === 'borderRadius') {
       style.borderRadius = value;
     } else {
-      (style as any)[reactProperty] = value;
+      (style as Record<string, string | undefined>)[reactProperty] = value;
     }
   });
 

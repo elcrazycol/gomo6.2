@@ -64,6 +64,19 @@ const scaleSeries = (series: StatPoint[], target: number) => {
   return series.map((p) => ({ ...p, value: p.value * k }));
 };
 
+const filterByRange = (series: StatPoint[], range: "30d" | "90d" | "180d" | "365d" | "all") => {
+  if (range === "all") return series;
+  const daysMap = {
+    "30d": 30,
+    "90d": 90,
+    "180d": 180,
+    "365d": 365,
+  } as const;
+  const days = daysMap[range];
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return series.filter((p) => new Date(p.date).getTime() >= cutoff);
+};
+
 export default function Stats() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -77,6 +90,7 @@ export default function Stats() {
   const [threadLikesRaw, setThreadLikesRaw] = useState<StatPoint[]>([]);
   const [repliesRaw, setRepliesRaw] = useState<StatPoint[]>([]);
   const [metric, setMetric] = useState("garma");
+  const [range, setRange] = useState<"30d" | "90d" | "180d" | "365d" | "all">("all");
 
   useEffect(() => {
     const load = async () => {
@@ -160,20 +174,20 @@ export default function Stats() {
   const currentSeries = useMemo(() => {
     switch (metric) {
       case "posts":
-        return scaleSeries(accumulate(postsRaw), profile?.post_count || 0);
+        return scaleSeries(accumulate(filterByRange(postsRaw, range)), profile?.post_count || 0);
       case "threads":
-        return scaleSeries(accumulate(threadsRaw), profile?.thread_count || 0);
+        return scaleSeries(accumulate(filterByRange(threadsRaw, range)), profile?.thread_count || 0);
       case "postLikes":
-        return accumulate(postLikesRaw);
+        return accumulate(filterByRange(postLikesRaw, range));
       case "threadLikes":
-        return accumulate(threadLikesRaw);
+        return accumulate(filterByRange(threadLikesRaw, range));
       case "replies":
-        return accumulate(repliesRaw);
+        return accumulate(filterByRange(repliesRaw, range));
       case "garma":
       default:
-        return garmaSeries;
+        return filterByRange(garmaSeries, range);
     }
-  }, [metric, postsRaw, threadsRaw, postLikesRaw, threadLikesRaw, repliesRaw, garmaSeries]);
+  }, [metric, postsRaw, threadsRaw, postLikesRaw, threadLikesRaw, repliesRaw, garmaSeries, range, profile?.post_count, profile?.thread_count]);
 
   const garmaBreakdown = useMemo(() => {
     const sum = (arr: StatPoint[]) => arr.reduce((s, p) => s + p.value, 0);
@@ -258,23 +272,44 @@ export default function Stats() {
             <CardTitle>Динамика</CardTitle>
             <p className="text-sm text-muted-foreground">Выберите метрику — данные считаются по датам событий</p>
           </div>
-          <Select value={metric} onValueChange={setMetric}>
-            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Метрика" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="garma">gарма (накопительно)</SelectItem>
-              <SelectItem value="posts">Посты</SelectItem>
-              <SelectItem value="threads">Треды</SelectItem>
-              <SelectItem value="postLikes">Лайки постов</SelectItem>
-              <SelectItem value="threadLikes">Лайки тредов</SelectItem>
-              <SelectItem value="replies">Ответы в моих тредах</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <Select value={metric} onValueChange={setMetric}>
+              <SelectTrigger className="w-[200px] sm:w-[220px]"><SelectValue placeholder="Метрика" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="garma">gарма (накопительно)</SelectItem>
+                <SelectItem value="posts">Посты</SelectItem>
+                <SelectItem value="threads">Треды</SelectItem>
+                <SelectItem value="postLikes">Лайки постов</SelectItem>
+                <SelectItem value="threadLikes">Лайки тредов</SelectItem>
+                <SelectItem value="replies">Ответы в моих тредах</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex gap-1 flex-wrap">
+              {[
+                { key: "30d", label: "30д" },
+                { key: "90d", label: "90д" },
+                { key: "180d", label: "180д" },
+                { key: "365d", label: "1г" },
+                { key: "all", label: "Всё" },
+              ].map((opt) => (
+                <Button
+                  key={opt.key}
+                  variant={range === opt.key ? "default" : "outline"}
+                  size="sm"
+                  className="px-2"
+                  onClick={() => setRange(opt.key as typeof range)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {currentSeries.length === 0 ? (
             <p className="text-sm text-muted-foreground">Недостаточно данных</p>
           ) : (
-            <div className="h-80">
+            <div className="h-72 sm:h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={currentSeries} margin={{ left: 0, right: 0, top: 10, bottom: 0 }}>
                   <defs>
@@ -301,7 +336,7 @@ export default function Stats() {
           <p className="text-sm text-muted-foreground">Расчёт с теми же весами, что в формуле gармы</p>
         </CardHeader>
         <CardContent>
-          <div className="h-72">
+          <div className="h-64 sm:h-72">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={garmaBreakdown} layout="vertical" margin={{ left: 80 }}>
                 <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
