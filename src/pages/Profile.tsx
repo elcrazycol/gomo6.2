@@ -491,6 +491,17 @@ const Profile = () => {
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
+  const [showProfileStats, setShowProfileStats] = useState(false);
+  const [showDetailedStats, setShowDetailedStats] = useState(false);
+  const [statsVisibility, setStatsVisibility] = useState<Record<string, boolean>>({
+    garma: false,
+    posts: false,
+    threads: false,
+    postLikes: false,
+    threadLikes: false,
+    replies: false,
+    time: false,
+  });
   const [userThreads, setUserThreads] = useState<any[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
 
@@ -623,10 +634,10 @@ const Profile = () => {
       setLastSeen(data.last_seen_at);
       setIsOnline(data.is_online || false);
 
-      // Load privacy settings for online status and wall
+      // Load privacy settings for online status, wall and stats
       const { data: privacyData } = await supabase
         .from("privacy_settings")
-        .select("show_last_seen, show_online_status, show_profile_wall, allow_wall_posts_from_others, show_threads_tab")
+        .select("show_last_seen, show_online_status, show_profile_wall, allow_wall_posts_from_others, show_threads_tab, show_profile_stats, show_detailed_stats, stats_visibility")
         .eq("user_id", userId)
         .maybeSingle();
 
@@ -636,6 +647,18 @@ const Profile = () => {
         setShowProfileWall(privacyData.show_profile_wall ?? true);
         setAllowWallPostsFromOthers(privacyData.allow_wall_posts_from_others ?? true);
         setShowThreadsTab(privacyData.show_threads_tab ?? true);
+        setShowProfileStats(privacyData.show_profile_stats ?? false);
+        setShowDetailedStats(privacyData.show_detailed_stats ?? false);
+        setStatsVisibility({
+          garma: false,
+          posts: false,
+          threads: false,
+          postLikes: false,
+          threadLikes: false,
+          replies: false,
+          time: false,
+          ...(privacyData.stats_visibility || {}),
+        });
       }
 
       // Load customization
@@ -1347,50 +1370,54 @@ const Profile = () => {
             </div>
           ) : (
             <div className="space-y-4">
+              {/** stats visibility logic */}
+              {(() => {
+                const isOwn = currentUser?.id === userId;
+                const summaryAllowed = isOwn || showProfileStats;
+                if (!summaryAllowed) return null;
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-post-header border border-border">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/stats?metric=threads&user=${userId}`)}
+                      className="text-left"
+                    >
+                      <p className="text-sm text-muted-foreground">Тредов создано</p>
+                      <p className="text-2xl font-bold">{profile.thread_count}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
+                      className="text-left"
+                    >
+                      <p className="text-sm text-muted-foreground">Постов написано</p>
+                      <p className="text-2xl font-bold">{profile.post_count}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/stats?metric=postLikes&user=${userId}`)}
+                      className="text-left"
+                    >
+                      <p className="text-sm text-muted-foreground">Лайков</p>
+                      <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/stats?metric=garma&user=${userId}`)}
+                      className="text-left"
+                    >
+                      <p className="text-sm text-muted-foreground">gармы</p>
+                      <p className="text-2xl font-bold">{profile.garma}</p>
+                    </button>
+                  </div>
+                );
+              })()}
+
               {profile.bio && (
                 <div className="text-sm">
                   {processProfileBio(profile.bio, `profile-${profile.id}`)}
                 </div>
               )}
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-post-header border border-border">
-                <button
-                  type="button"
-                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=threads")}
-                  className="text-left"
-                  disabled={currentUser?.id !== userId}
-                >
-                  <p className="text-sm text-muted-foreground">Тредов создано</p>
-                  <p className="text-2xl font-bold">{profile.thread_count}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=posts")}
-                  className="text-left"
-                  disabled={currentUser?.id !== userId}
-                >
-                  <p className="text-sm text-muted-foreground">Постов написано</p>
-                  <p className="text-2xl font-bold">{profile.post_count}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=postLikes")}
-                  className="text-left"
-                  disabled={currentUser?.id !== userId}
-                >
-                  <p className="text-sm text-muted-foreground">Лайков</p>
-                  <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=garma")}
-                  className="text-left"
-                  disabled={currentUser?.id !== userId}
-                >
-                  <p className="text-sm text-muted-foreground">gармы</p>
-                  <p className="text-2xl font-bold">{profile.garma}</p>
-                </button>
-              </div>
 
               {/* Profile Tabs */}
               <div className="border-b border-border">
