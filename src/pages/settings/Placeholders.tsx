@@ -33,11 +33,11 @@ const PRESET_PLACEHOLDERS = [
 
 const Placeholders = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
-  const [customization, setCustomization] = useState<any>(null);
+  const [profile, setProfile] = useState<{ username?: string } | null>(null);
+  const [customization, setCustomization] = useState<Record<string, unknown> | null>(null);
   
   const [placeholder1, setPlaceholder1] = useState<string>('bio');
   const [placeholder2, setPlaceholder2] = useState<string>('created_at');
@@ -109,8 +109,9 @@ const Placeholders = () => {
       if (error) throw error;
 
       toast.success("Плейсхолдеры сохранены");
-    } catch (error: any) {
-      toast.error(`Ошибка: ${error.message}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Неизвестная ошибка';
+      toast.error(`Ошибка: ${msg}`);
     } finally {
       setSaving(false);
     }

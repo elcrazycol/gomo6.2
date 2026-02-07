@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,17 +9,20 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
-import { Settings, SkipBack, SkipForward, Play, Pause, Volume2 } from "lucide-react";
+import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+type AudioInstance = HTMLMediaElement & { playing?: boolean } | { play: () => void; pause: () => void; muted?: boolean; paused?: boolean; currentTime?: number; duration?: number; volume?: number | (() => number) };
+type PlaylistEntry = { id: string; title: string; src?: string; index: number };
+
 type NowPlayingState = {
   id: string;
   title: string;
-  instance: any;
+  instance: AudioInstance;
   playlistId?: string;
   playlistIndex?: number;
 };
@@ -28,14 +31,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const APP_VERSION = "v1.4";
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [nowPlaying, setNowPlaying] = useState<NowPlayingState | null>(null);
   const [queue, setQueue] = useState<string[]>([]);
-  const audioMapRef = useRef<Map<string, { inst: any; title: string; playlistId?: string; playlistIndex?: number }>>(
+  const audioMapRef = useRef<Map<string, { inst: AudioInstance; title: string; playlistId?: string; playlistIndex?: number }>>(
     new Map()
   );
   const playlistMapRef = useRef<
@@ -90,15 +93,15 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     }
   }, []);
 
-  const getOrderedIds = () => {
+  const getOrderedIds = useCallback(() => {
     if (nowPlaying?.playlistId) {
       const list = playlistMapRef.current.get(nowPlaying.playlistId) || [];
       if (list.length) return list.map((i) => i.id);
     }
     return queue;
-  };
+  }, [nowPlaying?.playlistId, queue]);
 
-  const playTrackById = (targetId: string) => {
+  const playTrackById = useCallback((targetId: string) => {
     let entry = audioMapRef.current.get(targetId);
     let hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
 
@@ -167,7 +170,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       playlistIndex: found?.index,
     });
     setProgress({ current: entry.inst.currentTime || 0, duration: entry.inst.duration || 0 });
-  };
+  }, [getOrderedIds, nowPlaying?.playlistId, queue, volume]);
 
   const formatTime = (seconds: number) => {
     if (!Number.isFinite(seconds)) return "0:00";
@@ -213,19 +216,19 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       try {
         const parsed = JSON.parse(cachedPlaylists);
         if (parsed && typeof parsed === "object") {
-          Object.entries(parsed).forEach(([pid, list]: any) => {
-            if (Array.isArray(list)) {
-              playlistMapRef.current.set(
-                pid,
-                list.map((p: any) => ({
-                  id: p.id,
-                  title: p.title || "Аудио",
-                  src: p.src,
-                  index: p.index ?? 0,
-                }))
-              );
-            }
-          });
+        Object.entries(parsed).forEach(([pid, list]) => {
+          if (Array.isArray(list)) {
+            playlistMapRef.current.set(
+              pid,
+              list.map((p) => ({
+                id: (p as PlaylistEntry).id,
+                title: (p as PlaylistEntry).title || "Аудио",
+                src: (p as PlaylistEntry).src,
+                index: (p as PlaylistEntry).index ?? 0,
+              }))
+            );
+          }
+        });
         }
       } catch {
         /* ignore */
@@ -270,21 +273,21 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         const storedList = localStorage.getItem(`playlist-last-${playlistId}`);
         if (storedList) {
           try {
-            const parsed = JSON.parse(storedList);
-            if (Array.isArray(parsed)) {
-              playlistMapRef.current.set(
-                playlistId,
-                parsed.map((p: any) => ({
-                  id: p.id,
-                  title: p.title || "Аудио",
-                  src: p.src,
-                  index: p.index ?? 0,
-                }))
-              );
-            }
-          } catch {
-            /* ignore */
-          }
+        const parsed = JSON.parse(storedList);
+        if (Array.isArray(parsed)) {
+          playlistMapRef.current.set(
+            playlistId,
+            parsed.map((p) => ({
+              id: (p as PlaylistEntry).id,
+              title: (p as PlaylistEntry).title || "Аудио",
+              src: (p as PlaylistEntry).src,
+              index: (p as PlaylistEntry).index ?? 0,
+            }))
+          );
+        }
+      } catch {
+        /* ignore */
+      }
         }
       }
       if (playlistId !== undefined && playlistIndex !== undefined) {
@@ -471,7 +474,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     window.addEventListener("global-audio-play", handleAudioPlay as EventListener);
     return () => window.removeEventListener("global-audio-play", handleAudioPlay as EventListener);
-  }, []);
+  }, [volume]);
 
   useEffect(() => {
     const handleAudioRegister = (e: Event) => {
@@ -551,7 +554,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     setContentPad(headerPad + nowPlayingPad);
   }, [isDesktop, isHeaderVisible, nowPlaying]);
 
-  const handleNowPlayingControl = (action: "prev" | "next" | "toggle" | "mute") => {
+  const handleNowPlayingControl = useCallback((action: "prev" | "next" | "toggle" | "mute") => {
     if (!nowPlaying) return;
 
     const orderedIds = getOrderedIds();
@@ -594,7 +597,18 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       action === "next" ? (idx + 1) % orderedIds.length : (idx - 1 + orderedIds.length) % orderedIds.length;
 
     playTrackById(orderedIds[targetIdx]);
-  };
+  }, [getOrderedIds, nowPlaying, playTrackById]);
+
+  const handleCloseNowPlaying = useCallback(() => {
+    setNowPlaying((cur) => {
+      const entry = cur ? audioMapRef.current.get(cur.id) : null;
+      if (entry?.inst?.pause) {
+        try { entry.inst.pause(); } catch { /* ignore */ }
+      }
+      return null;
+    });
+    setProgress({ current: 0, duration: 0 });
+  }, []);
 
   // keep latest handler for event listeners
   useEffect(() => {
@@ -640,8 +654,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
         if (achievements) {
           const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a) => a.achievements?.reward_type === "username_color")
+            .map((a) => a.achievements!.reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -755,12 +769,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                   <SkipForward className="w-3 h-3" />
                 </button>
               </div>
-            <div className="flex-1 min-w-0 font-medium truncate">
-              <Tooltip delayDuration={0}>
-                <TooltipTrigger asChild>
-                  <span className="truncate cursor-pointer">{nowPlaying.title}</span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" align="start" className="bg-card/95 border border-border shadow-md p-2 rounded-md max-w-xs">
+              <div className="flex-1 min-w-0 font-medium truncate">
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <span className="truncate cursor-pointer">{nowPlaying.title}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start" className="bg-card/95 border border-border shadow-md p-2 rounded-md max-w-xs">
                   <div className="flex flex-col gap-1 text-sm">
                     {(() => {
                       const list = nowPlaying.playlistId
@@ -773,7 +787,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                       return list.slice(0, 12).map((item, idx) => (
                         <button
                           key={item.id}
-                          className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/60 transition text-left"
+                          className={`flex items-center justify-between gap-2 rounded px-2 py-1 transition text-left ${
+                            item.id === nowPlaying.id
+                              ? "bg-primary/15 text-foreground border border-primary/40 shadow-sm"
+                              : "hover:bg-muted/60 text-foreground"
+                          }`}
                           onClick={() => {
                             const targetId = item.id;
                             setQueue((q) => (q.includes(targetId) ? q : [...q, targetId]));
@@ -801,63 +819,72 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                           }}
                         >
                           <span className="truncate">{item.title}</span>
-                          <Play className="w-4 h-4" />
+                          <Play className={`w-4 h-4 ${item.id === nowPlaying.id ? "text-primary" : ""}`} />
                         </button>
                       ));
                     })()}
                   </div>
                 </TooltipContent>
               </Tooltip>
-            </div>
-              <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-medium">
-                <span>{formatTime(progress.current)}</span>
-                <span className="text-border">/</span>
-                <span>{formatTime(progress.duration || 0)}</span>
               </div>
-              <div className="hidden sm:flex">
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger asChild>
-                    <button
-                      className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
-                      aria-label="Громкость"
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                  <span>{formatTime(progress.current)}</span>
+                  <span className="text-border">/</span>
+                  <span>{formatTime(progress.duration || 0)}</span>
+                </div>
+                <div className="hidden sm:flex">
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <button
+                        className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                        aria-label="Громкость"
+                      >
+                        <Volume2 className="w-3 h-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      align="center"
+                      className="bg-card/95 border border-border px-3 py-2 rounded-lg shadow-lg"
                     >
-                      <Volume2 className="w-3 h-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="bottom"
-                    align="center"
-                    className="bg-card/95 border border-border px-3 py-2 rounded-lg shadow-lg"
-                  >
-                    <div className="flex items-center gap-3 w-36">
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={volume}
-                      onChange={(e) => {
-                          const val = Number(e.target.value);
-                          const clamped = Math.max(0, Math.min(1, val));
-                          setVolume(clamped);
-                          storedVolumeRef.current = clamped;
-                          localStorage.setItem("audio-volume", String(clamped));
-                          const inst = nowPlaying?.instance;
-                          if (!inst) return;
-                          if (typeof inst.volume === "function") {
-                            inst.volume(clamped);
-                          } else {
-                            inst.volume = clamped;
-                          }
-                          if ("muted" in inst && inst.muted && clamped > 0) {
-                            inst.muted = false;
-                          }
-                      }}
-                      className="flex-1 accent-primary h-[4px] rounded-full bg-muted/70 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
-                    />
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
+                      <div className="flex items-center gap-3 w-36">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={volume}
+                        onChange={(e) => {
+                            const val = Number(e.target.value);
+                            const clamped = Math.max(0, Math.min(1, val));
+                            setVolume(clamped);
+                            storedVolumeRef.current = clamped;
+                            localStorage.setItem("audio-volume", String(clamped));
+                            const inst = nowPlaying?.instance;
+                            if (!inst) return;
+                            if (typeof inst.volume === "function") {
+                              inst.volume(clamped);
+                            } else {
+                              inst.volume = clamped;
+                            }
+                            if ("muted" in inst && inst.muted && clamped > 0) {
+                              inst.muted = false;
+                            }
+                        }}
+                        className="flex-1 accent-primary h-[4px] rounded-full bg-muted/70 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                      />
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <button
+                  className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/40 transition"
+                  onClick={handleCloseNowPlaying}
+                  aria-label="Закрыть плеер"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
             </div>
             <div
