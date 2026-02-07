@@ -1595,6 +1595,65 @@ const Thread = () => {
                 </div>
               )}
 
+              {/* Превью вложений над формой */}
+              {(attachments.length > 0 || imageUrls.length > 0) && !isExpandedView && (
+                <div className="mb-3 bg-card/70 border border-border/50 rounded-xl p-3">
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                    {imageUrls.map((url, idx) => (
+                      <div
+                        key={url}
+                        className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 overflow-hidden flex items-center justify-center cursor-pointer"
+                        onClick={() => {
+                          setGalleryImages(imageUrls);
+                          setGalleryIndex(idx);
+                          setShowGallery(true);
+                        }}
+                      >
+                        <img src={url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
+                        <button
+                          className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAttachments((prev) => prev.filter((att) => att.type !== 'image' || att.url !== url));
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {attachments
+                      .filter((att) => att.type !== "image")
+                      .map((att, idx) => {
+                        const kind = (att.mime || att.type || "").split("/")[0] || att.type || "file";
+                        const label = (att.name || att.url || "").split(".").pop()?.slice(0, 4) || kind.slice(0, 4);
+                        return (
+                          <div
+                            key={`${att.url}-${idx}`}
+                            className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 flex flex-col items-center justify-center gap-1 overflow-hidden"
+                            title={att.name || att.url}
+                          >
+                            <span className="text-[10px] uppercase tracking-wide text-foreground/60 bg-background/60 px-2 py-1 rounded-full">
+                              {label}
+                            </span>
+                            <span className="text-[10px] text-center px-1 truncate w-full text-muted-foreground">
+                              {att.name || att.url}
+                            </span>
+                            <button
+                              className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAttachments((prev) => prev.filter((_, i) => i !== idx));
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
               {/* Mini panel for collapsed state */}
               {isInputPanelCollapsed && (
                 <div className="mx-auto max-w-xs">
@@ -1776,29 +1835,6 @@ const Thread = () => {
                       </svg>
                     </Button>
                   </EmojiPicker>
-                  {imageUrls.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
-                      onClick={() => setShowImagePreview(true)}
-                    >
-                      <span className="text-xs sm:text-sm font-bold">{imageUrls.length}</span>
-                    </Button>
-                  )}
-                  {attachments.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
-                      onClick={() => setShowAttachmentsPreview(true)}
-                      title="Приложения"
-                    >
-                      <span className="text-xs sm:text-sm font-bold">{attachments.length}</span>
-                    </Button>
-                  )}
                   {replyingTo && (
                     <Button
                       type="button"
@@ -1842,13 +1878,18 @@ const Thread = () => {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[55vh] overflow-y-auto">
                         {imageUrls.map((url, index) => (
-                          <div key={index} className="relative aspect-square">
+                          <div key={index} className="relative rounded-lg border border-border bg-muted/40 aspect-square flex items-center justify-center overflow-hidden">
                             <img
                               src={url}
                               alt={`Фото ${index + 1}`}
-                              className="w-full h-full object-cover rounded-lg border border-border"
+                              className="max-h-full max-w-full object-contain"
+                              onClick={() => {
+                                setGalleryImages(imageUrls);
+                                setGalleryIndex(index);
+                                setShowGallery(true);
+                              }}
                             />
                             <Button
                               variant="destructive"
@@ -1860,6 +1901,9 @@ const Thread = () => {
                             >
                               ✕
                             </Button>
+                            <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full">
+                              {index + 1}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -1886,18 +1930,20 @@ const Thread = () => {
                         <Button variant="ghost" size="sm" onClick={() => setShowAttachmentsPreview(false)}>✕</Button>
                       </div>
                       <div className="space-y-2 max-h-[50vh] overflow-y-auto">
-                        {attachments.map((att, idx) => (
-                          <div key={idx} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 bg-card/80">
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className="font-medium truncate max-w-[220px] sm:max-w-[340px]">{att.name || att.url}</span>
-                              <span className="text-xs text-muted-foreground">{att.mime}</span>
+                        {attachments
+                          .filter((att) => att.type !== "image")
+                          .map((att, idx) => (
+                            <div key={idx} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 bg-card/80">
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="font-medium truncate max-w-[220px] sm:max-w-[340px]">{att.name || att.url}</span>
+                                <span className="text-xs text-muted-foreground">{att.mime}</span>
+                              </div>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}>
+                                ✕
+                              </Button>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}>
-                              ✕
-                            </Button>
-                          </div>
-                        ))}
-                        {attachments.length === 0 && <div className="text-sm text-muted-foreground">Нет файлов</div>}
+                          ))}
+                        {attachments.filter((att) => att.type !== "image").length === 0 && <div className="text-sm text-muted-foreground">Нет файлов</div>}
                       </div>
                     </div>
                   </div>
