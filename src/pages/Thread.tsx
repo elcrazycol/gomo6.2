@@ -217,6 +217,7 @@ const Thread = () => {
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [galleryEditable, setGalleryEditable] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
@@ -1229,6 +1230,7 @@ const Thread = () => {
                     alt={`Thread image ${idx + 1}`}
                     className="max-w-32 max-h-32 border border-border cursor-pointer rounded"
                     onClick={() => {
+                      setGalleryEditable(false);
                       setGalleryImages((thread as any).image_urls || (thread as any).imageUrls);
                       setGalleryIndex(idx);
                       setShowGallery(true);
@@ -1238,6 +1240,7 @@ const Thread = () => {
               </div>
             )}
   {renderAttachments((thread as any).attachments, (urls, idx) => {
+    setGalleryEditable(false);
     setGalleryImages(urls);
     setGalleryIndex(idx);
     setShowGallery(true);
@@ -1470,6 +1473,7 @@ const Thread = () => {
               {renderAttachments(((post as any).attachments && (post as any).attachments.length > 0)
                 ? (post as any).attachments
                 : ((post as any).imageUrls || []).map((url: string) => ({ url, type: "image", mime: "image/*", name: url, size: 0 })), (urls, idx) => {
+                setGalleryEditable(false);
                 setGalleryImages(urls);
                 setGalleryIndex(idx);
                 setShowGallery(true);
@@ -1604,6 +1608,7 @@ const Thread = () => {
                         key={url}
                         className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 overflow-hidden flex items-center justify-center cursor-pointer"
                         onClick={() => {
+                          setGalleryEditable(true);
                           setGalleryImages(imageUrls);
                           setGalleryIndex(idx);
                           setShowGallery(true);
@@ -1886,6 +1891,7 @@ const Thread = () => {
                               alt={`Фото ${index + 1}`}
                               className="max-h-full max-w-full object-contain"
                               onClick={() => {
+                                setGalleryEditable(true);
                                 setGalleryImages(imageUrls);
                                 setGalleryIndex(index);
                                 setShowGallery(true);
@@ -1982,21 +1988,25 @@ const Thread = () => {
           images={galleryImages}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
-          onEditImage={(idx, dataUrl) => {
-            setImageUrls((prev) => prev.map((u, i) => (i === idx ? dataUrl : u)));
-            setAttachments((prev) => {
-              let imgIdx = -1;
-              return prev.map((att) => {
-                if (att.type === "image") {
-                  imgIdx += 1;
-                  if (imgIdx === idx) {
-                    return { ...att, url: dataUrl };
-                  }
+          onEditImage={
+            galleryEditable
+              ? (idx, dataUrl) => {
+                  setImageUrls((prev) => prev.map((u, i) => (i === idx ? dataUrl : u)));
+                  setAttachments((prev) => {
+                    let imgIdx = -1;
+                    return prev.map((att) => {
+                      if (att.type === "image") {
+                        imgIdx += 1;
+                        if (imgIdx === idx) {
+                          return { ...att, url: dataUrl };
+                        }
+                      }
+                      return att;
+                    });
+                  });
                 }
-                return att;
-              });
-            });
-          }}
+              : undefined
+          }
         />
       )}
     </>

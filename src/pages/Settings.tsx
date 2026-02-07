@@ -43,6 +43,8 @@ const Settings = () => {
     show_online_status: boolean;
     show_profile_wall: boolean;
     allow_wall_posts_from_others: boolean;
+    show_detailed_stats: boolean;
+    stats_visibility: Record<string, boolean>;
   }
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
@@ -130,8 +132,26 @@ const Settings = () => {
 
       if (!error && data) {
         // Data exists in database - use it and cache in localStorage
-        setPrivacySettings(data);
-        localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(data));
+        const merged = {
+          visibility_profile: true,
+          hide_messages_from_unregistered: false,
+          hide_threads_from_unregistered: false,
+          block_profile_visits_from_unregistered: false,
+          allow_search_by_username: true,
+          allow_search_by_id: true,
+          allow_search_by_secondary_id: true,
+          allow_private_messages: true,
+          anonymous_mode: false,
+          remove_image_metadata: true,
+          show_last_seen: true,
+          show_online_status: true,
+          show_profile_wall: true,
+          allow_wall_posts_from_others: true,
+          show_profile_stats: data.show_profile_stats ?? false,
+          show_detailed_stats: data.show_detailed_stats ?? false,
+        };
+        setPrivacySettings(merged);
+        localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(merged));
         return;
       }
 
@@ -154,6 +174,16 @@ const Settings = () => {
           show_online_status: true,
           show_profile_wall: true,
           allow_wall_posts_from_others: true,
+          show_detailed_stats: false,
+          stats_visibility: {
+            garma: false,
+            posts: false,
+            threads: false,
+            postLikes: false,
+            threadLikes: false,
+            replies: false,
+            time: false,
+          },
         };
 
         const { error: insertError, data: insertedData } = await (supabase as any)
@@ -197,14 +227,16 @@ const Settings = () => {
       allow_private_messages: true,
       anonymous_mode: false,
       remove_image_metadata: true,
-      show_profile_wall: true,
-      allow_wall_posts_from_others: true,
+          show_profile_wall: true,
+          allow_wall_posts_from_others: true,
+          show_profile_stats: false,
+          show_detailed_stats: false,
     };
     setPrivacySettings(defaultSettings);
     console.log('Using default privacy settings');
   };
 
-  const updatePrivacySetting = async (key: string, value: boolean) => {
+  const updatePrivacySetting = async (key: string, value: boolean | Record<string, boolean>) => {
     if (!privacySettings || !user) return;
 
     setPrivacyLoading(true);
@@ -228,6 +260,8 @@ const Settings = () => {
         show_online_status: updatedSettings.show_online_status,
         show_profile_wall: updatedSettings.show_profile_wall,
         allow_wall_posts_from_others: updatedSettings.allow_wall_posts_from_others,
+        show_profile_stats: updatedSettings.show_profile_stats ?? false,
+        show_detailed_stats: updatedSettings.show_detailed_stats ?? false,
       };
 
       // Try to save to database
@@ -945,6 +979,32 @@ const Settings = () => {
                             </div>
                           </div>
                         </div>
+                    </div>
+
+                    {/* Stats Privacy */}
+                    <div className="bg-card p-4 sm:p-6 border border-border">
+                      <div className="flex items-center gap-2 mb-4">
+                        <h2 className="text-lg font-semibold">Статистика</h2>
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span>Показывать статистику в профиле</span>
+                          <Switch
+                            checked={privacySettings.show_profile_stats ?? false}
+                            onCheckedChange={(value) => updatePrivacySetting('show_profile_stats', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Показывать подробную статистику (/stats)</span>
+                          <Switch
+                            checked={privacySettings.show_detailed_stats ?? false}
+                            onCheckedChange={(value) => updatePrivacySetting('show_detailed_stats', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Private Chat Section */}

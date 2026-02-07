@@ -3,9 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, ChevronDown, HelpCircle, AlertTriangle } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
 interface PrivacySettingsData {
@@ -20,6 +19,10 @@ interface PrivacySettingsData {
   anonymous_mode: boolean;
   remove_image_metadata: boolean;
   show_threads_tab: boolean;
+  show_profile_wall?: boolean;
+  allow_wall_posts_from_others?: boolean;
+  show_profile_stats?: boolean;
+  show_detailed_stats?: boolean;
 }
 
 const PrivacySettings = () => {
@@ -30,6 +33,23 @@ const PrivacySettings = () => {
   const [saving, setSaving] = useState(false);
   const [visibilityExpanded, setVisibilityExpanded] = useState(false);
   const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
+  const defaultSettings: PrivacySettingsData = {
+    visibility_profile: true,
+    hide_messages_from_unregistered: false,
+    hide_threads_from_unregistered: false,
+    block_profile_visits_from_unregistered: false,
+    allow_search_by_username: true,
+    allow_search_by_id: true,
+    allow_search_by_secondary_id: true,
+    allow_private_messages: true,
+    anonymous_mode: false,
+    remove_image_metadata: true,
+    show_threads_tab: true,
+    show_profile_wall: true,
+    allow_wall_posts_from_others: true,
+    show_profile_stats: false,
+    show_detailed_stats: false,
+  };
 
   useEffect(() => {
     const getUser = async () => {
@@ -81,22 +101,12 @@ const PrivacySettings = () => {
       }
 
       if (data) {
-        setSettings(data);
+        setSettings({
+          ...defaultSettings,
+          ...data,
+        });
       } else {
         // Create default settings if none exist
-        const defaultSettings: PrivacySettingsData = {
-          visibility_profile: true,
-          hide_messages_from_unregistered: false,
-          hide_threads_from_unregistered: false,
-          block_profile_visits_from_unregistered: false,
-          allow_search_by_username: true,
-          allow_search_by_id: true,
-          allow_search_by_secondary_id: true,
-          allow_private_messages: true,
-          anonymous_mode: false,
-          remove_image_metadata: true,
-          show_threads_tab: true,
-        };
         setSettings(defaultSettings);
       }
     } catch (error) {
@@ -106,7 +116,7 @@ const PrivacySettings = () => {
     }
   };
 
-  const updateSetting = async (key: keyof PrivacySettingsData, value: boolean) => {
+  const updateSetting = async (key: keyof PrivacySettingsData, value: boolean | Record<string, boolean>) => {
     if (!settings || !user) return;
 
     setSaving(true);
@@ -126,6 +136,11 @@ const PrivacySettings = () => {
         allow_private_messages: updatedSettings.allow_private_messages,
         anonymous_mode: updatedSettings.anonymous_mode,
         remove_image_metadata: updatedSettings.remove_image_metadata,
+        show_threads_tab: updatedSettings.show_threads_tab ?? true,
+        show_profile_wall: updatedSettings.show_profile_wall ?? true,
+        allow_wall_posts_from_others: updatedSettings.allow_wall_posts_from_others ?? true,
+        show_profile_stats: updatedSettings.show_profile_stats ?? false,
+        show_detailed_stats: updatedSettings.show_detailed_stats ?? false,
       };
 
       const { error } = await supabase
@@ -154,6 +169,16 @@ const PrivacySettings = () => {
     } else {
       await updateSetting('anonymous_mode', value);
     }
+  };
+
+  const metricLabels: Record<string, string> = {
+    garma: "gарма",
+    posts: "Посты",
+    threads: "Треды",
+    postLikes: "Лайки постов",
+    threadLikes: "Лайки тредов",
+    replies: "Ответы в моих тредах",
+    time: "Время на сайте",
   };
 
   const confirmAnonymousMode = async () => {
@@ -273,6 +298,32 @@ const PrivacySettings = () => {
               )}
             </div>
 
+            {/* Stats Privacy */}
+            <div className="bg-card p-6 border border-border">
+              <div className="flex items-center gap-2 mb-4">
+                <h2 className="text-lg font-semibold">Статистика</h2>
+                <HelpCircle className="h-4 w-4 text-muted-foreground" title="Управление тем, что видят другие в /stats" />
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span>Показывать статистику в профиле</span>
+                  <Switch
+                    checked={settings.show_profile_stats ?? false}
+                    onCheckedChange={(value) => updateSetting('show_profile_stats', value)}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Показывать подробную статистику</span>
+                  <Switch
+                    checked={settings.show_detailed_stats ?? false}
+                    onCheckedChange={(value) => updateSetting('show_detailed_stats', value)}
+                    disabled={saving}
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Private Chat Section */}
             <div className="bg-card p-6 border border-border">
               <div className="flex items-center gap-2 mb-4">
@@ -317,49 +368,6 @@ const PrivacySettings = () => {
                     disabled={saving}
                   />
                 </div>
-              </div>
-            </div>
-
-            {/* Profile Wall Section */}
-            <div className="bg-card p-6 border border-border">
-              <div className="flex items-center gap-2 mb-4">
-                <h2 className="text-lg font-semibold">Стена профиля</h2>
-                <HelpCircle className="h-4 w-4 text-muted-foreground" />
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span>Показывать стену профиля</span>
-                    <HelpCircle
-                      className="h-4 w-4 text-muted-foreground cursor-help"
-                      title="Если отключено, никто не увидит стену на вашем профиле"
-                    />
-                  </div>
-                  <Switch
-                    checked={settings.show_profile_wall}
-                    onCheckedChange={(value) => updateSetting('show_profile_wall', value)}
-                    disabled={saving}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span>Разрешить писать на стене другим пользователям</span>
-                    <HelpCircle
-                      className="h-4 w-4 text-muted-foreground cursor-help"
-                      title="Если отключено, только вы сможете оставлять посты на своей стене"
-                    />
-                  </div>
-                  <Switch
-                    checked={settings.allow_wall_posts_from_others}
-                    onCheckedChange={(value) => updateSetting('allow_wall_posts_from_others', value)}
-                    disabled={saving}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  На стене профиля пользователи могут оставлять посты с текстом, изображениями и заголовками.
-                </p>
               </div>
             </div>
 
