@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -81,50 +81,11 @@ import {
 } from "@/components/ui/dialog";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
+import type { Thread as ThreadModel, Post as PostModel, UserProfileLite } from "@/types/forum";
 import { FileAudio2, FileVideo2, FileText, Image as ImageIcon, SkipBack, SkipForward, Play, Pause } from "lucide-react";
 import { MediaPlayer } from "@/components/MediaPlayer";
 
-interface Thread {
-  id: string;
-  title: string;
-  content: string;
-  custom_message?: string | null;
-  image_url: string | null;
-  image_urls?: string[] | null;
-  attachments?: AttachmentMeta[] | null;
-  created_at: string;
-  user_id: string | null;
-  profiles: {
-    username: string;
-    is_anonymous: boolean;
-    avatar_url?: string | null;
-  } | null;
-  boards: {
-    slug: string;
-    name: string;
-    is_rules_board: boolean;
-  };
-}
-
-interface Post {
-  id: string;
-  content: string;
-  image_url: string | null;
-  image_urls?: string[] | null;
-  attachments?: AttachmentMeta[] | null;
-  created_at: string;
-  user_id: string | null;
-  reply_to: string | null;
-  is_private: boolean;
-  private_recipient_id: string | null;
-  profiles: {
-    username: string;
-    is_anonymous: boolean;
-    avatar_url?: string | null;
-  } | null;
-}
-
-const parseAttachments = (raw: any): AttachmentMeta[] => {
+const parseAttachments = (raw: unknown): AttachmentMeta[] => {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw as AttachmentMeta[];
   try {
@@ -224,8 +185,8 @@ const renderAttachments = (
 const Thread = () => {
   const { slug, threadId } = useParams();
   const navigate = useNavigate();
-  const [thread, setThread] = useState<Thread | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [thread, setThread] = useState<ThreadModel | null>(null);
+  const [posts, setPosts] = useState<PostModel[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
@@ -264,6 +225,8 @@ const Thread = () => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
   });
   const [pollData, setPollData] = useState<any>(null);
+  const shouldStickBottomRef = useRef(false);
+  const SCROLL_STICKY_THRESHOLD = 240;
 
   // Simple BBCode renderer for preview
   const renderPreviewContent = (text: string): React.ReactNode[] => {
@@ -313,6 +276,16 @@ const Thread = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editorRef = useRef<RichTextEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const isNearBottom = useCallback(() => {
+    const scrollEl = document.scrollingElement || document.documentElement;
+    const distance = scrollEl.scrollHeight - (scrollEl.scrollTop + window.innerHeight);
+    return distance <= SCROLL_STICKY_THRESHOLD;
+  }, [SCROLL_STICKY_THRESHOLD]);
+
+  const scrollToBottomSmooth = useCallback(() => {
+    const scrollEl = document.scrollingElement || document.documentElement;
+    window.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
     const handleUploadSuccess = (event: CustomEvent) => {
@@ -507,64 +480,7 @@ const Thread = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    const loadAll = async () => {
-      setPageLoading(true);
-      await Promise.all([
-        loadThread(),
-        loadPosts(),
-        checkSubscription(),
-      ]);
-      setPageLoading(false);
-    };
-    loadAll();
-  }, [threadId, user]);
-
-  // Realtime subscription for posts changes
-  useEffect(() => {
-    if (!threadId) return;
-
-    const channel = supabase
-      .channel(`posts-${threadId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'posts',
-          filter: `thread_id=eq.${threadId}`,
-        },
-        async (payload) => {
-          console.log('Realtime post change:', payload);
-
-          if (payload.eventType === 'INSERT') {
-            // New post added - reload posts to get full data with profiles
-            loadPosts();
-          } else if (payload.eventType === 'UPDATE') {
-            // Post updated - update the specific post in state
-            setPosts(currentPosts =>
-              currentPosts.map(post =>
-                post.id === payload.new.id
-                  ? { ...post, ...payload.new }
-                  : post
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            // Post deleted - remove from state
-            setPosts(currentPosts =>
-              currentPosts.filter(post => post.id !== payload.old.id)
-            );
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [threadId]);
-
-  const checkSubscription = async () => {
+  const checkSubscription = useCallback(async () => {
     if (!user || !threadId) return;
     
     const { data } = await supabase
@@ -575,7 +491,7 @@ const Thread = () => {
       .maybeSingle();
     
     setIsSubscribed(!!data);
-  };
+  }, [threadId, user]);
 
   const toggleSubscription = async () => {
     if (!user) {
@@ -629,7 +545,7 @@ const Thread = () => {
     };
   }, [threadId]);
 
-  const loadThread = async () => {
+  const loadThread = useCallback(async () => {
     const { data: threadData } = await supabase
       .from("threads")
       .select("*, custom_message")
@@ -706,63 +622,58 @@ const Thread = () => {
           });
       }
     }
-  };
+  }, [navigate, slug, threadId, user]);
 
-  const loadPosts = async () => {
-    const { data: postsData } = await supabase
+  const normalizePost = useCallback(async (post: any): Promise<PostModel> => {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username, is_anonymous, avatar_url, id")
+      .eq("id", post.user_id!)
+      .maybeSingle();
+
+    const attachments = parseAttachments(post.attachments);
+
+    let imageUrls: string[] = [];
+    if (Array.isArray(post.image_urls)) {
+      imageUrls = post.image_urls;
+    } else if (typeof post.image_urls === "string") {
+      try {
+        imageUrls = JSON.parse(post.image_urls);
+      } catch {
+        imageUrls = [];
+      }
+    } else if (attachments.length > 0) {
+      imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
+    } else if (post.image_url) {
+      imageUrls = [post.image_url];
+    }
+
+    return {
+      ...post,
+      profiles: profile as UserProfileLite | null,
+      imageUrls,
+      attachments,
+    } as PostModel;
+  }, []);
+
+  const fetchPostWithProfile = useCallback(async (postId: string) => {
+    const { data: postData, error } = await supabase
       .from("posts")
       .select("*")
-      .eq("thread_id", threadId)
-      .order("created_at", { ascending: true });
+      .eq("id", postId)
+      .single();
+    if (error || !postData) return null;
+    return normalizePost(postData);
+  }, [normalizePost]);
 
-    if (postsData) {
-      const postsWithProfiles = await Promise.all(
-        postsData.map(async (post) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username, is_anonymous, avatar_url")
-            .eq("id", post.user_id!)
-            .maybeSingle();
-          
-          const attachments = parseAttachments((post as any).attachments);
+  const mergePostIntoList = useCallback((list: PostModel[], post: PostModel) => {
+    const idx = list.findIndex(p => p.id === post.id);
+    const next = idx >= 0 ? [...list.slice(0, idx), post, ...list.slice(idx + 1)] : [...list, post];
+    next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return next;
+  }, []);
 
-          // Parse image_urls if it's a JSON string, or create array from attachments/image_url
-          let imageUrls: string[] = [];
-          if (post.image_urls && Array.isArray(post.image_urls)) {
-            imageUrls = post.image_urls;
-          } else if (post.image_urls && typeof post.image_urls === 'string') {
-            try {
-              imageUrls = JSON.parse(post.image_urls);
-            } catch {
-              imageUrls = [];
-            }
-          } else if (attachments.length > 0) {
-            imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
-          } else if (post.image_url) {
-            imageUrls = [post.image_url];
-          }
-          
-          return {
-            ...post,
-            profiles: profile,
-            imageUrls,
-            attachments,
-          };
-        })
-      );
-      setPosts(postsWithProfiles);
-      
-      // Check for @AI mentions in new posts
-      if (postsData.length > 0) {
-        const latestPost = postsData[postsData.length - 1];
-        if (latestPost.content.includes('@AI') && latestPost.reply_to) {
-          await handleAIReply(latestPost);
-        }
-      }
-    }
-  };
-
-  const handleAIReply = async (triggerPost: any) => {
+  const handleAIReply = useCallback(async (triggerPost: any) => {
     try {
       // Get the post that was replied to (this is the prompt)
       const { data: promptPost } = await supabase
@@ -799,7 +710,91 @@ const Thread = () => {
       console.error('[AI] Error in handleAIReply:', error);
       toast.error("❌ Ошибка AI");
     }
-  };
+  }, [threadId]);
+
+  const loadPosts = useCallback(async () => {
+    const { data: postsData } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true });
+
+    if (postsData) {
+      const postsWithProfiles = await Promise.all(postsData.map(normalizePost));
+      setPosts(postsWithProfiles);
+
+      if (postsData.length > 0) {
+        const latestPost = postsData[postsData.length - 1];
+        if (latestPost.content.includes('@AI') && latestPost.reply_to) {
+          await handleAIReply(latestPost);
+        }
+      }
+    }
+  }, [handleAIReply, normalizePost, threadId]);
+
+  useEffect(() => {
+    const loadAll = async () => {
+      setPageLoading(true);
+      await Promise.all([
+        loadThread(),
+        loadPosts(),
+        checkSubscription(),
+      ]);
+      setPageLoading(false);
+    };
+    loadAll();
+  }, [threadId, user, loadPosts, loadThread, checkSubscription]);
+
+  // Keep view anchored when мы уже у низа или запланировали при отправке своего поста
+  useEffect(() => {
+    if (posts.length === 0) return;
+    if (shouldStickBottomRef.current || isNearBottom()) {
+      requestAnimationFrame(scrollToBottomSmooth);
+      shouldStickBottomRef.current = false;
+    }
+  }, [posts, isNearBottom, scrollToBottomSmooth]);
+
+  // Realtime subscription for posts changes (single channel, local merge)
+  useEffect(() => {
+    if (!threadId) return;
+
+    const channel = supabase
+      .channel(`posts-${threadId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'posts',
+          filter: `thread_id=eq.${threadId}`,
+        },
+        async (payload) => {
+          const shouldStick = shouldStickBottomRef.current || isNearBottom();
+
+          if (payload.eventType === 'INSERT') {
+            const fresh = await fetchPostWithProfile(payload.new.id);
+            if (fresh) {
+              setPosts((current) => mergePostIntoList(current, fresh));
+              if (shouldStick) scrollToBottomSmooth();
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const fresh = await fetchPostWithProfile(payload.new.id);
+            if (fresh) {
+              setPosts((current) => mergePostIntoList(current, fresh));
+            }
+          } else if (payload.eventType === 'DELETE') {
+            setPosts((currentPosts) => currentPosts.filter(post => post.id !== payload.old.id));
+          }
+
+          shouldStickBottomRef.current = false;
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPostWithProfile, isNearBottom, mergePostIntoList, scrollToBottomSmooth, threadId]);
 
   const handleSubmitPost = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -823,6 +818,7 @@ const Thread = () => {
 
     setLoading(true);
     try {
+      shouldStickBottomRef.current = isNearBottom();
       // Convert array to JSON for storage, or use first image for backward compatibility
       const imageUrlsFromAttachments = attachments
         .filter(att => att.type === "image")
@@ -853,7 +849,6 @@ const Thread = () => {
       setReplyingTo(null);
       setIsPrivateMessage(false);
       setPrivateRecipientId(null);
-      loadPosts();
     } catch (err) {
       console.error("handleSubmitPost failed:", err);
       toast.error("Ошибка отправки");
@@ -1725,7 +1720,10 @@ const Thread = () => {
                       </div>
                     </>
                   )}
-                  <div className="flex-1 min-w-0">
+                  <div
+                    className="flex-1 min-w-0"
+                    onFocusCapture={() => setIsInputPanelVisible(true)}
+                  >
                     <RichTextEditor
                       ref={editorRef}
                       value={content}
