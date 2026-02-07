@@ -29,29 +29,26 @@ export const ScrollToBottomButton = ({
 
     const element = targetElement || window;
     element.addEventListener('scroll', checkScrollPosition, { passive: true });
+    window.addEventListener('resize', checkScrollPosition, { passive: true });
 
     // Initial check
     checkScrollPosition();
 
     return () => {
       element.removeEventListener('scroll', checkScrollPosition);
+      window.removeEventListener('resize', checkScrollPosition);
     };
   }, [targetElement, threshold]);
 
   const scrollToBottom = () => {
-    const element = targetElement || document.documentElement;
-
-    if (targetElement) {
-      targetElement.scrollTo({
-        top: targetElement.scrollHeight,
-        behavior: 'smooth'
-      });
-    } else {
-      window.scrollTo({
-        top: document.documentElement.scrollHeight,
-        behavior: 'smooth'
-      });
-    }
+    const element = targetElement || document.scrollingElement || document.documentElement;
+    const scrollOnce = (behavior: ScrollBehavior) => {
+      element.scrollTo({ top: element.scrollHeight, behavior });
+    };
+    // Smooth first, then ensure we really hit bottom after content settles.
+    scrollOnce('smooth');
+    setTimeout(() => scrollOnce('auto'), 180);
+    setTimeout(() => scrollOnce('auto'), 360);
   };
 
   if (!isVisible) return null;
