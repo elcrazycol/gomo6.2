@@ -1354,22 +1354,42 @@ const Profile = () => {
               )}
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-post-header border border-border">
-                <div>
+                <button
+                  type="button"
+                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=threads")}
+                  className="text-left"
+                  disabled={currentUser?.id !== userId}
+                >
                   <p className="text-sm text-muted-foreground">Тредов создано</p>
                   <p className="text-2xl font-bold">{profile.thread_count}</p>
-                </div>
-                <div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=posts")}
+                  className="text-left"
+                  disabled={currentUser?.id !== userId}
+                >
                   <p className="text-sm text-muted-foreground">Постов написано</p>
                   <p className="text-2xl font-bold">{profile.post_count}</p>
-                </div>
-                <div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=postLikes")}
+                  className="text-left"
+                  disabled={currentUser?.id !== userId}
+                >
                   <p className="text-sm text-muted-foreground">Лайков</p>
                   <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
-                </div>
-                <div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => currentUser?.id === userId && navigate("/stats?metric=garma")}
+                  className="text-left"
+                  disabled={currentUser?.id !== userId}
+                >
                   <p className="text-sm text-muted-foreground">gармы</p>
                   <p className="text-2xl font-bold">{profile.garma}</p>
-                </div>
+                </button>
               </div>
 
               {/* Profile Tabs */}
