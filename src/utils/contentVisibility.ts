@@ -90,11 +90,11 @@ export const processVisibilityTags = async (
   }
 
   let processed = content;
-  let originalContent = content;
+  const originalContent = content;
   let isHidden = false;
   let hasHiddenParts = false;
-  let hiddenForUsers: string[] = [];
-  let visibleForUsers: string[] = [];
+  const hiddenForUsers: string[] = [];
+  const visibleForUsers: string[] = [];
   let hiddenReason: 'seeusers' | 'nousers' | 'adm' | undefined;
 
   // Process [dude][/dude] first - replace with special marker for current user
