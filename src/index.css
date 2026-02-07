@@ -107,6 +107,10 @@
   border-radius: 9999px;
 }
 
+html, body {
+  overscroll-behavior: contain;
+}
+
 @media (max-width: 640px) {
   .plyr--audio .plyr__controls {
     gap: 0.2rem;

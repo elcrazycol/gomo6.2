@@ -251,6 +251,7 @@ export type Database = {
           edit_count: number | null
           id: string
           image_upload_count: number | null
+          garma: number | null
           is_anonymous: boolean | null
           post_count: number | null
           thread_count: number | null
@@ -264,6 +265,7 @@ export type Database = {
           edit_count?: number | null
           id: string
           image_upload_count?: number | null
+          garma?: number | null
           is_anonymous?: boolean | null
           post_count?: number | null
           thread_count?: number | null
@@ -277,6 +279,7 @@ export type Database = {
           edit_count?: number | null
           id?: string
           image_upload_count?: number | null
+          garma?: number | null
           is_anonymous?: boolean | null
           post_count?: number | null
           thread_count?: number | null

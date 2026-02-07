@@ -2,50 +2,70 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export function useSessionTime(userId: string | null) {
-  const accumulatedMinutes = useRef(0);
+  const accumulatedSeconds = useRef(0);
+  const lastMark = useRef<number | null>(null);
+  const bufferKey = userId ? `session-seconds-buffer-${userId}` : null;
 
   useEffect(() => {
     if (!userId) {
       return;
     }
-    let startTime = Date.now();
-    let intervalId: NodeJS.Timeout;
 
-    // Регистрируем ежедневное посещение
+    // восстановить буфер неполной минуты из localStorage
+    if (bufferKey) {
+      const buffered = Number(localStorage.getItem(bufferKey));
+      if (!Number.isNaN(buffered) && buffered > 0) {
+        accumulatedSeconds.current = buffered;
+      }
+    }
+
     const registerDailyVisit = async () => {
       const { error } = await supabase
         .from("user_daily_visits")
-        .upsert({
-          user_id: userId,
-          visit_date: new Date().toISOString().split('T')[0]
-        }, {
-          onConflict: 'user_id,visit_date'
-        });
-      
+        .upsert(
+          {
+            user_id: userId,
+            visit_date: new Date().toISOString().split("T")[0],
+          },
+          {
+            onConflict: "user_id,visit_date",
+          }
+        );
+
       if (error) {
-        console.error('[Session] Error registering daily visit:', error.message);
+        console.error("[Session] Error registering daily visit:", error.message);
       }
     };
 
-    // Регистрируем посещение при загрузке
-    registerDailyVisit();
-
-    const updateSessionTime = async () => {
-      const currentTime = Date.now();
-      const minutesPassed = Math.floor((currentTime - startTime) / 60000);
-      
-      // Always accumulate time, even if less than a minute
-      if (minutesPassed > 0) {
-        accumulatedMinutes.current += minutesPassed;
-        startTime = currentTime;
+    // Помечаем старт активного периода
+    const markActivity = () => {
+      const now = Date.now();
+      if (lastMark.current !== null) {
+        const deltaSeconds = Math.max(
+          0,
+          Math.floor((now - lastMark.current) / 1000)
+        );
+        // Считаем только когда вкладка видима
+        if (!document.hidden) {
+          accumulatedSeconds.current += deltaSeconds;
+        }
       }
+      lastMark.current = now;
+    };
 
-      // Only update DB if we have at least 1 minute accumulated
-      if (accumulatedMinutes.current < 1) {
+    const flushSession = async (force = false) => {
+      markActivity();
+
+      const wholeMinutes = Math.floor(accumulatedSeconds.current / 60);
+      const leftoverSeconds = accumulatedSeconds.current % 60;
+
+      if (!force && wholeMinutes < 1) {
+        if (bufferKey) {
+          localStorage.setItem(bufferKey, leftoverSeconds.toString());
+        }
         return;
       }
 
-      // Get current session time
       const { data: sessionData, error: fetchError } = await supabase
         .from("user_session_time")
         .select("total_minutes")
@@ -53,50 +73,61 @@ export function useSessionTime(userId: string | null) {
         .maybeSingle();
 
       if (fetchError) {
-        console.error('[Session] Error fetching session time:', fetchError);
+        console.error("[Session] Error fetching session time:", fetchError);
         return;
       }
 
       const currentTotal = sessionData?.total_minutes || 0;
-      const newTotal = currentTotal + accumulatedMinutes.current;
+      const newTotal = currentTotal + wholeMinutes;
 
-      // Update or insert session time
       const { error } = await supabase
         .from("user_session_time")
-        .upsert({
-          user_id: userId,
-          total_minutes: newTotal,
-          last_updated: new Date().toISOString(),
-        }, {
-          onConflict: 'user_id'
-        });
+        .upsert(
+          {
+            user_id: userId,
+            total_minutes: newTotal,
+            last_updated: new Date().toISOString(),
+          },
+          {
+            onConflict: "user_id",
+          }
+        );
 
       if (error) {
-        console.error('[Session] Error updating session time:', error);
+        console.error("[Session] Error updating session time:", error);
         return;
       }
 
-      // Time-based achievements are now handled by database trigger
-      // The check_time_based_achievements function will be called automatically
-
-      // Reset accumulated minutes after successful update
-      accumulatedMinutes.current = 0;
+      accumulatedSeconds.current = leftoverSeconds;
+      if (bufferKey) {
+        localStorage.setItem(bufferKey, leftoverSeconds.toString());
+      }
     };
 
-    // Update every minute
-    intervalId = setInterval(updateSessionTime, 60000);
+    registerDailyVisit();
+    lastMark.current = Date.now();
 
-    // Update on page unload
-    const handleUnload = () => {
-      updateSessionTime();
+    // Обновляем чаще и на смену видимости
+    const intervalId = setInterval(() => flushSession(false), 30000);
+    const visibilityHandler = () => {
+      if (document.hidden) {
+        flushSession(true);
+      } else {
+        lastMark.current = Date.now();
+      }
     };
+    const unloadHandler = () => flushSession(true);
 
-    window.addEventListener("beforeunload", handleUnload);
+    document.addEventListener("visibilitychange", visibilityHandler);
+    window.addEventListener("pagehide", unloadHandler);
+    window.addEventListener("beforeunload", unloadHandler);
 
     return () => {
       clearInterval(intervalId);
-      window.removeEventListener("beforeunload", handleUnload);
-      updateSessionTime();
+      document.removeEventListener("visibilitychange", visibilityHandler);
+      window.removeEventListener("pagehide", unloadHandler);
+      window.removeEventListener("beforeunload", unloadHandler);
+      flushSession(true);
     };
-  }, [userId]);
+  }, [userId, bufferKey]);
 }
