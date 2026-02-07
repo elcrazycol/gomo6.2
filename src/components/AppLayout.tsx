@@ -37,6 +37,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [nowPlaying, setNowPlaying] = useState<NowPlayingState | null>(null);
+  const [nowPlayingHidden, setNowPlayingHidden] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
   const audioMapRef = useRef<Map<string, { inst: AudioInstance; title: string; playlistId?: string; playlistIndex?: number }>>(
     new Map()
@@ -66,6 +67,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     console.info(`[gomo6] App version: ${APP_VERSION}`);
   }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hidden = localStorage.getItem("nowPlayingHidden") === "true";
+    setNowPlayingHidden(hidden);
+  }, []);
+  useEffect(() => {
+    if (!nowPlaying) return;
+    setNowPlayingHidden(false);
+    if (typeof window !== "undefined") localStorage.removeItem("nowPlayingHidden");
+  }, [nowPlaying]);
 
   const pauseOthers = (exceptId?: string) => {
     audioMapRef.current.forEach((entry, key) => {
@@ -102,6 +113,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [nowPlaying?.playlistId, queue]);
 
   const playTrackById = useCallback((targetId: string) => {
+    setNowPlayingHidden(false);
+    if (typeof window !== "undefined") localStorage.removeItem("nowPlayingHidden");
     let entry = audioMapRef.current.get(targetId);
     let hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
 
@@ -235,6 +248,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       }
     }
 
+    if (localStorage.getItem("nowPlayingHidden") === "true") {
+      return;
+    }
+
     const saved = localStorage.getItem("audio-last");
     if (!saved) return;
     try {
@@ -360,6 +377,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const handleAudioPlay = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
+      if (nowPlayingHidden) return;
 
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
@@ -416,7 +434,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               : prev
           );
 
-          if (lastTrackRef.current?.src) {
+          if (lastTrackRef.current?.src && !nowPlayingHidden) {
             localStorage.setItem(
               "audio-last",
               JSON.stringify({
@@ -456,7 +474,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       attachProgress();
 
       // persist meta
-      if (src) {
+      if (src && !nowPlayingHidden) {
             localStorage.setItem(
               "audio-last",
               JSON.stringify({
@@ -474,7 +492,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     window.addEventListener("global-audio-play", handleAudioPlay as EventListener);
     return () => window.removeEventListener("global-audio-play", handleAudioPlay as EventListener);
-  }, [volume]);
+  }, [volume, nowPlayingHidden]);
 
   useEffect(() => {
     const handleAudioRegister = (e: Event) => {
@@ -482,6 +500,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       if (!detail) return;
       const id = detail.playerId;
       if (!id) return;
+      if (nowPlayingHidden) return;
       const { title, src, playlistId, playlistIndex, instance } = detail;
       audioMapRef.current.set(id, { inst: instance, title: title || "Аудио", playlistId, playlistIndex });
       if (playlistId !== undefined && playlistIndex !== undefined) {
@@ -550,9 +569,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
   useEffect(() => {
     const headerPad = isHeaderVisible ? (isDesktop ? 74 : 68) : 24;
-    const nowPlayingPad = nowPlaying ? 52 : 0;
+    const nowPlayingPad = nowPlaying && !nowPlayingHidden ? 52 : 0;
     setContentPad(headerPad + nowPlayingPad);
-  }, [isDesktop, isHeaderVisible, nowPlaying]);
+  }, [isDesktop, isHeaderVisible, nowPlaying, nowPlayingHidden]);
 
   const handleNowPlayingControl = useCallback((action: "prev" | "next" | "toggle" | "mute") => {
     if (!nowPlaying) return;
@@ -600,11 +619,18 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [getOrderedIds, nowPlaying, playTrackById]);
 
   const handleCloseNowPlaying = useCallback(() => {
+    if (typeof window !== "undefined") localStorage.setItem("nowPlayingHidden", "true");
+    setNowPlayingHidden(true);
     setNowPlaying((cur) => {
       const entry = cur ? audioMapRef.current.get(cur.id) : null;
       if (entry?.inst?.pause) {
         try { entry.inst.pause(); } catch { /* ignore */ }
       }
+      audioMapRef.current.clear();
+      setQueue([]);
+      localStorage.removeItem("audio-last");
+      localStorage.removeItem("playlist-cache");
+      playlistMapRef.current.forEach((_v, pid) => localStorage.removeItem(`playlist-last-${pid}`));
       return null;
     });
     setProgress({ current: 0, duration: 0 });
@@ -730,7 +756,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         </div>
       </motion.header>
 
-      {nowPlaying && (
+      {nowPlaying && !nowPlayingHidden && (
         <motion.div
           className="fixed left-0 right-0 z-40 px-2 sm:px-4"
           initial={false}
