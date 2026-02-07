@@ -24,7 +24,7 @@ interface PrivacySettingsData {
 
 const PrivacySettings = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [settings, setSettings] = useState<PrivacySettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,7 +53,7 @@ const PrivacySettings = () => {
             table: 'privacy_settings',
             filter: `user_id=eq.${user.id}`,
           },
-          (payload: any) => {
+          (payload) => {
             console.log('Privacy settings updated from another device:', payload);
             // Update local state
             setSettings(payload.new);

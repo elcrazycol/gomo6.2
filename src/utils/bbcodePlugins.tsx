@@ -93,11 +93,12 @@ const processReactNodes = (node: React.ReactNode, keyPrefix: string, index: numb
   
   if (React.isValidElement(node)) {
     const { children, ...props } = node.props;
+    const baseProps = { ...props, key: node.key || `${keyPrefix}-el-${index}` } as Record<string, unknown> & { key: React.Key };
     
     // For BbCodeSpoiler and CensorBlur, process children but keep component structure
     if (node.type === BbCodeSpoiler || node.type === CensorBlur) {
       if (children === undefined || children === null) {
-        return React.cloneElement(node, { key: node.key || `${keyPrefix}-el-${index}`, ...props } as any);
+        return React.cloneElement(node, baseProps);
       }
       
       const processedChildren = Array.isArray(children)
@@ -106,13 +107,13 @@ const processReactNodes = (node: React.ReactNode, keyPrefix: string, index: numb
       
       return React.cloneElement(
         node,
-        { key: node.key || `${keyPrefix}-el-${index}`, ...props } as any,
+        baseProps,
         processedChildren
       );
     }
     
     if (children === undefined || children === null) {
-      return React.cloneElement(node, { key: node.key || `${keyPrefix}-el-${index}`, ...props } as any);
+      return React.cloneElement(node, baseProps);
     }
     
     const processedChildren = Array.isArray(children)
@@ -121,7 +122,7 @@ const processReactNodes = (node: React.ReactNode, keyPrefix: string, index: numb
     
     return React.cloneElement(
       node,
-      { key: node.key || `${keyPrefix}-el-${index}`, ...props } as any,
+      baseProps,
       processedChildren
     );
   }
