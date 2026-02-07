@@ -90,7 +90,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
     const handleResize = () => refreshRenderRect();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [currentIndex, images, isFullscreen]);
+  }, [currentIndex, images, isFullscreen, isEditing, showControls, isTouch]);
 
   const handlePrevious = () => {
     setCurrentIndex((prev) => (prev === 0 ? localImages.length - 1 : prev - 1));
@@ -144,11 +144,13 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
     const iw = imgRef.current.naturalWidth;
     const ih = imgRef.current.naturalHeight;
     if (!iw || !ih) return null;
-    const scale = Math.min(cw / iw, ch / ih);
+    const topInset = isEditing && showControls ? (isTouch ? 120 : 80) : 0;
+    const availableHeight = Math.max(1, ch - topInset);
+    const scale = Math.min(cw / iw, availableHeight / ih);
     const w = iw * scale;
     const h = ih * scale;
     const x = (cw - w) / 2;
-    const y = (ch - h) / 2;
+    const y = topInset + (availableHeight - h) / 2;
     return { x, y, w, h };
   };
 
@@ -220,7 +222,12 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
       const ch = cropBox.h * height;
       ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.fillRect(0, 0, width, height);
-      ctx.clearRect(cx, cy, cw, ch);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(cx, cy, cw, ch);
+      ctx.clip();
+      ctx.drawImage(img, 0, 0, width, height);
+      ctx.restore();
       ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 2;
       ctx.strokeRect(cx, cy, cw, ch);
@@ -514,7 +521,8 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
           alt={`Image ${currentIndex + 1}`}
           className={cn(
             "object-contain",
-            isFullscreen ? "w-full h-full" : "max-w-full max-h-[85vh] rounded-lg"
+            isFullscreen ? "w-full h-full" : "max-w-full max-h-[85vh] rounded-lg",
+            isEditing ? "opacity-0 pointer-events-none" : "opacity-100"
           )}
           draggable={false}
           onLoad={refreshRenderRect}
@@ -594,7 +602,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
 
       {/* Edit toolbar */}
       {showControls && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex gap-2 bg-black/40 backdrop-blur px-3 py-2 rounded-full">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-wrap sm:flex-nowrap gap-2 bg-black/40 backdrop-blur px-3 py-2 rounded-2xl max-w-[92vw] justify-center">
           <Button
             variant={isEditing && tool === "crop" ? "default" : "ghost"}
             size="sm"
@@ -630,7 +638,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
             <Square className="w-4 h-4 mr-1" /> Epstein
           </Button>
           {isEditing && (
-            <>
+            <div className="flex w-full sm:w-auto gap-2 justify-center">
               <Button
                 variant="secondary"
                 size="sm"
@@ -653,7 +661,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
               >
                 Отмена
               </Button>
-            </>
+            </div>
           )}
         </div>
       )}
