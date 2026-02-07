@@ -238,6 +238,7 @@ const Thread = () => {
   const [isPrivateMessage, setIsPrivateMessage] = useState(false);
   const [privateRecipientId, setPrivateRecipientId] = useState<string | null>(null);
   const [showImagePreview, setShowImagePreview] = useState(false);
+  const [showAttachmentsPreview, setShowAttachmentsPreview] = useState(false);
   const [uploadSuccessMessage, setUploadSuccessMessage] = useState<string | null>(null);
   const [isInputPanelVisible, setIsInputPanelVisible] = useState(true);
   const [isInputPanelCollapsed, setIsInputPanelCollapsed] = useState(false);
@@ -1788,6 +1789,18 @@ const Thread = () => {
                       <span className="text-xs sm:text-sm font-bold">{imageUrls.length}</span>
                     </Button>
                   )}
+                  {attachments.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
+                      onClick={() => setShowAttachmentsPreview(true)}
+                      title="Приложения"
+                    >
+                      <span className="text-xs sm:text-sm font-bold">{attachments.length}</span>
+                    </Button>
+                  )}
                   {replyingTo && (
                     <Button
                       type="button"
@@ -1860,6 +1873,33 @@ const Thread = () => {
                         >
                           Готово
                         </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {showAttachmentsPreview && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
+                  <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[70vh] overflow-hidden">
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold">Приложения ({attachments.length})</h3>
+                        <Button variant="ghost" size="sm" onClick={() => setShowAttachmentsPreview(false)}>✕</Button>
+                      </div>
+                      <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                        {attachments.map((att, idx) => (
+                          <div key={idx} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 bg-card/80">
+                            <div className="flex items-center gap-2 text-sm">
+                              <span className="font-medium truncate max-w-[220px] sm:max-w-[340px]">{att.name || att.url}</span>
+                              <span className="text-xs text-muted-foreground">{att.mime}</span>
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}>
+                              ✕
+                            </Button>
+                          </div>
+                        ))}
+                        {attachments.length === 0 && <div className="text-sm text-muted-foreground">Нет файлов</div>}
                       </div>
                     </div>
                   </div>

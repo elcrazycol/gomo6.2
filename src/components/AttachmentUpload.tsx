@@ -112,25 +112,6 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
         {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
         <span className="sr-only">Добавить файл</span>
       </Button>
-
-      {value.length > 0 && (
-        <div className="space-y-2">
-          {value.map((att, idx) => (
-            <div key={idx} className="flex items-center justify-between border border-border rounded px-3 py-2 bg-muted/30">
-              <div className="flex items-center gap-2">
-                {iconFor(att.type)}
-                <div className="text-sm">
-                  <div className="font-medium line-clamp-1">{att.name || att.url}</div>
-                  <div className="text-xs text-muted-foreground">{att.mime} • {formatSize(att.size)}</div>
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleRemove(idx)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 };

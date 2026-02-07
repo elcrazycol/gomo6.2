@@ -33,6 +33,7 @@ interface Profile {
   is_anonymous: boolean;
   thread_count: number;
   post_count: number;
+  garma: number;
   thread_likes_received_count: number;
   created_at: string;
   avatar_url?: string | null;
@@ -63,6 +64,16 @@ interface AchievementCardProps {
   isPinned: boolean;
   isEditing: boolean;
 }
+
+const formatGarmaLabel = (value: number) => {
+  const abs = Math.abs(value);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+
+  if (mod10 === 1 && mod100 !== 11) return "gарма";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "gармы";
+  return "gарм";
+};
 
 const AchievementCard: React.FC<AchievementCardProps> = ({ achievement, onTogglePin, isPinned, isEditing }) => {
   // Определяем стиль в зависимости от уровня
@@ -481,7 +492,6 @@ const Profile = () => {
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [userThreads, setUserThreads] = useState<any[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
-  const [repliesToUserThreads, setRepliesToUserThreads] = useState(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -602,6 +612,7 @@ const Profile = () => {
 
       setProfile({
         ...data,
+        garma: data.garma ?? 0,
         thread_likes_received_count: threadLikesData || 0
       });
       setUsername(data.username);
@@ -635,15 +646,6 @@ const Profile = () => {
         user_uuid: userId
       });
       setLikesReceived(likesData || 0);
-
-      // Count replies in user's threads (excluding author's own posts)
-      const { count: repliesCount } = await supabase
-        .from("posts")
-        .select("id, threads!inner(user_id)", { count: "exact", head: true })
-        .eq("threads.user_id", userId)
-        .neq("user_id", userId);
-
-      setRepliesToUserThreads(repliesCount || 0);
     }
   };
 
@@ -1364,8 +1366,10 @@ const Profile = () => {
                   <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Постов в тредах</p>
-                  <p className="text-2xl font-bold">{repliesToUserThreads}</p>
+                  <p className="text-sm text-muted-foreground">gарма</p>
+                  <p className="text-2xl font-bold">
+                    {profile.garma} {formatGarmaLabel(profile.garma)}
+                  </p>
                 </div>
               </div>
 
