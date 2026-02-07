@@ -1982,6 +1982,21 @@ const Thread = () => {
           images={galleryImages}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
+          onEditImage={(idx, dataUrl) => {
+            setImageUrls((prev) => prev.map((u, i) => (i === idx ? dataUrl : u)));
+            setAttachments((prev) => {
+              let imgIdx = -1;
+              return prev.map((att) => {
+                if (att.type === "image") {
+                  imgIdx += 1;
+                  if (imgIdx === idx) {
+                    return { ...att, url: dataUrl };
+                  }
+                }
+                return att;
+              });
+            });
+          }}
         />
       )}
     </>
