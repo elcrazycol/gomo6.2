@@ -70,30 +70,123 @@ export type Database = {
       }
       boards: {
         Row: {
+          cover_image_url: string | null
           created_at: string
           description: string | null
+          gomosub_tags: Json
           id: string
+          is_gomosub: boolean | null
           is_rules_board: boolean | null
           name: string
+          owner_id: string | null
+          rules_markdown: string | null
+          rules_updated_at: string | null
           slug: string
         }
         Insert: {
+          cover_image_url?: string | null
           created_at?: string
           description?: string | null
+          gomosub_tags?: Json
           id?: string
+          is_gomosub?: boolean | null
           is_rules_board?: boolean | null
           name: string
+          owner_id?: string | null
+          rules_markdown?: string | null
+          rules_updated_at?: string | null
           slug: string
         }
         Update: {
+          cover_image_url?: string | null
           created_at?: string
           description?: string | null
+          gomosub_tags?: Json
           id?: string
+          is_gomosub?: boolean | null
           is_rules_board?: boolean | null
           name?: string
+          owner_id?: string | null
+          rules_markdown?: string | null
+          rules_updated_at?: string | null
           slug?: string
         }
         Relationships: []
+      }
+      gomosub_rules_acceptance: {
+        Row: {
+          accepted_at: string
+          board_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          board_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          board_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gomosub_rules_acceptance_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gomosub_rules_acceptance_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gomosub_memberships: {
+        Row: {
+          board_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          board_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          board_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gomosub_memberships_board_id_fkey"
+            columns: ["board_id"]
+            isOneToOne: false
+            referencedRelation: "boards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gomosub_memberships_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notifications: {
         Row: {
