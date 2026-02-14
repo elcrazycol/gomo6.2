@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, X, User, Settings, Hammer, LogOut, Plus, Grid3X3 } from "lucide-react";
+import { Menu, X, User, Settings, Hammer, LogOut, Plus, Grid3X3, Search } from "lucide-react";
 import { toast } from "sonner";
 import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
@@ -96,6 +96,32 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             >
               <Grid3X3 className="w-4 h-4 mr-2" />
               Просмотр по доскам
+              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => {
+                navigate("/g");
+                setOpen(false);
+              }}
+              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
+            >
+              <Grid3X3 className="w-4 h-4 mr-2" />
+              Gomo сабы
+              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => {
+                navigate("/search");
+                setOpen(false);
+              }}
+              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
+            >
+              <Search className="w-4 h-4 mr-2" />
+              Поиск
               <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
             </Button>
 

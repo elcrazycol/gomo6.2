@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ interface Board {
   slug: string;
   name: string;
   description: string;
+  is_gomosub?: boolean | null;
 }
 
 interface ThreadTags {
@@ -78,7 +79,8 @@ const FLAG_TAGS = [
 const CreateThread = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const boardSlug = searchParams.get('board');
+  const { slug: gSlug } = useParams();
+  const boardSlug = searchParams.get('board') || gSlug || undefined;
 
   const [board, setBoard] = useState<Board | null>(null);
   const [boardLoading, setBoardLoading] = useState(true);
@@ -159,14 +161,15 @@ const CreateThread = () => {
     const loadBoards = async () => {
       const { data } = await supabase
         .from("boards")
-        .select("id, slug, name, description")
+        .select("id, slug, name, description, is_gomosub")
         .eq("is_rules_board", false)
+        .eq("is_gomosub", false)
         .order("created_at", { ascending: true });
 
       if (data) {
         // Hide service boards
         const filtered = data.filter(b => b.slug !== 'faq' && b.slug !== 'bugs');
-        setBoards(filtered);
+        setBoards(filtered.slice(0, 4));
       }
     };
 
@@ -330,7 +333,8 @@ const CreateThread = () => {
       }
 
       toast.success('Тред создан!');
-      navigate(`/${board.slug}/thread/${data.id}`);
+      const prefix = board?.is_gomosub ? "/g" : "";
+      navigate(`${prefix}/${board.slug}/thread/${data.id}`);
       setAttachments([]);
       setImageUrls([]);
     } catch (error) {

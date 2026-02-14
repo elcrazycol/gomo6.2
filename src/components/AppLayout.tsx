@@ -1,16 +1,18 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
-import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X } from "lucide-react";
+import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -62,6 +64,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const lastTrackRef = useRef<{ id: string; title: string; src?: string } | null>(null);
   const [restored, setRestored] = useState(false);
   const controlRef = useRef<(action: "prev" | "next" | "toggle" | "mute") => void>(() => {});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [desktopSearchExpanded, setDesktopSearchExpanded] = useState(false);
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult>({ users: [], gomosubs: [], threads: [] });
+  const searchRef = useRef<HTMLDivElement | null>(null);
+  const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { scrollY } = useScroll();
 
   useEffect(() => {
@@ -377,7 +387,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const handleAudioPlay = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
-      if (nowPlayingHidden) return;
 
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
@@ -500,7 +509,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       if (!detail) return;
       const id = detail.playerId;
       if (!id) return;
-      if (nowPlayingHidden) return;
       const { title, src, playlistId, playlistIndex, instance } = detail;
       audioMapRef.current.set(id, { inst: instance, title: title || "Аудио", playlistId, playlistIndex });
       if (playlistId !== undefined && playlistIndex !== undefined) {
@@ -520,6 +528,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       const detail = (e as CustomEvent).detail;
       if (!detail?.playerId) return;
       const { playerId, playlistId } = detail;
+      if (nowPlaying?.id === playerId) {
+        // Ignore unregister for currently active track. It may come from route unmount while
+        // the audio instance is preserved in the global pool.
+        return;
+      }
       audioMapRef.current.delete(playerId);
       if (playlistId !== undefined) {
         const list = playlistMapRef.current.get(playlistId);
@@ -540,7 +553,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       window.removeEventListener("global-audio-register", handleAudioRegister as EventListener);
       window.removeEventListener("global-audio-unregister", handleAudioUnregister as EventListener);
     };
-  }, []);
+  }, [nowPlaying?.id]);
 
   useEffect(() => {
     const handleAudioDestroy = (e: Event) => {
@@ -568,10 +581,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, []);
 
   useEffect(() => {
-    const headerPad = isHeaderVisible ? (isDesktop ? 74 : 68) : 24;
+    const headerPad = isHeaderVisible ? (isDesktop ? 74 : mobileSearchOpen ? 120 : 68) : 24;
     const nowPlayingPad = nowPlaying && !nowPlayingHidden ? 52 : 0;
     setContentPad(headerPad + nowPlayingPad);
-  }, [isDesktop, isHeaderVisible, nowPlaying, nowPlayingHidden]);
+  }, [isDesktop, isHeaderVisible, nowPlaying, nowPlayingHidden, mobileSearchOpen]);
 
   const handleNowPlayingControl = useCallback((action: "prev" | "next" | "toggle" | "mute") => {
     if (!nowPlaying) return;
@@ -705,6 +718,62 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const term = searchQuery.trim();
+    if (term.length < 2) {
+      setSearchResults({ users: [], gomosubs: [], threads: [] });
+      setSearchOpen(false);
+      setSearchLoading(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      setSearchLoading(true);
+      const result = await searchGlobal(term, { users: 4, gomosubs: 4, threads: 4 });
+      setSearchResults(result);
+      setSearchOpen(true);
+      setSearchLoading(false);
+    }, 220);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (!searchRef.current) return;
+      if (searchRef.current.contains(event.target as Node)) return;
+      setSearchOpen(false);
+      setDesktopSearchExpanded(false);
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    setSearchOpen(false);
+    setMobileSearchOpen(false);
+    setDesktopSearchExpanded(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!desktopSearchExpanded) return;
+    const id = window.setTimeout(() => {
+      desktopSearchInputRef.current?.focus();
+      desktopSearchInputRef.current?.select();
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [desktopSearchExpanded]);
+
+  const totalSearchHits = searchResults.users.length + searchResults.gomosubs.length + searchResults.threads.length;
+
+  const submitSearch = (event?: FormEvent) => {
+    if (event) event.preventDefault();
+    const term = searchQuery.trim();
+    if (term.length < 2) return;
+    navigate(`/search?q=${encodeURIComponent(term)}`);
+    setSearchOpen(false);
+  };
+
   // Check if current page is special (no header/footer)
   const isSpecialPage = location.pathname.startsWith('/auth');
 
@@ -722,13 +791,119 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         animate={{ y: isHeaderVisible ? 0 : -100 }}
         transition={{ duration: 0.3, ease: "easeInOut" }}
       >
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
-          <Link to="/" className="text-lg sm:text-xl font-bold flex-shrink-0 relative group">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
+          <Link to="/" className="text-lg sm:text-xl font-bold shrink-0 relative group">
             gomo6
             <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
             <span className="absolute inset-0 transition-transform duration-200 group-hover:translate-x-0.5"></span>
           </Link>
-          <div className="flex gap-1 sm:gap-2 items-center flex-shrink-0">
+          <div className="flex gap-1 sm:gap-2 items-center shrink-0">
+            <div ref={searchRef} className="hidden sm:block relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 rounded-full"
+                onClick={() => setDesktopSearchExpanded((prev) => !prev)}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+
+              <motion.div
+                initial={false}
+                animate={{
+                  width: desktopSearchExpanded ? 520 : 0,
+                  opacity: desktopSearchExpanded ? 1 : 0,
+                }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="absolute right-0 top-0 overflow-hidden"
+              >
+                <form onSubmit={submitSearch} className="relative w-[520px]">
+                  <div className="h-10 rounded-full border border-border/70 bg-background/90 backdrop-blur px-2 pr-1 flex items-center shadow-lg">
+                    <Search className="w-4 h-4 ml-2 text-muted-foreground" />
+                    <Input
+                      ref={desktopSearchInputRef}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Поиск: юзер, g-саб, тред..."
+                      className="h-8 pl-3 pr-2 border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                      onFocus={() => {
+                        if (searchQuery.trim().length >= 2) setSearchOpen(true);
+                      }}
+                    />
+                    <Button type="submit" size="sm" variant="ghost" className="h-8 px-3 rounded-full">
+                      Найти
+                    </Button>
+                  </div>
+                </form>
+              </motion.div>
+
+              {searchOpen && desktopSearchExpanded && (
+                <div className="absolute top-12 right-0 w-[520px] rounded-2xl border border-border bg-card/95 backdrop-blur shadow-lg p-3 z-50 space-y-3">
+                  {searchLoading ? (
+                    <div className="text-sm text-muted-foreground">Ищу...</div>
+                  ) : totalSearchHits === 0 ? (
+                    <div className="text-sm text-muted-foreground">Ничего не найдено</div>
+                  ) : (
+                    <>
+                      {searchResults.users.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Пользователи</div>
+                          {searchResults.users.map((item) => (
+                            <Link
+                              key={item.id}
+                              to={`/profile/${item.id}`}
+                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+                            >
+                              @{item.username}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      {searchResults.gomosubs.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">G-сабы</div>
+                          {searchResults.gomosubs.map((item) => (
+                            <Link
+                              key={item.id}
+                              to={`/g/${item.slug}`}
+                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+                            >
+                              g/{item.slug} - {item.name}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      {searchResults.threads.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Треды</div>
+                          {searchResults.threads.map((item) => (
+                            <Link
+                              key={item.id}
+                              to={`${item.boards?.is_gomosub ? "/g" : ""}/${item.boards?.slug}/thread/${item.id}`}
+                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+                            >
+                              {item.title}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
+                        Показать все результаты
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="sm:hidden p-2"
+              onClick={() => setMobileSearchOpen((prev) => !prev)}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
             <Link to="/settings" className="hidden sm:block">
               <Button variant="ghost" size="sm" className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group">
                 <Settings className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -753,6 +928,54 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               </Button>
             )}
           </div>
+        </div>
+        {mobileSearchOpen && (
+          <div ref={searchRef} className="sm:hidden mt-2 relative">
+            <form onSubmit={submitSearch}>
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Поиск..."
+                className="h-10 pl-10 pr-20 rounded-xl border-border/70 bg-background/85 backdrop-blur"
+                onFocus={() => {
+                  if (searchQuery.trim().length >= 2) setSearchOpen(true);
+                }}
+              />
+              <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+              <Button type="submit" size="sm" className="absolute right-1 top-1.5 h-7 rounded-lg">Найти</Button>
+            </form>
+            {searchOpen && (
+              <div className="absolute top-12 left-0 right-0 rounded-2xl border border-border bg-card/95 backdrop-blur shadow-lg p-3 z-50 space-y-3 max-h-[65vh] overflow-auto">
+                {searchLoading ? (
+                  <div className="text-sm text-muted-foreground">Ищу...</div>
+                ) : totalSearchHits === 0 ? (
+                  <div className="text-sm text-muted-foreground">Ничего не найдено</div>
+                ) : (
+                  <>
+                    {searchResults.users.map((item) => (
+                      <Link key={item.id} to={`/profile/${item.id}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                        @{item.username}
+                      </Link>
+                    ))}
+                    {searchResults.gomosubs.map((item) => (
+                      <Link key={item.id} to={`/g/${item.slug}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                        g/{item.slug} - {item.name}
+                      </Link>
+                    ))}
+                    {searchResults.threads.map((item) => (
+                      <Link key={item.id} to={`${item.boards?.is_gomosub ? "/g" : ""}/${item.boards?.slug}/thread/${item.id}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                        {item.title}
+                      </Link>
+                    ))}
+                    <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
+                      Показать все результаты
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         </div>
       </motion.header>
 

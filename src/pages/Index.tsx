@@ -120,6 +120,7 @@ const Index = () => {
         .from("boards")
         .select("*")
         .eq("is_rules_board", false)
+        .eq("is_gomosub", false)
         .order("created_at", { ascending: true });
 
       if (data) {
