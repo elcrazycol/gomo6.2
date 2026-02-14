@@ -143,6 +143,7 @@ const Index = () => {
         .from("boards")
         .select("*")
         .eq("is_rules_board", false)
+        .eq("is_gomosub", false)
         .order("created_at", { ascending: true });
 
       if (data) {
@@ -163,8 +164,9 @@ const Index = () => {
           id,
           title,
           board_id,
-          boards!inner(slug)
+          boards!inner(slug, is_gomosub)
         `)
+        .eq("boards.is_gomosub", false)
         .limit(100);
 
       if (data && data.length > 0) {
@@ -181,8 +183,9 @@ const Index = () => {
           title,
           post_count,
           board_id,
-          boards!inner(slug, name)
+          boards!inner(slug, name, is_gomosub)
         `)
+        .eq("boards.is_gomosub", false)
         .order("post_count", { ascending: false })
         .limit(5);
 

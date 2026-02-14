@@ -30,6 +30,7 @@ const Placeholders = lazy(() => import("./pages/settings/Placeholders"));
 const GomoSubs = lazy(() => import("./pages/GomoSubs"));
 const GomoSubCreate = lazy(() => import("./pages/GomoSubCreate"));
 const GomoSubSettings = lazy(() => import("./pages/GomoSubSettings"));
+const SearchResults = lazy(() => import("./pages/SearchResults"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -106,6 +107,7 @@ const App = () => {
               <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
               <Route path="stats" element={<LazyPage component={Stats} />} />
               <Route path="notify" element={<LazyPage component={Notify} />} />
+              <Route path="search" element={<LazyPage component={SearchResults} />} />
               <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
               <Route path="g" element={<LazyPage component={GomoSubs} />} />
               <Route path="g/create" element={<LazyPage component={GomoSubCreate} />} />
