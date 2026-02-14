@@ -18,6 +18,7 @@ interface Board {
   slug: string;
   name: string;
   description: string;
+  is_gomosub?: boolean | null;
 }
 
 interface CreateThreadWizardProps {

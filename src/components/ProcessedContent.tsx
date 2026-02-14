@@ -85,7 +85,8 @@ export const ProcessedContent = ({
         console.error('Error processing visibility tags:', error);
         setVisibilityResult({
           processedContent: content,
-          isHidden: false
+          isHidden: false,
+          hasHiddenParts: false
         });
       }
       setIsProcessing(false);
@@ -223,7 +224,7 @@ export const ProcessedContent = ({
               >
                 Скрытый контент для{' '}
                 {usernames.map((username, idx) => (
-                  <span key={username}>
+                  <span key={`${username}-${idx}`}>
                     <MentionLink username={username} />
                     {idx < usernames.length - 1 && ', '}
                   </span>
@@ -238,7 +239,7 @@ export const ProcessedContent = ({
               >
                 Скрытый контент от:{' '}
                 {usernames.map((username, idx) => (
-                  <span key={username}>
+                  <span key={`${username}-${idx}`}>
                     <MentionLink username={username} />
                     {idx < usernames.length - 1 && ', '}
                   </span>
@@ -294,7 +295,7 @@ export const ProcessedContent = ({
         <span className="text-muted-foreground italic">
           Скрытый контент для{' '}
           {visibleUsernames.map((username, idx) => (
-            <span key={username}>
+            <span key={`${username}-${idx}`}>
               <MentionLink username={username} />
               {idx < visibleUsernames.length - 1 && ', '}
             </span>
@@ -307,7 +308,7 @@ export const ProcessedContent = ({
         <span className="text-muted-foreground italic">
           Скрытый контент от:{' '}
           {hiddenUsernames.map((username, idx) => (
-            <span key={username}>
+            <span key={`${username}-${idx}`}>
               <MentionLink username={username} />
               {idx < hiddenUsernames.length - 1 && ', '}
             </span>

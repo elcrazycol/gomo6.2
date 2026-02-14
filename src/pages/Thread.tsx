@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -184,6 +184,9 @@ const renderAttachments = (
 
 const Thread = () => {
   const { slug, threadId } = useParams();
+  const location = useLocation();
+  const isGomoRoute = location.pathname.startsWith("/g/");
+  const pathPrefix = isGomoRoute ? "/g" : "";
   const navigate = useNavigate();
   const [thread, setThread] = useState<ThreadModel | null>(null);
   const [posts, setPosts] = useState<PostModel[]>([]);
@@ -940,7 +943,7 @@ const Thread = () => {
       toast.error("Ошибка удаления треда");
     } else {
       toast.success("Тред удален");
-      navigate(`/${slug}`);
+      navigate(`${pathPrefix}/${slug}`);
     }
   };
 
@@ -1110,7 +1113,7 @@ const Thread = () => {
           </div>
         )}
             <div className="mb-4 flex justify-between items-center">
-          <Link to={`/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
+          <Link to={`${pathPrefix}/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
             ← Назад к доске
           </Link>
           {user && (
