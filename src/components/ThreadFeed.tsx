@@ -22,6 +22,7 @@ interface Thread {
   boards: {
     slug: string;
     name: string;
+    is_gomosub?: boolean | null;
   };
 }
 
@@ -74,7 +75,8 @@ export const ThreadFeed = ({
           post_count,
           boards!inner (
             slug,
-            name
+            name,
+            is_gomosub
           )
         `)
         .order("updated_at", { ascending: false })
@@ -113,7 +115,8 @@ export const ThreadFeed = ({
               post_count,
               boards!inner (
                 slug,
-                name
+                name,
+                is_gomosub
               )
             `)
             .in("id", recommendedIds);

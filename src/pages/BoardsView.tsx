@@ -3,13 +3,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
@@ -22,6 +23,10 @@ interface Board {
   slug: string;
   name: string;
   description: string;
+  cover_image_url?: string | null;
+  is_gomosub?: boolean | null;
+  owner_id?: string | null;
+  rules_markdown?: string | null;
 }
 
 interface RandomThread {
@@ -41,6 +46,7 @@ interface PopularThread {
   boards: {
     slug: string;
     name: string;
+    is_gomosub?: boolean | null;
   };
 }
 
@@ -56,6 +62,7 @@ const BoardsView = () => {
   const [showTerms, setShowTerms] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [currentUserGarma, setCurrentUserGarma] = useState<number | null>(null);
   const navigate = useNavigate();
 
   useSessionTime(user?.id);
@@ -77,12 +84,13 @@ const BoardsView = () => {
         // Load current user profile and color
         const { data: profile } = await supabase
           .from("profiles")
-          .select("username")
+          .select("username, garma")
           .eq("id", session.user.id)
           .single();
 
         if (profile) {
           setCurrentUserUsername(profile.username);
+          setCurrentUserGarma(profile.garma ?? 0);
         }
 
         // Load current user color
@@ -142,6 +150,7 @@ const BoardsView = () => {
         .from("boards")
         .select("*")
         .eq("is_rules_board", false)
+        .eq("is_gomosub", false)
         .order("created_at", { ascending: true });
 
       if (data) {
@@ -164,6 +173,7 @@ const BoardsView = () => {
           board_id,
           boards!inner(slug)
         `)
+        .eq("boards.is_gomosub", false)
         .limit(100);
 
       if (data && data.length > 0) {
@@ -180,8 +190,9 @@ const BoardsView = () => {
           title,
           post_count,
           board_id,
-          boards!inner(slug, name)
+          boards!inner(slug, name, is_gomosub)
         `)
+        .eq("boards.is_gomosub", false)
         .order("post_count", { ascending: false })
         .limit(5);
 
@@ -300,28 +311,31 @@ const BoardsView = () => {
         <div className="bg-card border border-border p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">Популярные треды</h3>
           <div className="space-y-2">
-            {popularThreads.map((thread) => (
-              <PrefetchLink
-                key={thread.id}
-                to={`/${thread.boards.slug}/thread/${thread.id}`}
-                className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 relative">
-                    <div className="font-bold relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                      {thread.title}
-                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+            {popularThreads.map((thread) => {
+              const prefix = thread.boards.is_gomosub ? "/g" : "";
+              return (
+                <PrefetchLink
+                  key={thread.id}
+                  to={`${prefix}/${thread.boards.slug}/thread/${thread.id}`}
+                  className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 relative">
+                      <div className="font-bold relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
+                        {thread.title}
+                        <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                      </div>
+                      <div className="text-sm text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5">
+                        /{thread.boards.slug}/ - {thread.boards.name}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5">
-                      /{thread.boards.slug}/ - {thread.boards.name}
+                    <div className="text-sm text-muted-foreground ml-2 transition-transform duration-200 group-hover:translate-x-0.5">
+                      {thread.post_count} отв.
                     </div>
                   </div>
-                  <div className="text-sm text-muted-foreground ml-2 transition-transform duration-200 group-hover:translate-x-0.5">
-                    {thread.post_count} отв.
-                  </div>
-                </div>
-              </PrefetchLink>
-            ))}
+                </PrefetchLink>
+              );
+            })}
           </div>
         </div>
 

@@ -160,13 +160,8 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
             setTimeout(() => instance.play().catch(() => {}), 0);
           }
         }
-        if (playlistId !== undefined && playlistIndex !== undefined) {
-          window.dispatchEvent(
-            new CustomEvent("global-audio-unregister", {
-              detail: { playerId: playerKey, playlistId, playlistIndex },
-            })
-          );
-        }
+        // Do not unregister pooled audio on route unmount.
+        // The instance is still alive in the global pool and should remain controllable by Now Playing.
       } else {
         instance.destroy?.();
       }

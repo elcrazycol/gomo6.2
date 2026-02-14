@@ -99,6 +99,19 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
             </Button>
 
+            <Button
+              variant="outline"
+              onClick={() => {
+                navigate("/g");
+                setOpen(false);
+              }}
+              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
+            >
+              <Grid3X3 className="w-4 h-4 mr-2" />
+              Gomo сабы
+              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+            </Button>
+
             {/* User profile panel */}
             <Link
               to={`/profile/${user.id}`}

@@ -12,6 +12,7 @@ import { LazyPage } from "@/components/LazyPage";
 const Index = lazy(() => import("./pages/Index"));
 const BoardsView = lazy(() => import("./pages/BoardsView"));
 const CreateThread = lazy(() => import("./pages/CreateThread"));
+const CreateGomoThread = lazy(() => import("./pages/CreateGomoThread"));
 const Auth = lazy(() => import("./pages/Auth"));
 const Board = lazy(() => import("./pages/Board"));
 const Thread = lazy(() => import("./pages/Thread"));
@@ -26,6 +27,9 @@ const Messages = lazy(() => import("./pages/Messages"));
 const Settings = lazy(() => import("./pages/Settings"));
 const CustomProfile = lazy(() => import("./pages/settings/CustomProfile"));
 const Placeholders = lazy(() => import("./pages/settings/Placeholders"));
+const GomoSubs = lazy(() => import("./pages/GomoSubs"));
+const GomoSubCreate = lazy(() => import("./pages/GomoSubCreate"));
+const GomoSubSettings = lazy(() => import("./pages/GomoSubSettings"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -102,7 +106,14 @@ const App = () => {
               <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
               <Route path="stats" element={<LazyPage component={Stats} />} />
               <Route path="notify" element={<LazyPage component={Notify} />} />
+              <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
+              <Route path="g" element={<LazyPage component={GomoSubs} />} />
+              <Route path="g/create" element={<LazyPage component={GomoSubCreate} />} />
+              <Route path="g/:slug/create" element={<LazyPage component={CreateGomoThread} />} />
+              <Route path="g/:slug/settings" element={<LazyPage component={GomoSubSettings} />} />
               <Route path="create" element={<LazyPage component={CreateThread} />} />
+              <Route path="g/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
+              <Route path="g/:slug" element={<LazyPage component={Board} />} />
               <Route path=":slug" element={<LazyPage component={Board} />} />
               <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />
             </Route>

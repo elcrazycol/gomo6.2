@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -52,13 +54,14 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Filter, X } from "lucide-react";
+import { Settings, Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 import { renderTags } from "@/components/ThreadCard";
+import { LikeButton } from "@/components/LikeButton";
 
 interface Board {
   id: string;
@@ -66,6 +69,12 @@ interface Board {
   name: string;
   description: string;
   is_rules_board: boolean;
+  is_gomosub?: boolean | null;
+  cover_image_url?: string | null;
+  owner_id?: string | null;
+  rules_markdown?: string | null;
+  rules_updated_at?: string | null;
+  gomosub_tags?: string[] | null;
 }
 
 interface Thread {
@@ -102,6 +111,9 @@ const hasVisibilityTags = (content: string): boolean => {
 const Board = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isGomoRoute = location.pathname.startsWith("/g/");
+  const pathPrefix = isGomoRoute ? "/g" : "";
   const [board, setBoard] = useState<Board | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [user, setUser] = useState<any>(null);
@@ -113,8 +125,21 @@ const Board = () => {
   const [ageVerified, setAgeVerified] = useState(false);
   const [searchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
+  const [boardOwner, setBoardOwner] = useState<{ id: string; username: string; avatar_url?: string | null } | null>(null);
+  const [showRulesDialog, setShowRulesDialog] = useState(false);
+  const [hasAcceptedRules, setHasAcceptedRules] = useState(false);
+  const [rulesConfirmed, setRulesConfirmed] = useState(false);
+  const [checkingRules, setCheckingRules] = useState(false);
+  const [isJoined, setIsJoined] = useState(false);
+  const [membersCount, setMembersCount] = useState(0);
+  const [membershipLoading, setMembershipLoading] = useState(false);
   
   useSessionTime(user?.id);
+
+  // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
+  if (slug === "gomosubs") {
+    return <Navigate to="/g" replace />;
+  }
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -183,14 +208,64 @@ const Board = () => {
   useEffect(() => {
     const loadBoard = async () => {
       setPageLoading(true);
+      setBoard(null);
+      setThreads([]);
+      setShowRulesDialog(false);
+      setHasAcceptedRules(!isGomoRoute);
+      setCheckingRules(isGomoRoute);
+
       const { data: boardData } = await supabase
         .from("boards")
         .select("*")
         .eq("slug", slug)
+        .eq("is_gomosub", isGomoRoute)
         .single();
 
       if (boardData) {
+        setRulesConfirmed(false);
+
+        if (boardData.is_gomosub && boardData.rules_markdown?.trim()) {
+          setCheckingRules(true);
+          const rulesVersion = boardData.rules_updated_at || "v1";
+          let accepted = false;
+
+          if (user?.id) {
+            const { data: acceptance } = await supabase
+              .from("gomosub_rules_acceptance")
+              .select("accepted_at")
+              .eq("user_id", user.id)
+              .eq("board_id", boardData.id)
+              .maybeSingle();
+
+            if (acceptance?.accepted_at) {
+              accepted = !boardData.rules_updated_at || new Date(acceptance.accepted_at) >= new Date(boardData.rules_updated_at);
+            }
+          } else {
+            const storedVersion = localStorage.getItem(`gomosub-rules:${boardData.id}`);
+            accepted = storedVersion === rulesVersion;
+          }
+
+          setHasAcceptedRules(accepted);
+          setShowRulesDialog(!accepted);
+          setCheckingRules(false);
+        } else {
+          setHasAcceptedRules(true);
+          setShowRulesDialog(false);
+          setCheckingRules(false);
+        }
+
         setBoard(boardData);
+
+        if (boardData.owner_id) {
+          const { data: owner } = await supabase
+            .from("profiles")
+            .select("id, username, avatar_url")
+            .eq("id", boardData.owner_id)
+            .maybeSingle();
+          setBoardOwner(owner || null);
+        } else {
+          setBoardOwner(null);
+        }
         
         // Check age verification for /d/ board
         if (boardData.slug === 'd') {
@@ -216,12 +291,46 @@ const Board = () => {
           setPageLoading(false);
         }
       } else {
+        setCheckingRules(false);
         setPageLoading(false);
       }
     };
 
     loadBoard();
-  }, [slug, user, searchParams]);
+  }, [slug, user, searchParams, isGomoRoute]);
+
+  useEffect(() => {
+    const loadMembership = async () => {
+      if (!board?.is_gomosub) {
+        setIsJoined(false);
+        setMembersCount(0);
+        return;
+      }
+
+      const { count } = await supabase
+        .from("gomosub_memberships")
+        .select("*", { count: "exact", head: true })
+        .eq("board_id", board.id);
+
+      setMembersCount(count ?? 0);
+
+      if (!user?.id) {
+        setIsJoined(false);
+        return;
+      }
+
+      const { data: membership } = await supabase
+        .from("gomosub_memberships")
+        .select("id")
+        .eq("board_id", board.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      setIsJoined(Boolean(membership));
+    };
+
+    loadMembership();
+  }, [board?.id, board?.is_gomosub, user?.id]);
 
   useEffect(() => {
     if (!board) return;
@@ -259,25 +368,27 @@ const Board = () => {
       .select("*")
       .eq("board_id", boardId);
 
-    // Filter by new tag system
-    if (contentFilter) {
-      query = query.eq("tags->>content", contentFilter);
-    }
-    if (formatFilter) {
-      query = query.eq("tags->>format", formatFilter);
-    }
-    if (atmosphereFilter) {
-      query = query.eq("tags->>atmosphere", atmosphereFilter);
-    }
-    if (flagFilter) {
-      query = query.eq("tags->>flag", flagFilter);
-    }
+    if (!isGomoRoute) {
+      // Filter by new tag system
+      if (contentFilter) {
+        query = query.eq("tags->>content", contentFilter);
+      }
+      if (formatFilter) {
+        query = query.eq("tags->>format", formatFilter);
+      }
+      if (atmosphereFilter) {
+        query = query.eq("tags->>atmosphere", atmosphereFilter);
+      }
+      if (flagFilter) {
+        query = query.eq("tags->>flag", flagFilter);
+      }
 
-    // Backward compatibility: filter by old tag field if no new filters
-    if (!contentFilter && !formatFilter && !atmosphereFilter && !flagFilter) {
-      const oldTagFilter = searchParams.get('tag');
-      if (oldTagFilter) {
-        query = query.or(`tag.eq.${oldTagFilter},tags->>content.eq.${oldTagFilter}`);
+      // Backward compatibility: filter by old tag field if no new filters
+      if (!contentFilter && !formatFilter && !atmosphereFilter && !flagFilter) {
+        const oldTagFilter = searchParams.get('tag');
+        if (oldTagFilter) {
+          query = query.or(`tag.eq.${oldTagFilter},tags->>content.eq.${oldTagFilter}`);
+        }
       }
     }
 
@@ -358,8 +469,98 @@ const Board = () => {
     navigate('/');
   };
 
+  const rulesUpdatedLabel = board?.rules_updated_at
+    ? formatDistanceToNow(new Date(board.rules_updated_at), { addSuffix: true, locale: ru })
+    : null;
+
+  const handleAcceptRules = async () => {
+    if (!board?.is_gomosub || !board.rules_markdown?.trim()) {
+      setShowRulesDialog(false);
+      return;
+    }
+
+    if (!rulesConfirmed) {
+      toast.error("Подтверди, что прочитал правила");
+      return;
+    }
+
+    const rulesVersion = board.rules_updated_at || "v1";
+
+    if (user?.id) {
+      const { error } = await supabase
+        .from("gomosub_rules_acceptance")
+        .upsert(
+          {
+            user_id: user.id,
+            board_id: board.id,
+            accepted_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,board_id" }
+        );
+
+      if (error) {
+        toast.error("Не удалось сохранить согласие с правилами");
+        return;
+      }
+    } else {
+      localStorage.setItem(`gomosub-rules:${board.id}`, rulesVersion);
+    }
+
+    setHasAcceptedRules(true);
+    setShowRulesDialog(false);
+    toast.success("Правила приняты");
+  };
+
+  const handleToggleJoin = async () => {
+    if (!board?.is_gomosub) return;
+    if (!user?.id) {
+      toast.error("Войди в аккаунт, чтобы вступить");
+      navigate("/auth");
+      return;
+    }
+    if (membershipLoading) return;
+
+    if (board.rules_markdown?.trim() && !hasAcceptedRules) {
+      setShowRulesDialog(true);
+      toast.error("Сначала прими правила саба");
+      return;
+    }
+
+    setMembershipLoading(true);
+    if (isJoined) {
+      const { error } = await supabase
+        .from("gomosub_memberships")
+        .delete()
+        .eq("board_id", board.id)
+        .eq("user_id", user.id);
+
+      setMembershipLoading(false);
+      if (error) {
+        toast.error("Не удалось выйти из саба");
+        return;
+      }
+      setIsJoined(false);
+      setMembersCount((prev) => Math.max(0, prev - 1));
+      toast.success("Вы вышли из саба");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("gomosub_memberships")
+      .insert({ board_id: board.id, user_id: user.id });
+
+    setMembershipLoading(false);
+    if (error) {
+      toast.error("Не удалось вступить в саб");
+      return;
+    }
+    setIsJoined(true);
+    setMembersCount((prev) => prev + 1);
+    toast.success("Вы вступили в саб");
+  };
+
   // Don't show fullscreen loader - let the content loader handle it
-  if (!board) {
+  if (!board || checkingRules) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
@@ -367,7 +568,7 @@ const Board = () => {
     );
   }
   
-  if (board.slug === 'd' && !ageVerified) {
+  if (board.slug === 'd' && !ageVerified && !isGomoRoute) {
     return (
       <AgeVerification 
         open={showAgeVerification}
@@ -377,13 +578,73 @@ const Board = () => {
     );
   }
 
-  const canCreateThread = user && (!board.is_rules_board || isModerator);
+  const canCreateThread = user && (!board.is_rules_board || isModerator) && (!board.is_gomosub || hasAcceptedRules);
 
   return (
-    <main className="max-w-5xl mx-auto p-2 sm:p-4 flex-1 relative">
-        <div className="mb-3 sm:mb-4 text-center">
-          <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
+    <main className={`${isGomoRoute ? "max-w-5xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative`}>
+        <div className="mb-3 sm:mb-4 space-y-3">
+          {board.is_gomosub ? (
+            <Card className="overflow-hidden border-primary/40">
+              {board.cover_image_url && (
+                <div
+                  className="h-40 sm:h-48 w-full bg-cover bg-center"
+                  style={{ backgroundImage: `url(${board.cover_image_url})` }}
+                  aria-label={`Обложка /${board.slug}/`}
+                />
+              )}
+              <div className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">gomo саб</Badge>
+                      <span className="text-sm text-muted-foreground">/{board.slug}/</span>
+                      <Badge variant="outline" className="text-xs">участников: {membersCount}</Badge>
+                    </div>
+                    <h1 className="text-xl sm:text-2xl font-bold">{board.name}</h1>
+                    <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
+                  </div>
+                  <div className="flex flex-col items-start sm:items-end gap-2 min-w-[220px]">
+                    {board.is_gomosub && (
+                      <Button
+                        variant={isJoined ? "secondary" : "default"}
+                        onClick={handleToggleJoin}
+                        className={`w-full sm:w-auto text-sm ${isJoined ? "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 border border-emerald-500/30" : "shadow-sm"}`}
+                        disabled={membershipLoading || checkingRules}
+                      >
+                        {isJoined ? (
+                          <>
+                            <UserCheck className="w-4 h-4 mr-2" />
+                            Вы участник
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            Вступить в саб
+                          </>
+                        )}
+                      </Button>
+                    )}
+                    {boardOwner && (
+                      <div className="text-sm text-muted-foreground">
+                        Создатель:{" "}
+                        <ProfileHoverCard userId={boardOwner.id}>
+                          <span className="font-semibold text-foreground">@{boardOwner.username}</span>
+                        </ProfileHoverCard>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
+              </div>
+            </Card>
+          ) : (
+            <div className="text-center">
+              <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
+            </div>
+          )}
+
+          {!isGomoRoute && (
+          <>
           {/* Mobile Filters Button */}
           <div className="md:hidden mt-3">
             <Button
@@ -707,13 +968,46 @@ const Board = () => {
               </button>
             </div>
           )}
+          </>
+          )}
         </div>
 
-        {canCreateThread && (
-          <Button onClick={() => navigate(`/create`)} className="mb-3 sm:mb-4 text-sm hover:bg-primary hover:text-primary-foreground transition-colors">
-            Создать тред
-          </Button>
-        )}
+        <div className="flex flex-col sm:flex-row gap-2 mb-3 sm:mb-4">
+          {canCreateThread && (
+            <Button
+              onClick={() =>
+                navigate(
+                  isGomoRoute
+                    ? `/g/${slug}/create`
+                    : `/create?board=${slug}`
+                )
+              }
+              className="text-sm hover:bg-primary hover:text-primary-foreground transition-colors w-full sm:w-auto"
+            >
+              Создать тред
+            </Button>
+          )}
+          {isGomoRoute && board.rules_markdown?.trim() && (
+            <Button
+              variant="outline"
+              onClick={() => setShowRulesDialog(true)}
+              className="text-sm w-full sm:w-auto"
+              disabled={checkingRules}
+            >
+              <BookOpenText className="w-4 h-4 mr-2" />
+              Правила
+            </Button>
+          )}
+          {isGomoRoute && user?.id && board?.owner_id === user.id && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/g/${slug}/settings`)}
+              className="text-sm w-full sm:w-auto"
+            >
+              Настройки g-саба
+            </Button>
+          )}
+        </div>
 
 
         <div className="space-y-2 relative">
@@ -750,104 +1044,11 @@ const Board = () => {
             </>
           ) : (
             threads.map((thread) => (
-            <Link
-              key={thread.id}
-              to={`/${slug}/thread/${thread.id}`}
-              className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
-            >
-              {/* Mobile Layout */}
-              <div className="md:hidden">
-                <div className="space-y-3">
-                  {/* User info and time */}
-                  <div className="flex items-center justify-between">
-                    <UserBadge
-                      userId={thread.user_id}
-                      username={thread.profiles?.username || "Аноним"}
-                      isAnonymous={thread.profiles?.is_anonymous}
-                      showOutline={false}
-                      disableLink={true}
-                      className="text-sm"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(new Date(thread.created_at), {
-                        locale: ru,
-                        addSuffix: true,
-                      })}
-                    </span>
-                  </div>
-
-                  {/* Thread Title */}
-                  <h3 className="font-bold text-lg break-words">
-                    {thread.title}
-                  </h3>
-
-                  {/* Tags */}
-                  <div>
-                    {renderTags(thread.tags, 'mobile')}
-                  </div>
-
-                  {/* Thread Content Preview */}
-                  <div className="text-sm text-muted-foreground line-clamp-3 break-words">
-                    {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
-                      <>
-                        {renderContent(thread.content.substring(0, 200))}
-                        {thread.content.length > 200 && '...'}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Thread Image - Large and prominent at bottom */}
-                  {thread.image_url && (
-                    <div className="w-full">
-                      <img
-                        src={thread.image_url}
-                        alt="Thread"
-                        className="w-full h-48 object-cover border border-border rounded-lg"
-                      />
-                    </div>
-                  )}
-
-                  {/* Reply count */}
-                  <div className="flex justify-end">
-                    <span className="text-xs text-muted-foreground">
-                      {thread.post_count > 0
-                        ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
-                        : 'нет ответов'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Desktop Layout */}
-              <div className="hidden md:block">
-                <div className="flex gap-4">
-                  {/* Thread Image */}
-                  <div className="flex-shrink-0">
-                    {thread.image_url ? (
-                      <img
-                        src={thread.image_url}
-                        alt="Thread"
-                        className="w-24 h-24 object-cover border border-border rounded-lg"
-                      />
-                    ) : (
-                      <div className="w-24 h-24 bg-muted border border-border rounded-lg flex items-center justify-center">
-                        <span className="text-xs text-muted-foreground">Нет фото</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Thread Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-bold text-lg break-words pr-4 transition-transform duration-200 group-hover:translate-x-0.5">
-                        {thread.title}
-                      </h3>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-sm text-muted-foreground">
-                          {thread.post_count > 0
-                            ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
-                            : 'нет ответов'}
-                        </span>
+              isGomoRoute ? (
+                <Card key={thread.id} className="border-border/70 bg-card/95 p-0 overflow-hidden hover:border-primary/35 transition-colors rounded-xl">
+                  <div className="p-3 sm:p-5">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <UserBadge
                           userId={thread.user_id}
                           username={thread.profiles?.username || "Аноним"}
@@ -856,33 +1057,228 @@ const Board = () => {
                           disableLink={true}
                           className="text-sm"
                         />
+                        <span>
+                          {formatDistanceToNow(new Date(thread.created_at), {
+                            locale: ru,
+                            addSuffix: true,
+                          })}
+                        </span>
                       </div>
-                    </div>
 
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-muted-foreground">
-                        {formatDistanceToNow(new Date(thread.created_at), {
-                          locale: ru,
-                          addSuffix: true,
-                        })}
-                      </span>
-                      <div className="flex-1">
-                        {renderTags(thread.tags, 'inline')}
-                      </div>
-                    </div>
+                      <Link
+                        to={`${pathPrefix}/${slug}/thread/${thread.id}`}
+                        className="block group/title"
+                      >
+                        <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
+                          {thread.title}
+                        </h3>
+                      </Link>
 
-                    <p className="text-sm text-muted-foreground line-clamp-2 break-words">
-                      {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
-                        <>
-                          {renderContent(thread.content.substring(0, 300))}
-                          {thread.content.length > 300 && '...'}
-                        </>
+                      {Array.isArray(thread.tags?.gomosub_tags) && thread.tags.gomosub_tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {thread.tags.gomosub_tags.map((tag: string) => (
+                            <span
+                              key={`${thread.id}-g-${tag}`}
+                              className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full border border-primary/20"
+                            >
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
                       )}
-                    </p>
+
+                      <div className="relative">
+                        <div
+                          className={`text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words leading-relaxed ${thread.content.length > 900 ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}`}
+                        >
+                          {hasVisibilityTags(thread.content)
+                            ? 'зайдите в тему чтобы посмотреть'
+                            : renderContent(thread.content)}
+                        </div>
+                        {thread.content.length > 900 && (
+                          <Link
+                            to={`${pathPrefix}/${slug}/thread/${thread.id}`}
+                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
+                          >
+                            Читать полностью
+                            <ArrowUpRight className="w-4 h-4" />
+                          </Link>
+                        )}
+                      </div>
+
+                      {thread.image_url && (
+                        <Link to={`${pathPrefix}/${slug}/thread/${thread.id}`} className="block">
+                          <img
+                            src={thread.image_url}
+                            alt="Thread"
+                            className="w-full max-h-[360px] sm:max-h-[520px] object-contain border border-border/80 rounded-lg bg-muted/20 hover:border-primary/35 transition-colors"
+                          />
+                        </Link>
+                      )}
+
+                      <div className="pt-2 border-t border-border/60 flex items-center justify-between text-sm text-muted-foreground">
+                        <LikeButton
+                          postId={thread.id}
+                          currentUserId={user?.id ?? null}
+                          postAuthorId={thread.user_id}
+                          isThread={true}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`${pathPrefix}/${slug}/thread/${thread.id}`)}
+                          className="gap-2"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          {thread.post_count > 0 ? thread.post_count : 0}
+                        </Button>
+                      </div>
+
+                      {thread.latest_post?.content && (
+                        <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                          <span className="font-medium">Последний комментарий:</span>{" "}
+                          {thread.latest_post.content.slice(0, 120)}
+                          {thread.latest_post.content.length > 120 && "..."}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            </Link>
+                </Card>
+              ) : (
+                <Link
+                  key={thread.id}
+                  to={`${pathPrefix}/${slug}/thread/${thread.id}`}
+                  className="block border border-border bg-card p-2 sm:p-3 hover:bg-thread-hover transition-all duration-200 group"
+                >
+                  {/* Mobile Layout */}
+                  <div className="md:hidden">
+                    <div className="space-y-3">
+                      {/* User info and time */}
+                      <div className="flex items-center justify-between">
+                        <UserBadge
+                          userId={thread.user_id}
+                          username={thread.profiles?.username || "Аноним"}
+                          isAnonymous={thread.profiles?.is_anonymous}
+                          showOutline={false}
+                          disableLink={true}
+                          className="text-sm"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(thread.created_at), {
+                            locale: ru,
+                            addSuffix: true,
+                          })}
+                        </span>
+                      </div>
+
+                      {/* Thread Title */}
+                      <h3 className="font-bold text-lg break-words">
+                        {thread.title}
+                      </h3>
+
+                      {/* Tags */}
+                      <div>
+                        {renderTags(thread.tags, 'mobile')}
+                      </div>
+
+                      {/* Thread Content Preview */}
+                      <div className="text-sm text-muted-foreground line-clamp-3 break-words">
+                        {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                          <>
+                            {renderContent(thread.content.substring(0, 200))}
+                            {thread.content.length > 200 && '...'}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Thread Image - Large and prominent at bottom */}
+                      {thread.image_url && (
+                        <div className="w-full">
+                          <img
+                            src={thread.image_url}
+                            alt="Thread"
+                            className="w-full h-48 object-cover border border-border rounded-lg"
+                          />
+                        </div>
+                      )}
+
+                      {/* Reply count */}
+                      <div className="flex justify-end">
+                        <span className="text-xs text-muted-foreground">
+                          {thread.post_count > 0
+                            ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
+                            : 'нет ответов'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Desktop Layout */}
+                  <div className="hidden md:block">
+                    <div className="flex gap-4">
+                      {/* Thread Image */}
+                      <div className="flex-shrink-0">
+                        {thread.image_url ? (
+                          <img
+                            src={thread.image_url}
+                            alt="Thread"
+                            className="w-24 h-24 object-cover border border-border rounded-lg"
+                          />
+                        ) : (
+                          <div className="w-24 h-24 bg-muted border border-border rounded-lg flex items-center justify-center">
+                            <span className="text-xs text-muted-foreground">Нет фото</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Thread Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="font-bold text-lg break-words pr-4 transition-transform duration-200 group-hover:translate-x-0.5">
+                            {thread.title}
+                          </h3>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-sm text-muted-foreground">
+                              {thread.post_count > 0
+                                ? `${thread.post_count} ${thread.post_count === 1 ? 'ответ' : 'ответов'}`
+                                : 'нет ответов'}
+                            </span>
+                            <UserBadge
+                              userId={thread.user_id}
+                              username={thread.profiles?.username || "Аноним"}
+                              isAnonymous={thread.profiles?.is_anonymous}
+                              showOutline={false}
+                              disableLink={true}
+                              className="text-sm"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm text-muted-foreground">
+                            {formatDistanceToNow(new Date(thread.created_at), {
+                              locale: ru,
+                              addSuffix: true,
+                            })}
+                          </span>
+                          <div className="flex-1">
+                            {renderTags(thread.tags, 'inline')}
+                          </div>
+                        </div>
+
+                        <p className="text-sm text-muted-foreground line-clamp-2 break-words">
+                          {hasVisibilityTags(thread.content) ? 'зайдите в тему чтобы посмотреть' : (
+                            <>
+                              {renderContent(thread.content.substring(0, 300))}
+                              {thread.content.length > 300 && '...'}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              )
             ))
           )}
         </div>
@@ -891,6 +1287,60 @@ const Board = () => {
           <div className="text-center text-muted-foreground p-8">
             Тредов пока нет. Будьте первым!
           </div>
+        )}
+
+        {board.is_gomosub && board.rules_markdown?.trim() && (
+          <Dialog
+            open={showRulesDialog}
+            onOpenChange={(open) => {
+              if (hasAcceptedRules) {
+                setShowRulesDialog(open);
+              } else if (open) {
+                setShowRulesDialog(true);
+              }
+            }}
+          >
+            <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-hidden">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <BookOpenText className="w-5 h-5 text-primary" />
+                  Правила g/{board.slug}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {rulesUpdatedLabel && (
+                  <p className="text-xs text-muted-foreground">Обновлены {rulesUpdatedLabel}</p>
+                )}
+                <div className="max-h-[46vh] overflow-y-auto rounded-md border border-border/70 bg-muted/30 p-3">
+                  <div className="prose prose-sm max-w-none">
+                    {renderContent(board.rules_markdown)}
+                  </div>
+                </div>
+                {!hasAcceptedRules && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="g-rules-accepted"
+                      checked={rulesConfirmed}
+                      onCheckedChange={(checked) => setRulesConfirmed(Boolean(checked))}
+                    />
+                    <label htmlFor="g-rules-accepted" className="text-sm text-muted-foreground cursor-pointer">
+                      Я прочитал правила и согласен соблюдать их
+                    </label>
+                  </div>
+                )}
+                <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                  {!hasAcceptedRules && (
+                    <Button variant="outline" onClick={() => navigate("/g")}>
+                      Вернуться к g-сабам
+                    </Button>
+                  )}
+                  <Button onClick={hasAcceptedRules ? () => setShowRulesDialog(false) : handleAcceptRules}>
+                    {hasAcceptedRules ? "Закрыть" : "Принять правила"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </main>
   );

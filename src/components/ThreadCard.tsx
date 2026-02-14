@@ -27,12 +27,13 @@ interface ThreadCardProps {
       username: string;
       is_anonymous: boolean;
       avatar_url?: string | null;
-    } | null;
-    boards: {
-      slug: string;
-      name: string;
-    };
-    post_count?: number;
+  } | null;
+  boards: {
+    slug: string;
+    name: string;
+    is_gomosub?: boolean | null;
+  };
+  post_count?: number;
   };
   currentUserId: string | null;
   currentUsername: string;
@@ -318,8 +319,10 @@ const ThreadCard = ({
     }
   };
 
+  const boardPrefix = thread.boards.is_gomosub ? "/g" : "";
+
   return (
-    <Link to={`/${thread.boards.slug}/thread/${thread.id}`} className="block">
+    <Link to={`${boardPrefix}/${thread.boards.slug}/thread/${thread.id}`} className="block">
         <div className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 cursor-pointer">
         {/* Thread Header */}
         <div className="flex items-start gap-3 mb-3">
@@ -349,7 +352,7 @@ const ThreadCard = ({
                 disableLink={true}
               />
               <span className="text-xs text-muted-foreground">
-                в /{thread.boards.slug}/
+                в {boardPrefix || ""}/{thread.boards.slug}/
               </span>
               <span className="text-xs text-muted-foreground">
                 {formatDistanceToNow(new Date(thread.created_at), {

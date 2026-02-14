@@ -377,7 +377,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const handleAudioPlay = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
-      if (nowPlayingHidden) return;
 
       const id = detail.playerId || crypto.randomUUID();
       const title = detail.title || "Аудио";
@@ -500,7 +499,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       if (!detail) return;
       const id = detail.playerId;
       if (!id) return;
-      if (nowPlayingHidden) return;
       const { title, src, playlistId, playlistIndex, instance } = detail;
       audioMapRef.current.set(id, { inst: instance, title: title || "Аудио", playlistId, playlistIndex });
       if (playlistId !== undefined && playlistIndex !== undefined) {
@@ -520,6 +518,11 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       const detail = (e as CustomEvent).detail;
       if (!detail?.playerId) return;
       const { playerId, playlistId } = detail;
+      if (nowPlaying?.id === playerId) {
+        // Ignore unregister for currently active track. It may come from route unmount while
+        // the audio instance is preserved in the global pool.
+        return;
+      }
       audioMapRef.current.delete(playerId);
       if (playlistId !== undefined) {
         const list = playlistMapRef.current.get(playlistId);
@@ -540,7 +543,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       window.removeEventListener("global-audio-register", handleAudioRegister as EventListener);
       window.removeEventListener("global-audio-unregister", handleAudioUnregister as EventListener);
     };
-  }, []);
+  }, [nowPlaying?.id]);
 
   useEffect(() => {
     const handleAudioDestroy = (e: Event) => {
