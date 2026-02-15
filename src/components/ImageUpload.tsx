@@ -9,9 +9,17 @@ interface ImageUploadProps {
   onImagesUploaded: (urls: string[]) => void;
   currentImages?: string[];
   maxImages?: number;
+  triggerMode?: "button" | "zone";
+  triggerText?: string;
 }
 
-export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 10 }: ImageUploadProps) => {
+export const ImageUpload = ({
+  onImagesUploaded,
+  currentImages = [],
+  maxImages = 10,
+  triggerMode = "button",
+  triggerText,
+}: ImageUploadProps) => {
   const [uploading, setUploading] = useState(false);
   const [previews, setPreviews] = useState<string[]>(currentImages);
   const [removeMetadata, setRemoveMetadata] = useState(true);
@@ -188,16 +196,32 @@ export const ImageUpload = ({ onImagesUploaded, currentImages = [], maxImages = 
           multiple
           className="hidden"
         />
-        <Button 
-          type="button" 
-          variant="outline" 
-          size="sm"
-          disabled={uploading || previews.length >= maxImages}
-          onClick={handleButtonClick}
-        >
-          <Upload className="h-4 w-4 mr-2" />
-          {uploading ? "Загрузка..." : previews.length === 0 ? "Загрузить фото" : `Добавить фото (${previews.length}/${maxImages})`}
-        </Button>
+        {triggerMode === "zone" ? (
+          <button
+            type="button"
+            disabled={uploading || previews.length >= maxImages}
+            onClick={handleButtonClick}
+            className="w-full rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+          >
+            {triggerText ||
+              (uploading
+                ? "Загрузка..."
+                : previews.length === 0
+                ? "Нажми, чтобы добавить фото"
+                : `Нажми, чтобы добавить фото (${previews.length}/${maxImages})`)}
+          </button>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading || previews.length >= maxImages}
+            onClick={handleButtonClick}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            {uploading ? "Загрузка..." : previews.length === 0 ? "Загрузить фото" : `Добавить фото (${previews.length}/${maxImages})`}
+          </Button>
+        )}
       </div>
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-2">
