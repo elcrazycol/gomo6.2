@@ -70,6 +70,7 @@ export type Database = {
       }
       boards: {
         Row: {
+          gomosub_avatar_url: string | null
           cover_image_url: string | null
           created_at: string
           description: string | null
@@ -84,6 +85,7 @@ export type Database = {
           slug: string
         }
         Insert: {
+          gomosub_avatar_url?: string | null
           cover_image_url?: string | null
           created_at?: string
           description?: string | null
@@ -98,6 +100,7 @@ export type Database = {
           slug: string
         }
         Update: {
+          gomosub_avatar_url?: string | null
           cover_image_url?: string | null
           created_at?: string
           description?: string | null

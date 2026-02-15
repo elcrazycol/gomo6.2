@@ -50,11 +50,10 @@ import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck } from "lucide-react";
+import { Settings, Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -71,6 +70,7 @@ interface Board {
   is_rules_board: boolean;
   is_gomosub?: boolean | null;
   cover_image_url?: string | null;
+  gomosub_avatar_url?: string | null;
   owner_id?: string | null;
   rules_markdown?: string | null;
   rules_updated_at?: string | null;
@@ -120,12 +120,12 @@ const Board = () => {
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
+  const [authResolved, setAuthResolved] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const [searchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
-  const [boardOwner, setBoardOwner] = useState<{ id: string; username: string; avatar_url?: string | null } | null>(null);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
   const [hasAcceptedRules, setHasAcceptedRules] = useState(false);
   const [rulesConfirmed, setRulesConfirmed] = useState(false);
@@ -144,13 +144,15 @@ const Board = () => {
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
+      const sessionUser = session?.user ?? null;
+      setUser(sessionUser);
+      setAuthResolved(true);
       
-      if (session?.user) {
+      if (sessionUser) {
         const { data: roles } = await supabase
           .from("user_roles")
           .select("role")
-          .eq("user_id", session.user.id);
+          .eq("user_id", sessionUser.id);
         
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
 
@@ -158,7 +160,7 @@ const Board = () => {
         const { data: profile } = await supabase
           .from("profiles")
           .select("username")
-          .eq("id", session.user.id)
+          .eq("id", sessionUser.id)
           .single();
 
         if (profile) {
@@ -175,7 +177,7 @@ const Board = () => {
               reward_value
             )
           `)
-          .eq("user_id", session.user.id);
+          .eq("user_id", sessionUser.id);
 
         if (achievements) {
           const colorRewards = achievements
@@ -197,6 +199,7 @@ const Board = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
+        setAuthResolved(true);
       }
     );
 
@@ -207,6 +210,11 @@ const Board = () => {
 
   useEffect(() => {
     const loadBoard = async () => {
+      if (isGomoRoute && !authResolved) {
+        setCheckingRules(true);
+        return;
+      }
+
       setPageLoading(true);
       setBoard(null);
       setThreads([]);
@@ -256,17 +264,6 @@ const Board = () => {
 
         setBoard(boardData);
 
-        if (boardData.owner_id) {
-          const { data: owner } = await supabase
-            .from("profiles")
-            .select("id, username, avatar_url")
-            .eq("id", boardData.owner_id)
-            .maybeSingle();
-          setBoardOwner(owner || null);
-        } else {
-          setBoardOwner(null);
-        }
-        
         // Check age verification for /d/ board
         if (boardData.slug === 'd') {
           const verified = sessionStorage.getItem('age_verified_d');
@@ -297,7 +294,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute]);
+  }, [slug, user, searchParams, isGomoRoute, authResolved]);
 
   useEffect(() => {
     const loadMembership = async () => {
@@ -579,62 +576,68 @@ const Board = () => {
   }
 
   const canCreateThread = user && (!board.is_rules_board || isModerator) && (!board.is_gomosub || hasAcceptedRules);
+  const hasSecondaryActions = Boolean(
+    (isGomoRoute && board.rules_markdown?.trim()) ||
+    (isGomoRoute && user?.id && board?.owner_id === user.id)
+  );
 
   return (
     <main className={`${isGomoRoute ? "max-w-5xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative`}>
         <div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
-            <Card className="overflow-hidden border-primary/40">
-              {board.cover_image_url && (
-                <div
-                  className="h-40 sm:h-48 w-full bg-cover bg-center"
-                  style={{ backgroundImage: `url(${board.cover_image_url})` }}
-                  aria-label={`Обложка /${board.slug}/`}
-                />
-              )}
-              <div className="p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">gomo саб</Badge>
-                      <span className="text-sm text-muted-foreground">/{board.slug}/</span>
-                      <Badge variant="outline" className="text-xs">участников: {membersCount}</Badge>
-                    </div>
-                    <h1 className="text-xl sm:text-2xl font-bold">{board.name}</h1>
-                    <p className="text-sm sm:text-base text-muted-foreground">{board.description}</p>
-                  </div>
-                  <div className="flex flex-col items-start sm:items-end gap-2 min-w-[220px]">
-                    {board.is_gomosub && (
-                      <Button
-                        variant={isJoined ? "secondary" : "default"}
-                        onClick={handleToggleJoin}
-                        className={`w-full sm:w-auto text-sm ${isJoined ? "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 border border-emerald-500/30" : "shadow-sm"}`}
-                        disabled={membershipLoading || checkingRules}
-                      >
-                        {isJoined ? (
-                          <>
-                            <UserCheck className="w-4 h-4 mr-2" />
-                            Вы участник
-                          </>
+            <Card className="overflow-hidden border-primary/20 bg-card">
+              <div className="relative">
+                <div className="h-40 sm:h-52">
+                  {board.cover_image_url ? (
+                    <img
+                      src={board.cover_image_url}
+                      alt={`Обложка /${board.slug}/`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-gradient-to-br from-primary/15 to-muted" />
+                  )}
+                </div>
+                <div className="absolute left-0 right-0 -bottom-10 sm:-bottom-12">
+                  <div className="flex items-end gap-3 px-4 sm:px-6 py-2">
+                    <div className="flex items-end gap-3 min-w-0">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg border-2 border-background bg-muted overflow-hidden flex items-center justify-center text-2xl font-bold text-muted-foreground shrink-0">
+                        {board.gomosub_avatar_url ? (
+                          <img src={board.gomosub_avatar_url} alt={board.name} className="w-full h-full object-cover" />
                         ) : (
-                          <>
-                            <UserPlus className="w-4 h-4 mr-2" />
-                            Вступить в саб
-                          </>
+                          <span>{(board.name?.[0] || "g").toUpperCase()}</span>
                         )}
-                      </Button>
-                    )}
-                    {boardOwner && (
-                      <div className="text-sm text-muted-foreground">
-                        Создатель:{" "}
-                        <ProfileHoverCard userId={boardOwner.id}>
-                          <span className="font-semibold text-foreground">@{boardOwner.username}</span>
-                        </ProfileHoverCard>
                       </div>
-                    )}
+                      <div className="text-xl sm:text-2xl font-bold text-primary pb-1 truncate">g/{board.slug}</div>
+                    </div>
                   </div>
                 </div>
+              </div>
 
+              <div className="relative px-4 sm:px-6 pt-12 sm:pt-14 pb-4 sm:pb-5">
+                {board.is_gomosub && (
+                  <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2">
+                    <Button
+                      variant={isJoined ? "secondary" : "default"}
+                      onClick={handleToggleJoin}
+                      className={`h-9 w-9 p-0 sm:h-10 sm:w-auto sm:px-4 sm:text-sm ${isJoined ? "bg-primary/12 text-primary hover:bg-primary/20 border border-primary/35" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
+                      disabled={membershipLoading || checkingRules}
+                    >
+                      {isJoined ? (
+                        <>
+                          <UserCheck className="w-4 h-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Вы участник</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="w-4 h-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Вступить</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+                <p className="mt-2 text-sm sm:text-base text-muted-foreground sm:pr-44">{board.description}</p>
               </div>
             </Card>
           ) : (
@@ -972,41 +975,50 @@ const Board = () => {
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-2 mb-3 sm:mb-4">
-          {canCreateThread && (
-            <Button
-              onClick={() =>
-                navigate(
-                  isGomoRoute
-                    ? `/g/${slug}/create`
-                    : `/create?board=${slug}`
-                )
-              }
-              className="text-sm hover:bg-primary hover:text-primary-foreground transition-colors w-full sm:w-auto"
-            >
-              Создать тред
-            </Button>
-          )}
-          {isGomoRoute && board.rules_markdown?.trim() && (
-            <Button
-              variant="outline"
-              onClick={() => setShowRulesDialog(true)}
-              className="text-sm w-full sm:w-auto"
-              disabled={checkingRules}
-            >
-              <BookOpenText className="w-4 h-4 mr-2" />
-              Правила
-            </Button>
-          )}
-          {isGomoRoute && user?.id && board?.owner_id === user.id && (
-            <Button
-              variant="outline"
-              onClick={() => navigate(`/g/${slug}/settings`)}
-              className="text-sm w-full sm:w-auto"
-            >
-              Настройки g-саба
-            </Button>
-          )}
+        <div className="mb-3 sm:mb-4">
+          <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {canCreateThread && (
+              <Button
+                onClick={() =>
+                  navigate(
+                    isGomoRoute
+                      ? `/g/${slug}/create`
+                      : `/create?board=${slug}`
+                  )
+                }
+                className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
+              >
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Создать тред</span>
+              </Button>
+            )}
+            {hasSecondaryActions && (
+              <div className="flex items-center gap-2 ml-auto">
+                {isGomoRoute && board.rules_markdown?.trim() && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowRulesDialog(true)}
+                    className="h-8 px-3 text-xs sm:h-9 sm:text-sm rounded-lg border-primary/35 text-primary hover:bg-primary/10"
+                    disabled={checkingRules}
+                  >
+                    <BookOpenText className="w-3.5 h-3.5 mr-1.5" />
+                    Правила
+                  </Button>
+                )}
+                {isGomoRoute && user?.id && board?.owner_id === user.id && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => navigate(`/g/${slug}/settings`)}
+                    className="h-8 px-3 text-xs sm:h-9 sm:text-sm rounded-lg border-primary/35 text-primary hover:bg-primary/10"
+                  >
+                    Настройки
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
 
@@ -1064,6 +1076,7 @@ const Board = () => {
                           })}
                         </span>
                       </div>
+                      <div className="h-px bg-border/35" />
 
                       <Link
                         to={`${pathPrefix}/${slug}/thread/${thread.id}`}
@@ -1107,16 +1120,17 @@ const Board = () => {
                       </div>
 
                       {thread.image_url && (
-                        <Link to={`${pathPrefix}/${slug}/thread/${thread.id}`} className="block">
+                        <Link to={`${pathPrefix}/${slug}/thread/${thread.id}`} className="block pt-1">
                           <img
                             src={thread.image_url}
                             alt="Thread"
-                            className="w-full max-h-[360px] sm:max-h-[520px] object-contain border border-border/80 rounded-lg bg-muted/20 hover:border-primary/35 transition-colors"
+                            className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
                           />
                         </Link>
                       )}
 
-                      <div className="pt-2 border-t border-border/60 flex items-center justify-between text-sm text-muted-foreground">
+                      <div className="h-px bg-border/35 mt-1" />
+                      <div className="pt-2 flex items-center justify-between text-sm text-muted-foreground">
                         <LikeButton
                           postId={thread.id}
                           currentUserId={user?.id ?? null}
@@ -1125,9 +1139,9 @@ const Board = () => {
                         />
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant="secondary"
                           onClick={() => navigate(`${pathPrefix}/${slug}/thread/${thread.id}`)}
-                          className="gap-2"
+                          className="h-9 rounded-full px-3 gap-2"
                         >
                           <MessageCircle className="w-4 h-4" />
                           {thread.post_count > 0 ? thread.post_count : 0}

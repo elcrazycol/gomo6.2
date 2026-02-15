@@ -62,6 +62,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [isDesktop, setIsDesktop] = useState<boolean>(false);
   const [contentPad, setContentPad] = useState<number>(72);
   const lastTrackRef = useRef<{ id: string; title: string; src?: string } | null>(null);
+  const lastHeaderToggleRef = useRef(0);
   const [restored, setRestored] = useState(false);
   const controlRef = useRef<(action: "prev" | "next" | "toggle" | "mute") => void>(() => {});
   const [searchQuery, setSearchQuery] = useState("");
@@ -206,10 +207,40 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   // Header animation logic
   useMotionValueEvent(scrollY, "change", (latest) => {
     const previous = scrollY.getPrevious();
-    if (previous !== undefined && latest > previous && latest > 100) {
+    if (previous === undefined) return;
+
+    const doc = document.documentElement;
+    const maxScroll = Math.max(0, doc.scrollHeight - window.innerHeight);
+    const clampedLatest = Math.min(Math.max(latest, 0), maxScroll);
+    const delta = latest - previous;
+    if (Math.abs(delta) < 6) return;
+
+    const now = performance.now();
+    if (now - lastHeaderToggleRef.current < 120) return;
+
+    const atTop = clampedLatest <= 4;
+    const nearBottom = clampedLatest >= maxScroll - 28;
+
+    if (atTop) {
+      if (!isHeaderVisible) {
+        setIsHeaderVisible(true);
+        lastHeaderToggleRef.current = now;
+      }
+      return;
+    }
+
+    // Hard guard near page bottom: avoid header animation jitter on overscroll/bounce.
+    if (nearBottom) return;
+
+    if (delta > 0 && latest > 120 && isHeaderVisible) {
       setIsHeaderVisible(false);
-    } else if (previous !== undefined && latest < previous) {
+      lastHeaderToggleRef.current = now;
+      return;
+    }
+
+    if (delta < 0 && !isHeaderVisible) {
       setIsHeaderVisible(true);
+      lastHeaderToggleRef.current = now;
     }
   });
 

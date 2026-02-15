@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
-import { Loader2 } from "lucide-react";
+import { Loader2, Smile, X } from "lucide-react";
+import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
+import { EmojiPicker } from "@/components/EmojiPicker";
+import { ImageGallery } from "@/components/ImageGallery";
 
 type GomoBoard = {
   id: string;
@@ -29,6 +32,10 @@ const CreateGomoThread = () => {
   const [content, setContent] = useState("");
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   useEffect(() => {
     const loadBoard = async () => {
@@ -64,6 +71,57 @@ const CreateGomoThread = () => {
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const openAttachmentEditor = (imageAttachmentIndex: number) => {
+    setGalleryIndex(imageAttachmentIndex);
+    setShowGallery(true);
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} Б`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} КБ`;
+    return `${(kb / 1024).toFixed(1)} МБ`;
+  };
+
+  const imageAttachments = useMemo(
+    () => attachments.filter((att) => att.type === "image"),
+    [attachments]
+  );
+
+  const insertAtSelection = (prefix: string, suffix: string = "") => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = content.substring(start, end);
+    const newText = prefix + selectedText + suffix;
+    setContent(content.substring(0, start) + newText + content.substring(end));
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
+    }, 0);
+  };
+
+  const handleEmojiSelect = (emojiCode: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setContent((prev) => `${prev}${emojiCode}`);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    setContent(content.substring(0, start) + emojiCode + content.substring(end));
+    setTimeout(() => {
+      textarea.focus();
+      const pos = start + emojiCode.length;
+      textarea.setSelectionRange(pos, pos);
+    }, 0);
   };
 
   const handleCreate = async () => {
@@ -128,7 +186,30 @@ const CreateGomoThread = () => {
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Текст</label>
-            <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={8} placeholder="Текст треда" />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <InlineFormattingToolbar onFormat={insertAtSelection} />
+                <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
+                  <Button
+                    ref={emojiButtonRef}
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    title="Эмодзи"
+                  >
+                    <Smile className="h-4 w-4" />
+                  </Button>
+                </EmojiPicker>
+              </div>
+              <Textarea
+                ref={textareaRef}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={8}
+                placeholder="Текст треда"
+              />
+            </div>
           </div>
 
           {board?.gomosub_tags && board.gomosub_tags.length > 0 && (
@@ -155,6 +236,44 @@ const CreateGomoThread = () => {
           <div className="space-y-2">
             <label className="text-sm font-medium">Вложения</label>
             <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={10} />
+            {attachments.length > 0 && (
+              <div className="space-y-2 rounded-md border border-border/60 p-3">
+                {attachments.map((att, index) => (
+                  <div key={`${att.url}-${index}`} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      {att.type === "image" && (
+                        <button type="button" onClick={() => openAttachmentEditor(imageAttachments.findIndex((img) => img.url === att.url))}>
+                          <img src={att.url} alt={att.name} className="max-h-36 w-auto rounded-md object-cover" />
+                        </button>
+                      )}
+                      {att.type === "video" && (
+                        <video src={att.url} poster={att.poster} controls className="max-h-40 w-full rounded-md" />
+                      )}
+                      {att.type === "audio" && (
+                        <audio src={att.url} controls className="w-full" />
+                      )}
+                      {att.type === "file" && (
+                        <a href={att.url} target="_blank" rel="noreferrer" className="text-sm text-primary underline break-all">
+                          {att.name}
+                        </a>
+                      )}
+                      <p className="mt-1 text-xs text-muted-foreground truncate">
+                        {att.name} · {formatSize(att.size)}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => removeAttachment(index)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
@@ -168,6 +287,27 @@ const CreateGomoThread = () => {
           </div>
         </CardContent>
       </Card>
+      {showGallery && imageAttachments.length > 0 && (
+        <ImageGallery
+          images={imageAttachments.map((att) => att.url)}
+          initialIndex={galleryIndex}
+          onClose={() => setShowGallery(false)}
+          onEditImage={(idx, dataUrl) => {
+            setAttachments((prev) => {
+              let imageIdx = -1;
+              return prev.map((att) => {
+                if (att.type === "image") {
+                  imageIdx += 1;
+                  if (imageIdx === idx) {
+                    return { ...att, url: dataUrl };
+                  }
+                }
+                return att;
+              });
+            });
+          }}
+        />
+      )}
     </div>
   );
 };
