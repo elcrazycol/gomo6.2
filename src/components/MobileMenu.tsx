@@ -3,14 +3,19 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, X, User, Settings, Hammer, LogOut, Plus, Grid3X3, Search } from "lucide-react";
+import { Menu, User, Settings, Hammer, LogOut, Grid3X3, Search, Users } from "lucide-react";
 import { toast } from "sonner";
-import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
 
 interface MobileMenuProps {
   user: any;
   isModerator: boolean;
+}
+
+interface GomoSubItem {
+  id: string;
+  slug: string;
+  name: string;
 }
 
 export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
@@ -19,6 +24,8 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const [isAnonymous, setIsAnonymous] = useState<boolean>(false);
   const [accountNumber, setAccountNumber] = useState<number | undefined>();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [joinedSubs, setJoinedSubs] = useState<GomoSubItem[]>([]);
+  const [randomSubs, setRandomSubs] = useState<GomoSubItem[]>([]);
   const navigate = useNavigate();
   const location = useLocation();
   
@@ -46,6 +53,45 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadSubSections = async () => {
+      const { data: memberships } = await supabase
+        .from("gomosub_memberships")
+        .select("board_id")
+        .eq("user_id", user.id);
+      const joinedBoardIds = (memberships ?? []).map((m) => m.board_id);
+
+      if (joinedBoardIds.length > 0) {
+        const { data } = await supabase
+          .from("boards")
+          .select("id, slug, name")
+          .in("id", joinedBoardIds)
+          .order("created_at", { ascending: false })
+          .limit(6);
+        setJoinedSubs((data as GomoSubItem[]) ?? []);
+      } else {
+        setJoinedSubs([]);
+      }
+
+      const { data: allGSubs } = await supabase
+        .from("boards")
+        .select("id, slug, name")
+        .eq("is_gomosub", true)
+        .limit(30);
+
+      if (allGSubs && allGSubs.length > 0) {
+        const picked = [...allGSubs].sort(() => Math.random() - 0.5).slice(0, 3);
+        setRandomSubs(picked as GomoSubItem[]);
+      } else {
+        setRandomSubs([]);
+      }
+    };
+
+    loadSubSections();
+  }, [user?.id, open]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Вышли");
@@ -71,60 +117,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             <SheetTitle className="text-left">Меню</SheetTitle>
           </SheetHeader>
 
-          <div className="mt-6 space-y-4">
-            {/* Create thread button */}
-            <Button
-              onClick={() => {
-                navigate("/create");
-                setOpen(false);
-              }}
-              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Создать тред
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-
-            {/* Boards view button */}
-            <Button
-              variant="outline"
-              onClick={() => {
-                navigate("/boards");
-                setOpen(false);
-              }}
-              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
-            >
-              <Grid3X3 className="w-4 h-4 mr-2" />
-              Просмотр по доскам
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={() => {
-                navigate("/g");
-                setOpen(false);
-              }}
-              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
-            >
-              <Grid3X3 className="w-4 h-4 mr-2" />
-              Gomo сабы
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={() => {
-                navigate("/search");
-                setOpen(false);
-              }}
-              className="w-full relative group hover:translate-x-0.5 transition-transform duration-200"
-            >
-              <Search className="w-4 h-4 mr-2" />
-              Поиск
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-
+          <div className="mt-6 space-y-4 overflow-y-auto pb-4">
             {/* User profile panel */}
             <Link
               to={`/profile/${user.id}`}
@@ -158,6 +151,45 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               </div>
             </Link>
 
+            {/* Compact nav row */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 rounded-lg border border-border overflow-hidden grid grid-cols-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    navigate("/boards");
+                    setOpen(false);
+                  }}
+                  className="rounded-none border-r border-border h-10 text-xs"
+                >
+                  <Grid3X3 className="w-3.5 h-3.5 mr-1.5" />
+                  Доски
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    navigate("/g");
+                    setOpen(false);
+                  }}
+                  className="rounded-none h-10 text-xs"
+                >
+                  <Users className="w-3.5 h-3.5 mr-1.5" />
+                  G-сабы
+                </Button>
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  navigate("/search");
+                  setOpen(false);
+                }}
+                className="h-10 w-10"
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            </div>
+
             {/* Settings link */}
             <Link
               to="/settings"
@@ -185,6 +217,47 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 </Button>
               </Link>
             )}
+
+            <div className="space-y-2 pt-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Подписки</div>
+              {joinedSubs.length === 0 ? (
+                <div className="text-xs text-muted-foreground">Пока нет подписок</div>
+              ) : (
+                joinedSubs.map((sub) => (
+                  <Link
+                    key={sub.id}
+                    to={`/g/${sub.slug}`}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="font-medium text-primary">g/{sub.slug}</div>
+                    <div className="text-xs text-muted-foreground line-clamp-1">{sub.name}</div>
+                  </Link>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Капля рандома</div>
+              {randomSubs.map((sub) => (
+                <Link
+                  key={sub.id}
+                  to={`/g/${sub.slug}`}
+                  onClick={() => setOpen(false)}
+                  className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors"
+                >
+                  <div className="font-medium text-primary">g/{sub.slug}</div>
+                  <div className="text-xs text-muted-foreground line-clamp-1">{sub.name}</div>
+                </Link>
+              ))}
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Важное</div>
+              <Link to="/rules" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">Информация</Link>
+              <Link to="/bugs" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">Баги/Идеи</Link>
+              <Link to="/faq" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">FAQ</Link>
+            </div>
 
             {/* Logout button - only show when viewing own profile */}
             {isOwnProfile && (

@@ -145,7 +145,8 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
     const iw = imgRef.current.naturalWidth;
     const ih = imgRef.current.naturalHeight;
     if (!iw || !ih) return null;
-    const topInset = isEditing && showControls ? (isTouch ? 120 : 80) : 0;
+    // Keep maximum usable canvas area in edit mode so the image never shrinks too much.
+    const topInset = 0;
     const availableHeight = Math.max(1, ch - topInset);
     const scale = Math.min(cw / iw, availableHeight / ih);
     const w = iw * scale;
@@ -509,7 +510,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
         ref={containerRef}
         className={cn(
           "relative flex items-center justify-center",
-          isFullscreen ? "w-full h-full" : "max-w-[90vw] max-h-[85vh]"
+          isFullscreen ? "w-full h-full" : "w-[92vw] h-[85vh] max-w-[1400px]"
         )}
         onClick={isEditing ? undefined : handleImageClick}
         onTouchStart={handleTouchStart}
@@ -522,7 +523,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
           alt={`Image ${currentIndex + 1}`}
           className={cn(
             "object-contain",
-            isFullscreen ? "w-full h-full" : "max-w-full max-h-[85vh] rounded-lg",
+            isFullscreen ? "w-full h-full" : "w-full h-full rounded-lg",
             isEditing ? "opacity-0 pointer-events-none" : "opacity-100"
           )}
           draggable={false}
