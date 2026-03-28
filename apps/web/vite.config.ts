@@ -101,12 +101,6 @@ export default defineConfig(() => ({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          router: ['react-router-dom'],
-          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-tooltip'],
-          supabase: ['@supabase/supabase-js'],
-        },
         // Enable proper hash-based cache busting
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
