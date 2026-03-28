@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MessageCircle } from "lucide-react";
+import { PentagramLoader } from "@/components/pentagram-loader";
 import {
   clearLegacyMessengerStorage,
   createConversationKey,
@@ -59,17 +61,16 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Array<ApiMessage & { plainText: string }>>([]);
   const [draft, setDraft] = useState("");
-  const [status, setStatus] = useState("Инициализируем защищенное устройство...");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [startingConversation, setStartingConversation] = useState(false);
+  const [mobileListVisible, setMobileListVisible] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
-  const [returnHref, setReturnHref] = useState("https://gomo6.wtf");
 
   const loadBootstrap = async () => {
     const keys = await getOrCreateDeviceKeys();
@@ -133,57 +134,10 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     });
   };
 
-  useEffect(() => {
-    clearLegacyMessengerStorage();
-
-    const boot = async () => {
-      try {
-        await initSodium();
-        const payload = await loadBootstrap();
-        setBootstrap(payload);
-        setStatus("Загружаем переписки...");
-        await loadConversations();
-        setLoading(false);
-      } catch (bootError) {
-        setError(bootError instanceof Error ? bootError.message : "Ошибка загрузки");
-        setLoading(false);
-      }
-    };
-
-    boot();
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const referrer = document.referrer;
-    if (referrer.startsWith("https://gomo6.wtf") || referrer.startsWith("https://www.gomo6.wtf")) {
-      setReturnHref(referrer);
-      return;
-    }
-
-    setReturnHref("https://gomo6.wtf");
-  }, []);
-
-  useEffect(() => {
-    if (!selectedConversation) return;
-
-    loadMessages(selectedConversation.id, selectedConversation.encryptedKey).catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "Не удалось расшифровать сообщения");
-    });
-
-    const interval = window.setInterval(() => {
-      loadMessages(selectedConversation.id, selectedConversation.encryptedKey).catch(() => undefined);
-      loadConversations().catch(() => undefined);
-    }, 4000);
-
-    return () => window.clearInterval(interval);
-  }, [selectedConversation?.id, selectedConversation?.encryptedKey]);
-
   const startConversation = async () => {
     if (!bootstrap?.target) return;
     if (!bootstrap.target.publicKey) {
-      setError("Собеседник ещё не активировал E2EE-мессенджер. Пусть хотя бы один раз откроет m.gomo6.wtf.");
+      setError("Пользователь ещё не открыл мессенджер");
       return;
     }
 
@@ -216,6 +170,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
 
       await loadConversations();
       setSelectedConversationId(payload.conversation.id);
+      setMobileListVisible(false);
     } catch (conversationError) {
       setError(conversationError instanceof Error ? conversationError.message : "Не удалось создать переписку");
     } finally {
@@ -262,122 +217,152 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     }
   };
 
+  useEffect(() => {
+    clearLegacyMessengerStorage();
+
+    const boot = async () => {
+      try {
+        await initSodium();
+        const payload = await loadBootstrap();
+        setBootstrap(payload);
+        await loadConversations();
+      } catch (bootError) {
+        setError(bootError instanceof Error ? bootError.message : "Ошибка загрузки");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void boot();
+  }, []);
+
+  useEffect(() => {
+    if (!bootstrap?.target) return;
+    if (conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId)) return;
+    if (!bootstrap.target.publicKey) return;
+    if (startingConversation) return;
+
+    void startConversation();
+  }, [bootstrap?.target?.mainUserId, bootstrap?.target?.publicKey, conversations, startingConversation]);
+
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    void loadMessages(selectedConversation.id, selectedConversation.encryptedKey).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "Не удалось расшифровать сообщения");
+    });
+
+    const interval = window.setInterval(() => {
+      void loadMessages(selectedConversation.id, selectedConversation.encryptedKey).catch(() => undefined);
+      void loadConversations().catch(() => undefined);
+    }, 4000);
+
+    return () => window.clearInterval(interval);
+  }, [selectedConversation?.id, selectedConversation?.encryptedKey]);
+
   if (loading) {
     return (
-      <div className="shell">
-        <section className="panel sidebar">
-          <div className="brand">
-            <span className="eyebrow">gomo6 private</span>
-            <h1>gomo6 messenger</h1>
-            <p>{status}</p>
-          </div>
-        </section>
+      <div className="loading-shell">
+        <PentagramLoader size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="shell">
-      <aside className="panel sidebar">
-        <div className="brand">
-          <span className="eyebrow">End-to-End Encrypted</span>
-          <h1>gomo6 messenger</h1>
-          <p>
-            Привет, {username}. Сервер хранит только шифротекст и публичные ключи, а старое `localStorage` для ключей очищено.
-          </p>
-        </div>
+    <div className="messenger-page">
+      <header className="messenger-header">
+        <a className="brand-link" href="https://gomo6.wtf" aria-label="gomo6">
+          <span className="brand-mark" />
+          <span className="brand-text">gomo6</span>
+        </a>
+        <button
+          type="button"
+          className="mobile-conversations-toggle"
+          onClick={() => setMobileListVisible((value) => !value)}
+          aria-label="Диалоги"
+        >
+          <MessageCircle className="toggle-icon" />
+        </button>
+      </header>
 
-        {bootstrap?.target && !conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId) && (
-          <div className="conversation">
-            <strong>Новая переписка</strong>
-            <div className="meta">{bootstrap.target.username}</div>
-            <div style={{ marginTop: 12 }}>
-              <button className="button primary" type="button" onClick={startConversation} disabled={startingConversation}>
-                {startingConversation ? "Создаём..." : "Начать диалог"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="conversation-list">
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              type="button"
-              className={`conversation ${selectedConversationId === conversation.id ? "active" : ""}`}
-              onClick={() => setSelectedConversationId(conversation.id)}
-            >
-              <strong>{conversation.otherUser.username}</strong>
-              <div className="meta">
-                {conversation.lastMessageAt
-                  ? `Активность: ${new Date(conversation.lastMessageAt).toLocaleString("ru-RU")}`
-                  : "Сообщений пока нет"}
-              </div>
-              {conversation.unreadCount > 0 && <div style={{ marginTop: 10 }}><span className="badge">{conversation.unreadCount}</span></div>}
-            </button>
-          ))}
-
-          {conversations.length === 0 && (
-            <div className="empty">
-              Переписок пока нет. Открой профиль пользователя в основной соцсети и нажми кнопку сообщений.
+      <div className="shell">
+        <aside className={`panel sidebar ${mobileListVisible ? "mobile-visible" : "mobile-hidden"}`}>
+          {bootstrap?.target && !conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId) && (
+            <div className="conversation pending">
+              <span className={`conversation-dot ${startingConversation ? "is-loading" : ""}`} />
+              <strong>{bootstrap.target.username}</strong>
             </div>
           )}
-        </div>
-      </aside>
 
-      <main className="panel main">
+          <div className="conversation-list">
+            {conversations.map((conversation) => (
+              <button
+                key={conversation.id}
+                type="button"
+                className={`conversation ${selectedConversationId === conversation.id ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedConversationId(conversation.id);
+                  setMobileListVisible(false);
+                }}
+              >
+                <strong>{conversation.otherUser.username}</strong>
+                <div className="meta">
+                  {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString("ru-RU") : ""}
+                </div>
+                {conversation.unreadCount > 0 && <span className="badge">{conversation.unreadCount}</span>}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <main className={`panel main ${mobileListVisible ? "mobile-hidden" : "mobile-visible"}`}>
           <div className="topbar">
-          <div>
-            <h2>{selectedConversation?.otherUser.username ?? "Защищённые сообщения"}</h2>
-            <div className="meta">
-              {selectedConversation
-                ? "Сообщения шифруются на этом устройстве с XChaCha20-Poly1305 и sealed box поверх ключа диалога."
-                : "Выбери диалог слева или начни новый."}
+            <div className="topbar-title">
+              <span className="topbar-name">{selectedConversation?.otherUser.username ?? username}</span>
             </div>
           </div>
-          <a className="button secondary subtle" href={returnHref}>
-            Вернуться
-          </a>
-        </div>
 
-        <div className="messages">
-          {messages.length === 0 && <div className="empty">Здесь пока тихо.</div>}
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`bubble ${message.senderMainUserId === bootstrap?.me.mainUserId ? "self" : ""}`}
-            >
-              {message.plainText}
-              <div className="message-time" style={{ marginTop: 10 }}>
-                {new Date(message.createdAt).toLocaleString("ru-RU")}
+          <div className="messages">
+            {messages.length === 0 && startingConversation ? (
+              <div className="messages-loader">
+                <PentagramLoader size="sm" />
               </div>
-            </div>
-          ))}
-        </div>
+            ) : null}
 
-        <div className="composer">
-          {error && <div style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</div>}
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void sendCurrentMessage();
-            }}
-          >
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={selectedConversation ? "Напиши сообщение..." : "Сначала открой или создай диалог"}
-              disabled={!selectedConversation || sending}
-            />
-            <div className="actions">
-              <div className="note">Ключи не покидают браузер в открытом виде.</div>
-              <button className="button primary" type="submit" disabled={!selectedConversation || sending || !draft.trim()}>
-                {sending ? "Шифруем..." : "Отправить"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </main>
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`bubble ${message.senderMainUserId === bootstrap?.me.mainUserId ? "self" : ""}`}
+              >
+                {message.plainText}
+                <div className="message-time">{new Date(message.createdAt).toLocaleString("ru-RU")}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="composer">
+            {error && <div className="composer-error">{error}</div>}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendCurrentMessage();
+              }}
+            >
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder=""
+                disabled={!selectedConversation || sending}
+              />
+              <div className="actions">
+                <button className="button primary" type="submit" disabled={!selectedConversation || sending || !draft.trim()}>
+                  {sending ? "..." : "Отправить"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </main>
+      </div>
     </div>
   );
 };

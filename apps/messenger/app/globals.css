@@ -1,18 +1,15 @@
 :root {
   color-scheme: dark;
-  --bg: #121212;
-  --panel: rgba(31, 31, 31, 0.94);
-  --panel-strong: #202020;
-  --line: rgba(255, 255, 255, 0.09);
-  --text: #f5f3ee;
-  --muted: #b3aea3;
-  --accent: #2f8f48;
-  --accent-strong: #44b261;
+  --bg: #141414;
+  --panel: rgba(26, 26, 26, 0.94);
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f2efe8;
+  --muted: #9c988f;
+  --accent: #3a9d55;
+  --accent-strong: #48bc66;
   --danger: #ff7b7b;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  --radius: 8px;
-  --link: #7ab1ff;
-  font-family: Georgia, "Times New Roman", serif;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -24,9 +21,10 @@ body {
   margin: 0;
   min-height: 100%;
   background:
-    radial-gradient(circle at top, rgba(47, 143, 72, 0.14), transparent 22%),
+    radial-gradient(circle at top, rgba(58, 157, 85, 0.12), transparent 22%),
     linear-gradient(180deg, #131313 0%, #0f0f0f 100%);
   color: var(--text);
+  font-family: inherit;
 }
 
 body {
@@ -44,88 +42,129 @@ textarea {
   font: inherit;
 }
 
+.messenger-page {
+  min-height: 100vh;
+}
+
+.messenger-header {
+  height: 52px;
+  width: min(1240px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.brand-text {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.mobile-conversations-toggle {
+  display: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.toggle-icon {
+  width: 16px;
+  height: 16px;
+}
+
 .shell {
-  width: min(1240px, calc(100vw - 32px));
-  margin: 24px auto;
+  width: min(1240px, calc(100vw - 24px));
+  margin: 8px auto 16px;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 14px;
 }
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
   backdrop-filter: blur(20px);
 }
 
 .sidebar {
-  padding: 18px;
-}
-
-.brand {
-  padding: 8px 6px 18px;
-}
-
-.eyebrow {
-  display: inline-flex;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(68, 178, 97, 0.12);
-  color: var(--accent);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.brand h1 {
-  margin: 14px 0 8px;
-  font-size: 30px;
-}
-
-.brand p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.45;
+  padding: 10px;
 }
 
 .conversation-list {
   display: grid;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 8px;
 }
 
 .conversation {
   width: 100%;
   text-align: left;
-  border: 1px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.04);
   background: rgba(255, 255, 255, 0.025);
   color: var(--text);
-  border-radius: 8px;
-  padding: 14px;
+  border-radius: 6px;
+  padding: 12px;
   transition: 160ms ease;
   cursor: pointer;
+  position: relative;
 }
 
 .conversation:hover,
 .conversation.active {
-  border-color: rgba(68, 178, 97, 0.4);
-  background: rgba(68, 178, 97, 0.08);
+  border-color: rgba(72, 188, 102, 0.38);
+  background: rgba(72, 188, 102, 0.08);
 }
 
-.conversation strong,
-.composer strong {
+.conversation.pending {
+  margin-bottom: 8px;
+}
+
+.conversation strong {
   display: block;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.conversation-dot {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.conversation-dot.is-loading {
+  animation: messenger-pulse-dot 1.2s infinite ease-in-out;
 }
 
 .meta,
-.empty,
-.note,
 .message-time {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .badge {
@@ -133,6 +172,7 @@ textarea {
   min-width: 24px;
   justify-content: center;
   padding: 2px 8px;
+  margin-top: 8px;
   border-radius: 999px;
   background: var(--accent-strong);
   color: #08120a;
@@ -143,33 +183,35 @@ textarea {
 .main {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  min-height: calc(100vh - 48px);
+  min-height: calc(100vh - 76px);
 }
 
 .topbar {
+  min-height: 54px;
+  padding: 14px 18px;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 22px 24px 18px;
+  align-items: center;
   border-bottom: 1px solid var(--line);
 }
 
-.topbar h2 {
-  margin: 0 0 6px;
-  font-size: 24px;
+.topbar-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .messages {
-  padding: 20px 24px;
+  padding: 16px 18px;
   overflow: auto;
   display: grid;
-  gap: 14px;
+  gap: 10px;
+  align-content: start;
 }
 
 .bubble {
   max-width: min(75%, 640px);
-  padding: 14px 16px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 6px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.04);
   white-space: pre-wrap;
@@ -178,55 +220,52 @@ textarea {
 
 .bubble.self {
   margin-left: auto;
-  background: linear-gradient(180deg, rgba(47, 143, 72, 0.2), rgba(47, 143, 72, 0.12));
-  border-color: rgba(68, 178, 97, 0.28);
+  background: linear-gradient(180deg, rgba(58, 157, 85, 0.2), rgba(58, 157, 85, 0.12));
+  border-color: rgba(72, 188, 102, 0.28);
+}
+
+.message-time {
+  margin-top: 10px;
 }
 
 .composer {
   border-top: 1px solid var(--line);
-  padding: 18px 24px 24px;
+  padding: 12px 18px 16px;
 }
 
 .composer form {
   display: grid;
-  gap: 12px;
-}
-
-.composer textarea,
-.composer input {
-  width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: rgba(12, 12, 12, 0.86);
-  color: var(--text);
-  padding: 14px 16px;
-  outline: none;
-}
-
-.composer textarea:focus,
-.composer input:focus {
-  border-color: rgba(68, 178, 97, 0.55);
-  box-shadow: 0 0 0 1px rgba(68, 178, 97, 0.35);
+  gap: 10px;
 }
 
 .composer textarea {
-  min-height: 120px;
-  resize: vertical;
+  width: 100%;
+  min-height: 86px;
+  resize: none;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(12, 12, 12, 0.86);
+  color: var(--text);
+  padding: 12px 14px;
+  outline: none;
+}
+
+.composer textarea:focus {
+  border-color: rgba(72, 188, 102, 0.55);
+  box-shadow: 0 0 0 1px rgba(72, 188, 102, 0.35);
 }
 
 .actions {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
+  justify-content: flex-end;
 }
 
 .button {
   border: none;
   border-radius: 6px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
   transition: 160ms ease;
 }
 
@@ -235,37 +274,92 @@ textarea {
   color: #0b130c;
 }
 
-.button.secondary {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text);
-  border: 1px solid var(--line);
-}
-
-.button.secondary.subtle {
-  color: var(--muted);
-}
-
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.status {
-  padding: 20px 24px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
+.composer-error {
+  color: var(--danger);
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.loading-shell,
+.messages-loader {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.messages-loader {
+  min-height: 220px;
+}
+
+.loader-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.loader-sm {
+  width: 56px;
+  height: 56px;
+}
+
+.loader-md {
+  width: 96px;
+  height: 96px;
+}
+
+.loader-lg {
+  width: 144px;
+  height: 144px;
+}
+
+@keyframes messenger-pulse-dot {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
 }
 
 @media (max-width: 900px) {
+  .messenger-header,
+  .shell {
+    width: calc(100vw - 20px);
+  }
+
   .shell {
     grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .main {
-    min-height: auto;
+    min-height: calc(100vh - 126px);
   }
 
   .bubble {
     max-width: 100%;
+  }
+
+  .mobile-conversations-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar.mobile-hidden,
+  .main.mobile-hidden {
+    display: none;
+  }
+
+  .sidebar.mobile-visible,
+  .main.mobile-visible {
+    display: block;
   }
 }
