@@ -3,17 +3,19 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 
-// Clear old cache versions and force refresh if needed
+const APP_CACHE_PREFIX = "gomo6-";
+
+// Clear old cache versions and stale service workers aggressively after the broken preload deploy.
 const clearOldCaches = async () => {
   if ('caches' in window) {
     try {
       const cacheNames = await caches.keys();
       console.log('Available caches:', cacheNames);
 
-      // Clear all caches except current version
+      // Remove all app-managed caches so clients don't keep bad module URLs.
       await Promise.all(
         cacheNames.map(async (cacheName) => {
-          if (!cacheName.includes('gomo6-') || !cacheName.includes('v1.0.1')) {
+          if (cacheName.includes(APP_CACHE_PREFIX)) {
             console.log('Deleting old cache:', cacheName);
             await caches.delete(cacheName);
           }
@@ -29,7 +31,7 @@ const clearOldCaches = async () => {
     try {
       const registrations = await navigator.serviceWorker.getRegistrations();
       for (const registration of registrations) {
-        if (!registration.scope.includes('gomo6-v1.0.1')) {
+        if (registration.scope.includes(window.location.origin)) {
           console.log('Unregistering old service worker:', registration.scope);
           await registration.unregister();
         }
