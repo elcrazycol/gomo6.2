@@ -6,12 +6,22 @@
     "apps/*",
     "packages/*"
   ],
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "dev:web": "npm run dev --workspace @gomo6/web",
     "dev:messenger": "npm run dev --workspace @gomo6/messenger",
     "lint": "turbo run lint"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "@types/react": "18.3.23",
+    "@types/react-dom": "18.3.7"
   },
   "devDependencies": {
     "turbo": "^2.5.0"
