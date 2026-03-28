@@ -26,7 +26,7 @@ export default defineConfig(() => ({
         display: 'standalone',
         start_url: '/',
         scope: '/',
-        version: '1.0.1', // Updated version to invalidate cache
+        version: '1.0.2',
         icons: [
           {
             src: '/photoes/gomo6.png',
@@ -42,13 +42,13 @@ export default defineConfig(() => ({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        cacheId: 'gomo6-v1.0.1', // Add version to cache ID
+        cacheId: 'gomo6-v1.0.2',
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.(png|jpg|jpeg|svg|gif|webp)$/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'gomo6-images-v1.0.1',
+              cacheName: 'gomo6-images-v1.0.2',
               expiration: {
                 maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
@@ -59,7 +59,7 @@ export default defineConfig(() => ({
             urlPattern: /^https:\/\/.*\.(woff2|woff)$/,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'gomo6-fonts-v1.0.1',
+              cacheName: 'gomo6-fonts-v1.0.2',
               expiration: {
                 maxEntries: 10,
                 maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
@@ -70,7 +70,7 @@ export default defineConfig(() => ({
             urlPattern: /^https:\/\/.*\.js$/,
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'gomo6-js-v1.0.1',
+              cacheName: 'gomo6-js-v1.0.2',
               expiration: {
                 maxEntries: 50,
                 maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
@@ -81,7 +81,7 @@ export default defineConfig(() => ({
             urlPattern: /^https:\/\/.*\.css$/,
             handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'gomo6-css-v1.0.1',
+              cacheName: 'gomo6-css-v1.0.2',
               expiration: {
                 maxEntries: 20,
                 maxAgeSeconds: 60 * 60 * 24 * 7, // 7 days
@@ -98,6 +98,7 @@ export default defineConfig(() => ({
     },
   },
   build: {
+    emptyOutDir: true,
     rollupOptions: {
       output: {
         manualChunks: {
