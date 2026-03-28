@@ -26,27 +26,61 @@ export async function GET() {
     return json({ conversations: [] });
   }
 
-  const { data: memberships } = await admin
+  const { data: memberships, error: membershipsError } = await admin
     .from("conversation_memberships")
-    .select("conversation_id, encrypted_key, last_read_at, conversations(id, created_at, last_message_at)")
+    .select("conversation_id, encrypted_key, last_read_at")
     .eq("user_id", self.id);
+
+  if (membershipsError) {
+    return json({ error: "Failed to load conversation memberships" }, 500);
+  }
 
   const conversationIds = memberships?.map((membership) => membership.conversation_id) ?? [];
   if (conversationIds.length === 0) {
     return json({ conversations: [] });
   }
 
-  const { data: participants } = await admin
+  const { data: conversationRows, error: conversationsError } = await admin
+    .from("messenger_conversations")
+    .select("id, created_at, last_message_at")
+    .in("id", conversationIds);
+
+  if (conversationsError) {
+    return json({ error: "Failed to load conversations" }, 500);
+  }
+
+  const { data: participants, error: participantsError } = await admin
     .from("conversation_memberships")
-    .select("conversation_id, user_id, messenger_users(id, main_user_id, username)")
+    .select("conversation_id, user_id")
     .in("conversation_id", conversationIds)
     .neq("user_id", self.id);
 
-  const { data: unreadRows } = await admin
+  if (participantsError) {
+    return json({ error: "Failed to load conversation participants" }, 500);
+  }
+
+  const participantUserIds = [...new Set((participants ?? []).map((participant) => participant.user_id))];
+
+  const { data: participantUsers, error: participantUsersError } = participantUserIds.length
+    ? await admin
+        .from("messenger_users")
+        .select("id, main_user_id, username")
+        .in("id", participantUserIds)
+    : { data: [], error: null };
+
+  if (participantUsersError) {
+    return json({ error: "Failed to load participant profiles" }, 500);
+  }
+
+  const { data: unreadRows, error: unreadError } = await admin
     .from("messenger_messages")
     .select("conversation_id, sender_user_id, created_at")
     .in("conversation_id", conversationIds)
     .neq("sender_user_id", self.id);
+
+  if (unreadError) {
+    return json({ error: "Failed to load unread counters" }, 500);
+  }
 
   const unreadMap = new Map<string, number>();
   memberships?.forEach((membership) => {
@@ -59,17 +93,20 @@ export async function GET() {
   });
 
   const conversations = (memberships ?? []).map((membership) => {
-    const other = participants?.find((participant) => participant.conversation_id === membership.conversation_id);
+    const conversation = conversationRows?.find((row) => row.id === membership.conversation_id);
+    const otherParticipant = participants?.find((participant) => participant.conversation_id === membership.conversation_id);
+    const other = participantUsers?.find((user) => user.id === otherParticipant?.user_id);
+
     return {
       id: membership.conversation_id,
-      createdAt: (membership as any).conversations?.created_at ?? null,
+      createdAt: conversation?.created_at ?? null,
       encryptedKey: membership.encrypted_key,
       unreadCount: unreadMap.get(membership.conversation_id) ?? 0,
-      lastMessageAt: (membership as any).conversations?.last_message_at ?? null,
+      lastMessageAt: conversation?.last_message_at ?? null,
       otherUser: {
-        id: (other as any)?.messenger_users?.id ?? "",
-        mainUserId: (other as any)?.messenger_users?.main_user_id ?? "",
-        username: (other as any)?.messenger_users?.username ?? "Unknown",
+        id: other?.id ?? "",
+        mainUserId: other?.main_user_id ?? "",
+        username: other?.username ?? "Unknown",
       },
     };
   });
@@ -117,30 +154,40 @@ export async function POST(request: NextRequest) {
 
   const directKey = [self.main_user_id, recipient.main_user_id].sort().join(":");
 
-  const { data: existingConversation } = await admin
+  const { data: existingConversation, error: existingConversationError } = await admin
     .from("messenger_conversations")
     .select("id")
     .eq("direct_key", directKey)
     .maybeSingle();
 
-  const conversation =
-    existingConversation ??
-    (
-      await admin
-        .from("messenger_conversations")
-        .insert({
-          direct_key: directKey,
-          created_by: self.id,
-        })
-        .select("id")
-        .single()
-    ).data;
+  if (existingConversationError) {
+    return json({ error: "Failed to check existing conversation" }, 500);
+  }
+
+  let conversation = existingConversation;
+
+  if (!conversation) {
+    const { data: createdConversation, error: createConversationError } = await admin
+      .from("messenger_conversations")
+      .insert({
+        direct_key: directKey,
+        created_by: self.id,
+      })
+      .select("id")
+      .single();
+
+    if (createConversationError || !createdConversation) {
+      return json({ error: "Failed to create conversation" }, 500);
+    }
+
+    conversation = createdConversation;
+  }
 
   if (!conversation) {
     return json({ error: "Failed to create conversation" }, 500);
   }
 
-  await admin.from("conversation_memberships").upsert(
+  const { error: membershipUpsertError } = await admin.from("conversation_memberships").upsert(
     [
       {
         conversation_id: conversation.id,
@@ -157,6 +204,10 @@ export async function POST(request: NextRequest) {
       onConflict: "conversation_id,user_id",
     }
   );
+
+  if (membershipUpsertError) {
+    return json({ error: "Failed to save conversation members" }, 500);
+  }
 
   return json({
     conversation: {
