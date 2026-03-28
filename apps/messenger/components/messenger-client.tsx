@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
@@ -56,6 +56,7 @@ type Props = {
 };
 
 export const MessengerClient = ({ username, targetUserId }: Props) => {
+  const autoCreatedTargetRef = useRef<string | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -103,9 +104,13 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
 
     const payload = (await response.json()) as { conversations: Conversation[] };
     setConversations(payload.conversations);
-    if (!selectedConversationId && payload.conversations[0]) {
-      setSelectedConversationId(payload.conversations[0].id);
-    }
+    setSelectedConversationId((current) => {
+      if (current && payload.conversations.some((conversation) => conversation.id === current)) {
+        return current;
+      }
+
+      return payload.conversations[0]?.id ?? null;
+    });
   };
 
   const loadMessages = async (conversationId: string, encryptedKey: string) => {
@@ -137,7 +142,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   const startConversation = async () => {
     if (!bootstrap?.target) return;
     if (!bootstrap.target.publicKey) {
-      setError("Пользователь ещё не открыл мессенджер");
+      setError("Пока нельзя начать диалог");
       return;
     }
 
@@ -171,6 +176,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
       await loadConversations();
       setSelectedConversationId(payload.conversation.id);
       setMobileListVisible(false);
+      autoCreatedTargetRef.current = bootstrap.target.mainUserId;
     } catch (conversationError) {
       setError(conversationError instanceof Error ? conversationError.message : "Не удалось создать переписку");
     } finally {
@@ -238,9 +244,13 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
 
   useEffect(() => {
     if (!bootstrap?.target) return;
-    if (conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId)) return;
+    if (conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId)) {
+      autoCreatedTargetRef.current = bootstrap.target.mainUserId;
+      return;
+    }
     if (!bootstrap.target.publicKey) return;
     if (startingConversation) return;
+    if (autoCreatedTargetRef.current === bootstrap.target.mainUserId) return;
 
     void startConversation();
   }, [bootstrap?.target?.mainUserId, bootstrap?.target?.publicKey, conversations, startingConversation]);
@@ -323,6 +333,10 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
           </div>
 
           <div className="messages">
+            {messages.length === 0 && !startingConversation && !selectedConversation ? (
+              <div className="messages-empty" />
+            ) : null}
+
             {messages.length === 0 && startingConversation ? (
               <div className="messages-loader">
                 <PentagramLoader size="sm" />
@@ -356,7 +370,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
               />
               <div className="actions">
                 <button className="button primary" type="submit" disabled={!selectedConversation || sending || !draft.trim()}>
-                  {sending ? "..." : "Отправить"}
+                  {sending ? "..." : "OK"}
                 </button>
               </div>
             </form>

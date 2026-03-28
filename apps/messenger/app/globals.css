@@ -1,15 +1,18 @@
 :root {
   color-scheme: dark;
-  --bg: #141414;
-  --panel: rgba(26, 26, 26, 0.94);
-  --line: rgba(255, 255, 255, 0.08);
-  --text: #f2efe8;
-  --muted: #9c988f;
-  --accent: #3a9d55;
-  --accent-strong: #48bc66;
-  --danger: #ff7b7b;
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: #202020;
+  --bg-soft: #171717;
+  --panel: #2d2d2d;
+  --panel-soft: #252525;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(90, 170, 108, 0.35);
+  --text: #f4eee4;
+  --muted: #a6a094;
+  --accent: #3f7f4b;
+  --accent-strong: #4f9c5d;
+  --danger: #ff8d8d;
+  --shadow: none;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 * {
@@ -20,9 +23,7 @@ html,
 body {
   margin: 0;
   min-height: 100%;
-  background:
-    radial-gradient(circle at top, rgba(58, 157, 85, 0.12), transparent 22%),
-    linear-gradient(180deg, #131313 0%, #0f0f0f 100%);
+  background: var(--bg);
   color: var(--text);
   font-family: inherit;
 }
@@ -47,42 +48,42 @@ textarea {
 }
 
 .messenger-header {
-  height: 52px;
-  width: min(1240px, calc(100vw - 24px));
+  height: 48px;
+  width: min(1200px, calc(100vw - 20px));
   margin: 0 auto;
-  padding-top: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 1px solid var(--line);
 }
 
 .brand-link {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
+  height: 100%;
 }
 
 .brand-mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
   background: var(--accent);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 72%, transparent);
 }
 
 .brand-text {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .mobile-conversations-toggle {
   display: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--panel-soft);
   color: var(--text);
 }
 
@@ -92,23 +93,22 @@ textarea {
 }
 
 .shell {
-  width: min(1240px, calc(100vw - 24px));
-  margin: 8px auto 16px;
+  width: min(1200px, calc(100vw - 20px));
+  margin: 10px auto;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 10px;
 }
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(20px);
 }
 
 .sidebar {
-  padding: 10px;
+  padding: 8px;
 }
 
 .conversation-list {
@@ -119,20 +119,20 @@ textarea {
 .conversation {
   width: 100%;
   text-align: left;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid transparent;
+  background: var(--panel-soft);
   color: var(--text);
-  border-radius: 6px;
-  padding: 12px;
-  transition: 160ms ease;
+  border-radius: 4px;
+  padding: 10px 11px;
+  transition: 120ms ease;
   cursor: pointer;
   position: relative;
 }
 
 .conversation:hover,
 .conversation.active {
-  border-color: rgba(72, 188, 102, 0.38);
-  background: rgba(72, 188, 102, 0.08);
+  border-color: var(--line-strong);
+  background: #313131;
 }
 
 .conversation.pending {
@@ -141,7 +141,7 @@ textarea {
 
 .conversation strong {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   font-size: 14px;
   font-weight: 600;
 }
@@ -150,11 +150,10 @@ textarea {
   position: absolute;
   top: 14px;
   right: 12px;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: var(--accent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 72%, transparent);
 }
 
 .conversation-dot.is-loading {
@@ -169,13 +168,13 @@ textarea {
 
 .badge {
   display: inline-flex;
-  min-width: 24px;
+  min-width: 20px;
   justify-content: center;
-  padding: 2px 8px;
-  margin-top: 8px;
+  padding: 1px 7px;
+  margin-top: 7px;
   border-radius: 999px;
   background: var(--accent-strong);
-  color: #08120a;
+  color: #101510;
   font-size: 12px;
   font-weight: 700;
 }
@@ -183,15 +182,16 @@ textarea {
 .main {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  min-height: calc(100vh - 76px);
+  min-height: calc(100vh - 68px);
 }
 
 .topbar {
-  min-height: 54px;
-  padding: 14px 18px;
+  min-height: 48px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
   border-bottom: 1px solid var(--line);
+  background: #272727;
 }
 
 .topbar-name {
@@ -201,27 +201,28 @@ textarea {
 }
 
 .messages {
-  padding: 16px 18px;
+  padding: 14px;
   overflow: auto;
   display: grid;
-  gap: 10px;
+  gap: 8px;
   align-content: start;
+  background: #202020;
 }
 
 .bubble {
   max-width: min(75%, 640px);
-  padding: 12px 14px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: 4px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.04);
+  background: #292929;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .bubble.self {
   margin-left: auto;
-  background: linear-gradient(180deg, rgba(58, 157, 85, 0.2), rgba(58, 157, 85, 0.12));
-  border-color: rgba(72, 188, 102, 0.28);
+  background: #253328;
+  border-color: rgba(79, 156, 93, 0.34);
 }
 
 .message-time {
@@ -230,7 +231,8 @@ textarea {
 
 .composer {
   border-top: 1px solid var(--line);
-  padding: 12px 18px 16px;
+  padding: 10px 14px 14px;
+  background: #272727;
 }
 
 .composer form {
@@ -240,19 +242,19 @@ textarea {
 
 .composer textarea {
   width: 100%;
-  min-height: 86px;
+  min-height: 72px;
   resize: none;
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1px solid var(--line);
-  background: rgba(12, 12, 12, 0.86);
+  background: #1c1c1c;
   color: var(--text);
-  padding: 12px 14px;
+  padding: 10px 12px;
   outline: none;
 }
 
 .composer textarea:focus {
-  border-color: rgba(72, 188, 102, 0.55);
-  box-shadow: 0 0 0 1px rgba(72, 188, 102, 0.35);
+  border-color: rgba(79, 156, 93, 0.55);
+  box-shadow: 0 0 0 1px rgba(79, 156, 93, 0.22);
 }
 
 .actions {
@@ -261,17 +263,17 @@ textarea {
 }
 
 .button {
-  border: none;
-  border-radius: 6px;
-  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 9px 14px;
   cursor: pointer;
   font-weight: 600;
-  transition: 160ms ease;
+  transition: 120ms ease;
 }
 
 .button.primary {
-  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-  color: #0b130c;
+  background: var(--accent);
+  color: #f4eee4;
 }
 
 .button:disabled {
@@ -285,6 +287,10 @@ textarea {
   font-size: 13px;
 }
 
+.messages-empty {
+  min-height: 100%;
+}
+
 .loading-shell,
 .messages-loader {
   min-height: 100vh;
@@ -294,7 +300,7 @@ textarea {
 }
 
 .messages-loader {
-  min-height: 220px;
+  min-height: 180px;
 }
 
 .loader-svg {
@@ -336,11 +342,11 @@ textarea {
 
   .shell {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
   }
 
   .main {
-    min-height: calc(100vh - 126px);
+    min-height: calc(100vh - 108px);
   }
 
   .bubble {
