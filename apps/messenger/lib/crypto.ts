@@ -72,6 +72,14 @@ const readRecord = async (): Promise<StoredDeviceRecord | null> => {
   });
 };
 
+export const clearLegacyMessengerStorage = () => {
+  try {
+    window.localStorage.removeItem(LEGACY_KEY_STORAGE);
+  } catch {
+    // Ignore storage access issues.
+  }
+};
+
 const writeRecord = async (record: StoredDeviceRecord) => {
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {

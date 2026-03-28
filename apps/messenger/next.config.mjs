@@ -1,4 +1,20 @@
 /** @type {import('next').NextConfig} */
+const csp = [
+  "default-src 'self'",
+  "img-src 'self' data: https:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data: https:",
+  "connect-src 'self' https://gomo6.wtf https://www.gomo6.wtf https://m.gomo6.wtf",
+  // Next.js injects a small amount of inline bootstrap/runtime code in production.
+  "script-src 'self' 'unsafe-inline'",
+  "worker-src 'self' blob:",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+  "upgrade-insecure-requests"
+].join("; ");
+
 const nextConfig = {
   async headers() {
     return [
@@ -7,19 +23,7 @@ const nextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "img-src 'self' data: https:",
-              "style-src 'self' 'unsafe-inline'",
-              "font-src 'self' data: https:",
-              "connect-src 'self'",
-              "script-src 'self'",
-              "frame-ancestors 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-              "object-src 'none'",
-              "upgrade-insecure-requests"
-            ].join("; ")
+            value: csp
           },
           {
             key: "Referrer-Policy",

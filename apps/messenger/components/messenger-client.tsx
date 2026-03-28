@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  clearLegacyMessengerStorage,
   createConversationKey,
   decryptConversationKey,
   decryptMessage,
@@ -68,6 +69,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
+  const [returnHref, setReturnHref] = useState("https://gomo6.wtf");
 
   const loadBootstrap = async () => {
     const keys = await getOrCreateDeviceKeys();
@@ -132,6 +134,8 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   };
 
   useEffect(() => {
+    clearLegacyMessengerStorage();
+
     const boot = async () => {
       try {
         await initSodium();
@@ -147,6 +151,18 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     };
 
     boot();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const referrer = document.referrer;
+    if (referrer.startsWith("https://gomo6.wtf") || referrer.startsWith("https://www.gomo6.wtf")) {
+      setReturnHref(referrer);
+      return;
+    }
+
+    setReturnHref("https://gomo6.wtf");
   }, []);
 
   useEffect(() => {
@@ -251,7 +267,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
       <div className="shell">
         <section className="panel sidebar">
           <div className="brand">
-            <span className="eyebrow">Secure Bridge</span>
+            <span className="eyebrow">gomo6 private</span>
             <h1>gomo6 messenger</h1>
             <p>{status}</p>
           </div>
@@ -267,7 +283,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
           <span className="eyebrow">End-to-End Encrypted</span>
           <h1>gomo6 messenger</h1>
           <p>
-            Привет, {username}. Ключи устройства созданы локально в браузере, сервер хранит только шифротекст и публичные ключи.
+            Привет, {username}. Сервер хранит только шифротекст и публичные ключи, а старое `localStorage` для ключей очищено.
           </p>
         </div>
 
@@ -310,7 +326,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
       </aside>
 
       <main className="panel main">
-        <div className="topbar">
+          <div className="topbar">
           <div>
             <h2>{selectedConversation?.otherUser.username ?? "Защищённые сообщения"}</h2>
             <div className="meta">
@@ -319,8 +335,8 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
                 : "Выбери диалог слева или начни новый."}
             </div>
           </div>
-          <a className="button secondary" href="https://gomo6.wtf">
-            Назад в gomo6
+          <a className="button secondary subtle" href={returnHref}>
+            Вернуться
           </a>
         </div>
 
