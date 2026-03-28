@@ -6,7 +6,7 @@ const csp = [
   "font-src 'self' data: https:",
   "connect-src 'self' https://gomo6.wtf https://www.gomo6.wtf https://m.gomo6.wtf",
   // Next.js injects a small amount of inline bootstrap/runtime code in production.
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
   "base-uri 'self'",
