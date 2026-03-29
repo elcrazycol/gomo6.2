@@ -15,6 +15,7 @@ const DB_NAME = "gomo6-messenger-e2ee";
 const DB_VERSION = 1;
 const STORE_NAME = "kv";
 const DEVICE_KEY = "device-state";
+const SENT_CACHE_KEY = "sent-cache";
 
 type LocalDeviceState = {
   version: 1;
@@ -51,6 +52,8 @@ type UploadBundle = {
   kyberPreKeySignature: string;
   oneTimePreKeys: Array<{ preKeyId: number; publicKey: string }>;
 };
+
+type SentCache = Record<string, string>;
 
 const toBase64 = (bytes: Uint8Array | ArrayBuffer) => Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString("base64");
 const fromBase64 = (value: string) => Buffer.from(value, "base64").buffer.slice(
@@ -349,4 +352,15 @@ export const decryptEnvelope = async (
       : await cipher.decryptWhisperMessage(body, "binary");
 
   return textDecoder.decode(new Uint8Array(plaintext));
+};
+
+export const cacheSentPlaintext = async (ciphertext: string, plainText: string) => {
+  const current = (await readValue<SentCache>(SENT_CACHE_KEY)) ?? {};
+  current[ciphertext] = plainText;
+  await writeValue(SENT_CACHE_KEY, current);
+};
+
+export const getCachedSentPlaintext = async (ciphertext: string) => {
+  const current = (await readValue<SentCache>(SENT_CACHE_KEY)) ?? {};
+  return current[ciphertext] ?? null;
 };

@@ -28,6 +28,8 @@ export type ProfileAppearance = {
   profileBadgeCss: string | null;
 };
 
+const usernameColorPriority = ["purple", "gold", "orange", "red", "blue", "green", "yellow", "cyan"];
+
 export const upsertChatDeviceBundle = async (
   user: AuthenticatedUser,
   payload: {
@@ -347,10 +349,8 @@ export const loadProfileAppearance = async (userId: string): Promise<ProfileAppe
     .map((entry) => entry.achievements?.reward_value)
     .filter((value): value is string => typeof value === "string");
 
-  const colorPriority = ["purple", "gold", "orange", "red", "blue", "green", "yellow", "cyan"];
-
   return {
-    usernameColor: colorPriority.find((value) => colorRewards.includes(value)) ?? null,
+    usernameColor: usernameColorPriority.find((value) => colorRewards.includes(value)) ?? null,
     usernameCss: customization?.username_css ?? null,
     usernameIconSvg: customization?.username_icon_svg ?? null,
     usernameIconFill: customization?.username_icon_fill ?? null,
@@ -358,6 +358,71 @@ export const loadProfileAppearance = async (userId: string): Promise<ProfileAppe
     profileBadgeText: customization?.profile_badge_text ?? null,
     profileBadgeCss: customization?.profile_badge_css ?? null,
   };
+};
+
+export const loadProfileAppearanceMap = async (userIds: string[]) => {
+  if (userIds.length === 0) {
+    return new Map<string, ProfileAppearance>();
+  }
+
+  const admin = messengerAdmin();
+  const [{ data: customizations, error: customizationError }, { data: achievements, error: achievementsError }] =
+    await Promise.all([
+      admin
+        .from("profile_customization")
+        .select("user_id, username_css, username_icon_svg, username_icon_fill, username_icon_stroke, profile_badge_text, profile_badge_css")
+        .in("user_id", userIds),
+      admin
+        .from("user_achievements")
+        .select(`
+          user_id,
+          achievements (
+            reward_type,
+            reward_value
+          )
+        `)
+        .in("user_id", userIds),
+    ]);
+
+  if (customizationError) {
+    throw new Error(`Failed to load profile customizations: ${customizationError.message}`);
+  }
+
+  if (achievementsError) {
+    throw new Error(`Failed to load profile achievements: ${achievementsError.message}`);
+  }
+
+  const customizationMap = new Map(
+    ((customizations as any[]) ?? []).map((entry) => [entry.user_id, entry])
+  );
+  const colorRewardMap = new Map<string, string[]>();
+
+  for (const entry of (achievements as any[]) ?? []) {
+    if (entry.achievements?.reward_type !== "username_color" || typeof entry.achievements?.reward_value !== "string") {
+      continue;
+    }
+    const current = colorRewardMap.get(entry.user_id) ?? [];
+    current.push(entry.achievements.reward_value);
+    colorRewardMap.set(entry.user_id, current);
+  }
+
+  const appearanceMap = new Map<string, ProfileAppearance>();
+  for (const userId of userIds) {
+    const customization = customizationMap.get(userId) ?? null;
+    const colorRewards = colorRewardMap.get(userId) ?? [];
+
+    appearanceMap.set(userId, {
+      usernameColor: usernameColorPriority.find((value) => colorRewards.includes(value)) ?? null,
+      usernameCss: customization?.username_css ?? null,
+      usernameIconSvg: customization?.username_icon_svg ?? null,
+      usernameIconFill: customization?.username_icon_fill ?? null,
+      usernameIconStroke: customization?.username_icon_stroke ?? null,
+      profileBadgeText: customization?.profile_badge_text ?? null,
+      profileBadgeCss: customization?.profile_badge_css ?? null,
+    });
+  }
+
+  return appearanceMap;
 };
 
 export const createOrLoadDirectConversation = async (userId: string, recipientUserId: string) => {
@@ -515,15 +580,10 @@ export const listConversationsForUser = async (userId: string) => {
 
   const otherUserIds = [...new Set(((members as any[]) ?? []).map((row) => row.user_id).filter((value) => value !== userId))];
   const profileMap = new Map<string, Awaited<ReturnType<typeof loadProfileSummaryOrFallback>>>();
-  const appearanceMap = new Map<string, ProfileAppearance>();
+  const appearanceMap = await loadProfileAppearanceMap(otherUserIds);
   await Promise.all(
     otherUserIds.map(async (otherUserId) => {
-      const [profile, appearance] = await Promise.all([
-        loadProfileSummaryOrFallback(otherUserId),
-        loadProfileAppearance(otherUserId),
-      ]);
-      profileMap.set(otherUserId, profile);
-      appearanceMap.set(otherUserId, appearance);
+      profileMap.set(otherUserId, await loadProfileSummaryOrFallback(otherUserId));
     })
   );
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal } from "lucide-react";
-import { getActiveSession, applySessionFromUrlHash, getBrowserSupabase } from "@/lib/browser-supabase";
+import { getActiveSession, applySessionFromUrlHash, getBrowserSupabase, refreshActiveSession } from "@/lib/browser-supabase";
 import { randomClientMessageId } from "@/lib/encoding";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
@@ -10,6 +10,8 @@ import {
   decryptEnvelope,
   encryptForDevice,
   ensureLocalDeviceState,
+  getCachedSentPlaintext,
+  cacheSentPlaintext,
   updateSignalDeviceAssignment,
 } from "@/lib/signal-store";
 
@@ -192,12 +194,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [startingConversation, setStartingConversation] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
   const [targetUserId, setTargetUserId] = useState(initialTargetUserId);
   const [requestedConversationId, setRequestedConversationId] = useState(initialConversationId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [realtimeVersion, setRealtimeVersion] = useState(0);
   const currentAccessTokenRef = useRef<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const selectedConversation = useMemo(
@@ -210,8 +214,16 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     return bootstrap.selfDevices.find((device) => device.clientDeviceId === bootstrap.me.clientDeviceId) ?? null;
   }, [bootstrap]);
 
-  const apiFetch = async (input: string, init?: RequestInit) => {
-    const session = await getActiveSession();
+  const resolveSession = async () => {
+    const active = await getActiveSession();
+    if (active?.access_token) {
+      return active;
+    }
+    return await refreshActiveSession();
+  };
+
+  const apiFetch = async (input: string, init?: RequestInit, allowRetry = true) => {
+    const session = await resolveSession();
     const accessToken = session?.access_token ?? null;
     currentAccessTokenRef.current = accessToken;
 
@@ -225,6 +237,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     });
 
     const payload = await response.json().catch(() => null);
+    if (response.status === 401 && allowRetry) {
+      const refreshed = await refreshActiveSession();
+      currentAccessTokenRef.current = refreshed?.access_token ?? null;
+      if (refreshed?.access_token) {
+        setRealtimeVersion((current) => current + 1);
+        return await apiFetch(input, init, false);
+      }
+    }
     if (!response.ok) {
       throw new Error(payload?.error || "Request failed");
     }
@@ -275,32 +295,37 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   };
 
   const loadConversations = async () => {
-    const payload = (await apiFetch("/api/conversations")) as { conversations: Conversation[] };
-    setConversations(payload.conversations);
-    setSelectedConversationId((current) => {
-      if (requestedConversationId && payload.conversations.some((conversation) => conversation.id === requestedConversationId)) {
-        const selected = payload.conversations.find((conversation) => conversation.id === requestedConversationId) ?? null;
-        if (selected) {
+    setConversationsLoading(true);
+    try {
+      const payload = (await apiFetch("/api/conversations")) as { conversations: Conversation[] };
+      setConversations(payload.conversations);
+      setSelectedConversationId((current) => {
+        if (requestedConversationId && payload.conversations.some((conversation) => conversation.id === requestedConversationId)) {
+          const selected = payload.conversations.find((conversation) => conversation.id === requestedConversationId) ?? null;
+          if (selected) {
+            const url = new URL(window.location.href);
+            url.searchParams.set("conversation", selected.id);
+            url.searchParams.set("user", selected.otherUser.id);
+            window.history.replaceState({}, "", url.toString());
+          }
+          return requestedConversationId;
+        }
+        if (current && payload.conversations.some((conversation) => conversation.id === current)) {
+          return current;
+        }
+        const targeted = payload.conversations.find((conversation) => conversation.otherUser.id === targetUserId);
+        if (targeted) {
           const url = new URL(window.location.href);
-          url.searchParams.set("conversation", selected.id);
-          url.searchParams.set("user", selected.otherUser.id);
+          url.searchParams.set("user", targeted.otherUser.id);
+          url.searchParams.set("conversation", targeted.id);
           window.history.replaceState({}, "", url.toString());
         }
-        return requestedConversationId;
-      }
-      if (current && payload.conversations.some((conversation) => conversation.id === current)) {
-        return current;
-      }
-      const targeted = payload.conversations.find((conversation) => conversation.otherUser.id === targetUserId);
-      if (targeted) {
-        const url = new URL(window.location.href);
-        url.searchParams.set("user", targeted.otherUser.id);
-        url.searchParams.set("conversation", targeted.id);
-        window.history.replaceState({}, "", url.toString());
-      }
-      return targeted?.id ?? payload.conversations[0]?.id ?? null;
-    });
-    return payload.conversations;
+        return targeted?.id ?? payload.conversations[0]?.id ?? null;
+      });
+      return payload.conversations;
+    } finally {
+      setConversationsLoading(false);
+    }
   };
 
   const upsertConversationLocally = (conversation: Conversation) => {
@@ -383,9 +408,11 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
               peerReadAt: peerReceipt?.read_at ?? null,
             };
           } catch {
+            const cachedSentPlainText =
+              message.senderUserId === bootstrap.me.id ? await getCachedSentPlaintext(message.ciphertext) : null;
             return {
               ...message,
-              plainText: "[Не удалось расшифровать сообщение на этом устройстве]",
+              plainText: cachedSentPlainText ?? "[Не удалось расшифровать сообщение на этом устройстве]",
               peerDeliveredAt: null,
               peerReadAt: null,
             };
@@ -440,6 +467,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           };
         })
       );
+
+      const selfEnvelope = envelopes.find(
+        (entry) => entry.recipientUserId === bootstrap.me.id && entry.recipientDeviceId === currentDevice.id
+      );
+      if (selfEnvelope) {
+        await cacheSentPlaintext(selfEnvelope.ciphertext, draft.trim());
+      }
 
       await apiFetch("/api/messages", {
         method: "POST",
@@ -511,13 +545,17 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     });
     source.onerror = () => {
       source.close();
+      void refreshActiveSession().then((session) => {
+        currentAccessTokenRef.current = session?.access_token ?? null;
+        setRealtimeVersion((current) => current + 1);
+      });
     };
 
     return () => {
       source.removeEventListener("update", onUpdate);
       source.close();
     };
-  }, [sessionReady, targetUserId, selectedConversationId, selectedConversation]);
+  }, [sessionReady, targetUserId, selectedConversationId, selectedConversation, realtimeVersion]);
 
   useEffect(() => {
     if (!sessionReady || !targetUserId) return;
@@ -573,7 +611,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         </div>
       </header>
 
-      <div className="messenger-shell">
+      <div className={`messenger-shell ${selectedConversation && !mobileSidebarOpen ? "mobile-chat-open" : ""}`}>
         <aside className={`sidebar-panel ${mobileSidebarOpen ? "is-open" : ""}`}>
           <div className="sidebar-top">
             <div>
@@ -592,7 +630,11 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
 
           <div className="conversation-list">
-            {conversations.length === 0 ? (
+            {conversationsLoading && conversations.length === 0 ? (
+              <div className="empty-card">
+                <PentagramLoader size="md" />
+              </div>
+            ) : conversations.length === 0 ? (
               <div className="empty-card">
                 <MessageCircle size={18} />
                 <p>Пока нет диалогов.</p>
@@ -656,8 +698,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                                   stroke: conversation.otherUser.usernameIconStroke ?? undefined,
                                   width: "1em",
                                   height: "1em",
-                                  maxHeight: "20px",
-                                  maxWidth: "20px",
                                 }}
                               />
                             ) : null}
@@ -684,7 +724,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           </div>
         </aside>
 
-        <main className="chat-panel">
+        <main className={`chat-panel ${selectedConversation && !mobileSidebarOpen ? "is-open" : ""}`}>
           {selectedConversation ? (
             <>
               <div className="chat-topbar">
@@ -729,8 +769,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                               stroke: selectedConversation.otherUser.usernameIconStroke ?? undefined,
                               width: "1em",
                               height: "1em",
-                              maxHeight: "20px",
-                              maxWidth: "20px",
                             }}
                           />
                         ) : null}
