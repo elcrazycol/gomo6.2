@@ -1,24 +1,269 @@
-:root {
-  color-scheme: dark;
-  --background: hsl(0 0% 13%);
-  --foreground: hsl(40 16% 97%);
-  --card: hsl(0 0% 18%);
-  --card-foreground: hsl(40 16% 97%);
-  --primary: hsl(142 70% 35%);
-  --primary-foreground: hsl(0 0% 98%);
-  --secondary: hsl(0 0% 22%);
-  --secondary-foreground: hsl(40 16% 97%);
-  --muted: hsl(0 0% 22%);
-  --muted-foreground: hsl(0 0% 60%);
-  --accent: hsl(142 70% 30%);
-  --accent-foreground: hsl(0 0% 98%);
-  --border: hsl(0 0% 25%);
-  --input: hsl(0 0% 25%);
-  --post-header: hsl(0 0% 22%);
-  --thread-hover: hsl(0 0% 20%);
-  --danger: hsl(0 62.8% 30.6%);
+:root,
+.light,
+.theme-cannabis,
+.theme-pink,
+.theme-blue,
+.theme-blood,
+.theme-pumpkin {
+  --background: 40 16% 97%;
+  --foreground: 0 0% 13%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 13%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 13%;
+  --primary: 142 70% 25%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 40 16% 95%;
+  --secondary-foreground: 0 0% 13%;
+  --muted: 40 16% 92%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 142 70% 30%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 40 16% 88%;
+  --input: 40 16% 88%;
+  --ring: 142 70% 25%;
   --radius: 0.25rem;
-  --font-sans: Arial, Helvetica, sans-serif;
+  --board-header: 142 70% 25%;
+  --board-header-foreground: 0 0% 98%;
+  --thread-hover: 40 20% 93%;
+  --post-header: 40 16% 92%;
+  --quote-text: 120 100% 25%;
+  --link-text: 240 100% 35%;
+}
+
+.dark,
+.theme-cannabis-dark,
+.theme-pink-dark,
+.theme-blue-dark,
+.theme-blood-dark,
+.theme-pumpkin-dark {
+  --background: 0 0% 13%;
+  --foreground: 40 16% 97%;
+  --card: 0 0% 18%;
+  --card-foreground: 40 16% 97%;
+  --popover: 0 0% 18%;
+  --popover-foreground: 40 16% 97%;
+  --primary: 142 70% 35%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 0 0% 22%;
+  --secondary-foreground: 40 16% 97%;
+  --muted: 0 0% 22%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 142 70% 30%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 25%;
+  --input: 0 0% 25%;
+  --ring: 142 70% 35%;
+  --board-header: 142 70% 30%;
+  --board-header-foreground: 0 0% 98%;
+  --thread-hover: 0 0% 20%;
+  --post-header: 0 0% 22%;
+  --quote-text: 120 100% 40%;
+  --link-text: 240 100% 60%;
+}
+
+.theme-cannabis {
+  --background: 120 25% 95%;
+  --foreground: 120 15% 15%;
+  --card: 120 20% 98%;
+  --card-foreground: 120 15% 15%;
+  --primary: 120 60% 35%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 120 20% 85%;
+  --secondary-foreground: 120 15% 15%;
+  --muted: 120 20% 90%;
+  --muted-foreground: 120 10% 40%;
+  --border: 120 20% 80%;
+  --input: 120 20% 80%;
+  --ring: 120 60% 35%;
+  --board-header: 120 60% 35%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 120 20% 88%;
+  --post-header: 120 20% 92%;
+}
+
+.theme-cannabis-dark {
+  --background: 120 20% 8%;
+  --foreground: 120 10% 90%;
+  --card: 120 20% 10%;
+  --card-foreground: 120 10% 90%;
+  --primary: 120 60% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 120 15% 15%;
+  --secondary-foreground: 120 10% 90%;
+  --muted: 120 15% 15%;
+  --muted-foreground: 120 10% 60%;
+  --border: 120 15% 18%;
+  --input: 120 15% 18%;
+  --ring: 120 60% 45%;
+  --board-header: 120 60% 30%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 120 15% 16%;
+  --post-header: 120 15% 12%;
+}
+
+.theme-pink {
+  --background: 330 40% 95%;
+  --foreground: 330 15% 15%;
+  --card: 330 35% 98%;
+  --card-foreground: 330 15% 15%;
+  --primary: 330 70% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 330 30% 85%;
+  --secondary-foreground: 330 15% 15%;
+  --muted: 330 30% 90%;
+  --muted-foreground: 330 10% 40%;
+  --border: 330 30% 80%;
+  --input: 330 30% 80%;
+  --ring: 330 70% 50%;
+  --board-header: 330 70% 50%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 330 30% 88%;
+  --post-header: 330 30% 92%;
+}
+
+.theme-pink-dark {
+  --background: 330 25% 8%;
+  --foreground: 330 10% 90%;
+  --card: 330 25% 10%;
+  --card-foreground: 330 10% 90%;
+  --primary: 330 70% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 330 20% 15%;
+  --secondary-foreground: 330 10% 90%;
+  --muted: 330 20% 15%;
+  --muted-foreground: 330 10% 60%;
+  --border: 330 20% 18%;
+  --input: 330 20% 18%;
+  --ring: 330 70% 55%;
+  --board-header: 330 70% 40%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 330 20% 16%;
+  --post-header: 330 20% 12%;
+}
+
+.theme-blue {
+  --background: 220 30% 92%;
+  --foreground: 220 15% 20%;
+  --card: 220 25% 96%;
+  --card-foreground: 220 15% 20%;
+  --primary: 220 60% 35%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 25% 80%;
+  --secondary-foreground: 220 15% 20%;
+  --muted: 220 25% 85%;
+  --muted-foreground: 220 10% 40%;
+  --border: 220 25% 75%;
+  --input: 220 25% 75%;
+  --ring: 220 60% 35%;
+  --board-header: 220 60% 35%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 220 25% 83%;
+  --post-header: 220 25% 88%;
+}
+
+.theme-blue-dark {
+  --background: 220 25% 8%;
+  --foreground: 220 10% 85%;
+  --card: 220 25% 10%;
+  --card-foreground: 220 10% 85%;
+  --primary: 220 60% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 20% 15%;
+  --secondary-foreground: 220 10% 85%;
+  --muted: 220 20% 15%;
+  --muted-foreground: 220 10% 55%;
+  --border: 220 20% 18%;
+  --input: 220 20% 18%;
+  --ring: 220 60% 45%;
+  --board-header: 220 60% 30%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 220 20% 16%;
+  --post-header: 220 20% 12%;
+}
+
+.theme-blood {
+  --background: 0 35% 92%;
+  --foreground: 0 25% 18%;
+  --card: 0 30% 96%;
+  --card-foreground: 0 25% 18%;
+  --primary: 0 70% 42%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 30% 82%;
+  --secondary-foreground: 0 25% 18%;
+  --muted: 0 30% 87%;
+  --muted-foreground: 0 15% 42%;
+  --border: 0 25% 78%;
+  --input: 0 25% 78%;
+  --ring: 0 70% 42%;
+  --board-header: 0 70% 42%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 0 30% 84%;
+  --post-header: 0 30% 90%;
+}
+
+.theme-blood-dark {
+  --background: 0 30% 8%;
+  --foreground: 0 12% 90%;
+  --card: 0 28% 10%;
+  --card-foreground: 0 12% 90%;
+  --primary: 0 75% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 20% 15%;
+  --secondary-foreground: 0 12% 90%;
+  --muted: 0 20% 15%;
+  --muted-foreground: 0 10% 60%;
+  --border: 0 18% 18%;
+  --input: 0 18% 18%;
+  --ring: 0 75% 48%;
+  --board-header: 0 70% 34%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 0 18% 16%;
+  --post-header: 0 18% 12%;
+}
+
+.theme-pumpkin {
+  --background: 30 50% 94%;
+  --foreground: 24 20% 18%;
+  --card: 30 45% 97%;
+  --card-foreground: 24 20% 18%;
+  --primary: 28 85% 45%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 28 35% 84%;
+  --secondary-foreground: 24 20% 18%;
+  --muted: 28 35% 89%;
+  --muted-foreground: 24 12% 42%;
+  --border: 28 30% 80%;
+  --input: 28 30% 80%;
+  --ring: 28 85% 45%;
+  --board-header: 28 85% 45%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 28 35% 86%;
+  --post-header: 28 35% 91%;
+}
+
+.theme-pumpkin-dark {
+  --background: 26 28% 8%;
+  --foreground: 28 20% 90%;
+  --card: 26 24% 10%;
+  --card-foreground: 28 20% 90%;
+  --primary: 28 80% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 28 18% 15%;
+  --secondary-foreground: 28 20% 90%;
+  --muted: 28 18% 15%;
+  --muted-foreground: 28 10% 60%;
+  --border: 28 16% 18%;
+  --input: 28 16% 18%;
+  --ring: 28 80% 50%;
+  --board-header: 28 75% 34%;
+  --board-header-foreground: 0 0% 100%;
+  --thread-hover: 28 16% 16%;
+  --post-header: 28 16% 12%;
 }
 
 * {
@@ -29,13 +274,14 @@ html,
 body {
   min-height: 100%;
   margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 body {
   min-height: 100vh;
+  overscroll-behavior: contain;
 }
 
 a {
@@ -51,7 +297,8 @@ input {
 
 .messenger-app {
   min-height: 100vh;
-  padding: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .messenger-header,
@@ -65,11 +312,9 @@ input {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
+  padding: 8px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
 }
 
 .brand {
@@ -78,16 +323,23 @@ input {
   gap: 10px;
 }
 
+.brand-badge,
+.ghost-link,
+.cta-button,
+.send-button,
+.icon-button {
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius);
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
 .brand-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--post-header);
-  color: var(--foreground);
   font-size: 13px;
   font-weight: 700;
 }
@@ -106,7 +358,7 @@ input {
 .conversation-card p,
 .messenger-loading p {
   margin: 0;
-  color: var(--muted-foreground);
+  color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
 
@@ -127,22 +379,11 @@ input {
 }
 
 .ghost-link,
-.cta-button,
-.send-button,
-.icon-button {
-  border: 1px solid var(--input);
-  border-radius: var(--radius);
-  background: var(--card);
-  color: var(--foreground);
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-}
-
-.ghost-link,
 .cta-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
+  min-height: 34px;
   padding: 0 12px;
   font-size: 14px;
 }
@@ -152,25 +393,24 @@ input {
 .send-button:hover,
 .icon-button:hover,
 .conversation-card:hover {
-  background: var(--thread-hover);
-  border-color: var(--primary);
+  background: hsl(var(--thread-hover));
 }
 
 .messenger-shell {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
-  gap: 10px;
-  min-height: calc(100vh - 72px);
+  gap: 0;
+  flex: 1;
+  min-height: calc(100vh - 47px);
 }
 
 .sidebar-panel,
 .chat-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
+  background: hsl(var(--card));
 }
 
 .sidebar-panel {
+  border-right: 1px solid hsl(var(--border));
   padding: 10px;
 }
 
@@ -182,7 +422,7 @@ input {
 
 .eyebrow {
   margin: 0 0 4px;
-  color: var(--muted-foreground);
+  color: hsl(var(--muted-foreground));
   font-size: 11px;
   text-transform: uppercase;
 }
@@ -192,16 +432,16 @@ input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   border-radius: 999px;
 }
 
 .security-pill {
-  min-height: 28px;
+  min-height: 26px;
   padding: 0 10px;
-  border: 1px solid var(--input);
-  background: var(--post-header);
-  color: var(--muted-foreground);
+  border: 1px solid hsl(var(--input));
+  background: hsl(var(--post-header));
+  color: hsl(var(--muted-foreground));
   font-size: 12px;
 }
 
@@ -216,17 +456,17 @@ input {
   gap: 10px;
   width: 100%;
   padding: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  background: var(--post-header);
+  background: hsl(var(--post-header));
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .conversation-card.is-active {
-  border-color: var(--primary);
-  background: var(--thread-hover);
+  border-color: hsl(var(--primary));
+  background: hsl(var(--thread-hover));
 }
 
 .conversation-copy {
@@ -249,7 +489,7 @@ input {
 .conversation-head span,
 .conversation-meta,
 .message-meta {
-  color: var(--muted-foreground);
+  color: hsl(var(--muted-foreground));
   font-size: 12px;
 }
 
@@ -264,8 +504,8 @@ input {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
   font-size: 11px;
   font-weight: 700;
 }
@@ -283,8 +523,8 @@ input {
 
 .chat-topbar {
   justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  background: var(--post-header);
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--post-header));
 }
 
 .message-scroll {
@@ -293,7 +533,7 @@ input {
   display: grid;
   align-content: start;
   gap: 8px;
-  background: var(--background);
+  background: hsl(var(--background));
 }
 
 .bubble-row {
@@ -307,14 +547,14 @@ input {
 .message-bubble {
   max-width: min(70%, 720px);
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  background: var(--card);
+  background: hsl(var(--card));
 }
 
 .message-bubble.is-mine {
-  background: var(--post-header);
-  border-color: var(--primary);
+  border-color: hsl(var(--primary));
+  background: hsl(var(--post-header));
 }
 
 .message-bubble p {
@@ -336,8 +576,8 @@ input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
   gap: 8px;
-  border-top: 1px solid var(--border);
-  background: var(--card);
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
 }
 
 .composer textarea {
@@ -346,15 +586,15 @@ input {
   max-height: 140px;
   resize: none;
   padding: 10px 12px;
-  border: 1px solid var(--input);
+  border: 1px solid hsl(var(--input));
   border-radius: var(--radius);
   outline: none;
-  background: var(--background);
-  color: var(--foreground);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 .composer textarea:focus {
-  border-color: var(--primary);
+  border-color: hsl(var(--primary));
 }
 
 .send-button,
@@ -370,8 +610,8 @@ input {
 }
 
 .icon-button {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
 }
 
 .send-button:disabled {
@@ -384,11 +624,11 @@ input {
   height: 40px;
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--muted);
+  background: hsl(var(--muted));
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted-foreground);
+  color: hsl(var(--muted-foreground));
   font-size: 12px;
   font-weight: 700;
 }
@@ -409,7 +649,7 @@ input {
 .messenger-loading,
 .inline-notice,
 .error-banner {
-  border: 1px solid var(--border);
+  border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
 }
 
@@ -421,7 +661,7 @@ input {
   gap: 10px;
   padding: 20px;
   text-align: center;
-  background: var(--post-header);
+  background: hsl(var(--post-header));
 }
 
 .empty-thread.hero {
@@ -432,17 +672,17 @@ input {
 .inline-notice {
   margin-bottom: 10px;
   padding: 10px 12px;
-  background: var(--post-header);
-  color: var(--muted-foreground);
+  background: hsl(var(--post-header));
+  color: hsl(var(--muted-foreground));
   font-size: 13px;
 }
 
 .error-banner {
   margin: 0 12px 12px;
   padding: 10px 12px;
-  background: color-mix(in srgb, var(--danger) 35%, var(--card));
-  border-color: color-mix(in srgb, var(--danger) 65%, var(--border));
-  color: var(--foreground);
+  background: hsl(var(--destructive) / 0.16);
+  border-color: hsl(var(--destructive) / 0.35);
+  color: hsl(var(--foreground));
   font-size: 13px;
 }
 
@@ -463,6 +703,8 @@ input {
 
   .sidebar-panel {
     display: none;
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .sidebar-panel.is-open {
@@ -470,7 +712,7 @@ input {
   }
 
   .chat-panel {
-    min-height: calc(100vh - 84px);
+    min-height: calc(100vh - 48px);
   }
 
   .mobile-only {
@@ -479,10 +721,6 @@ input {
 }
 
 @media (max-width: 640px) {
-  .messenger-app {
-    padding: 6px;
-  }
-
   .messenger-header {
     padding: 8px 10px;
   }
