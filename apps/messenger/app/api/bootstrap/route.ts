@@ -1,92 +1,102 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromCookies } from "@/lib/session";
-import { getMessengerUserByMainId, getOrCreateMessengerUser, touchMessengerDevice } from "@/lib/server";
-import { messengerAdmin } from "@/lib/supabase";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { getDeviceBundlesForUser, loadProfileSummary, upsertChatDeviceBundle } from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
 export async function POST(request: NextRequest) {
-  try {
-    const session = await getSessionFromCookies();
-    if (!session) {
-      return json({ error: "Сессия messenger не найдена" }, 401);
-    }
-
-    const body = await request.json().catch(() => null);
-    const publicKey = typeof body?.publicKey === "string" ? body.publicKey : null;
-    const deviceId = typeof body?.deviceId === "string" ? body.deviceId : null;
-    const deviceLabel = typeof body?.deviceLabel === "string" ? body.deviceLabel : "browser";
-
-    if (!publicKey || publicKey.length < 20 || !deviceId || deviceId.length < 8) {
-      return json({ error: "Невалидные данные устройства" }, 400);
-    }
-
-    const me = await getOrCreateMessengerUser({
-      mainUserId: session.sub,
-      username: session.username,
-      accountNumber: session.accountNumber,
-      avatarUrl: session.avatarUrl,
-    });
-
-    await touchMessengerDevice({
-      userId: me.id,
-      deviceId,
-      label: deviceLabel,
-      publicKey,
-    });
-
-    const targetMainUserId = request.nextUrl.searchParams.get("targetUserId");
-    let target = null;
-
-    if (targetMainUserId && targetMainUserId !== session.sub) {
-      const existingTarget = await getMessengerUserByMainId(targetMainUserId);
-
-      if (existingTarget) {
-        const admin = messengerAdmin();
-        const { data: devices } = await admin
-          .from("messenger_devices")
-          .select("device_id, label, public_key")
-          .eq("user_id", existingTarget.id)
-          .order("last_seen_at", { ascending: false });
-
-        target = {
-          id: existingTarget.id,
-          mainUserId: existingTarget.main_user_id,
-          username: existingTarget.username,
-          avatarUrl: existingTarget.avatar_url,
-          devices:
-            ((devices as Array<{ device_id: string; label: string; public_key: string }> | null) ?? []).map(
-              (device) => ({
-                deviceId: device.device_id,
-                label: device.label,
-                publicKey: device.public_key,
-              })
-            ),
-        };
-      } else {
-        target = {
-          id: "",
-          mainUserId: targetMainUserId,
-          username: "Пользователь gomo6",
-          avatarUrl: null,
-          devices: [],
-        };
-      }
-    }
-
-    return json({
-      me: {
-        id: me.id,
-        mainUserId: me.main_user_id,
-        username: me.username,
-        avatarUrl: me.avatar_url,
-        deviceId,
-        publicKey,
-      },
-      target,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось инициализировать messenger";
-    return json({ error: message }, 500);
+  const user = await getAuthenticatedUser(request.headers.get("authorization"));
+  if (!user) {
+    return json({ error: "Unauthorized" }, 401);
   }
+
+  const body = await request.json().catch(() => null);
+  const clientDeviceId = typeof body?.clientDeviceId === "string" ? body.clientDeviceId : null;
+  const signalDeviceId = typeof body?.signalDeviceId === "number" ? body.signalDeviceId : null;
+  const registrationId = typeof body?.registrationId === "number" ? body.registrationId : null;
+  const identityPublicKey = typeof body?.identityPublicKey === "string" ? body.identityPublicKey : null;
+  const signedPreKeyId = typeof body?.signedPreKeyId === "number" ? body.signedPreKeyId : null;
+  const signedPreKeyPublic = typeof body?.signedPreKeyPublic === "string" ? body.signedPreKeyPublic : null;
+  const signedPreKeySignature = typeof body?.signedPreKeySignature === "string" ? body.signedPreKeySignature : null;
+  const kyberPreKeyId = typeof body?.kyberPreKeyId === "number" ? body.kyberPreKeyId : null;
+  const kyberPreKeyPublic = typeof body?.kyberPreKeyPublic === "string" ? body.kyberPreKeyPublic : null;
+  const kyberPreKeySignature = typeof body?.kyberPreKeySignature === "string" ? body.kyberPreKeySignature : null;
+  const oneTimePreKeys = Array.isArray(body?.oneTimePreKeys) ? body.oneTimePreKeys : [];
+  const targetUserId = request.nextUrl.searchParams.get("targetUserId");
+
+  if (
+    !clientDeviceId ||
+    !registrationId ||
+    !identityPublicKey ||
+    !signedPreKeyId ||
+    !signedPreKeyPublic ||
+    !signedPreKeySignature ||
+    !kyberPreKeyId ||
+    !kyberPreKeyPublic ||
+    !kyberPreKeySignature
+  ) {
+    return json({ error: "Invalid device bootstrap payload" }, 400);
+  }
+
+  const device = await upsertChatDeviceBundle(user, {
+    clientDeviceId,
+    signalDeviceId,
+    registrationId,
+    deviceLabel: "browser",
+    identityPublicKey,
+    signedPreKeyId,
+    signedPreKeyPublic,
+    signedPreKeySignature,
+    kyberPreKeyId,
+    kyberPreKeyPublic,
+    kyberPreKeySignature,
+    oneTimePreKeys: oneTimePreKeys.filter(
+      (entry: unknown): entry is { preKeyId: number; publicKey: string } =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "preKeyId" in entry &&
+        "publicKey" in entry &&
+        typeof (entry as { preKeyId?: unknown }).preKeyId === "number" &&
+        typeof (entry as { publicKey?: unknown }).publicKey === "string"
+    ),
+  });
+
+  const selfDevices = await getDeviceBundlesForUser(user.id);
+
+  let target = null;
+  if (targetUserId && targetUserId !== user.id) {
+    try {
+      const profile = await loadProfileSummary(targetUserId);
+      const devices = await getDeviceBundlesForUser(targetUserId);
+
+      target = {
+        id: profile.id,
+        username: profile.username,
+        avatarUrl: profile.avatar_url,
+        accountNumber: profile.account_number,
+        isOnline: profile.is_online,
+        lastSeenAt: profile.last_seen_at,
+        usernameColor: profile.username_color,
+        devices,
+      };
+    } catch {
+      target = null;
+    }
+  }
+
+  return json({
+    me: {
+      id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl,
+      accountNumber: user.accountNumber,
+      isOnline: user.isOnline,
+      lastSeenAt: user.lastSeenAt,
+      usernameColor: user.usernameColor,
+      clientDeviceId,
+      signalDeviceId: device.signalDeviceId,
+    },
+    selfDevices,
+    target,
+  });
 }

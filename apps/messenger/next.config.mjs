@@ -16,6 +16,14 @@ const csp = [
 ].join("; ");
 
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_APP_BASE_URL: process.env.NEXT_PUBLIC_APP_BASE_URL || process.env.APP_BASE_URL || "https://gomo6.wtf",
+    NEXT_PUBLIC_MESSENGER_BASE_URL:
+      process.env.NEXT_PUBLIC_MESSENGER_BASE_URL || process.env.MESSENGER_BASE_URL || "https://m.gomo6.wtf",
+  },
   async headers() {
     return [
       {

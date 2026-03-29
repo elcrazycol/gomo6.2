@@ -2,8 +2,8 @@
 
 ## Что теперь в репозитории
 - `apps/web` — основная соцсеть на Vite/React
-- `apps/messenger` — отдельный E2EE messenger на Next.js для `m.gomo6.wtf`
-- корень — workspace/Turborepo
+- `apps/messenger` — отдельный messenger frontend на Next.js для `m.gomo6.wtf`
+- messenger использует тот же Supabase project, что и основная соцсеть
 
 ## Как деплоить на Vercel
 1. Создай два Vercel project из одного репозитория.
@@ -12,27 +12,31 @@
 4. Привяжи домены:
    - `gomo6.wtf` -> `apps/web`
    - `m.gomo6.wtf` -> `apps/messenger`
-5. В оба проекта добавь одинаковый `MESSENGER_SHARED_SESSION_SECRET`.
-6. Для `apps/web` добавь env от основного Supabase.
-7. Для `apps/messenger` добавь env от отдельного Supabase проекта мессенджера.
+5. В оба проекта добавь env от одного и того же Supabase:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+6. Для `apps/messenger` также пробрось:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+   - `APP_BASE_URL`
+   - `MESSENGER_BASE_URL`
 
 ## Что важно по auth
 - Основной сайт подтверждает текущую Supabase-сессию пользователя через service role.
-- После этого `apps/web/api/messenger/handoff.ts` ставит общий `HttpOnly` cookie на `.gomo6.wtf`.
-- `m.gomo6.wtf` читает этот cookie сервером и пускает пользователя в мессенджер без query-token и без localStorage handoff.
+- `apps/web/api/messenger/handoff.ts` больше не ставит messenger-cookie.
+- Handoff переносит `access_token` и `refresh_token` во фрагмент URL, а `m.gomo6.wtf` сохраняет сессию в своём Supabase client storage.
+
+## Что важно по данным
+- Legacy plaintext DM таблицы закрываются миграцией из `apps/web/supabase/migrations/20260329160000_rebuild_messenger_with_signal.sql`.
+- Новый messenger-контур живёт в `chat_*` таблицах того же проекта Supabase, что и `profiles`, `notifications` и остальная соцсеть.
+- Новый messenger берёт username, avatar, account number и online state напрямую из `profiles`.
 
 ## Что важно по E2EE
-- Сервер хранит только ciphertext, nonce и публичные ключи.
-- Ключ диалога создаётся на клиенте.
-- Ключ диалога шифруется отдельно для каждого участника через sealed box.
-- Сообщения шифруются XChaCha20-Poly1305 на клиенте.
-
-## Ограничения текущей версии
-- Сейчас это модель `1 user = 1 browser device`.
-- Если собеседник ни разу не открывал `m.gomo6.wtf`, у него ещё нет публичного ключа, и начать E2EE-диалог нельзя.
-- Нет вложений, групповых чатов и key-rotation.
-- Для максимальной реальной безопасности следующим шагом стоит вынести private keys из `localStorage` в зашифрованное IndexedDB/WebCrypto-хранилище и добавить device management.
+- Сервер хранит только encrypted envelopes и публичные device keys.
+- Каждое сообщение шифруется отдельно под каждое устройство.
+- Текущая реализация использует browser-native WebCrypto и не зависит от старого `libsodium` слоя.
 
 ## SQL
-Запусти миграцию из:
-- `apps/messenger/supabase/migrations/20260329000000_create_messenger_schema.sql`
+Примени миграцию:
+- `apps/web/supabase/migrations/20260329160000_rebuild_messenger_with_signal.sql`
