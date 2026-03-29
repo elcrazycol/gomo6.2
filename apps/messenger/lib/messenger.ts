@@ -37,19 +37,29 @@ export const upsertChatDeviceBundle = async (
 ) => {
   const admin = messengerAdmin();
 
-  const { data: existingDevice } = await admin
+  const { data: existingDevice, error: existingDeviceError } = await admin
     .from("chat_devices")
     .select("id, signal_device_id")
     .eq("user_id", user.id)
     .eq("client_device_id", payload.clientDeviceId)
     .maybeSingle();
 
+  if (existingDeviceError) {
+    throw new Error(`Failed to load existing chat device: ${existingDeviceError.message}`);
+  }
+
   let signalDeviceId = payload.signalDeviceId;
   if (!signalDeviceId) {
     if (existingDevice?.signal_device_id) {
       signalDeviceId = existingDevice.signal_device_id;
     } else {
-      const { data: devices } = await admin.from("chat_devices").select("signal_device_id").eq("user_id", user.id);
+      const { data: devices, error: devicesError } = await admin
+        .from("chat_devices")
+        .select("signal_device_id")
+        .eq("user_id", user.id);
+      if (devicesError) {
+        throw new Error(`Failed to list chat devices: ${devicesError.message}`);
+      }
       const nextSignalDeviceId =
         Math.max(
           0,
@@ -83,20 +93,26 @@ export const upsertChatDeviceBundle = async (
     throw new Error(`Failed to upsert chat device: ${deviceError?.message ?? "unknown"}`);
   }
 
-  await admin.from("chat_identity_keys").upsert({
+  const { error: identityError } = await admin.from("chat_identity_keys").upsert({
     device_id: deviceRow.id,
     user_id: user.id,
     public_key: payload.identityPublicKey,
   });
+  if (identityError) {
+    throw new Error(`Failed to upsert identity key: ${identityError.message}`);
+  }
 
-  await admin
+  const { error: signedRotateError } = await admin
     .from("chat_signed_prekeys")
     .update({ replaced_at: new Date().toISOString() })
     .eq("device_id", deviceRow.id)
     .is("replaced_at", null)
     .neq("signed_prekey_id", payload.signedPreKeyId);
+  if (signedRotateError) {
+    throw new Error(`Failed to rotate signed prekeys: ${signedRotateError.message}`);
+  }
 
-  await admin.from("chat_signed_prekeys").upsert(
+  const { error: signedPreKeyError } = await admin.from("chat_signed_prekeys").upsert(
     {
       device_id: deviceRow.id,
       user_id: user.id,
@@ -107,15 +123,21 @@ export const upsertChatDeviceBundle = async (
     },
     { onConflict: "device_id,signed_prekey_id" }
   );
+  if (signedPreKeyError) {
+    throw new Error(`Failed to upsert signed prekey: ${signedPreKeyError.message}`);
+  }
 
-  await admin
+  const { error: kyberRotateError } = await admin
     .from("chat_kyber_prekeys")
     .update({ replaced_at: new Date().toISOString() })
     .eq("device_id", deviceRow.id)
     .is("replaced_at", null)
     .neq("kyber_prekey_id", payload.kyberPreKeyId);
+  if (kyberRotateError) {
+    throw new Error(`Failed to rotate kyber prekeys: ${kyberRotateError.message}`);
+  }
 
-  await admin.from("chat_kyber_prekeys").upsert(
+  const { error: kyberError } = await admin.from("chat_kyber_prekeys").upsert(
     {
       device_id: deviceRow.id,
       user_id: user.id,
@@ -126,9 +148,12 @@ export const upsertChatDeviceBundle = async (
     },
     { onConflict: "device_id,kyber_prekey_id" }
   );
+  if (kyberError) {
+    throw new Error(`Failed to upsert kyber prekey: ${kyberError.message}`);
+  }
 
   if (payload.oneTimePreKeys.length > 0) {
-    await admin.from("chat_one_time_prekeys").upsert(
+    const { error: prekeysError } = await admin.from("chat_one_time_prekeys").upsert(
       payload.oneTimePreKeys.map((preKey) => ({
         device_id: deviceRow.id,
         user_id: user.id,
@@ -137,9 +162,17 @@ export const upsertChatDeviceBundle = async (
       })),
       { onConflict: "device_id,prekey_id", ignoreDuplicates: true }
     );
+    if (prekeysError) {
+      throw new Error(`Failed to upsert one-time prekeys: ${prekeysError.message}`);
+    }
   }
 
-  await admin.from("chat_user_preferences").upsert({ user_id: user.id }, { onConflict: "user_id" });
+  const { error: preferencesError } = await admin
+    .from("chat_user_preferences")
+    .upsert({ user_id: user.id }, { onConflict: "user_id" });
+  if (preferencesError) {
+    throw new Error(`Failed to upsert messenger preferences: ${preferencesError.message}`);
+  }
 
   return {
     deviceId: deviceRow.id,
