@@ -6,6 +6,12 @@ import { messengerAdmin } from "@/lib/supabase";
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
 type NormalizedConversationKey = {
+  user_id: string;
+  device_id: string;
+  encrypted_key: string;
+};
+
+type StoredConversationKey = {
   conversation_id: string;
   user_id: string;
   device_id: string;
@@ -177,11 +183,9 @@ export async function POST(request: NextRequest) {
         typeof entry?.encryptedKey === "string"
     )
     .map((entry: { userId: string; deviceId: string; encryptedKey: string }) => ({
-      conversation_id: conversationId,
       user_id: entry.userId,
       device_id: entry.deviceId,
       encrypted_key: entry.encryptedKey,
-      key_version: 1,
     }));
 
   const selfHasOwnKey = normalizedKeychain.some(
@@ -246,7 +250,15 @@ export async function POST(request: NextRequest) {
     return json({ conversation: { id: conversationId, existed: true } });
   }
 
-  const { error: keyError } = await admin.from("messenger_conversation_keys").upsert(normalizedKeychain, {
+  const storedKeychain: StoredConversationKey[] = normalizedKeychain.map((entry) => ({
+    conversation_id: conversationId,
+    user_id: entry.user_id,
+    device_id: entry.device_id,
+    encrypted_key: entry.encrypted_key,
+    key_version: 1,
+  }));
+
+  const { error: keyError } = await admin.from("messenger_conversation_keys").upsert(storedKeychain, {
     onConflict: "conversation_id,user_id,device_id",
   });
 
