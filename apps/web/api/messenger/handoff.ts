@@ -94,6 +94,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const targetUserId = typeof req.body?.targetUserId === "string" ? req.body.targetUserId : null;
+  const conversationId = typeof req.body?.conversationId === "string" ? req.body.conversationId : null;
   const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : null;
   const expiresAt = typeof req.body?.expiresAt === "number" ? req.body.expiresAt : null;
 
@@ -109,6 +110,9 @@ export default async function handler(req: any, res: any) {
   }
   if (targetUserId) {
     fragment.set("targetUserId", targetUserId);
+  }
+  if (conversationId) {
+    fragment.set("conversationId", conversationId);
   }
   redirectUrl.hash = fragment.toString();
 

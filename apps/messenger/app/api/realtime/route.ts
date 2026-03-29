@@ -11,10 +11,15 @@ const eventChunk = (event: string, payload: unknown) =>
   encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthenticatedUser(request.headers.get("authorization"));
+  const accessToken = request.nextUrl.searchParams.get("accessToken");
+  const user = await getAuthenticatedUser(
+    request.headers.get("authorization") ?? (accessToken ? `Bearer ${accessToken}` : null)
+  );
   if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
+
+  const selectedConversationId = request.nextUrl.searchParams.get("conversationId");
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -26,14 +31,26 @@ export async function GET(request: NextRequest) {
 
         try {
           const conversations = await listConversationsForUser(user.id);
-          const snapshot = JSON.stringify(
-            conversations.map((conversation) => ({
+          const selectedConversation = selectedConversationId
+            ? conversations.find((conversation) => conversation.id === selectedConversationId) ?? null
+            : null;
+          const snapshot = JSON.stringify({
+            conversations: conversations.map((conversation) => ({
               id: conversation.id,
               lastMessageAt: conversation.lastMessageAt,
               unreadCount: conversation.unreadCount,
+              lastReadAt: conversation.lastReadAt,
               peerId: conversation.otherUser.id,
-            }))
-          );
+            })),
+            selectedConversation: selectedConversation
+              ? {
+                  id: selectedConversation.id,
+                  lastMessageAt: selectedConversation.lastMessageAt,
+                  unreadCount: selectedConversation.unreadCount,
+                  lastReadAt: selectedConversation.lastReadAt,
+                }
+              : null,
+          });
 
           if (snapshot !== previousSnapshot) {
             previousSnapshot = snapshot;

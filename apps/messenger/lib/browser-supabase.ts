@@ -45,6 +45,7 @@ export const applySessionFromUrlHash = async () => {
   const refreshToken = params.get("refresh_token");
   const expiresAt = params.get("expires_at");
   const targetUserId = params.get("targetUserId");
+  const conversationId = params.get("conversationId");
 
   if (!accessToken || !refreshToken) {
     return null;
@@ -61,12 +62,15 @@ export const applySessionFromUrlHash = async () => {
   if (targetUserId && !nextUrl.searchParams.get("user")) {
     nextUrl.searchParams.set("user", targetUserId);
   }
+  if (conversationId && !nextUrl.searchParams.get("conversation")) {
+    nextUrl.searchParams.set("conversation", conversationId);
+  }
   if (expiresAt) {
     nextUrl.searchParams.set("handoff", "1");
   }
   window.history.replaceState({}, "", nextUrl.toString());
 
-  return { targetUserId };
+  return { targetUserId, conversationId };
 };
 
 export const getActiveSession = async (): Promise<Session | null> => {

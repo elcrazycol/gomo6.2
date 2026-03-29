@@ -7,6 +7,7 @@ const Messages = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const targetUserId = searchParams.get("user");
+  const conversationId = searchParams.get("conversation");
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -30,6 +31,7 @@ const Messages = () => {
           credentials: "include",
           body: JSON.stringify({
             targetUserId,
+            conversationId,
             refreshToken: session.refresh_token,
             expiresAt: session.expires_at,
           }),
@@ -50,7 +52,7 @@ const Messages = () => {
     };
 
     startHandoff();
-  }, [navigate, targetUserId]);
+  }, [conversationId, navigate, targetUserId]);
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4">
@@ -58,7 +60,11 @@ const Messages = () => {
         <div className="flex justify-center">
           <PentagramLoader size="md" />
         </div>
-        {failed ? <p className="mt-4 text-sm text-muted-foreground"> </p> : null}
+        {failed ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Не удалось открыть messenger. Попробуй обновить страницу или войти заново.
+          </p>
+        ) : null}
       </div>
     </div>
   );
