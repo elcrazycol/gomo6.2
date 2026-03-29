@@ -229,13 +229,14 @@ export async function POST(request: NextRequest) {
     conversationId = createdConversation.id;
   }
 
-  const { error: membersError } = await admin.from("messenger_conversation_members").upsert(
-    [
-      { conversation_id: conversationId, user_id: self.id },
-      { conversation_id: conversationId, user_id: recipient.id },
-    ],
-    { onConflict: "conversation_id,user_id" }
-  );
+  const memberRows = [...new Set([self.id, recipient.id])].map((userId) => ({
+    conversation_id: conversationId,
+    user_id: userId,
+  }));
+
+  const { error: membersError } = await admin
+    .from("messenger_conversation_members")
+    .upsert(memberRows, { onConflict: "conversation_id,user_id" });
 
   if (membersError) {
     return json(

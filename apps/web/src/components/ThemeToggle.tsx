@@ -14,6 +14,17 @@ import {
 
 type ColorTheme = 'cannabis' | 'pink' | 'blue' | 'blood' | 'pumpkin';
 
+const syncSharedAppearanceCookies = () => {
+  const colorTheme = localStorage.getItem("color-theme") || "cannabis";
+  const darkMode = localStorage.getItem("dark-mode") ?? "true";
+  const customFont = localStorage.getItem("custom_font") || "";
+  const maxAge = 60 * 60 * 24 * 365;
+
+  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+};
+
 export function ThemeToggle() {
   const [open, setOpen] = useState(false);
   const [colorTheme, setColorTheme] = useState<ColorTheme>('cannabis');
@@ -56,12 +67,14 @@ export function ThemeToggle() {
     setColorTheme(newColor);
     localStorage.setItem('color-theme', newColor);
     applyTheme(newColor, isDark);
+    syncSharedAppearanceCookies();
   };
 
   const handleModeToggle = (checked: boolean) => {
     setIsDark(checked);
     localStorage.setItem('dark-mode', checked.toString());
     applyTheme(colorTheme, checked);
+    syncSharedAppearanceCookies();
   };
 
   return (

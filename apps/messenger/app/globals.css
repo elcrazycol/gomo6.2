@@ -368,26 +368,50 @@ input {
   color: hsl(var(--foreground));
 }
 
-.brand-link {
-  position: relative;
-  color: inherit;
-  font-size: 18px;
-  font-weight: 700;
-  text-decoration: none;
+.brand-heading {
+  display: inline-flex;
+  align-items: baseline;
 }
 
-.brand-link::after {
+.brand-m,
+.brand-gomo6-link {
+  position: relative;
+  display: inline-block;
+}
+
+.brand-m::after,
+.brand-gomo6-link::after {
   content: "";
   position: absolute;
   left: 0;
   bottom: -2px;
   width: 0;
   height: 1.5px;
-  background: currentColor;
   transition: width 0.25s ease;
 }
 
-.brand-link:hover::after {
+.brand-m {
+  color: hsl(var(--board-header-foreground));
+}
+
+.brand-m::after {
+  background: hsl(var(--primary-foreground));
+}
+
+.brand:hover .brand-m::after {
+  width: 100%;
+}
+
+.brand-gomo6-link {
+  color: hsl(var(--board-header-foreground));
+  text-decoration: none;
+}
+
+.brand-gomo6-link::after {
+  background: hsl(var(--accent-foreground));
+}
+
+.brand-gomo6-link:hover::after {
   width: 100%;
 }
 

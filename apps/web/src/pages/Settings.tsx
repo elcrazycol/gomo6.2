@@ -20,6 +20,17 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
 
+const syncSharedAppearanceCookies = () => {
+  const colorTheme = localStorage.getItem("color-theme") || "cannabis";
+  const darkMode = localStorage.getItem("dark-mode") ?? "true";
+  const customFont = localStorage.getItem("custom_font") || "";
+  const maxAge = 60 * 60 * 24 * 365;
+
+  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+};
+
 const Settings = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -346,6 +357,7 @@ const Settings = () => {
   const handleFontChange = async (fontName: string) => {
     setCustomFont(fontName);
     localStorage.setItem('custom_font', fontName);
+    syncSharedAppearanceCookies();
 
     if (fontName.trim()) {
       loadGoogleFont(fontName);
@@ -364,6 +376,7 @@ const Settings = () => {
       existingLinks.forEach(link => link.remove());
       document.body.style.fontFamily = '';
       localStorage.removeItem('custom_font');
+      syncSharedAppearanceCookies();
     }
   };
 
@@ -415,6 +428,7 @@ const Settings = () => {
     // Add new theme class
     const themeClass = dark ? `theme-${color}-dark` : `theme-${color}`;
     html.classList.add(themeClass);
+    syncSharedAppearanceCookies();
   };
 
   const handleColorThemeChange = (newColor: typeof colorTheme) => {
