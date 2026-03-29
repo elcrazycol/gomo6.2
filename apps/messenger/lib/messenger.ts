@@ -260,6 +260,134 @@ export const loadProfileSummary = async (userId: string) => {
   return data;
 };
 
+export const createOrLoadDirectConversation = async (userId: string, recipientUserId: string) => {
+  const admin = messengerAdmin();
+  const directKey = [userId, recipientUserId].sort().join(":");
+
+  const { data: existingConversation, error: existingConversationError } = await admin
+    .from("chat_conversations")
+    .select("id")
+    .eq("direct_key", directKey)
+    .maybeSingle();
+
+  if (existingConversationError) {
+    throw new Error(`Failed to load direct conversation: ${existingConversationError.message}`);
+  }
+
+  let conversationId = existingConversation?.id ?? null;
+
+  if (!conversationId) {
+    const { data: createdConversation, error: createConversationError } = await admin
+      .from("chat_conversations")
+      .insert({
+        kind: "direct",
+        direct_key: directKey,
+        created_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (createConversationError || !createdConversation) {
+      throw new Error(`Failed to create direct conversation: ${createConversationError?.message ?? "unknown"}`);
+    }
+
+    conversationId = createdConversation.id;
+  }
+
+  const { error: membersError } = await admin.from("chat_conversation_members").upsert(
+    [
+      { conversation_id: conversationId, user_id: userId },
+      { conversation_id: conversationId, user_id: recipientUserId },
+    ],
+    { onConflict: "conversation_id,user_id" }
+  );
+
+  if (membersError) {
+    throw new Error(`Failed to upsert conversation members: ${membersError.message}`);
+  }
+
+  return conversationId;
+};
+
+export const markConversationRead = async (userId: string, conversationId: string, lastReadMessageId: string | null) => {
+  const admin = messengerAdmin();
+  const { data: membership, error: membershipError } = await admin
+    .from("chat_conversation_members")
+    .select("conversation_id")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) {
+    throw new Error(`Failed to load conversation membership: ${membershipError.message}`);
+  }
+
+  if (!membership) {
+    throw new Error("Conversation access denied");
+  }
+
+  let resolvedReadAt = new Date().toISOString();
+  if (lastReadMessageId) {
+    const { data: messageRow, error: messageError } = await admin
+      .from("chat_messages")
+      .select("sent_at")
+      .eq("id", lastReadMessageId)
+      .eq("conversation_id", conversationId)
+      .maybeSingle();
+
+    if (messageError) {
+      throw new Error(`Failed to resolve last read message: ${messageError.message}`);
+    }
+
+    resolvedReadAt = messageRow?.sent_at ?? resolvedReadAt;
+  }
+
+  const { error: memberUpdateError } = await admin
+    .from("chat_conversation_members")
+    .update({
+      last_read_message_id: lastReadMessageId,
+      last_read_at: resolvedReadAt,
+      unread_count_cache: 0,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+
+  if (memberUpdateError) {
+    throw new Error(`Failed to update read state: ${memberUpdateError.message}`);
+  }
+
+  const { error: receiptsError } = await admin
+    .from("chat_receipts")
+    .update({
+      read_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .in(
+      "message_id",
+      (
+        (
+          await admin
+            .from("chat_messages")
+            .select("id")
+            .eq("conversation_id", conversationId)
+        ).data ?? []
+      ).map((row: { id: string }) => row.id)
+    );
+
+  if (receiptsError) {
+    throw new Error(`Failed to update receipts: ${receiptsError.message}`);
+  }
+
+  await admin
+    .from("notifications")
+    .update({ is_read: true })
+    .eq("user_id", userId)
+    .eq("type", "message")
+    .eq("related_conversation_id", conversationId);
+};
+
 export const listConversationsForUser = async (userId: string) => {
   const admin = messengerAdmin();
   const { data: memberships } = await admin
