@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
-import { getDeviceBundlesForUser, loadProfileSummaryOrFallback, upsertChatDeviceBundle } from "@/lib/messenger";
+import { getDeviceBundlesForUser, loadProfileAppearance, loadProfileSummaryOrFallback, upsertChatDeviceBundle } from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
@@ -73,7 +73,10 @@ export async function POST(request: NextRequest) {
     let target = null;
     if (targetUserId && targetUserId !== user.id) {
       try {
-        const profile = await loadProfileSummaryOrFallback(targetUserId);
+        const [profile, appearance] = await Promise.all([
+          loadProfileSummaryOrFallback(targetUserId),
+          loadProfileAppearance(targetUserId),
+        ]);
         const devices = await getDeviceBundlesForUser(targetUserId);
 
         target = {
@@ -83,7 +86,13 @@ export async function POST(request: NextRequest) {
           accountNumber: profile.account_number,
           isOnline: profile.is_online,
           lastSeenAt: profile.last_seen_at,
-          usernameColor: profile.username_color,
+          usernameColor: appearance.usernameColor,
+          usernameCss: appearance.usernameCss,
+          usernameIconSvg: appearance.usernameIconSvg,
+          usernameIconFill: appearance.usernameIconFill,
+          usernameIconStroke: appearance.usernameIconStroke,
+          profileBadgeText: appearance.profileBadgeText,
+          profileBadgeCss: appearance.profileBadgeCss,
           devices,
         };
       } catch (targetError) {
@@ -105,6 +114,12 @@ export async function POST(request: NextRequest) {
         isOnline: user.isOnline,
         lastSeenAt: user.lastSeenAt,
         usernameColor: user.usernameColor,
+        usernameCss: user.usernameCss,
+        usernameIconSvg: user.usernameIconSvg,
+        usernameIconFill: user.usernameIconFill,
+        usernameIconStroke: user.usernameIconStroke,
+        profileBadgeText: user.profileBadgeText,
+        profileBadgeCss: user.profileBadgeCss,
         clientDeviceId,
         signalDeviceId: device.signalDeviceId,
       },

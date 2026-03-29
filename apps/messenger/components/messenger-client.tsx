@@ -40,6 +40,12 @@ type BootstrapPayload = {
     isOnline: boolean | null;
     lastSeenAt: string | null;
     usernameColor: string | null;
+    usernameCss: string | null;
+    usernameIconSvg: string | null;
+    usernameIconFill: string | null;
+    usernameIconStroke: string | null;
+    profileBadgeText: string | null;
+    profileBadgeCss: string | null;
     clientDeviceId: string;
     signalDeviceId: number;
   };
@@ -52,6 +58,12 @@ type BootstrapPayload = {
     isOnline: boolean | null;
     lastSeenAt: string | null;
     usernameColor: string | null;
+    usernameCss: string | null;
+    usernameIconSvg: string | null;
+    usernameIconFill: string | null;
+    usernameIconStroke: string | null;
+    profileBadgeText: string | null;
+    profileBadgeCss: string | null;
     devices: DeviceBundle[];
   } | null;
 };
@@ -70,6 +82,12 @@ type Conversation = {
     isOnline: boolean | null;
     lastSeenAt: string | null;
     usernameColor: string | null;
+    usernameCss: string | null;
+    usernameIconSvg: string | null;
+    usernameIconFill: string | null;
+    usernameIconStroke: string | null;
+    profileBadgeText: string | null;
+    profileBadgeCss: string | null;
   };
   devices: DeviceBundle[];
 };
@@ -125,6 +143,45 @@ const formatPresence = (isOnline: boolean | null, lastSeenAt: string | null) => 
 };
 
 const getInitials = (username: string) => username.slice(0, 2).toUpperCase();
+
+const parseCssToStyle = (css: string | null) => {
+  const style: Record<string, string> = {};
+  if (!css) return style;
+
+  css
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .forEach((declaration) => {
+      const colonIndex = declaration.indexOf(":");
+      if (colonIndex === -1) return;
+
+      const property = declaration.slice(0, colonIndex).trim();
+      const value = declaration.slice(colonIndex + 1).trim();
+      if (!property || !value) return;
+
+      const reactProperty = property
+        .replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+        .replace(/^webkit/, "Webkit")
+        .replace(/^moz/, "Moz")
+        .replace(/^ms/, "Ms");
+
+      style[reactProperty] = value;
+    });
+
+  return style;
+};
+
+const usernameColorClassMap: Record<string, string> = {
+  purple: "var(--messenger-color-purple)",
+  gold: "var(--messenger-color-gold)",
+  orange: "var(--messenger-color-orange)",
+  red: "var(--messenger-color-red)",
+  blue: "var(--messenger-color-blue)",
+  green: "var(--messenger-color-green)",
+  yellow: "var(--messenger-color-yellow)",
+  cyan: "var(--messenger-color-cyan)",
+};
 
 export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConversationId }: Props) => {
   const [sessionReady, setSessionReady] = useState(false);
@@ -579,7 +636,37 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                     <div className="conversation-copy">
                       <div className="conversation-head">
                         <strong style={{ color: conversation.otherUser.usernameColor ?? undefined }}>
-                          {conversation.otherUser.username}
+                          <span
+                            className="inline-flex items-center gap-1"
+                            style={
+                              conversation.otherUser.usernameCss
+                                ? parseCssToStyle(conversation.otherUser.usernameCss)
+                                : conversation.otherUser.usernameColor
+                                  ? { color: usernameColorClassMap[conversation.otherUser.usernameColor] }
+                                  : undefined
+                            }
+                          >
+                            <span>{conversation.otherUser.username}</span>
+                            {conversation.otherUser.usernameIconSvg ? (
+                              <span
+                                className="inline-flex items-center justify-center"
+                                dangerouslySetInnerHTML={{ __html: conversation.otherUser.usernameIconSvg }}
+                                style={{
+                                  fill: conversation.otherUser.usernameIconFill ?? undefined,
+                                  stroke: conversation.otherUser.usernameIconStroke ?? undefined,
+                                  width: "1em",
+                                  height: "1em",
+                                  maxHeight: "20px",
+                                  maxWidth: "20px",
+                                }}
+                              />
+                            ) : null}
+                            {conversation.otherUser.profileBadgeText ? (
+                              <span className="messenger-profile-badge" style={parseCssToStyle(conversation.otherUser.profileBadgeCss)}>
+                                {conversation.otherUser.profileBadgeText}
+                              </span>
+                            ) : null}
+                          </span>
                         </strong>
                         <span>{formatDate(conversation.lastMessageAt)}</span>
                       </div>
@@ -621,9 +708,38 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                     <a
                       href={`${appBaseUrl}/profile/${selectedConversation.otherUser.id}`}
                       className="chat-profile-link"
-                      style={{ color: selectedConversation.otherUser.usernameColor ?? undefined }}
                     >
-                      <strong>{selectedConversation.otherUser.username}</strong>
+                      <strong
+                        className="inline-flex items-center gap-1"
+                        style={
+                          selectedConversation.otherUser.usernameCss
+                            ? parseCssToStyle(selectedConversation.otherUser.usernameCss)
+                            : selectedConversation.otherUser.usernameColor
+                              ? { color: usernameColorClassMap[selectedConversation.otherUser.usernameColor] }
+                              : undefined
+                        }
+                      >
+                        <span>{selectedConversation.otherUser.username}</span>
+                        {selectedConversation.otherUser.usernameIconSvg ? (
+                          <span
+                            className="inline-flex items-center justify-center"
+                            dangerouslySetInnerHTML={{ __html: selectedConversation.otherUser.usernameIconSvg }}
+                            style={{
+                              fill: selectedConversation.otherUser.usernameIconFill ?? undefined,
+                              stroke: selectedConversation.otherUser.usernameIconStroke ?? undefined,
+                              width: "1em",
+                              height: "1em",
+                              maxHeight: "20px",
+                              maxWidth: "20px",
+                            }}
+                          />
+                        ) : null}
+                        {selectedConversation.otherUser.profileBadgeText ? (
+                          <span className="messenger-profile-badge" style={parseCssToStyle(selectedConversation.otherUser.profileBadgeCss)}>
+                            {selectedConversation.otherUser.profileBadgeText}
+                          </span>
+                        ) : null}
+                      </strong>
                     </a>
                     <p className="presence-copy">
                       {formatPresence(selectedConversation.otherUser.isOnline, selectedConversation.otherUser.lastSeenAt)}

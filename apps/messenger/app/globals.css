@@ -39,6 +39,14 @@
   --sidebar-accent-foreground: 240 5.9% 10%;
   --sidebar-border: 220 13% 91%;
   --sidebar-ring: 217.2 91.2% 59.8%;
+  --messenger-color-purple: #a855f7;
+  --messenger-color-gold: #eab308;
+  --messenger-color-orange: #f97316;
+  --messenger-color-red: #ef4444;
+  --messenger-color-blue: #3b82f6;
+  --messenger-color-green: #22c55e;
+  --messenger-color-yellow: #facc15;
+  --messenger-color-cyan: #06b6d4;
 }
 
 .dark,
@@ -80,6 +88,14 @@
   --sidebar-accent-foreground: 240 4.8% 95.9%;
   --sidebar-border: 240 3.7% 15.9%;
   --sidebar-ring: 217.2 91.2% 59.8%;
+  --messenger-color-purple: #c084fc;
+  --messenger-color-gold: #facc15;
+  --messenger-color-orange: #fb923c;
+  --messenger-color-red: #f87171;
+  --messenger-color-blue: #60a5fa;
+  --messenger-color-green: #4ade80;
+  --messenger-color-yellow: #fde047;
+  --messenger-color-cyan: #22d3ee;
 }
 
 .theme-cannabis {
@@ -868,6 +884,18 @@ input {
   .mobile-only {
     display: inline-flex;
   }
+}
+
+.messenger-profile-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 @media (max-width: 640px) {
