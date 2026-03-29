@@ -526,11 +526,31 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       );
 
       setMessages((current) => {
+        const pendingMessages = current.filter((message) => message.localStatus === "pending");
+        const pendingIdsToDrop = new Set<string>();
+
+        for (const pendingMessage of pendingMessages) {
+          const matchedServerMessage = decrypted.find((message) => {
+            if (message.senderUserId !== bootstrap.me.id) return false;
+            if (message.plainText !== pendingMessage.plainText) return false;
+
+            const pendingTime = new Date(pendingMessage.sentAt).getTime();
+            const serverTime = new Date(message.sentAt).getTime();
+            return Math.abs(serverTime - pendingTime) <= 15000;
+          });
+
+          if (matchedServerMessage) {
+            pendingIdsToDrop.add(pendingMessage.id);
+          }
+        }
+
+        const withoutMatchedPending = current.filter((message) => !pendingIdsToDrop.has(message.id));
+
         if (!options?.incremental) {
           return decrypted;
         }
 
-        const merged = new Map(current.map((message) => [message.id, message]));
+        const merged = new Map(withoutMatchedPending.map((message) => [message.id, message]));
         for (const message of decrypted) {
           merged.set(message.id, message);
         }
@@ -547,7 +567,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   };
 
   const sendCurrentMessage = async () => {
-    if (!draft.trim() || !bootstrap || !selectedConversation || !currentDevice) return;
+    if (sending || !draft.trim() || !bootstrap || !selectedConversation || !currentDevice) return;
     if (selectedConversation.devices.length === 0) {
       setErrorMessage("У собеседника пока нет зарегистрированного устройства messenger. Отправка станет доступна после его первого входа.");
       return;
@@ -573,6 +593,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         localStatus: "pending",
       },
     ]);
+    setDraft("");
     patchConversation(selectedConversation.id, (current) => ({
       ...current,
       lastMessageAt: sentAt,
@@ -622,7 +643,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         }),
       });
 
-      setDraft("");
       scheduleMessageRefresh();
       if (window.innerWidth <= 980) {
         composerRef.current?.focus({ preventScroll: true });
@@ -631,6 +651,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       setErrorMessage(null);
     } catch (error) {
       setMessages((current) => current.filter((message) => message.id !== localMessageId));
+      setDraft((current) => (current ? current : plainText));
       const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
       setErrorMessage(message);
     } finally {
@@ -828,10 +849,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       window.removeEventListener("resize", handleVisibleRead);
     };
   }, []);
-
-  useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
-  }, [selectedConversationId]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -1200,7 +1217,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                   placeholder="Написать сообщение..."
                   rows={1}
                 />
-                <button type="submit" className="send-button" disabled={sending || !draft.trim()}>
+                <button
+                  type="submit"
+                  className="send-button"
+                  disabled={sending || !draft.trim()}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onTouchStart={(event) => event.preventDefault()}
+                >
                   {sending ? <PentagramLoader size="sm" /> : <SendHorizonal size={16} />}
                 </button>
               </form>
