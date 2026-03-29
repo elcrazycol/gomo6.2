@@ -326,6 +326,7 @@ body {
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   overscroll-behavior: contain;
 }
 
@@ -342,9 +343,11 @@ input {
 
 .messenger-app {
   height: 100dvh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .messenger-header {
@@ -666,6 +669,7 @@ input {
   overflow: hidden;
   border-left: 1px solid hsl(var(--border));
   min-height: 0;
+  overscroll-behavior: none;
 }
 
 .chat-topbar,
@@ -682,12 +686,14 @@ input {
 .message-scroll {
   overflow: auto;
   padding: 12px;
+  padding-bottom: 88px;
   display: grid;
   align-content: start;
   gap: 8px;
   background: hsl(var(--background));
   min-height: 0;
   position: relative;
+  overscroll-behavior: contain;
 }
 
 .bubble-row {
@@ -731,8 +737,16 @@ input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
   gap: 8px;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
   border-top: 1px solid hsl(var(--border));
   background: hsl(var(--card));
+  box-shadow: 0 -8px 24px hsl(var(--foreground) / 0.08);
+}
+
+.composer.is-focused {
+  box-shadow: 0 -12px 28px hsl(var(--foreground) / 0.12);
 }
 
 .composer textarea {
@@ -848,6 +862,7 @@ input {
 .panel-loader-overlay .pentagram-loader {
   opacity: 1;
   filter: drop-shadow(0 0 20px hsl(var(--primary) / 0.95));
+  mix-blend-mode: normal;
 }
 
 .inline-loader {
@@ -977,7 +992,9 @@ input {
     z-index: 30;
     width: 100%;
     height: 100dvh;
+    min-height: 100dvh;
     background: hsl(var(--background));
+    overflow: hidden;
   }
 
   .messenger-shell.mobile-chat-open .sidebar-panel {
@@ -1011,7 +1028,8 @@ input {
   max-height: 1em !important;
   display: inline-flex;
   flex: 0 0 1em;
-  margin-inline: 0.15em 0.25em;
+  margin-left: 0.18em;
+  margin-right: 0.5em;
 }
 
 .danger-inline {
@@ -1038,6 +1056,7 @@ input {
 
   .message-scroll {
     padding: 8px;
+    padding-bottom: 88px;
   }
 
   .message-bubble {

@@ -210,9 +210,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const [recoveryDismissedMessage, setRecoveryDismissedMessage] = useState<string | null>(null);
   const currentAccessTokenRef = useRef<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedConversationRef = useRef<Conversation | null>(null);
-  const conversationRefreshTimeoutRef = useRef<number | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
+  const messagesRef = useRef<MessageView[]>([]);
   const messageRefreshTimeoutRef = useRef<number | null>(null);
+  const lastReadMessageIdRef = useRef<string | null>(null);
+  const [composerFocused, setComposerFocused] = useState(false);
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
@@ -344,18 +348,53 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     });
   };
 
-  const scheduleConversationRefresh = () => {
-    if (conversationRefreshTimeoutRef.current !== null) {
-      window.clearTimeout(conversationRefreshTimeoutRef.current);
+  const patchConversation = (conversationId: string, updater: (conversation: Conversation) => Conversation) => {
+    setConversations((current) => {
+      const existing = current.find((conversation) => conversation.id === conversationId);
+      if (!existing) return current;
+
+      const updated = updater(existing);
+      const next = current.map((conversation) => (conversation.id === conversationId ? updated : conversation));
+      next.sort((left, right) => {
+        const leftTime = left.lastMessageAt ? new Date(left.lastMessageAt).getTime() : 0;
+        const rightTime = right.lastMessageAt ? new Date(right.lastMessageAt).getTime() : 0;
+        return rightTime - leftTime;
+      });
+      return next;
+    });
+  };
+
+  const isConversationVisible = () => {
+    if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
+    if (!selectedConversationRef.current) return false;
+    if (typeof window === "undefined") return true;
+    return window.innerWidth > 980 || !mobileSidebarOpen;
+  };
+
+  const markSelectedConversationAsRead = async () => {
+    const conversation = selectedConversationRef.current;
+    const lastMessage = messagesRef.current.at(-1);
+    if (!conversation || !lastMessage || lastReadMessageIdRef.current === lastMessage.id) {
+      return;
     }
 
-    conversationRefreshTimeoutRef.current = window.setTimeout(() => {
-      conversationRefreshTimeoutRef.current = null;
-      void loadConversations().catch((error) => {
-        const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
-        setErrorMessage(message);
+    lastReadMessageIdRef.current = lastMessage.id;
+    patchConversation(conversation.id, (current) => ({
+      ...current,
+      unreadCount: 0,
+      lastReadAt: lastMessage.sentAt,
+    }));
+
+    try {
+      await apiFetch(`/api/messages/${conversation.id}/read`, {
+        method: "POST",
+        body: JSON.stringify({ lastReadMessageId: lastMessage.id }),
       });
-    }, 80);
+    } catch (error) {
+      lastReadMessageIdRef.current = null;
+      const message = error instanceof Error ? error.message : "Не удалось отметить сообщения прочитанными";
+      setErrorMessage(message);
+    }
   };
 
   const scheduleMessageRefresh = () => {
@@ -407,7 +446,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       url.searchParams.set("user", targetUserId);
       window.history.replaceState({}, "", url.toString());
       setErrorMessage(null);
-      void loadConversations().catch(() => undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось открыть диалог";
       setErrorMessage(message);
@@ -488,13 +526,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           (left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime()
         );
       });
-      const lastMessageId = decrypted.at(-1)?.id;
-      if (lastMessageId) {
-        await apiFetch(`/api/messages/${conversation.id}/read`, {
-          method: "POST",
-          body: JSON.stringify({ lastReadMessageId: lastMessageId }),
-        });
-      }
     } finally {
       if (!options?.incremental) {
         setMessagesLoading(false);
@@ -555,8 +586,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       });
 
       setDraft("");
-      scheduleConversationRefresh();
       scheduleMessageRefresh();
+      if (window.innerWidth <= 980) {
+        window.setTimeout(() => composerRef.current?.focus(), 0);
+      }
       setErrorMessage(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
@@ -585,6 +618,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   }, [selectedConversation]);
 
   useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     if (!sessionReady || !bootstrap) return;
     const supabase = getBrowserSupabase();
     const channel = supabase.channel(`messenger:${bootstrap.me.id}`);
@@ -597,8 +638,15 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         table: "chat_conversation_members",
         filter: `user_id=eq.${bootstrap.me.id}`,
       },
-      () => {
-        scheduleConversationRefresh();
+      (payload) => {
+        const next = payload.new as { conversation_id?: string; unread_count_cache?: number; last_read_at?: string | null } | null;
+        if (!next?.conversation_id) return;
+
+        patchConversation(next.conversation_id, (current) => ({
+          ...current,
+          unreadCount: next.unread_count_cache ?? current.unreadCount,
+          lastReadAt: next.last_read_at ?? current.lastReadAt,
+        }));
       }
     );
 
@@ -610,8 +658,11 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         table: "chat_message_envelopes",
         filter: `recipient_user_id=eq.${bootstrap.me.id}`,
       },
-      () => {
-        scheduleConversationRefresh();
+      (payload) => {
+        const next = payload.new as { message_id?: string } | null;
+        if (next?.message_id && messagesRef.current.some((message) => message.id === next.message_id)) {
+          return;
+        }
         scheduleMessageRefresh();
       }
     );
@@ -622,11 +673,50 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         event: "INSERT",
         schema: "public",
         table: "chat_messages",
-        filter: `sender_user_id=eq.${bootstrap.me.id}`,
       },
-      () => {
-        scheduleConversationRefresh();
-        scheduleMessageRefresh();
+      (payload) => {
+        const next = payload.new as {
+          id?: string;
+          conversation_id?: string;
+          sender_user_id?: string;
+          sent_at?: string | null;
+        } | null;
+        if (!next?.conversation_id || !next.sent_at) return;
+
+        patchConversation(next.conversation_id, (current) => ({
+          ...current,
+          lastMessageAt: next.sent_at ?? current.lastMessageAt,
+        }));
+
+        if (next.conversation_id === selectedConversationRef.current?.id) {
+          scheduleMessageRefresh();
+        }
+      }
+    );
+
+    channel.on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "chat_receipts",
+        filter: `user_id=eq.${bootstrap.me.id}`,
+      },
+      (payload) => {
+        const next = payload.new as { message_id?: string; delivered_at?: string | null; read_at?: string | null } | null;
+        if (!next?.message_id) return;
+
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === next.message_id
+              ? {
+                  ...message,
+                  peerDeliveredAt: next.delivered_at ?? message.peerDeliveredAt,
+                  peerReadAt: next.read_at ?? message.peerReadAt,
+                }
+              : message
+          )
+        );
       }
     );
 
@@ -639,10 +729,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     });
 
     return () => {
-      if (conversationRefreshTimeoutRef.current !== null) {
-        window.clearTimeout(conversationRefreshTimeoutRef.current);
-        conversationRefreshTimeoutRef.current = null;
-      }
       if (messageRefreshTimeoutRef.current !== null) {
         window.clearTimeout(messageRefreshTimeoutRef.current);
         messageRefreshTimeoutRef.current = null;
@@ -670,13 +756,43 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   useEffect(() => {
     if (!selectedConversation) {
       setMessages([]);
+      lastReadMessageIdRef.current = null;
       return;
     }
+    lastReadMessageIdRef.current = null;
     void loadMessages(selectedConversation).catch((error) => {
       const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
       setErrorMessage(message);
     });
   }, [selectedConversationId, currentDevice?.id]);
+
+  useEffect(() => {
+    if (!selectedConversation || messages.length === 0 || !isConversationVisible()) {
+      return;
+    }
+
+    void markSelectedConversationAsRead();
+  }, [messages, selectedConversationId, mobileSidebarOpen]);
+
+  useEffect(() => {
+    const handleVisibleRead = () => {
+      if (!isConversationVisible() || messagesRef.current.length === 0) return;
+      void markSelectedConversationAsRead();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibleRead);
+    window.addEventListener("focus", handleVisibleRead);
+    window.addEventListener("resize", handleVisibleRead);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibleRead);
+      window.removeEventListener("focus", handleVisibleRead);
+      window.removeEventListener("resize", handleVisibleRead);
+    };
+  }, []);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }, [selectedConversationId]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -909,7 +1025,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                 </div>
               </div>
 
-              <div className="message-scroll">
+              <div className="message-scroll" onClick={() => composerRef.current?.blur()}>
                 {messagesLoading ? (
                   <div className="panel-loader-overlay" aria-hidden="true">
                     <PentagramLoader size="md" />
@@ -1019,15 +1135,18 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
               ) : null}
 
               <form
-                className="composer"
+                className={`composer ${composerFocused ? "is-focused" : ""}`}
                 onSubmit={(event) => {
                   event.preventDefault();
                   void sendCurrentMessage();
                 }}
               >
                 <textarea
+                  ref={composerRef}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onFocus={() => setComposerFocused(true)}
+                  onBlur={() => setComposerFocused(false)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && window.innerWidth > 980) {
                       event.preventDefault();
