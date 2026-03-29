@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
-import { getDeviceBundlesForUser, loadProfileSummary, upsertChatDeviceBundle } from "@/lib/messenger";
+import { getDeviceBundlesForUser, loadProfileSummaryOrFallback, upsertChatDeviceBundle } from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     let target = null;
     if (targetUserId && targetUserId !== user.id) {
       try {
-        const profile = await loadProfileSummary(targetUserId);
+        const profile = await loadProfileSummaryOrFallback(targetUserId);
         const devices = await getDeviceBundlesForUser(targetUserId);
 
         target = {
@@ -86,8 +86,13 @@ export async function POST(request: NextRequest) {
           usernameColor: profile.username_color,
           devices,
         };
-      } catch {
-        target = null;
+      } catch (targetError) {
+        return json(
+          {
+            error: targetError instanceof Error ? targetError.message : "Failed to load target user",
+          },
+          500
+        );
       }
     }
 
