@@ -114,6 +114,12 @@ export async function POST(request: NextRequest) {
     return json({ error: envelopeError.message }, 500);
   }
 
+  await admin
+    .from("chat_receipts")
+    .update({ delivered_at: messageRow.sent_at, updated_at: new Date().toISOString() })
+    .eq("message_id", messageRow.id)
+    .is("delivered_at", null);
+
   return json({
     message: {
       id: messageRow.id,

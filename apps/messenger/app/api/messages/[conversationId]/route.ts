@@ -69,16 +69,42 @@ export async function GET(
     return json({ error: error.message }, 500);
   }
 
+  const messages = ((envelopes as any[]) ?? []).map((row) => ({
+    id: row.chat_messages.id,
+    ciphertext: row.ciphertext,
+    messageType: row.message_type,
+    sentAt: row.chat_messages.sent_at,
+    deliveredAt: row.delivered_at,
+    openedAt: row.opened_at,
+    senderUserId: row.chat_messages.sender_user_id,
+    senderDeviceId: row.chat_messages.sender_device_id,
+  }));
+
+  const messageIds = messages.map((message) => message.id);
+  if (messageIds.length > 0) {
+    await admin
+      .from("chat_message_envelopes")
+      .update({ opened_at: new Date().toISOString() })
+      .eq("recipient_user_id", user.id)
+      .eq("recipient_device_id", deviceId)
+      .in("message_id", messageIds)
+      .is("opened_at", null);
+
+    await admin
+      .from("chat_receipts")
+      .update({ delivered_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .in("message_id", messageIds)
+      .is("delivered_at", null);
+  }
+
+  const { data: receipts } = await admin
+    .from("chat_receipts")
+    .select("message_id, user_id, delivered_at, read_at")
+    .in("message_id", messageIds);
+
   return json({
-    messages: ((envelopes as any[]) ?? []).map((row) => ({
-      id: row.chat_messages.id,
-      ciphertext: row.ciphertext,
-      messageType: row.message_type,
-      sentAt: row.chat_messages.sent_at,
-      deliveredAt: row.delivered_at,
-      openedAt: row.opened_at,
-      senderUserId: row.chat_messages.sender_user_id,
-      senderDeviceId: row.chat_messages.sender_device_id,
-    })),
+    messages,
+    receipts: (receipts as Array<{ message_id: string; user_id: string; delivered_at: string | null; read_at: string | null }> | null) ?? [],
   });
 }

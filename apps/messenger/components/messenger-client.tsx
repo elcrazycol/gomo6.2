@@ -85,11 +85,19 @@ type ApiMessage = {
   senderDeviceId: string;
 };
 
-type MessageView = ApiMessage & { plainText: string };
+type Receipt = {
+  message_id: string;
+  user_id: string;
+  delivered_at: string | null;
+  read_at: string | null;
+};
+
+type MessageView = ApiMessage & { plainText: string; peerDeliveredAt: string | null; peerReadAt: string | null };
 
 type Props = {
   appBaseUrl: string;
   initialTargetUserId: string | null;
+  initialConversationId: string | null;
 };
 
 const formatDate = (value: string | null) => {
@@ -110,7 +118,7 @@ const formatPresence = (isOnline: boolean | null, lastSeenAt: string | null) => 
 
 const getInitials = (username: string) => username.slice(0, 2).toUpperCase();
 
-export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
+export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConversationId }: Props) => {
   const [sessionReady, setSessionReady] = useState(false);
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -123,6 +131,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
   const [startingConversation, setStartingConversation] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
   const [targetUserId, setTargetUserId] = useState(initialTargetUserId);
+  const [requestedConversationId, setRequestedConversationId] = useState(initialConversationId);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const currentAccessTokenRef = useRef<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const selectedConversation = useMemo(
@@ -158,8 +168,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
 
   const bootstrapMessenger = async () => {
     const authFromHash = await applySessionFromUrlHash();
-    if (authFromHash?.targetUserId && !targetUserId) {
-      setTargetUserId(authFromHash.targetUserId);
+    const resolvedTargetUserId = authFromHash?.targetUserId ?? targetUserId ?? initialTargetUserId ?? null;
+    const resolvedConversationId =
+      authFromHash?.conversationId ?? requestedConversationId ?? initialConversationId ?? null;
+    if (resolvedTargetUserId !== targetUserId) {
+      setTargetUserId(resolvedTargetUserId);
+    }
+    if (resolvedConversationId !== requestedConversationId) {
+      setRequestedConversationId(resolvedConversationId);
     }
 
     const session = await getActiveSession();
@@ -180,7 +196,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
     const state = await ensureLocalDeviceState(user.id);
     const uploadBundle = buildUploadBundle(state);
     const payload = (await apiFetch(
-      `/api/bootstrap${targetUserId ? `?targetUserId=${encodeURIComponent(targetUserId)}` : ""}`,
+      `/api/bootstrap${resolvedTargetUserId ? `?targetUserId=${encodeURIComponent(resolvedTargetUserId)}` : ""}`,
       {
         method: "POST",
         body: JSON.stringify(uploadBundle),
@@ -190,16 +206,33 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
     await updateSignalDeviceAssignment(payload.me.signalDeviceId);
     setBootstrap(payload);
     setSessionReady(true);
+    setErrorMessage(null);
   };
 
   const loadConversations = async () => {
     const payload = (await apiFetch("/api/conversations")) as { conversations: Conversation[] };
     setConversations(payload.conversations);
     setSelectedConversationId((current) => {
+      if (requestedConversationId && payload.conversations.some((conversation) => conversation.id === requestedConversationId)) {
+        const selected = payload.conversations.find((conversation) => conversation.id === requestedConversationId) ?? null;
+        if (selected) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("conversation", selected.id);
+          url.searchParams.set("user", selected.otherUser.id);
+          window.history.replaceState({}, "", url.toString());
+        }
+        return requestedConversationId;
+      }
       if (current && payload.conversations.some((conversation) => conversation.id === current)) {
         return current;
       }
       const targeted = payload.conversations.find((conversation) => conversation.otherUser.id === targetUserId);
+      if (targeted) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("user", targeted.otherUser.id);
+        url.searchParams.set("conversation", targeted.id);
+        window.history.replaceState({}, "", url.toString());
+      }
       return targeted?.id ?? payload.conversations[0]?.id ?? null;
     });
     return payload.conversations;
@@ -222,7 +255,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
       };
       await loadConversations();
       setSelectedConversationId(payload.conversation.id);
+      setRequestedConversationId(payload.conversation.id);
       setMobileSidebarOpen(false);
+      const url = new URL(window.location.href);
+      url.searchParams.set("conversation", payload.conversation.id);
+      url.searchParams.set("user", targetUserId);
+      window.history.replaceState({}, "", url.toString());
+      setErrorMessage(null);
     } finally {
       setStartingConversation(false);
     }
@@ -234,7 +273,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
     try {
       const payload = (await apiFetch(
         `/api/messages/${conversation.id}?deviceId=${encodeURIComponent(currentDevice.id)}`
-      )) as { messages: ApiMessage[] };
+      )) as { messages: ApiMessage[]; receipts: Receipt[] };
       const decrypted = await Promise.all(
         payload.messages.map(async (message) => {
           try {
@@ -242,6 +281,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
               bootstrap.selfDevices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
               conversation.devices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
               bootstrap.me.signalDeviceId;
+            const peerReceipt =
+              payload.receipts.find(
+                (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
+              ) ?? null;
             return {
               ...message,
               plainText: await decryptEnvelope(
@@ -251,11 +294,15 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
                 message.messageType,
                 message.ciphertext
               ),
+              peerDeliveredAt: peerReceipt?.delivered_at ?? null,
+              peerReadAt: peerReceipt?.read_at ?? null,
             };
           } catch {
             return {
               ...message,
               plainText: "[Не удалось расшифровать сообщение на этом устройстве]",
+              peerDeliveredAt: null,
+              peerReadAt: null,
             };
           }
         })
@@ -318,6 +365,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
       setDraft("");
       await loadConversations();
       await loadMessages(selectedConversation);
+      setErrorMessage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
+      setErrorMessage(message);
     } finally {
       setSending(false);
     }
@@ -328,6 +379,9 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
       setLoading(true);
       try {
         await bootstrapMessenger();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось инициализировать messenger";
+        setErrorMessage(message);
       } finally {
         setLoading(false);
       }
@@ -336,14 +390,52 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
 
   useEffect(() => {
     if (!sessionReady) return;
-    void loadConversations();
-    const interval = setInterval(() => void loadConversations(), 5000);
-    return () => clearInterval(interval);
-  }, [sessionReady, targetUserId]);
+    void loadConversations().catch((error) => {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
+      setErrorMessage(message);
+    });
+    const accessToken = currentAccessTokenRef.current;
+    if (!accessToken) return;
+    const source = new EventSource(
+      `/api/realtime?accessToken=${encodeURIComponent(accessToken)}${
+        selectedConversationId ? `&conversationId=${encodeURIComponent(selectedConversationId)}` : ""
+      }`,
+      { withCredentials: false }
+    );
+
+    const onUpdate = () => {
+      void loadConversations().catch((error) => {
+        const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
+        setErrorMessage(message);
+      });
+      if (selectedConversation) {
+        void loadMessages(selectedConversation).catch((error) => {
+          const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
+          setErrorMessage(message);
+        });
+      }
+    };
+
+    source.addEventListener("update", onUpdate);
+    source.addEventListener("warning", () => {
+      setErrorMessage("Проблема с realtime-обновлением messenger");
+    });
+    source.onerror = () => {
+      source.close();
+    };
+
+    return () => {
+      source.removeEventListener("update", onUpdate);
+      source.close();
+    };
+  }, [sessionReady, targetUserId, selectedConversationId, selectedConversation]);
 
   useEffect(() => {
     if (!sessionReady || !bootstrap?.target) return;
-    void ensureConversation();
+    void ensureConversation().catch((error) => {
+      const message = error instanceof Error ? error.message : "Не удалось открыть диалог";
+      setErrorMessage(message);
+    });
   }, [sessionReady, bootstrap?.target?.id, targetUserId, conversations.length]);
 
   useEffect(() => {
@@ -351,7 +443,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
       setMessages([]);
       return;
     }
-    void loadMessages(selectedConversation);
+    void loadMessages(selectedConversation).catch((error) => {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
+      setErrorMessage(message);
+    });
   }, [selectedConversationId, currentDevice?.id]);
 
   useEffect(() => {
@@ -405,6 +500,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
             </div>
           ) : null}
 
+          {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
+
           <div className="conversation-list">
             {conversations.length === 0 ? (
               <div className="empty-card">
@@ -426,7 +523,12 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
                     className={`conversation-card ${active ? "is-active" : ""}`}
                     onClick={() => {
                       setSelectedConversationId(conversation.id);
+                      setRequestedConversationId(conversation.id);
                       setMobileSidebarOpen(false);
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("user", conversation.otherUser.id);
+                      url.searchParams.set("conversation", conversation.id);
+                      window.history.replaceState({}, "", url.toString());
                     }}
                   >
                     <div className="avatar">
@@ -511,7 +613,15 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
                           <p>{message.plainText}</p>
                           <div className="message-meta">
                             <time>{formatDate(message.sentAt)}</time>
-                            {isMine ? <span>{selectedConversation.lastReadAt ? "прочитано" : "доставлено"}</span> : null}
+                            {isMine ? (
+                              <span>
+                                {message.peerReadAt
+                                  ? "прочитано"
+                                  : message.peerDeliveredAt
+                                    ? "доставлено"
+                                    : "отправлено"}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       </article>
