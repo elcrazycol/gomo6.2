@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, messengerAdmin } from "@/lib/auth";
-import { getDeviceBundlesForUser, listConversationsForUser } from "@/lib/messenger";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { createOrLoadDirectConversation, getDeviceBundlesForUser, listConversationsForUser } from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
@@ -27,21 +27,18 @@ export async function POST(request: NextRequest) {
     return json({ error: "Invalid recipient user" }, 400);
   }
 
-  const admin = messengerAdmin();
-  const { data, error } = await admin.rpc("get_or_create_direct_chat", {
-    target_user_id: recipientUserId,
-  });
-
-  if (error || !data) {
-    return json({ error: error?.message ?? "Failed to create conversation" }, 500);
+  try {
+    const conversationId = await createOrLoadDirectConversation(user.id, recipientUserId);
+    const devices = await getDeviceBundlesForUser(recipientUserId);
+    return json({
+      conversation: {
+        id: conversationId,
+        recipientUserId,
+        recipientDevices: devices,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create conversation";
+    return json({ error: message }, 500);
   }
-
-  const devices = await getDeviceBundlesForUser(recipientUserId);
-  return json({
-    conversation: {
-      id: data,
-      recipientUserId,
-      recipientDevices: devices,
-    },
-  });
 }

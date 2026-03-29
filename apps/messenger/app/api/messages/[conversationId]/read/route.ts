@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedUser, messengerAdmin } from "@/lib/auth";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { markConversationRead } from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
@@ -16,15 +17,11 @@ export async function POST(
   const body = await request.json().catch(() => null);
   const lastReadMessageId = typeof body?.lastReadMessageId === "string" ? body.lastReadMessageId : null;
 
-  const admin = messengerAdmin();
-  const { error } = await admin.rpc("chat_mark_read", {
-    target_conversation_id: conversationId,
-    target_message_id: lastReadMessageId,
-  });
-
-  if (error) {
-    return json({ error: error.message }, 500);
+  try {
+    await markConversationRead(user.id, conversationId, lastReadMessageId);
+    return json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to mark conversation read";
+    return json({ error: message }, 500);
   }
-
-  return json({ ok: true });
 }
