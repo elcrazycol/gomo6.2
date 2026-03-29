@@ -582,6 +582,7 @@ input {
   overflow: auto;
   min-height: 0;
   align-content: start;
+  position: relative;
 }
 
 .conversation-card {
@@ -675,6 +676,7 @@ input {
   gap: 8px;
   background: hsl(var(--background));
   min-height: 0;
+  position: relative;
 }
 
 .bubble-row {
@@ -815,6 +817,20 @@ input {
   place-items: center;
 }
 
+.panel-loader-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: hsl(var(--background) / 0.8);
+  backdrop-filter: blur(3px);
+  z-index: 3;
+}
+
+.sidebar-loader {
+  border-radius: var(--radius);
+}
+
 .inline-loader {
   min-height: 220px;
   width: 100%;
@@ -908,6 +924,11 @@ input {
   max-height: 1em !important;
   display: inline-flex;
   flex: 0 0 1em;
+  margin-inline: 0.15em 0.25em;
+}
+
+.danger-inline {
+  margin-left: 10px;
 }
 
 @media (max-width: 640px) {

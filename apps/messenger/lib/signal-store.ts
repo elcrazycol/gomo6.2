@@ -119,6 +119,16 @@ const writeValue = async <T>(key: string, value: T) => {
   });
 };
 
+const deleteValue = async (key: string) => {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    const request = transaction.objectStore(STORE_NAME).delete(key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB delete failed"));
+  });
+};
+
 const createInitialState = async (userId: string): Promise<LocalDeviceState> => {
   await ensureLibsignalReady();
   const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
@@ -376,4 +386,12 @@ export const cacheMessagePlaintext = async (messageId: string, plainText: string
 export const getCachedMessagePlaintext = async (messageId: string) => {
   const current = (await readValue<MessageCache>(MESSAGE_CACHE_KEY)) ?? {};
   return current[messageId] ?? null;
+};
+
+export const resetLocalE2EEState = async () => {
+  await Promise.all([
+    deleteValue(DEVICE_KEY),
+    deleteValue(SENT_CACHE_KEY),
+    deleteValue(MESSAGE_CACHE_KEY),
+  ]);
 };

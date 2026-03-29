@@ -14,6 +14,7 @@ import {
   getCachedMessagePlaintext,
   getCachedSentPlaintext,
   cacheSentPlaintext,
+  resetLocalE2EEState,
   updateSignalDeviceAssignment,
 } from "@/lib/signal-store";
 
@@ -203,6 +204,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const [targetUserId, setTargetUserId] = useState(initialTargetUserId);
   const [requestedConversationId, setRequestedConversationId] = useState(initialConversationId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [recoveringKeys, setRecoveringKeys] = useState(false);
   const [realtimeVersion, setRealtimeVersion] = useState(0);
   const currentAccessTokenRef = useRef<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -379,9 +381,11 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     }
   };
 
-  const loadMessages = async (conversation: Conversation) => {
+  const loadMessages = async (conversation: Conversation, options?: { incremental?: boolean }) => {
     if (!currentDevice || !bootstrap) return;
-    setMessagesLoading(true);
+    if (!options?.incremental) {
+      setMessagesLoading(true);
+    }
     try {
       const payload = (await apiFetch(
         `/api/messages/${conversation.id}?deviceId=${encodeURIComponent(currentDevice.id)}`
@@ -435,7 +439,20 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         })
       );
 
-      setMessages(decrypted);
+      setMessages((current) => {
+        if (!options?.incremental) {
+          return decrypted;
+        }
+
+        const merged = new Map(current.map((message) => [message.id, message]));
+        for (const message of decrypted) {
+          merged.set(message.id, message);
+        }
+
+        return Array.from(merged.values()).sort(
+          (left, right) => new Date(left.sentAt).getTime() - new Date(right.sentAt).getTime()
+        );
+      });
       const lastMessageId = decrypted.at(-1)?.id;
       if (lastMessageId) {
         await apiFetch(`/api/messages/${conversation.id}/read`, {
@@ -444,7 +461,9 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         });
       }
     } finally {
-      setMessagesLoading(false);
+      if (!options?.incremental) {
+        setMessagesLoading(false);
+      }
     }
   };
 
@@ -546,7 +565,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
 
     const refreshSelectedMessages = () => {
       if (!selectedConversation) return;
-      void loadMessages(selectedConversation).catch((error) => {
+      void loadMessages(selectedConversation, { incremental: true }).catch((error) => {
         const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
         setErrorMessage(message);
       });
@@ -630,6 +649,20 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
+  const hasDecryptFailures = messages.some(
+    (message) => message.plainText === "[Не удалось расшифровать сообщение на этом устройстве]"
+  );
+
+  const handleResetLocalKeys = async () => {
+    setRecoveringKeys(true);
+    try {
+      await resetLocalE2EEState();
+      window.location.reload();
+    } finally {
+      setRecoveringKeys(false);
+    }
+  };
+
   if (loading || !bootstrap) {
     return (
       <div className="messenger-loading">
@@ -680,6 +713,11 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
 
           <div className="conversation-list">
+            {conversationsLoading ? (
+              <div className="panel-loader-overlay sidebar-loader" aria-hidden="true">
+                <PentagramLoader size="md" />
+              </div>
+            ) : null}
             {conversationsLoading && conversations.length === 0 ? (
               <div className="empty-card">
                 <PentagramLoader size="md" />
@@ -837,10 +875,23 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
               </div>
 
               <div className="message-scroll">
+                {messagesLoading ? (
+                  <div className="panel-loader-overlay" aria-hidden="true">
+                    <PentagramLoader size="md" />
+                  </div>
+                ) : null}
                 {selectedConversation.devices.length === 0 ? (
                   <div className="inline-notice">
                     Диалог уже создан, но у собеседника пока нет устройства messenger. Как только он впервые откроет
                     messenger, сюда можно будет писать.
+                  </div>
+                ) : null}
+                {hasDecryptFailures ? (
+                  <div className="error-banner">
+                    Не удалось расшифровать часть сообщений на этом устройстве.
+                    <button type="button" className="cta-button danger-inline" onClick={() => void handleResetLocalKeys()}>
+                      {recoveringKeys ? <PentagramLoader size="sm" /> : "Сбросить локальные ключи"}
+                    </button>
                   </div>
                 ) : null}
                 {messagesLoading ? (
@@ -889,6 +940,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey && window.innerWidth > 980) {
+                      event.preventDefault();
+                      if (!sending && draft.trim()) {
+                        void sendCurrentMessage();
+                      }
+                    }
+                  }}
                   placeholder="Написать сообщение..."
                   rows={1}
                 />
