@@ -16,8 +16,8 @@ export type DeviceKeys = {
 };
 
 type StoredDeviceRecord = {
-  version: 2;
-  deviceId: string;
+  version: 1 | 2;
+  deviceId?: string;
   publicKey: string;
   encryptedPrivateKey: string;
   iv: string;
@@ -84,6 +84,21 @@ const writeRecord = async (record: StoredDeviceRecord) => {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error ?? new Error("IndexedDB write failed"));
   });
+};
+
+const ensureDeviceId = async (record: StoredDeviceRecord) => {
+  if (record.deviceId && record.deviceId.length >= 8) {
+    return record.deviceId;
+  }
+
+  const deviceId = createDeviceId();
+  await writeRecord({
+    ...record,
+    version: 2,
+    deviceId,
+  });
+
+  return deviceId;
 };
 
 const createDeviceId = () => {
@@ -214,8 +229,9 @@ export const getOrCreateDeviceKeys = async (): Promise<DeviceKeys> => {
     return createWrappedDeviceKeys();
   }
 
+  const deviceId = await ensureDeviceId(record);
   return {
-    deviceId: record.deviceId,
+    deviceId,
     publicKey: record.publicKey,
     privateKey: await decryptPrivateKey(record),
   };
