@@ -10,7 +10,7 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
       variant="ghost"
       size="sm"
       className="relative p-2 hover:bg-white/20 hover:text-white transition-colors group"
-      onClick={() => navigate("/messages")}
+      onClick={() => navigate(userId ? `/messages?user=${userId}` : "/messages")}
       aria-label={`Открыть мессенджер для ${userId}`}
     >
       <MessageCircle className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />

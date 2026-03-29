@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromCookies } from "@/lib/session";
+import { getMessengerUserByMainId, getOrCreateMessengerUser } from "@/lib/server";
 import { messengerAdmin } from "@/lib/supabase";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
-
-const getSelfUser = async (admin: ReturnType<typeof messengerAdmin>, mainUserId: string) => {
-  const { data } = await admin
-    .from("messenger_users")
-    .select("id, main_user_id, username")
-    .eq("main_user_id", mainUserId)
-    .single();
-
-  return data;
-};
 
 export async function GET() {
   const session = await getSessionFromCookies();
@@ -20,104 +11,120 @@ export async function GET() {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const admin = messengerAdmin();
-  const self = await getSelfUser(admin, session.sub);
+  const self = await getMessengerUserByMainId(session.sub);
   if (!self) {
     return json({ conversations: [] });
   }
 
-  const { data: memberships, error: membershipsError } = await admin
-    .from("conversation_memberships")
-    .select("conversation_id, encrypted_key, last_read_at")
+  const admin = messengerAdmin();
+  const { data: membershipsRaw, error } = await admin
+    .from("messenger_conversation_members")
+    .select("conversation_id, last_read_at, unread_count_cache")
     .eq("user_id", self.id);
 
-  if (membershipsError) {
-    return json({ error: "Failed to load conversation memberships" }, 500);
-  }
+  const memberships =
+    (membershipsRaw as Array<{
+      conversation_id: string;
+      last_read_at: string | null;
+      unread_count_cache: number | null;
+    }> | null) ?? [];
 
-  const conversationIds = memberships?.map((membership) => membership.conversation_id) ?? [];
-  if (conversationIds.length === 0) {
+  if (error || !memberships.length) {
     return json({ conversations: [] });
   }
 
-  const { data: conversationRows, error: conversationsError } = await admin
+  const conversationIds = memberships.map((membership) => membership.conversation_id);
+  const { data: conversationsRaw } = await admin
     .from("messenger_conversations")
-    .select("id, created_at, last_message_at")
+    .select("id, created_at, last_message_at, last_message_preview")
     .in("id", conversationIds);
+  const conversations =
+    (conversationsRaw as Array<{
+      id: string;
+      created_at: string | null;
+      last_message_at: string | null;
+      last_message_preview: string | null;
+    }> | null) ?? [];
 
-  if (conversationsError) {
-    return json({ error: "Failed to load conversations" }, 500);
-  }
+  const { data: keysRaw } = await admin
+    .from("messenger_conversation_keys")
+    .select("conversation_id, device_id, encrypted_key")
+    .eq("user_id", self.id)
+    .in("conversation_id", conversationIds);
+  const keys =
+    (keysRaw as Array<{
+      conversation_id: string;
+      device_id: string;
+      encrypted_key: string;
+    }> | null) ?? [];
 
-  const { data: participants, error: participantsError } = await admin
-    .from("conversation_memberships")
+  const { data: participantsRaw } = await admin
+    .from("messenger_conversation_members")
     .select("conversation_id, user_id")
     .in("conversation_id", conversationIds)
     .neq("user_id", self.id);
+  const participants =
+    (participantsRaw as Array<{
+      conversation_id: string;
+      user_id: string;
+    }> | null) ?? [];
 
-  if (participantsError) {
-    return json({ error: "Failed to load conversation participants" }, 500);
+  const participantIds = [...new Set(participants.map((row) => row.user_id))];
+  let otherUsersRaw: unknown[] | null = [];
+  if (participantIds.length) {
+    const response = await admin
+      .from("messenger_users")
+      .select("id, main_user_id, username, account_number, avatar_url")
+      .in("id", participantIds);
+    otherUsersRaw = response.data;
   }
+  const otherUsers =
+    (otherUsersRaw as Array<{
+      id: string;
+      main_user_id: string;
+      username: string;
+      account_number: number | null;
+      avatar_url: string | null;
+    }> | null) ?? [];
 
-  const participantUserIds = [...new Set((participants ?? []).map((participant) => participant.user_id))];
-
-  const { data: participantUsers, error: participantUsersError } = participantUserIds.length
-    ? await admin
-        .from("messenger_users")
-        .select("id, main_user_id, username")
-        .in("id", participantUserIds)
-    : { data: [], error: null };
-
-  if (participantUsersError) {
-    return json({ error: "Failed to load participant profiles" }, 500);
-  }
-
-  const { data: unreadRows, error: unreadError } = await admin
-    .from("messenger_messages")
-    .select("conversation_id, sender_user_id, created_at")
-    .in("conversation_id", conversationIds)
-    .neq("sender_user_id", self.id);
-
-  if (unreadError) {
-    return json({ error: "Failed to load unread counters" }, 500);
-  }
-
-  const unreadMap = new Map<string, number>();
-  memberships?.forEach((membership) => {
-    const count = (unreadRows ?? []).filter((row) => {
-      if (row.conversation_id !== membership.conversation_id) return false;
-      if (!membership.last_read_at) return true;
-      return new Date(row.created_at).getTime() > new Date(membership.last_read_at).getTime();
-    }).length;
-    unreadMap.set(membership.conversation_id, count);
-  });
-
-  const conversations = (memberships ?? []).map((membership) => {
-    const conversation = conversationRows?.find((row) => row.id === membership.conversation_id);
-    const otherParticipant = participants?.find((participant) => participant.conversation_id === membership.conversation_id);
-    const other = participantUsers?.find((user) => user.id === otherParticipant?.user_id);
+  const serialized = memberships.map((membership) => {
+    const conversation = conversations.find((row) => row.id === membership.conversation_id);
+    const otherMembership = participants.find((row) => row.conversation_id === membership.conversation_id);
+    const otherUser = otherUsers.find((row) => row.id === otherMembership?.user_id);
 
     return {
       id: membership.conversation_id,
       createdAt: conversation?.created_at ?? null,
-      encryptedKey: membership.encrypted_key,
-      unreadCount: unreadMap.get(membership.conversation_id) ?? 0,
       lastMessageAt: conversation?.last_message_at ?? null,
-      otherUser: {
-        id: other?.id ?? "",
-        mainUserId: other?.main_user_id ?? "",
-        username: other?.username ?? "Unknown",
-      },
+      lastMessagePreview: conversation?.last_message_preview ?? null,
+      unreadCount: membership.unread_count_cache ?? 0,
+      lastReadAt: membership.last_read_at ?? null,
+      keychain:
+        keys
+          .filter((row) => row.conversation_id === membership.conversation_id)
+          .map((row) => ({
+            deviceId: row.device_id,
+            encryptedKey: row.encrypted_key,
+          })),
+      otherUser: otherUser
+        ? {
+            id: otherUser.id,
+            mainUserId: otherUser.main_user_id,
+            username: otherUser.username,
+            accountNumber: otherUser.account_number,
+            avatarUrl: otherUser.avatar_url,
+          }
+        : null,
     };
   });
 
-  conversations.sort((left, right) => {
-    const leftDate = left.lastMessageAt ? new Date(left.lastMessageAt).getTime() : 0;
-    const rightDate = right.lastMessageAt ? new Date(right.lastMessageAt).getTime() : 0;
-    return rightDate - leftDate;
+  serialized.sort((left, right) => {
+    const leftTime = left.lastMessageAt ? new Date(left.lastMessageAt).getTime() : 0;
+    const rightTime = right.lastMessageAt ? new Date(right.lastMessageAt).getTime() : 0;
+    return rightTime - leftTime;
   });
 
-  return json({ conversations });
+  return json({ conversations: serialized });
 }
 
 export async function POST(request: NextRequest) {
@@ -126,48 +133,40 @@ export async function POST(request: NextRequest) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const body = await request.json();
-  const recipientMainUserId = typeof body.recipientMainUserId === "string" ? body.recipientMainUserId : null;
-  const senderEncryptedKey = typeof body.senderEncryptedKey === "string" ? body.senderEncryptedKey : null;
-  const recipientEncryptedKey = typeof body.recipientEncryptedKey === "string" ? body.recipientEncryptedKey : null;
+  const body = await request.json().catch(() => null);
+  const recipientMainUserId = typeof body?.recipientMainUserId === "string" ? body.recipientMainUserId : null;
+  const keychain = Array.isArray(body?.keychain) ? body.keychain : [];
 
-  if (!recipientMainUserId || !senderEncryptedKey || !recipientEncryptedKey) {
+  if (!recipientMainUserId || keychain.length < 2) {
     return json({ error: "Invalid conversation payload" }, 400);
   }
 
-  const admin = messengerAdmin();
-  const self = await getSelfUser(admin, session.sub);
+  const self = await getOrCreateMessengerUser({
+    mainUserId: session.sub,
+    username: session.username,
+    accountNumber: session.accountNumber,
+    avatarUrl: session.avatarUrl,
+  });
 
-  if (!self) {
-    return json({ error: "Current messenger user not found" }, 404);
-  }
-
-  const { data: recipient } = await admin
-    .from("messenger_users")
-    .select("id, main_user_id, username")
-    .eq("main_user_id", recipientMainUserId)
-    .maybeSingle();
-
+  const recipient = await getMessengerUserByMainId(recipientMainUserId);
   if (!recipient) {
     return json({ error: "Recipient has not activated messenger yet" }, 409);
   }
 
   const directKey = [self.main_user_id, recipient.main_user_id].sort().join(":");
+  const admin = messengerAdmin();
 
-  const { data: existingConversation, error: existingConversationError } = await admin
+  const { data: existingConversationRaw } = await admin
     .from("messenger_conversations")
     .select("id")
     .eq("direct_key", directKey)
     .maybeSingle();
+  const existingConversation = (existingConversationRaw as { id: string } | null) ?? null;
 
-  if (existingConversationError) {
-    return json({ error: "Failed to check existing conversation" }, 500);
-  }
+  let conversationId = existingConversation?.id ?? null;
 
-  let conversation = existingConversation;
-
-  if (!conversation) {
-    const { data: createdConversation, error: createConversationError } = await admin
+  if (!conversationId) {
+    const { data: createdConversationRaw, error: createError } = await admin
       .from("messenger_conversations")
       .insert({
         direct_key: directKey,
@@ -175,43 +174,53 @@ export async function POST(request: NextRequest) {
       })
       .select("id")
       .single();
+    const createdConversation = (createdConversationRaw as { id: string } | null) ?? null;
 
-    if (createConversationError || !createdConversation) {
+    if (createError || !createdConversation) {
       return json({ error: "Failed to create conversation" }, 500);
     }
 
-    conversation = createdConversation;
+    conversationId = createdConversation.id;
   }
 
-  if (!conversation) {
-    return json({ error: "Failed to create conversation" }, 500);
-  }
-
-  const { error: membershipUpsertError } = await admin.from("conversation_memberships").upsert(
+  const { error: membersError } = await admin.from("messenger_conversation_members").upsert(
     [
-      {
-        conversation_id: conversation.id,
-        user_id: self.id,
-        encrypted_key: senderEncryptedKey,
-      },
-      {
-        conversation_id: conversation.id,
-        user_id: recipient.id,
-        encrypted_key: recipientEncryptedKey,
-      },
+      { conversation_id: conversationId, user_id: self.id },
+      { conversation_id: conversationId, user_id: recipient.id },
     ],
-    {
-      onConflict: "conversation_id,user_id",
-    }
+    { onConflict: "conversation_id,user_id" }
   );
 
-  if (membershipUpsertError) {
+  if (membersError) {
     return json({ error: "Failed to save conversation members" }, 500);
   }
 
-  return json({
-    conversation: {
-      id: conversation.id,
-    },
+  const normalizedKeychain = keychain
+    .filter(
+      (entry: any): entry is {
+        userId: string;
+        deviceId: string;
+        encryptedKey: string;
+      } =>
+        typeof entry?.userId === "string" &&
+        typeof entry?.deviceId === "string" &&
+        typeof entry?.encryptedKey === "string"
+    )
+    .map((entry: { userId: string; deviceId: string; encryptedKey: string }) => ({
+      conversation_id: conversationId,
+      user_id: entry.userId,
+      device_id: entry.deviceId,
+      encrypted_key: entry.encryptedKey,
+      key_version: 1,
+    }));
+
+  const { error: keyError } = await admin.from("messenger_conversation_keys").upsert(normalizedKeychain, {
+    onConflict: "conversation_id,user_id,device_id",
   });
+
+  if (keyError) {
+    return json({ error: "Failed to save conversation keys" }, 500);
+  }
+
+  return json({ conversation: { id: conversationId } });
 }

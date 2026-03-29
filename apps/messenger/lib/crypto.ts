@@ -1,7 +1,7 @@
 "use client";
 
 const DB_NAME = "gomo6-messenger-secure-store";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "device";
 const DEVICE_RECORD_KEY = "primary";
 const LEGACY_KEY_STORAGE = "gomo6_messenger_device_v1";
@@ -10,12 +10,14 @@ let sodiumPromise: Promise<any> | null = null;
 let openDbPromise: Promise<IDBDatabase> | null = null;
 
 export type DeviceKeys = {
+  deviceId: string;
   publicKey: string;
   privateKey: string;
 };
 
 type StoredDeviceRecord = {
-  version: 1;
+  version: 2;
+  deviceId: string;
   publicKey: string;
   encryptedPrivateKey: string;
   iv: string;
@@ -72,14 +74,6 @@ const readRecord = async (): Promise<StoredDeviceRecord | null> => {
   });
 };
 
-export const clearLegacyMessengerStorage = () => {
-  try {
-    window.localStorage.removeItem(LEGACY_KEY_STORAGE);
-  } catch {
-    // Ignore storage access issues.
-  }
-};
-
 const writeRecord = async (record: StoredDeviceRecord) => {
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {
@@ -90,6 +84,24 @@ const writeRecord = async (record: StoredDeviceRecord) => {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error ?? new Error("IndexedDB write failed"));
   });
+};
+
+const createDeviceId = () => {
+  const webCrypto = window.crypto as any;
+  if (typeof webCrypto.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+
+  const bytes = webCrypto.getRandomValues(new Uint8Array(16)) as Uint8Array;
+  return Array.from(bytes, (byte: number) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+export const clearLegacyMessengerStorage = () => {
+  try {
+    window.localStorage.removeItem(LEGACY_KEY_STORAGE);
+  } catch {
+    // Ignore storage access issues.
+  }
 };
 
 export const initSodium = async () => {
@@ -105,7 +117,7 @@ export const initSodium = async () => {
 };
 
 const decryptPrivateKey = async (record: StoredDeviceRecord) => {
-  const decrypted = await crypto.subtle.decrypt(
+  const decrypted = await window.crypto.subtle.decrypt(
     {
       name: "AES-GCM",
       iv: fromBase64(record.iv),
@@ -117,10 +129,9 @@ const decryptPrivateKey = async (record: StoredDeviceRecord) => {
   return new TextDecoder().decode(decrypted);
 };
 
-const createWrappedDeviceKeys = async () => {
-  const box = await initSodium();
-  const pair = box.crypto_box_keypair();
-  const keyEncryptionKey = await crypto.subtle.generateKey(
+const wrapAndStoreDevice = async (input: { publicKey: string; privateKey: string; deviceId: string }) => {
+  const webCrypto = window.crypto as any;
+  const keyEncryptionKey = await webCrypto.subtle.generateKey(
     {
       name: "AES-GCM",
       length: 256,
@@ -129,29 +140,37 @@ const createWrappedDeviceKeys = async () => {
     ["encrypt", "decrypt"]
   );
 
-  const publicKey = box.to_base64(pair.publicKey, box.base64_variants.ORIGINAL);
-  const privateKey = box.to_base64(pair.privateKey, box.base64_variants.ORIGINAL);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encryptedPrivateKey = await crypto.subtle.encrypt(
+  const iv = webCrypto.getRandomValues(new Uint8Array(12));
+  const encryptedPrivateKey = await webCrypto.subtle.encrypt(
     {
       name: "AES-GCM",
       iv,
     },
     keyEncryptionKey,
-    new TextEncoder().encode(privateKey)
+    new TextEncoder().encode(input.privateKey)
   );
 
-  const record: StoredDeviceRecord = {
-    version: 1,
-    publicKey,
+  await writeRecord({
+    version: 2,
+    deviceId: input.deviceId,
+    publicKey: input.publicKey,
     encryptedPrivateKey: toBase64(encryptedPrivateKey),
     iv: toBase64(iv),
     keyEncryptionKey,
-  };
+  });
+};
 
-  await writeRecord(record);
+const createWrappedDeviceKeys = async () => {
+  const sodium = await initSodium();
+  const pair = sodium.crypto_box_keypair();
+  const deviceId = createDeviceId();
+  const publicKey = sodium.to_base64(pair.publicKey, sodium.base64_variants.ORIGINAL);
+  const privateKey = sodium.to_base64(pair.privateKey, sodium.base64_variants.ORIGINAL);
+
+  await wrapAndStoreDevice({ deviceId, publicKey, privateKey });
 
   return {
+    deviceId,
     publicKey,
     privateKey,
   } satisfies DeviceKeys;
@@ -169,36 +188,17 @@ const migrateLegacyKeysIfPresent = async (): Promise<DeviceKeys | null> => {
     return null;
   }
 
-  const keyEncryptionKey = await crypto.subtle.generateKey(
-    {
-      name: "AES-GCM",
-      length: 256,
-    },
-    false,
-    ["encrypt", "decrypt"]
-  );
-
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encryptedPrivateKey = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    keyEncryptionKey,
-    new TextEncoder().encode(parsed.privateKey)
-  );
-
-  await writeRecord({
-    version: 1,
+  const deviceId = parsed.deviceId || createDeviceId();
+  await wrapAndStoreDevice({
+    deviceId,
     publicKey: parsed.publicKey,
-    encryptedPrivateKey: toBase64(encryptedPrivateKey),
-    iv: toBase64(iv),
-    keyEncryptionKey,
+    privateKey: parsed.privateKey,
   });
 
   window.localStorage.removeItem(LEGACY_KEY_STORAGE);
 
   return {
+    deviceId,
     publicKey: parsed.publicKey,
     privateKey: parsed.privateKey,
   };
@@ -215,61 +215,50 @@ export const getOrCreateDeviceKeys = async (): Promise<DeviceKeys> => {
   }
 
   return {
+    deviceId: record.deviceId,
     publicKey: record.publicKey,
     privateKey: await decryptPrivateKey(record),
   };
 };
 
+export const createConversationKey = () => (window.crypto as any).getRandomValues(new Uint8Array(32));
+
 export const encryptConversationKeyForParticipant = async (conversationKey: Uint8Array, recipientPublicKey: string) => {
-  const box = await initSodium();
-  const sealed = box.crypto_box_seal(
+  const sodium = await initSodium();
+  const sealed = sodium.crypto_box_seal(
     conversationKey,
-    box.from_base64(recipientPublicKey, box.base64_variants.ORIGINAL)
+    sodium.from_base64(recipientPublicKey, sodium.base64_variants.ORIGINAL)
   );
-  return box.to_base64(sealed, box.base64_variants.ORIGINAL);
+  return sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
 };
 
 export const decryptConversationKey = async (encryptedKey: string, keys: DeviceKeys) => {
-  const box = await initSodium();
-  const opened = box.crypto_box_seal_open(
-    box.from_base64(encryptedKey, box.base64_variants.ORIGINAL),
-    box.from_base64(keys.publicKey, box.base64_variants.ORIGINAL),
-    box.from_base64(keys.privateKey, box.base64_variants.ORIGINAL)
+  const sodium = await initSodium();
+  return sodium.crypto_box_seal_open(
+    sodium.from_base64(encryptedKey, sodium.base64_variants.ORIGINAL),
+    sodium.from_base64(keys.publicKey, sodium.base64_variants.ORIGINAL),
+    sodium.from_base64(keys.privateKey, sodium.base64_variants.ORIGINAL)
   );
-  return opened;
-};
-
-export const createConversationKey = async () => {
-  const box = await initSodium();
-  return box.randombytes_buf(box.crypto_aead_xchacha20poly1305_ietf_KEYBYTES);
 };
 
 export const encryptMessage = async (plainText: string, conversationKey: Uint8Array) => {
-  const box = await initSodium();
-  const nonce = box.randombytes_buf(box.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
-  const cipher = box.crypto_aead_xchacha20poly1305_ietf_encrypt(
-    plainText,
-    undefined,
-    undefined,
-    nonce,
-    conversationKey
-  );
+  const sodium = await initSodium();
+  const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+  const ciphertext = sodium.crypto_secretbox_easy(new TextEncoder().encode(plainText), nonce, conversationKey);
 
   return {
-    ciphertext: box.to_base64(cipher, box.base64_variants.ORIGINAL),
-    nonce: box.to_base64(nonce, box.base64_variants.ORIGINAL),
+    ciphertext: sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL),
+    nonce: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
   };
 };
 
 export const decryptMessage = async (ciphertext: string, nonce: string, conversationKey: Uint8Array) => {
-  const box = await initSodium();
-  const plain = box.crypto_aead_xchacha20poly1305_ietf_decrypt(
-    undefined,
-    box.from_base64(ciphertext, box.base64_variants.ORIGINAL),
-    undefined,
-    box.from_base64(nonce, box.base64_variants.ORIGINAL),
+  const sodium = await initSodium();
+  const plain = sodium.crypto_secretbox_open_easy(
+    sodium.from_base64(ciphertext, sodium.base64_variants.ORIGINAL),
+    sodium.from_base64(nonce, sodium.base64_variants.ORIGINAL),
     conversationKey
   );
 
-  return box.to_string(plain);
+  return new TextDecoder().decode(plain);
 };
