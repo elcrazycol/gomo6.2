@@ -31,6 +31,14 @@
   --post-header: 40 16% 92%;
   --quote-text: 120 100% 25%;
   --link-text: 240 100% 35%;
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5.3% 26.1%;
+  --sidebar-primary: 240 5.9% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 4.8% 95.9%;
+  --sidebar-accent-foreground: 240 5.9% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
 }
 
 .dark,
@@ -64,6 +72,14 @@
   --post-header: 0 0% 22%;
   --quote-text: 120 100% 40%;
   --link-text: 240 100% 60%;
+  --sidebar-background: 240 5.9% 10%;
+  --sidebar-foreground: 240 4.8% 95.9%;
+  --sidebar-primary: 224.3 76.3% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 3.7% 15.9%;
+  --sidebar-accent-foreground: 240 4.8% 95.9%;
+  --sidebar-border: 240 3.7% 15.9%;
+  --sidebar-ring: 217.2 91.2% 59.8%;
 }
 
 .theme-cannabis {
@@ -84,6 +100,7 @@
   --board-header-foreground: 0 0% 100%;
   --thread-hover: 120 20% 88%;
   --post-header: 120 20% 92%;
+  --link: 120 60% 35%;
 }
 
 .theme-cannabis-dark {
@@ -104,6 +121,7 @@
   --board-header-foreground: 0 0% 100%;
   --thread-hover: 120 15% 16%;
   --post-header: 120 15% 12%;
+  --link: 120 60% 50%;
 }
 
 .theme-pink {
@@ -124,6 +142,7 @@
   --board-header-foreground: 0 0% 100%;
   --thread-hover: 330 30% 88%;
   --post-header: 330 30% 92%;
+  --link: 330 70% 50%;
 }
 
 .theme-pink-dark {
@@ -144,6 +163,7 @@
   --board-header-foreground: 0 0% 100%;
   --thread-hover: 330 20% 16%;
   --post-header: 330 20% 12%;
+  --link: 330 70% 60%;
 }
 
 .theme-blue {
@@ -164,6 +184,7 @@
   --board-header-foreground: 0 0% 100%;
   --thread-hover: 220 25% 83%;
   --post-header: 220 25% 88%;
+  --link: 220 60% 35%;
 }
 
 .theme-blue-dark {
@@ -184,86 +205,91 @@
   --board-header-foreground: 0 0% 100%;
   --thread-hover: 220 20% 16%;
   --post-header: 220 20% 12%;
+  --link: 220 60% 50%;
 }
 
 .theme-blood {
-  --background: 0 35% 92%;
-  --foreground: 0 25% 18%;
-  --card: 0 30% 96%;
-  --card-foreground: 0 25% 18%;
-  --primary: 0 70% 42%;
+  --background: 0 30% 94%;
+  --foreground: 0 15% 15%;
+  --card: 0 25% 97%;
+  --card-foreground: 0 15% 15%;
+  --primary: 0 80% 45%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 30% 82%;
-  --secondary-foreground: 0 25% 18%;
-  --muted: 0 30% 87%;
-  --muted-foreground: 0 15% 42%;
-  --border: 0 25% 78%;
-  --input: 0 25% 78%;
-  --ring: 0 70% 42%;
-  --board-header: 0 70% 42%;
+  --secondary: 0 25% 85%;
+  --secondary-foreground: 0 15% 15%;
+  --muted: 0 25% 90%;
+  --muted-foreground: 0 10% 40%;
+  --border: 0 25% 80%;
+  --input: 0 25% 80%;
+  --ring: 0 80% 45%;
+  --board-header: 0 80% 45%;
   --board-header-foreground: 0 0% 100%;
-  --thread-hover: 0 30% 84%;
-  --post-header: 0 30% 90%;
+  --thread-hover: 0 25% 88%;
+  --post-header: 0 25% 92%;
+  --link: 0 80% 45%;
 }
 
 .theme-blood-dark {
-  --background: 0 30% 8%;
-  --foreground: 0 12% 90%;
-  --card: 0 28% 10%;
-  --card-foreground: 0 12% 90%;
-  --primary: 0 75% 48%;
+  --background: 0 25% 8%;
+  --foreground: 0 10% 90%;
+  --card: 0 25% 10%;
+  --card-foreground: 0 10% 90%;
+  --primary: 0 80% 50%;
   --primary-foreground: 0 0% 100%;
   --secondary: 0 20% 15%;
-  --secondary-foreground: 0 12% 90%;
+  --secondary-foreground: 0 10% 90%;
   --muted: 0 20% 15%;
   --muted-foreground: 0 10% 60%;
-  --border: 0 18% 18%;
-  --input: 0 18% 18%;
-  --ring: 0 75% 48%;
-  --board-header: 0 70% 34%;
+  --border: 0 20% 18%;
+  --input: 0 20% 18%;
+  --ring: 0 80% 50%;
+  --board-header: 0 80% 35%;
   --board-header-foreground: 0 0% 100%;
-  --thread-hover: 0 18% 16%;
-  --post-header: 0 18% 12%;
+  --thread-hover: 0 20% 16%;
+  --post-header: 0 20% 12%;
+  --link: 0 80% 55%;
 }
 
 .theme-pumpkin {
-  --background: 30 50% 94%;
-  --foreground: 24 20% 18%;
-  --card: 30 45% 97%;
-  --card-foreground: 24 20% 18%;
-  --primary: 28 85% 45%;
+  --background: 30 40% 94%;
+  --foreground: 30 15% 15%;
+  --card: 30 35% 97%;
+  --card-foreground: 30 15% 15%;
+  --primary: 30 85% 45%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 28 35% 84%;
-  --secondary-foreground: 24 20% 18%;
-  --muted: 28 35% 89%;
-  --muted-foreground: 24 12% 42%;
-  --border: 28 30% 80%;
-  --input: 28 30% 80%;
-  --ring: 28 85% 45%;
-  --board-header: 28 85% 45%;
+  --secondary: 30 30% 85%;
+  --secondary-foreground: 30 15% 15%;
+  --muted: 30 30% 90%;
+  --muted-foreground: 30 10% 40%;
+  --border: 30 30% 80%;
+  --input: 30 30% 80%;
+  --ring: 30 85% 45%;
+  --board-header: 30 85% 45%;
   --board-header-foreground: 0 0% 100%;
-  --thread-hover: 28 35% 86%;
-  --post-header: 28 35% 91%;
+  --thread-hover: 30 30% 88%;
+  --post-header: 30 30% 92%;
+  --link: 30 85% 45%;
 }
 
 .theme-pumpkin-dark {
-  --background: 26 28% 8%;
-  --foreground: 28 20% 90%;
-  --card: 26 24% 10%;
-  --card-foreground: 28 20% 90%;
-  --primary: 28 80% 50%;
+  --background: 30 25% 8%;
+  --foreground: 30 10% 90%;
+  --card: 30 25% 10%;
+  --card-foreground: 30 10% 90%;
+  --primary: 30 85% 50%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 28 18% 15%;
-  --secondary-foreground: 28 20% 90%;
-  --muted: 28 18% 15%;
-  --muted-foreground: 28 10% 60%;
-  --border: 28 16% 18%;
-  --input: 28 16% 18%;
-  --ring: 28 80% 50%;
-  --board-header: 28 75% 34%;
+  --secondary: 30 20% 15%;
+  --secondary-foreground: 30 10% 90%;
+  --muted: 30 20% 15%;
+  --muted-foreground: 30 10% 60%;
+  --border: 30 20% 18%;
+  --input: 30 20% 18%;
+  --ring: 30 85% 50%;
+  --board-header: 30 85% 35%;
   --board-header-foreground: 0 0% 100%;
-  --thread-hover: 28 16% 16%;
-  --post-header: 28 16% 12%;
+  --thread-hover: 30 20% 16%;
+  --post-header: 30 20% 12%;
+  --link: 30 85% 55%;
 }
 
 * {
@@ -273,10 +299,13 @@
 html,
 body {
   min-height: 100%;
+  width: 100vw;
+  max-width: 100vw;
+  overflow-x: hidden;
   margin: 0;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-family, system-ui, -apple-system, sans-serif);
 }
 
 body {
@@ -296,29 +325,32 @@ input {
 }
 
 .messenger-app {
-  min-height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
-.messenger-header,
+.messenger-header {
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--board-header));
+  color: hsl(var(--board-header-foreground));
+}
+
+.messenger-header-inner,
 .messenger-shell {
   width: min(1280px, 100%);
   margin: 0 auto;
 }
 
-.messenger-header {
+.messenger-header-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  width: min(1280px, calc(100% - 20px));
-  margin: 10px auto 0;
-  padding: 8px 12px;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
 }
 
 .brand {
@@ -337,13 +369,28 @@ input {
 }
 
 .brand-link {
-  color: hsl(var(--quote-text));
-  font-size: 14px;
+  position: relative;
+  color: inherit;
+  font-size: 18px;
   font-weight: 700;
   text-decoration: none;
 }
 
-.brand-link:hover,
+.brand-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 0;
+  height: 1.5px;
+  background: currentColor;
+  transition: width 0.25s ease;
+}
+
+.brand-link:hover::after {
+  width: 100%;
+}
+
 .chat-profile-link:hover {
   text-decoration: underline;
 }
@@ -366,6 +413,10 @@ input {
   font-size: 13px;
 }
 
+.brand p {
+  color: hsl(var(--board-header-foreground) / 0.82);
+}
+
 .header-actions,
 .chat-topbar,
 .chat-topbar-main,
@@ -380,6 +431,30 @@ input {
 .chat-topbar,
 .chat-topbar-main {
   gap: 8px;
+}
+
+.header-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.messenger-header .icon-button {
+  border-color: hsl(var(--board-header-foreground) / 0.18);
+  background: transparent;
+  color: hsl(var(--board-header-foreground));
+}
+
+.messenger-header .icon-button:hover {
+  background: hsl(var(--board-header-foreground) / 0.12);
 }
 
 .cta-button {
@@ -403,11 +478,11 @@ input {
   grid-template-columns: 320px minmax(0, 1fr);
   gap: 0;
   flex: 1;
-  min-height: calc(100vh - 67px);
-  width: min(1280px, calc(100% - 20px));
-  margin: 10px auto;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
+  min-height: 0;
+  width: min(1280px, 100%);
+  border-left: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
   overflow: hidden;
 }
 
@@ -417,8 +492,11 @@ input {
 }
 
 .sidebar-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-right: 1px solid hsl(var(--border));
   padding: 10px;
+  min-height: 0;
 }
 
 .sidebar-top {
@@ -445,6 +523,9 @@ input {
 .conversation-list {
   display: grid;
   gap: 8px;
+  overflow: auto;
+  min-height: 0;
+  align-content: start;
 }
 
 .conversation-card {
@@ -516,6 +597,7 @@ input {
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
   border-left: 1px solid hsl(var(--border));
+  min-height: 0;
 }
 
 .chat-topbar,
@@ -536,6 +618,7 @@ input {
   align-content: start;
   gap: 8px;
   background: hsl(var(--background));
+  min-height: 0;
 }
 
 .bubble-row {
@@ -552,6 +635,7 @@ input {
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   background: hsl(var(--card));
+  overflow-wrap: anywhere;
 }
 
 .message-bubble.is-mine {
@@ -701,20 +785,20 @@ input {
 @media (max-width: 980px) {
   .messenger-shell {
     grid-template-columns: 1fr;
-    min-height: calc(100vh - 77px);
   }
 
   .sidebar-panel {
-    display: block;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
     border-right: 0;
     border-bottom: 0;
-    min-height: calc(100vh - 77px);
+    min-height: 0;
   }
 
   .chat-panel {
     display: none;
     border-left: 0;
-    min-height: calc(100vh - 77px);
+    min-height: 0;
   }
 
   .chat-panel.is-open {
@@ -723,6 +807,7 @@ input {
     inset: 0;
     z-index: 30;
     width: 100%;
+    height: 100dvh;
     background: hsl(var(--background));
   }
 
@@ -742,8 +827,6 @@ input {
 
   .messenger-header {
     padding: 8px;
-    width: calc(100% - 12px);
-    margin-top: 6px;
   }
 
   .sidebar-panel {
@@ -768,9 +851,10 @@ input {
   }
 
   .messenger-shell {
-    width: calc(100% - 12px);
-    margin: 6px auto;
-    min-height: calc(100vh - 64px);
+    width: 100%;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
   }
 
   .messenger-header.is-hidden-on-mobile-chat {

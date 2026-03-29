@@ -96,6 +96,9 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   const autoCreatedTargetRef = useRef<string | null>(null);
   const attemptedTargetRef = useRef<string | null>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -114,6 +117,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     [conversations, selectedConversationId]
   );
   const mobileChatOpen = !mobileSidebarOpen && !!selectedConversation;
+  const totalUnreadCount = conversations.reduce((sum, conversation) => sum + Math.max(0, conversation.unreadCount), 0);
 
   const selectedKeyEntry = useMemo(() => {
     if (!selectedConversation || !bootstrap) return null;
@@ -321,6 +325,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       }
 
       setDraft("");
+      shouldStickToBottomRef.current = true;
       await loadConversations();
       await loadMessages(selectedConversation);
     } catch (sendError) {
@@ -372,10 +377,18 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       return;
     }
 
+    shouldStickToBottomRef.current = true;
     void loadMessages(selectedConversation).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить сообщения");
     });
   }, [selectedConversationId, selectedConversation]);
+
+  useEffect(() => {
+    if (!messageEndRef.current) return;
+    if (!shouldStickToBottomRef.current) return;
+
+    messageEndRef.current.scrollIntoView({ block: "end" });
+  }, [messages, selectedConversationId]);
 
   useEffect(() => {
     if (!bootstrap || loading) return;
@@ -451,25 +464,28 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   return (
     <div className="messenger-app">
       <header className={`messenger-header ${mobileChatOpen ? "is-hidden-on-mobile-chat" : ""}`}>
-        <div className="brand">
-          <a href={appBaseUrl} className="brand-link">
-            gomo6
-          </a>
-          <div>
-            <strong>messenger</strong>
-            <p>Личные сообщения</p>
+        <div className="messenger-header-inner">
+          <div className="brand">
+            <a href={appBaseUrl} className="brand-link">
+              gomo6
+            </a>
+            <div>
+              <strong>messenger</strong>
+              <p>Личные сообщения</p>
+            </div>
           </div>
-        </div>
 
-        <div className="header-actions">
-          <button
-            type="button"
-            className="icon-button mobile-only"
-            onClick={() => setMobileSidebarOpen((current) => !current)}
-            aria-label="Открыть список диалогов"
-          >
-            <PanelLeft size={16} />
-          </button>
+          <div className="header-actions">
+            {totalUnreadCount > 0 && <span className="header-unread-badge">{totalUnreadCount}</span>}
+            <button
+              type="button"
+              className="icon-button mobile-only"
+              onClick={() => setMobileSidebarOpen((current) => !current)}
+              aria-label="Открыть список диалогов"
+            >
+              <PanelLeft size={16} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -577,7 +593,15 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
               </div>
 
-              <div className="message-scroll">
+              <div
+                ref={messageScrollRef}
+                className="message-scroll"
+                onScroll={(event) => {
+                  const element = event.currentTarget;
+                  const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+                  shouldStickToBottomRef.current = distanceToBottom < 48;
+                }}
+              >
                 {messages.length === 0 ? (
                   <div className="empty-thread">
                     <MessageCircle size={20} />
@@ -603,6 +627,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                     );
                   })
                 )}
+                <div ref={messageEndRef} />
               </div>
 
               <form
@@ -615,6 +640,15 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                 <textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    const isDesktop = window.matchMedia("(min-width: 981px)").matches;
+                    if (isDesktop && event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (!sending && draft.trim()) {
+                        void sendCurrentMessage();
+                      }
+                    }
+                  }}
                   placeholder="Написать сообщение..."
                   rows={1}
                 />
