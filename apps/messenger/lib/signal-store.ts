@@ -16,6 +16,7 @@ const DB_VERSION = 1;
 const STORE_NAME = "kv";
 const DEVICE_KEY = "device-state";
 const SENT_CACHE_KEY = "sent-cache";
+const MESSAGE_CACHE_KEY = "message-cache";
 
 type LocalDeviceState = {
   version: 1;
@@ -54,6 +55,7 @@ type UploadBundle = {
 };
 
 type SentCache = Record<string, string>;
+type MessageCache = Record<string, string>;
 
 const toBase64 = (bytes: Uint8Array | ArrayBuffer) => Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString("base64");
 const fromBase64 = (value: string) => Buffer.from(value, "base64").buffer.slice(
@@ -363,4 +365,15 @@ export const cacheSentPlaintext = async (ciphertext: string, plainText: string) 
 export const getCachedSentPlaintext = async (ciphertext: string) => {
   const current = (await readValue<SentCache>(SENT_CACHE_KEY)) ?? {};
   return current[ciphertext] ?? null;
+};
+
+export const cacheMessagePlaintext = async (messageId: string, plainText: string) => {
+  const current = (await readValue<MessageCache>(MESSAGE_CACHE_KEY)) ?? {};
+  current[messageId] = plainText;
+  await writeValue(MESSAGE_CACHE_KEY, current);
+};
+
+export const getCachedMessagePlaintext = async (messageId: string) => {
+  const current = (await readValue<MessageCache>(MESSAGE_CACHE_KEY)) ?? {};
+  return current[messageId] ?? null;
 };

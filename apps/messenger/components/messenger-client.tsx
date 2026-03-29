@@ -7,9 +7,11 @@ import { randomClientMessageId } from "@/lib/encoding";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
   buildUploadBundle,
+  cacheMessagePlaintext,
   decryptEnvelope,
   encryptForDevice,
   ensureLocalDeviceState,
+  getCachedMessagePlaintext,
   getCachedSentPlaintext,
   cacheSentPlaintext,
   updateSignalDeviceAssignment,
@@ -386,24 +388,37 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       )) as { messages: ApiMessage[]; receipts: Receipt[] };
       const decrypted = await Promise.all(
         payload.messages.map(async (message) => {
+          const cachedPlainText = await getCachedMessagePlaintext(message.id);
+          const peerReceipt =
+            payload.receipts.find(
+              (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
+            ) ?? null;
+
+          if (cachedPlainText) {
+            return {
+              ...message,
+              plainText: cachedPlainText,
+              peerDeliveredAt: peerReceipt?.delivered_at ?? null,
+              peerReadAt: peerReceipt?.read_at ?? null,
+            };
+          }
+
           try {
             const senderSignalDeviceId =
               bootstrap.selfDevices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
               conversation.devices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
               bootstrap.me.signalDeviceId;
-            const peerReceipt =
-              payload.receipts.find(
-                (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
-              ) ?? null;
+            const plainText = await decryptEnvelope(
+              bootstrap.me.id,
+              message.senderUserId,
+              senderSignalDeviceId,
+              message.messageType,
+              message.ciphertext
+            );
+            await cacheMessagePlaintext(message.id, plainText);
             return {
               ...message,
-              plainText: await decryptEnvelope(
-                bootstrap.me.id,
-                message.senderUserId,
-                senderSignalDeviceId,
-                message.messageType,
-                message.ciphertext
-              ),
+              plainText,
               peerDeliveredAt: peerReceipt?.delivered_at ?? null,
               peerReadAt: peerReceipt?.read_at ?? null,
             };
@@ -413,8 +428,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
             return {
               ...message,
               plainText: cachedSentPlainText ?? "[Не удалось расшифровать сообщение на этом устройстве]",
-              peerDeliveredAt: null,
-              peerReadAt: null,
+              peerDeliveredAt: peerReceipt?.delivered_at ?? null,
+              peerReadAt: peerReceipt?.read_at ?? null,
             };
           }
         })
@@ -517,43 +532,78 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
       setErrorMessage(message);
     });
-    const accessToken = currentAccessTokenRef.current;
-    if (!accessToken) return;
-    const source = new EventSource(
-      `/api/realtime?accessToken=${encodeURIComponent(accessToken)}${
-        selectedConversationId ? `&conversationId=${encodeURIComponent(selectedConversationId)}` : ""
-      }`,
-      { withCredentials: false }
-    );
+    if (!bootstrap) return;
 
-    const onUpdate = () => {
+    const supabase = getBrowserSupabase();
+    const channel = supabase.channel(`messenger:${bootstrap.me.id}:${selectedConversationId ?? "all"}`);
+
+    const refreshConversationList = () => {
       void loadConversations().catch((error) => {
         const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
         setErrorMessage(message);
       });
-      if (selectedConversation) {
-        void loadMessages(selectedConversation).catch((error) => {
-          const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
-          setErrorMessage(message);
-        });
-      }
     };
 
-    source.addEventListener("update", onUpdate);
-    source.addEventListener("warning", () => {
-      setErrorMessage("Проблема с realtime-обновлением messenger");
-    });
-    source.onerror = () => {
-      source.close();
-      void refreshActiveSession().then((session) => {
-        currentAccessTokenRef.current = session?.access_token ?? null;
-        setRealtimeVersion((current) => current + 1);
+    const refreshSelectedMessages = () => {
+      if (!selectedConversation) return;
+      void loadMessages(selectedConversation).catch((error) => {
+        const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
+        setErrorMessage(message);
       });
     };
 
+    channel.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "chat_conversation_members",
+        filter: `user_id=eq.${bootstrap.me.id}`,
+      },
+      () => {
+        refreshConversationList();
+      }
+    );
+
+    channel.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "chat_message_envelopes",
+        filter: `recipient_user_id=eq.${bootstrap.me.id}`,
+      },
+      () => {
+        refreshConversationList();
+        refreshSelectedMessages();
+      }
+    );
+
+    channel.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "chat_messages",
+        filter: `sender_user_id=eq.${bootstrap.me.id}`,
+      },
+      () => {
+        refreshConversationList();
+        refreshSelectedMessages();
+      }
+    );
+
+    channel.subscribe((status) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        void refreshActiveSession().then((session) => {
+          currentAccessTokenRef.current = session?.access_token ?? null;
+          setRealtimeVersion((current) => current + 1);
+        });
+      }
+    });
+
     return () => {
-      source.removeEventListener("update", onUpdate);
-      source.close();
+      void supabase.removeChannel(channel);
     };
   }, [sessionReady, targetUserId, selectedConversationId, selectedConversation, realtimeVersion]);
 
@@ -691,7 +741,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                             <span>{conversation.otherUser.username}</span>
                             {conversation.otherUser.usernameIconSvg ? (
                               <span
-                                className="inline-flex items-center justify-center"
+                                className="inline-flex items-center justify-center messenger-username-icon"
                                 dangerouslySetInnerHTML={{ __html: conversation.otherUser.usernameIconSvg }}
                                 style={{
                                   fill: conversation.otherUser.usernameIconFill ?? undefined,
@@ -762,7 +812,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                         <span>{selectedConversation.otherUser.username}</span>
                         {selectedConversation.otherUser.usernameIconSvg ? (
                           <span
-                            className="inline-flex items-center justify-center"
+                            className="inline-flex items-center justify-center messenger-username-icon"
                             dangerouslySetInnerHTML={{ __html: selectedConversation.otherUser.usernameIconSvg }}
                             style={{
                               fill: selectedConversation.otherUser.usernameIconFill ?? undefined,

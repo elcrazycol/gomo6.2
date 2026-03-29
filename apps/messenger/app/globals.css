@@ -898,6 +898,18 @@ input {
   white-space: nowrap;
 }
 
+.messenger-username-icon,
+.messenger-username-icon svg {
+  width: 1em !important;
+  height: 1em !important;
+  min-width: 1em;
+  min-height: 1em;
+  max-width: 1em !important;
+  max-height: 1em !important;
+  display: inline-flex;
+  flex: 0 0 1em;
+}
+
 @media (max-width: 640px) {
   .brand p {
     display: none;
