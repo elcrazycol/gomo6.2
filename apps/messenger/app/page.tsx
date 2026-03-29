@@ -14,7 +14,7 @@ export default async function Page({
   }
 
   const params = await searchParams;
-  const targetUserId = params.user ?? session.targetUserId ?? null;
+  const targetUserId = params.user ?? null;
 
   return <MessengerClient username={session.username} targetUserId={targetUserId} appBaseUrl={appBaseUrl} />;
 }

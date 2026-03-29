@@ -91,6 +91,9 @@ const formatRelativeMeta = (value: string | null) => {
 };
 
 const initialsFrom = (username: string) => username.slice(0, 2).toUpperCase();
+const reportMessengerError = (context: string, error: unknown) => {
+  console.error(`[messenger] ${context}`, error);
+};
 
 export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) => {
   const autoCreatedTargetRef = useRef<string | null>(null);
@@ -108,7 +111,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   const [sending, setSending] = useState(false);
   const [startingConversation, setStartingConversation] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const realtimeReloadRef = useRef(false);
 
@@ -185,13 +187,13 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
     if (!keyEntry) {
       setMessages([]);
-      setError("На этом устройстве нет ключа этого диалога");
+      reportMessengerError("missing_conversation_key", { conversationId: conversation.id });
       return;
     }
 
     const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys).catch(() => {
       setMessages([]);
-      setError("Ключи этого диалога не подходят для текущего устройства");
+      reportMessengerError("invalid_conversation_key", { conversationId: conversation.id });
       return null;
     });
     if (!conversationKey) {
@@ -243,12 +245,11 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   const startConversation = async () => {
     if (!bootstrap?.target) return;
     if (bootstrap.target.devices.length === 0) {
-      setError("Пользователь еще не активировал messenger");
+      reportMessengerError("target_has_no_devices", { targetUserId: bootstrap.target.mainUserId });
       return;
     }
 
     setStartingConversation(true);
-    setError(null);
 
     try {
       const deviceKeys = await getOrCreateDeviceKeys();
@@ -288,7 +289,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       setSelectedConversationId(payload.conversation.id);
       setMobileSidebarOpen(false);
     } catch (conversationError) {
-      setError(conversationError instanceof Error ? conversationError.message : "Не удалось создать переписку");
+      reportMessengerError("start_conversation_failed", conversationError);
     } finally {
       setStartingConversation(false);
     }
@@ -298,7 +299,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     if (!draft.trim() || !selectedConversation || !selectedKeyEntry) return;
 
     setSending(true);
-    setError(null);
 
     try {
       const deviceKeys = await getOrCreateDeviceKeys();
@@ -329,7 +329,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       await loadConversations();
       await loadMessages(selectedConversation);
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Не удалось отправить сообщение");
+      reportMessengerError("send_message_failed", sendError);
     } finally {
       setSending(false);
     }
@@ -340,7 +340,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
     const bootstrapMessenger = async () => {
       setLoading(true);
-      setError(null);
       setConversationsLoaded(false);
       attemptedTargetRef.current = null;
 
@@ -352,7 +351,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
         await loadConversations();
       } catch (bootstrapError) {
         if (cancelled) return;
-        setError(bootstrapError instanceof Error ? bootstrapError.message : "Ошибка загрузки");
+        reportMessengerError("bootstrap_failed", bootstrapError);
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -379,7 +378,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
     shouldStickToBottomRef.current = true;
     void loadMessages(selectedConversation).catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить сообщения");
+      reportMessengerError("load_messages_failed", loadError);
     });
   }, [selectedConversationId, selectedConversation]);
 
@@ -416,7 +415,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
             }
           }
         } catch (realtimeError) {
-          setError(realtimeError instanceof Error ? realtimeError.message : "Не удалось обновить переписки");
+          reportMessengerError("realtime_refresh_failed", realtimeError);
         } finally {
           realtimeReloadRef.current = false;
         }
@@ -425,10 +424,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
     source.addEventListener("update", handleUpdate);
     source.addEventListener("warning", () => {
-      setError((current) => current ?? "Есть проблема с realtime-снимком, пробуем переподключиться");
+      reportMessengerError("realtime_warning", "snapshot_failed");
     });
     source.onerror = () => {
-      setError((current) => current ?? "Realtime-соединение переподключается");
+      reportMessengerError("realtime_reconnecting", selectedConversationIdRef.current);
     };
 
     return () => {
@@ -456,7 +455,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     return (
       <div className="messenger-loading">
         <PentagramLoader />
-        <p>Подготавливаем устройство для @{username}...</p>
       </div>
     );
   }
@@ -473,7 +471,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                   .gomo6
                 </a>
               </strong>
-              <p>Личные сообщения</p>
             </div>
           </div>
 
@@ -656,7 +653,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
           ) : (
             <div className="empty-thread hero">
               <MessageCircle size={20} />
-              <h2>gomo6 messenger</h2>
               <p>Открой диалог из профиля пользователя или выбери переписку слева.</p>
               {bootstrap?.target && (
                 <button type="button" className="cta-button" onClick={() => void startConversation()}>
@@ -665,8 +661,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
               )}
             </div>
           )}
-
-          {error && <div className="error-banner">{error}</div>}
         </main>
       </div>
     </div>

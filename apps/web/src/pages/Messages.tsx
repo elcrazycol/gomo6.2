@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
 const Messages = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const targetUserId = searchParams.get("user");
-  const [status, setStatus] = useState("Проверяем сессию...");
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const startHandoff = async () => {
@@ -23,8 +21,6 @@ const Messages = () => {
       }
 
       try {
-        setStatus("Подготавливаем защищенный переход в мессенджер...");
-
         const response = await fetch("/api/messenger/handoff", {
           method: "POST",
           headers: {
@@ -43,11 +39,11 @@ const Messages = () => {
         }
 
         const payload = await response.json();
-        setStatus("Перенаправляем в E2EE-мессенджер...");
         window.location.assign(payload.redirectTo);
       } catch (handoffError) {
         const message = handoffError instanceof Error ? handoffError.message : "Не удалось открыть мессенджер";
-        setError(message);
+        console.error("[messenger-handoff] failed", message);
+        setFailed(true);
       }
     };
 
@@ -56,20 +52,11 @@ const Messages = () => {
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center px-4">
-      <div className="w-full max-w-lg rounded-2xl border border-border bg-card/80 p-8 text-center shadow-xl backdrop-blur">
-        <div className="mb-5 flex justify-center">
+      <div className="w-full max-w-lg p-8 text-center">
+        <div className="flex justify-center">
           <PentagramLoader size="md" />
         </div>
-        <h1 className="mb-3 text-2xl font-bold">gomo6 messenger</h1>
-        <p className="text-sm text-muted-foreground">{error ?? status}</p>
-        {error && (
-          <div className="mt-6 flex justify-center gap-3">
-            <Button onClick={() => window.location.reload()}>Повторить</Button>
-            <Button variant="outline" onClick={() => navigate("/")}>
-              На главную
-            </Button>
-          </div>
-        )}
+        {failed ? <p className="mt-4 text-sm text-muted-foreground"> </p> : null}
       </div>
     </div>
   );

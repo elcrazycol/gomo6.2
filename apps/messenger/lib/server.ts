@@ -86,6 +86,53 @@ export const getConversationForUser = async (conversationId: string, userId: str
   return data;
 };
 
+export const purgeBrokenEmptyConversations = async (
+  userId: string,
+  conversations: Array<{
+    id: string;
+    last_message_at: string | null;
+  }>,
+  participants: Array<{
+    conversation_id: string;
+    user_id: string;
+  }>,
+  keys: Array<{
+    conversation_id: string;
+    device_id: string;
+    encrypted_key: string;
+  }>
+) => {
+  const admin = messengerAdmin();
+  const conversationIds = conversations.map((conversation) => conversation.id);
+  if (!conversationIds.length) return new Set<string>();
+
+  const { data: messagesRaw } = await admin
+    .from("messenger_messages")
+    .select("conversation_id")
+    .in("conversation_id", conversationIds);
+
+  const conversationsWithMessages = new Set(
+    ((messagesRaw as Array<{ conversation_id: string | null }> | null) ?? [])
+      .map((message) => message.conversation_id)
+      .filter((value): value is string => typeof value === "string")
+  );
+
+  const brokenIds = conversations
+    .filter((conversation) => {
+      const hasMessages = conversationsWithMessages.has(conversation.id) || Boolean(conversation.last_message_at);
+      const hasPeer = participants.some((participant) => participant.conversation_id === conversation.id);
+      const hasOwnKey = keys.some((key) => key.conversation_id === conversation.id);
+      return !hasMessages && (!hasPeer || !hasOwnKey);
+    })
+    .map((conversation) => conversation.id);
+
+  if (brokenIds.length > 0) {
+    await admin.from("messenger_conversations").delete().in("id", brokenIds);
+  }
+
+  return new Set(brokenIds);
+};
+
 export const getMessengerConversationSnapshot = async (userId: string, conversationId?: string | null) => {
   const admin = messengerAdmin();
 

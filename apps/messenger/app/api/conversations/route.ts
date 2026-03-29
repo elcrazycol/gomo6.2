@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromCookies } from "@/lib/session";
-import { getMessengerUserByMainId, getOrCreateMessengerUser } from "@/lib/server";
+import { getMessengerUserByMainId, getOrCreateMessengerUser, purgeBrokenEmptyConversations } from "@/lib/server";
 import { messengerAdmin } from "@/lib/supabase";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
@@ -101,7 +101,13 @@ export async function GET() {
       avatar_url: string | null;
     }> | null) ?? [];
 
+  const purgedConversationIds = await purgeBrokenEmptyConversations(self.id, conversations, participants, keys);
+
   const serialized = memberships.map((membership) => {
+    if (purgedConversationIds.has(membership.conversation_id)) {
+      return null;
+    }
+
     const conversation = conversations.find((row) => row.id === membership.conversation_id);
     const otherMembership = participants.find((row) => row.conversation_id === membership.conversation_id);
     const otherUser = otherUsers.find((row) => row.id === otherMembership?.user_id);
