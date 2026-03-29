@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error || !data) {
-    return json({ error: "Failed to store message" }, 500);
+    return json({ error: `Failed to store message: ${error?.message ?? "unknown"}` }, 500);
   }
 
   return json({

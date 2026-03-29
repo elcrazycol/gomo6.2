@@ -35,18 +35,26 @@ export async function GET(
     .order("sent_at", { ascending: true });
 
   if (error) {
-    return json({ error: "Failed to load messages" }, 500);
+    return json({ error: `Failed to load messages: ${error.message}` }, 500);
   }
 
   return json({
-    messages: (rows ?? []).map((row: any) => ({
-      id: row.id,
-      ciphertext: row.ciphertext,
-      nonce: row.nonce,
-      sentAt: row.sent_at,
-      deliveredAt: row.delivered_at,
-      senderDeviceId: row.sender_device_id,
-      senderMainUserId: row.messenger_users?.main_user_id ?? "",
-    })),
+    messages: (rows ?? [])
+      .filter(
+        (row: any) =>
+          typeof row?.id === "string" &&
+          typeof row?.ciphertext === "string" &&
+          typeof row?.nonce === "string" &&
+          typeof row?.sent_at === "string"
+      )
+      .map((row: any) => ({
+        id: row.id,
+        ciphertext: row.ciphertext,
+        nonce: row.nonce,
+        sentAt: row.sent_at,
+        deliveredAt: typeof row.delivered_at === "string" ? row.delivered_at : null,
+        senderDeviceId: typeof row.sender_device_id === "string" ? row.sender_device_id : "",
+        senderMainUserId: typeof row.messenger_users?.main_user_id === "string" ? row.messenger_users.main_user_id : "",
+      })),
   });
 }
