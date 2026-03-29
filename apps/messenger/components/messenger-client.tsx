@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal, ShieldCheck } from "lucide-react";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
   clearLegacyMessengerStorage,
@@ -11,7 +11,6 @@ import {
   encryptConversationKeyForParticipant,
   encryptMessage,
   getOrCreateDeviceKeys,
-  initSodium,
 } from "@/lib/crypto";
 
 type BootstrapPayload = {
@@ -19,35 +18,55 @@ type BootstrapPayload = {
     id: string;
     mainUserId: string;
     username: string;
-    publicKey: string | null;
+    avatarUrl: string | null;
+    deviceId: string;
+    publicKey: string;
   };
   target: {
     id: string;
     mainUserId: string;
     username: string;
-    publicKey: string | null;
+    avatarUrl: string | null;
+    devices: Array<{
+      deviceId: string;
+      label: string;
+      publicKey: string;
+    }>;
   } | null;
 };
 
 type Conversation = {
   id: string;
-  createdAt: string;
+  createdAt: string | null;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  unreadCount: number;
+  lastReadAt: string | null;
+  keychain: Array<{
+    deviceId: string;
+    encryptedKey: string;
+  }>;
   otherUser: {
     id: string;
     mainUserId: string;
     username: string;
-  };
-  encryptedKey: string;
-  unreadCount: number;
-  lastMessageAt: string | null;
+    accountNumber: number | null;
+    avatarUrl: string | null;
+  } | null;
 };
 
 type ApiMessage = {
   id: string;
   ciphertext: string;
   nonce: string;
-  createdAt: string;
+  sentAt: string;
+  deliveredAt: string | null;
+  senderDeviceId: string;
   senderMainUserId: string;
+};
+
+type MessageView = ApiMessage & {
+  plainText: string;
 };
 
 type Props = {
@@ -55,17 +74,34 @@ type Props = {
   targetUserId: string | null;
 };
 
+const formatDate = (value: string | null) => {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+};
+
+const formatRelativeMeta = (value: string | null) => {
+  if (!value) return "Пусто";
+  return formatDate(value);
+};
+
+const initialsFrom = (username: string) => username.slice(0, 2).toUpperCase();
+
 export const MessengerClient = ({ username, targetUserId }: Props) => {
   const autoCreatedTargetRef = useRef<string | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Array<ApiMessage & { plainText: string }>>([]);
+  const [messages, setMessages] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [startingConversation, setStartingConversation] = useState(false);
-  const [mobileListVisible, setMobileListVisible] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const selectedConversation = useMemo(
@@ -73,76 +109,103 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     [conversations, selectedConversationId]
   );
 
+  const selectedKeyEntry = useMemo(() => {
+    if (!selectedConversation || !bootstrap) return null;
+    return selectedConversation.keychain.find((entry) => entry.deviceId === bootstrap.me.deviceId) ?? null;
+  }, [bootstrap, selectedConversation]);
+
   const loadBootstrap = async () => {
     const keys = await getOrCreateDeviceKeys();
-    const response = await fetch(`/api/bootstrap${targetUserId ? `?targetUserId=${encodeURIComponent(targetUserId)}` : ""}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      credentials: "include",
-      body: JSON.stringify({
-        publicKey: keys.publicKey,
-      }),
-    });
+    const response = await fetch(
+      `/api/bootstrap${targetUserId ? `?targetUserId=${encodeURIComponent(targetUserId)}` : ""}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          publicKey: keys.publicKey,
+          deviceId: keys.deviceId,
+          deviceLabel: "browser",
+        }),
+      }
+    );
 
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error("Не удалось подготовить устройство");
+      throw new Error(payload?.error || "Не удалось подготовить устройство");
     }
 
-    return (await response.json()) as BootstrapPayload;
+    return payload as BootstrapPayload;
   };
 
   const loadConversations = async () => {
     const response = await fetch("/api/conversations", {
       credentials: "include",
     });
+    const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new Error("Не удалось загрузить переписки");
+      throw new Error(payload?.error || "Не удалось загрузить переписки");
     }
 
-    const payload = (await response.json()) as { conversations: Conversation[] };
-    setConversations(payload.conversations);
+    const nextConversations = (payload?.conversations ?? []) as Conversation[];
+    setConversations(nextConversations);
     setSelectedConversationId((current) => {
-      if (current && payload.conversations.some((conversation) => conversation.id === current)) {
+      if (current && nextConversations.some((conversation) => conversation.id === current)) {
         return current;
       }
 
-      return payload.conversations[0]?.id ?? null;
+      const autoCreated = nextConversations.find(
+        (conversation) => conversation.otherUser?.mainUserId === autoCreatedTargetRef.current
+      );
+      return autoCreated?.id ?? nextConversations[0]?.id ?? null;
     });
   };
 
-  const loadMessages = async (conversationId: string, encryptedKey: string) => {
+  const loadMessages = async (conversation: Conversation) => {
     const keys = await getOrCreateDeviceKeys();
-    const conversationKey = await decryptConversationKey(encryptedKey, keys);
-    const response = await fetch(`/api/messages/${conversationId}`, {
-      credentials: "include",
-    });
-
-    if (!response.ok) {
-      throw new Error("Не удалось загрузить сообщения");
+    const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
+    if (!keyEntry) {
+      throw new Error("Для этого устройства нет ключа диалога");
     }
 
-    const payload = (await response.json()) as { messages: ApiMessage[] };
+    const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys);
+    const response = await fetch(`/api/messages/${conversation.id}`, {
+      credentials: "include",
+    });
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(payload?.error || "Не удалось загрузить сообщения");
+    }
+
     const decrypted = await Promise.all(
-      payload.messages.map(async (message) => ({
+      ((payload?.messages ?? []) as ApiMessage[]).map(async (message) => ({
         ...message,
         plainText: await decryptMessage(message.ciphertext, message.nonce, conversationKey),
       }))
     );
+
     setMessages(decrypted);
 
-    await fetch(`/api/messages/${conversationId}/read`, {
+    await fetch(`/api/messages/${conversation.id}/read`, {
       method: "POST",
       credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        lastReadMessageId: decrypted.at(-1)?.id ?? null,
+      }),
     });
   };
 
   const startConversation = async () => {
     if (!bootstrap?.target) return;
-    if (!bootstrap.target.publicKey) {
-      setError("Пока нельзя начать диалог");
+    if (bootstrap.target.devices.length === 0) {
+      setError("Пользователь еще не активировал messenger");
       return;
     }
 
@@ -150,10 +213,20 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     setError(null);
 
     try {
-      const keys = await getOrCreateDeviceKeys();
-      const conversationKey = await createConversationKey();
-      const senderEncryptedKey = await encryptConversationKeyForParticipant(conversationKey, keys.publicKey);
-      const recipientEncryptedKey = await encryptConversationKeyForParticipant(conversationKey, bootstrap.target.publicKey);
+      const deviceKeys = await getOrCreateDeviceKeys();
+      const conversationKey = createConversationKey();
+      const keychain = await Promise.all([
+        Promise.resolve({
+          userId: bootstrap.me.id,
+          deviceId: deviceKeys.deviceId,
+          encryptedKey: await encryptConversationKeyForParticipant(conversationKey, deviceKeys.publicKey),
+        }),
+        ...bootstrap.target.devices.map(async (device) => ({
+          userId: bootstrap.target!.id,
+          deviceId: device.deviceId,
+          encryptedKey: await encryptConversationKeyForParticipant(conversationKey, device.publicKey),
+        })),
+      ]);
 
       const response = await fetch("/api/conversations", {
         method: "POST",
@@ -163,20 +236,19 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
         },
         body: JSON.stringify({
           recipientMainUserId: bootstrap.target.mainUserId,
-          senderEncryptedKey,
-          recipientEncryptedKey,
+          keychain,
         }),
       });
 
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось создать переписку");
+        throw new Error(payload?.error || "Не удалось создать переписку");
       }
 
+      autoCreatedTargetRef.current = bootstrap.target.mainUserId;
       await loadConversations();
       setSelectedConversationId(payload.conversation.id);
-      setMobileListVisible(false);
-      autoCreatedTargetRef.current = bootstrap.target.mainUserId;
+      setMobileSidebarOpen(false);
     } catch (conversationError) {
       setError(conversationError instanceof Error ? conversationError.message : "Не удалось создать переписку");
     } finally {
@@ -185,14 +257,14 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   };
 
   const sendCurrentMessage = async () => {
-    if (!draft.trim() || !selectedConversation) return;
+    if (!draft.trim() || !selectedConversation || !selectedKeyEntry) return;
 
     setSending(true);
     setError(null);
 
     try {
-      const keys = await getOrCreateDeviceKeys();
-      const conversationKey = await decryptConversationKey(selectedConversation.encryptedKey, keys);
+      const deviceKeys = await getOrCreateDeviceKeys();
+      const conversationKey = await decryptConversationKey(selectedKeyEntry.encryptedKey, deviceKeys);
       const encrypted = await encryptMessage(draft.trim(), conversationKey);
 
       const response = await fetch("/api/messages", {
@@ -203,19 +275,20 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
         },
         body: JSON.stringify({
           conversationId: selectedConversation.id,
+          senderDeviceId: deviceKeys.deviceId,
           ciphertext: encrypted.ciphertext,
           nonce: encrypted.nonce,
         }),
       });
 
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload.error || "Не удалось отправить сообщение");
+        throw new Error(payload?.error || "Не удалось отправить сообщение");
       }
 
       setDraft("");
-      await loadMessages(selectedConversation.id, selectedConversation.encryptedKey);
       await loadConversations();
+      await loadMessages(selectedConversation);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Не удалось отправить сообщение");
     } finally {
@@ -224,157 +297,268 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   };
 
   useEffect(() => {
-    clearLegacyMessengerStorage();
+    let cancelled = false;
 
-    const boot = async () => {
+    const bootstrapMessenger = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
-        await initSodium();
+        clearLegacyMessengerStorage();
         const payload = await loadBootstrap();
+        if (cancelled) return;
         setBootstrap(payload);
         await loadConversations();
-      } catch (bootError) {
-        setError(bootError instanceof Error ? bootError.message : "Ошибка загрузки");
+      } catch (bootstrapError) {
+        if (cancelled) return;
+        setError(bootstrapError instanceof Error ? bootstrapError.message : "Ошибка загрузки");
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
-    void boot();
-  }, []);
+    void bootstrapMessenger();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [targetUserId]);
 
   useEffect(() => {
-    if (!bootstrap?.target) return;
-    if (conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId)) {
-      autoCreatedTargetRef.current = bootstrap.target.mainUserId;
+    if (!selectedConversationId) {
+      setMessages([]);
       return;
     }
-    if (!bootstrap.target.publicKey) return;
-    if (startingConversation) return;
-    if (autoCreatedTargetRef.current === bootstrap.target.mainUserId) return;
 
-    void startConversation();
-  }, [bootstrap?.target?.mainUserId, bootstrap?.target?.publicKey, conversations, startingConversation]);
+    const conversation = conversations.find((item) => item.id === selectedConversationId);
+    if (!conversation) return;
+
+    void loadMessages(conversation).catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить сообщения");
+    });
+  }, [conversations, selectedConversationId]);
 
   useEffect(() => {
-    if (!selectedConversation) return;
+    if (!bootstrap?.target || !targetUserId) return;
+    if (autoCreatedTargetRef.current === targetUserId) return;
 
-    void loadMessages(selectedConversation.id, selectedConversation.encryptedKey).catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "Не удалось расшифровать сообщения");
-    });
+    const existing = conversations.some((conversation) => conversation.otherUser?.mainUserId === targetUserId);
+    if (existing) {
+      autoCreatedTargetRef.current = targetUserId;
+      return;
+    }
 
-    const interval = window.setInterval(() => {
-      void loadMessages(selectedConversation.id, selectedConversation.encryptedKey).catch(() => undefined);
-      void loadConversations().catch(() => undefined);
-    }, 4000);
-
-    return () => window.clearInterval(interval);
-  }, [selectedConversation?.id, selectedConversation?.encryptedKey]);
+    if (startingConversation) return;
+    void startConversation();
+  }, [bootstrap, conversations, startingConversation, targetUserId]);
 
   if (loading) {
     return (
-      <div className="loading-shell">
-        <PentagramLoader size="lg" />
+      <div className="messenger-loading">
+        <PentagramLoader />
+        <p>Подготавливаем устройство для @{username}...</p>
       </div>
     );
   }
 
   return (
-    <div className="messenger-page">
+    <div className="messenger-app">
       <header className="messenger-header">
-        <a className="brand-link" href="https://gomo6.wtf" aria-label="gomo6">
-          <span className="brand-mark" />
-          <span className="brand-text">gomo6</span>
-        </a>
-        <button
-          type="button"
-          className="mobile-conversations-toggle"
-          onClick={() => setMobileListVisible((value) => !value)}
-          aria-label="Диалоги"
-        >
-          <MessageCircle className="toggle-icon" />
-        </button>
+        <div className="brand">
+          <a href="https://gomo6.ru" className="brand-badge">
+            gomo6
+          </a>
+          <div>
+            <strong>messenger</strong>
+            <p>Личные сообщения</p>
+          </div>
+        </div>
+
+        <div className="header-actions">
+          <button
+            type="button"
+            className="icon-button mobile-only"
+            onClick={() => setMobileSidebarOpen((current) => !current)}
+            aria-label="Открыть список диалогов"
+          >
+            <PanelLeft size={16} />
+          </button>
+          <a href="https://gomo6.ru" className="ghost-link">
+            На сайт
+          </a>
+        </div>
       </header>
 
-      <div className="shell">
-        <aside className={`panel sidebar ${mobileListVisible ? "mobile-visible" : "mobile-hidden"}`}>
-          {bootstrap?.target && !conversations.some((conversation) => conversation.otherUser.mainUserId === bootstrap.target?.mainUserId) && (
-            <div className="conversation pending">
-              <span className={`conversation-dot ${startingConversation ? "is-loading" : ""}`} />
-              <strong>{bootstrap.target.username}</strong>
+      <div className="messenger-shell">
+        <aside className={`sidebar-panel ${mobileSidebarOpen ? "is-open" : ""}`}>
+          <div className="sidebar-top">
+            <div>
+              <p className="eyebrow">Диалоги</p>
+              <h1>Сообщения</h1>
             </div>
+            <div className="security-pill">
+              <ShieldCheck size={14} />
+              <span>E2EE</span>
+            </div>
+          </div>
+
+          {bootstrap?.target && bootstrap.target.devices.length === 0 && (
+            <div className="inline-notice">Пользователь еще не заходил в messenger и не создал устройство.</div>
           )}
 
           <div className="conversation-list">
-            {conversations.map((conversation) => (
-              <button
-                key={conversation.id}
-                type="button"
-                className={`conversation ${selectedConversationId === conversation.id ? "active" : ""}`}
-                onClick={() => {
-                  setSelectedConversationId(conversation.id);
-                  setMobileListVisible(false);
-                }}
-              >
-                <strong>{conversation.otherUser.username}</strong>
-                <div className="meta">
-                  {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleString("ru-RU") : ""}
-                </div>
-                {conversation.unreadCount > 0 && <span className="badge">{conversation.unreadCount}</span>}
-              </button>
-            ))}
+            {conversations.length === 0 && (
+              <div className="empty-card">
+                <MessageCircle size={18} />
+                <p>Пока нет переписок.</p>
+              </div>
+            )}
+
+            {conversations.map((conversation) => {
+              const active = conversation.id === selectedConversationId;
+              const otherUser = conversation.otherUser;
+
+              return (
+                <button
+                  key={conversation.id}
+                  type="button"
+                  className={`conversation-card ${active ? "is-active" : ""}`}
+                  onClick={() => {
+                    setSelectedConversationId(conversation.id);
+                    setMobileSidebarOpen(false);
+                  }}
+                >
+                  <div className="avatar">
+                    {otherUser?.avatarUrl ? (
+                      <img src={otherUser.avatarUrl} alt={otherUser.username} />
+                    ) : (
+                      <span>{initialsFrom(otherUser?.username ?? "?")}</span>
+                    )}
+                  </div>
+                  <div className="conversation-copy">
+                    <div className="conversation-head">
+                      <strong>{otherUser?.username ?? "Диалог"}</strong>
+                      <span>{formatRelativeMeta(conversation.lastMessageAt)}</span>
+                    </div>
+                    <p>{conversation.lastMessagePreview ?? "Защищенный диалог"}</p>
+                    <div className="conversation-meta">
+                      <span>#{otherUser?.accountNumber ?? "?"}</span>
+                      {conversation.unreadCount > 0 && <span className="count-badge">{conversation.unreadCount}</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </aside>
 
-        <main className={`panel main ${mobileListVisible ? "mobile-hidden" : "mobile-visible"}`}>
-          <div className="topbar">
-            <div className="topbar-title">
-              <span className="topbar-name">{selectedConversation?.otherUser.username ?? username}</span>
-            </div>
-          </div>
+        <main className="chat-panel">
+          {selectedConversation ? (
+            <>
+              <div className="chat-topbar">
+                <div className="chat-topbar-main">
+                  <button
+                    type="button"
+                    className="icon-button mobile-only"
+                    onClick={() => setMobileSidebarOpen(true)}
+                    aria-label="Назад к диалогам"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
 
-          <div className="messages">
-            {messages.length === 0 && !startingConversation && !selectedConversation ? (
-              <div className="messages-empty" />
-            ) : null}
+                  <div className="avatar small">
+                    {selectedConversation.otherUser?.avatarUrl ? (
+                      <img src={selectedConversation.otherUser.avatarUrl} alt={selectedConversation.otherUser.username} />
+                    ) : (
+                      <span>{initialsFrom(selectedConversation.otherUser?.username ?? "?")}</span>
+                    )}
+                  </div>
 
-            {messages.length === 0 && startingConversation ? (
-              <div className="messages-loader">
-                <PentagramLoader size="sm" />
+                  <div>
+                    <strong>{selectedConversation.otherUser?.username ?? "Диалог"}</strong>
+                    <p>
+                      {messages.length > 0 &&
+                      messages.at(-1)?.senderMainUserId === bootstrap?.me.mainUserId &&
+                      selectedConversation.lastReadAt
+                        ? "Прочитано"
+                        : "Доставлено"}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedConversation.otherUser?.mainUserId && (
+                  <a
+                    href={`https://gomo6.ru/profile/${selectedConversation.otherUser.mainUserId}`}
+                    className="ghost-link"
+                  >
+                    Профиль
+                  </a>
+                )}
               </div>
-            ) : null}
 
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`bubble ${message.senderMainUserId === bootstrap?.me.mainUserId ? "self" : ""}`}
+              <div className="message-scroll">
+                {messages.length === 0 ? (
+                  <div className="empty-thread">
+                    <ShieldCheck size={20} />
+                    <p>Диалог создан. Первое сообщение будет зашифровано в браузере.</p>
+                  </div>
+                ) : (
+                  messages.map((message) => {
+                    const isMine = message.senderMainUserId === bootstrap?.me.mainUserId;
+                    const readByPeer =
+                      !!selectedConversation.lastReadAt &&
+                      new Date(selectedConversation.lastReadAt).getTime() >= new Date(message.sentAt).getTime();
+
+                    return (
+                      <article key={message.id} className={`bubble-row ${isMine ? "is-mine" : ""}`}>
+                        <div className={`message-bubble ${isMine ? "is-mine" : ""}`}>
+                          <p>{message.plainText}</p>
+                          <div className="message-meta">
+                            <time>{formatDate(message.sentAt)}</time>
+                            {isMine && <span>{readByPeer ? "прочитано" : "доставлено"}</span>}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+
+              <form
+                className="composer"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void sendCurrentMessage();
+                }}
               >
-                {message.plainText}
-                <div className="message-time">{new Date(message.createdAt).toLocaleString("ru-RU")}</div>
-              </div>
-            ))}
-          </div>
+                <textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder="Написать сообщение..."
+                  rows={1}
+                />
 
-          <div className="composer">
-            {error && <div className="composer-error">{error}</div>}
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void sendCurrentMessage();
-              }}
-            >
-              <textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder=""
-                disabled={!selectedConversation || sending}
-              />
-              <div className="actions">
-                <button className="button primary" type="submit" disabled={!selectedConversation || sending || !draft.trim()}>
-                  {sending ? "..." : "OK"}
+                <button type="submit" className="send-button" disabled={sending || !draft.trim()}>
+                  {sending ? <PentagramLoader size="sm" /> : <SendHorizonal size={16} />}
                 </button>
-              </div>
-            </form>
-          </div>
+              </form>
+            </>
+          ) : (
+            <div className="empty-thread hero">
+              <MessageCircle size={20} />
+              <h2>gomo6 messenger</h2>
+              <p>Открой диалог из профиля пользователя или выбери переписку слева.</p>
+              {bootstrap?.target && (
+                <button type="button" className="cta-button" onClick={() => void startConversation()}>
+                  {startingConversation ? "Создаем диалог..." : `Написать ${bootstrap.target.username}`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {error && <div className="error-banner">{error}</div>}
         </main>
       </div>
     </div>
