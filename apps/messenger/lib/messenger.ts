@@ -260,6 +260,50 @@ export const loadProfileSummary = async (userId: string) => {
   return data;
 };
 
+export const loadProfileSummaryOrFallback = async (userId: string) => {
+  const admin = messengerAdmin();
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("id, username, avatar_url, account_number, is_online, last_seen_at, username_color")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error(`Failed to load profile summary: ${profileError.message}`);
+  }
+
+  if (profile) {
+    return profile;
+  }
+
+  const { data: authData, error: authError } = await admin.auth.admin.getUserById(userId);
+  if (authError || !authData.user) {
+    return {
+      id: userId,
+      username: "gomo6 user",
+      avatar_url: null,
+      account_number: null,
+      is_online: null,
+      last_seen_at: null,
+      username_color: null,
+    };
+  }
+
+  return {
+    id: userId,
+    username:
+      typeof authData.user.user_metadata?.username === "string" && authData.user.user_metadata.username.length > 0
+        ? authData.user.user_metadata.username
+        : "gomo6 user",
+    avatar_url:
+      typeof authData.user.user_metadata?.avatar_url === "string" ? authData.user.user_metadata.avatar_url : null,
+    account_number: null,
+    is_online: null,
+    last_seen_at: null,
+    username_color: null,
+  };
+};
+
 export const createOrLoadDirectConversation = async (userId: string, recipientUserId: string) => {
   const admin = messengerAdmin();
   const directKey = [userId, recipientUserId].sort().join(":");
@@ -414,10 +458,12 @@ export const listConversationsForUser = async (userId: string) => {
     .in("conversation_id", conversationIds);
 
   const otherUserIds = [...new Set(((members as any[]) ?? []).map((row) => row.user_id).filter((value) => value !== userId))];
-  const { data: profiles } = await admin
-    .from("profiles")
-    .select("id, username, avatar_url, account_number, is_online, last_seen_at, username_color")
-    .in("id", otherUserIds);
+  const profileMap = new Map<string, Awaited<ReturnType<typeof loadProfileSummaryOrFallback>>>();
+  await Promise.all(
+    otherUserIds.map(async (otherUserId) => {
+      profileMap.set(otherUserId, await loadProfileSummaryOrFallback(otherUserId));
+    })
+  );
 
   const deviceMap = new Map<string, ChatDeviceBundle[]>();
   await Promise.all(
@@ -432,7 +478,7 @@ export const listConversationsForUser = async (userId: string) => {
       const otherMember = (members as any[])?.find(
         (row) => row.conversation_id === membership.conversation_id && row.user_id !== userId
       );
-      const otherProfile = (profiles as any[])?.find((profile) => profile.id === otherMember?.user_id);
+      const otherProfile = otherMember?.user_id ? profileMap.get(otherMember.user_id) : null;
       if (!conversation || !otherProfile) {
         return null;
       }
@@ -461,4 +507,9 @@ export const listConversationsForUser = async (userId: string) => {
       const rightTime = right.lastMessageAt ? new Date(right.lastMessageAt).getTime() : 0;
       return rightTime - leftTime;
     });
+};
+
+export const buildConversationSummary = async (userId: string, conversationId: string) => {
+  const conversations = await listConversationsForUser(userId);
+  return conversations.find((conversation) => conversation.id === conversationId) ?? null;
 };

@@ -74,6 +74,14 @@ type Conversation = {
   devices: DeviceBundle[];
 };
 
+type ConversationCreateResponse = {
+  conversation: Conversation & {
+    recipientUserId: string;
+    recipientProfile: Conversation["otherUser"];
+    recipientDevices: DeviceBundle[];
+  };
+};
+
 type ApiMessage = {
   id: string;
   ciphertext: string;
@@ -238,9 +246,28 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     return payload.conversations;
   };
 
+  const upsertConversationLocally = (conversation: Conversation) => {
+    setConversations((current) => {
+      const next = current.filter((entry) => entry.id !== conversation.id);
+      next.unshift(conversation);
+      return next;
+    });
+  };
+
   const ensureConversation = async () => {
-    if (!bootstrap?.target || !targetUserId) return;
-    if (conversations.some((conversation) => conversation.otherUser.id === targetUserId)) return;
+    if (!targetUserId || targetUserId === bootstrap?.me.id) return;
+
+    const existingConversation = conversations.find((conversation) => conversation.otherUser.id === targetUserId);
+    if (existingConversation) {
+      setSelectedConversationId(existingConversation.id);
+      setRequestedConversationId(existingConversation.id);
+      setMobileSidebarOpen(false);
+      const url = new URL(window.location.href);
+      url.searchParams.set("conversation", existingConversation.id);
+      url.searchParams.set("user", targetUserId);
+      window.history.replaceState({}, "", url.toString());
+      return;
+    }
 
     setStartingConversation(true);
     try {
@@ -249,10 +276,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         body: JSON.stringify({
           recipientUserId: targetUserId,
         }),
-      })) as {
-        conversation: { id: string };
-      };
-      await loadConversations();
+      })) as ConversationCreateResponse;
+      upsertConversationLocally(payload.conversation);
       setSelectedConversationId(payload.conversation.id);
       setRequestedConversationId(payload.conversation.id);
       setMobileSidebarOpen(false);
@@ -261,6 +286,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       url.searchParams.set("user", targetUserId);
       window.history.replaceState({}, "", url.toString());
       setErrorMessage(null);
+      void loadConversations().catch(() => undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось открыть диалог";
+      setErrorMessage(message);
     } finally {
       setStartingConversation(false);
     }
@@ -434,12 +463,12 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   }, [sessionReady, targetUserId, selectedConversationId, selectedConversation]);
 
   useEffect(() => {
-    if (!sessionReady || !bootstrap?.target) return;
+    if (!sessionReady || !targetUserId) return;
     void ensureConversation().catch((error) => {
       const message = error instanceof Error ? error.message : "Не удалось открыть диалог";
       setErrorMessage(message);
     });
-  }, [sessionReady, bootstrap?.target?.id, targetUserId, conversations.length]);
+  }, [sessionReady, bootstrap?.me.id, targetUserId, conversations.length]);
 
   useEffect(() => {
     if (!selectedConversation) {
@@ -510,9 +539,15 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
               <div className="empty-card">
                 <MessageCircle size={18} />
                 <p>Пока нет диалогов.</p>
-                {bootstrap.target ? (
+                {targetUserId ? (
                   <button type="button" className="cta-button" onClick={() => void ensureConversation()}>
-                    {startingConversation ? <PentagramLoader size="sm" /> : `Написать ${bootstrap.target.username}`}
+                    {startingConversation ? (
+                      <PentagramLoader size="sm" />
+                    ) : bootstrap.target ? (
+                      `Написать ${bootstrap.target.username}`
+                    ) : (
+                      "Открыть диалог"
+                    )}
                   </button>
                 ) : null}
               </div>

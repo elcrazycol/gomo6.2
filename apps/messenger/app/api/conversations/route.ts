@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/auth";
-import { createOrLoadDirectConversation, getDeviceBundlesForUser, listConversationsForUser } from "@/lib/messenger";
+import {
+  buildConversationSummary,
+  createOrLoadDirectConversation,
+  getDeviceBundlesForUser,
+  listConversationsForUser,
+  loadProfileSummaryOrFallback,
+} from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
@@ -30,10 +36,25 @@ export async function POST(request: NextRequest) {
   try {
     const conversationId = await createOrLoadDirectConversation(user.id, recipientUserId);
     const devices = await getDeviceBundlesForUser(recipientUserId);
+    const conversation =
+      (await buildConversationSummary(user.id, conversationId)) ??
+      (() => {
+        throw new Error("Conversation was created but could not be loaded");
+      })();
+    const targetProfile = await loadProfileSummaryOrFallback(recipientUserId);
     return json({
       conversation: {
-        id: conversationId,
+        ...conversation,
         recipientUserId,
+        recipientProfile: {
+          id: targetProfile.id,
+          username: targetProfile.username,
+          avatarUrl: targetProfile.avatar_url,
+          accountNumber: targetProfile.account_number,
+          isOnline: targetProfile.is_online,
+          lastSeenAt: targetProfile.last_seen_at,
+          usernameColor: targetProfile.username_color,
+        },
         recipientDevices: devices,
       },
     });
