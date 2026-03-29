@@ -585,6 +585,17 @@ input {
   position: relative;
 }
 
+.conversation-list > :not(.panel-loader-overlay),
+.message-scroll > :not(.panel-loader-overlay) {
+  transition: opacity 0.16s ease, filter 0.16s ease;
+}
+
+.conversation-list:has(.panel-loader-overlay) > :not(.panel-loader-overlay),
+.message-scroll:has(.panel-loader-overlay) > :not(.panel-loader-overlay) {
+  opacity: 0.58;
+  filter: blur(1.5px);
+}
+
 .conversation-card {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
@@ -822,13 +833,21 @@ input {
   inset: 0;
   display: grid;
   place-items: center;
-  background: hsl(var(--background) / 0.8);
-  backdrop-filter: blur(3px);
-  z-index: 3;
+  background:
+    radial-gradient(circle at center, hsl(var(--card) / 0.14), transparent 52%),
+    hsl(var(--background) / 0.42);
+  backdrop-filter: blur(8px) saturate(1.15);
+  z-index: 6;
+  pointer-events: none;
 }
 
 .sidebar-loader {
   border-radius: var(--radius);
+}
+
+.panel-loader-overlay .pentagram-loader {
+  opacity: 1;
+  filter: drop-shadow(0 0 20px hsl(var(--primary) / 0.95));
 }
 
 .inline-loader {
@@ -851,6 +870,74 @@ input {
   border-color: hsl(var(--destructive) / 0.35);
   color: hsl(var(--foreground));
   font-size: 13px;
+}
+
+.error-banner strong,
+.confirm-card h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.error-banner-row,
+.confirm-card-head,
+.confirm-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.error-banner-copy,
+.confirm-card p {
+  margin: 6px 0 0;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.45;
+}
+
+.banner-close {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  background: hsl(var(--background) / 0.72);
+}
+
+.confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: hsl(var(--background) / 0.52);
+  backdrop-filter: blur(10px);
+}
+
+.confirm-card {
+  width: min(100%, 460px);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 4px);
+  background: hsl(var(--card));
+  box-shadow: 0 18px 54px hsl(var(--foreground) / 0.18);
+  padding: 16px;
+}
+
+.confirm-warning {
+  color: hsl(var(--destructive));
+}
+
+.confirm-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.danger-button {
+  background: hsl(var(--destructive));
+  border-color: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.danger-button:hover {
+  background: hsl(var(--destructive) / 0.88);
 }
 
 .messenger-loading {
@@ -955,6 +1042,15 @@ input {
 
   .message-bubble {
     max-width: 88%;
+  }
+
+  .confirm-card {
+    padding: 14px;
+  }
+
+  .confirm-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
   }
 
   .conversation-card {

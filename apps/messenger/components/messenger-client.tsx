@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal } from "lucide-react";
+import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal, X } from "lucide-react";
 import { getActiveSession, applySessionFromUrlHash, getBrowserSupabase, refreshActiveSession } from "@/lib/browser-supabase";
 import { randomClientMessageId } from "@/lib/encoding";
 import { PentagramLoader } from "@/components/pentagram-loader";
@@ -205,9 +205,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const [requestedConversationId, setRequestedConversationId] = useState(initialConversationId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recoveringKeys, setRecoveringKeys] = useState(false);
-  const [realtimeVersion, setRealtimeVersion] = useState(0);
+  const [showRecoveryNotice, setShowRecoveryNotice] = useState(true);
+  const [recoveryPromptOpen, setRecoveryPromptOpen] = useState(false);
+  const [recoveryDismissedMessage, setRecoveryDismissedMessage] = useState<string | null>(null);
   const currentAccessTokenRef = useRef<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const selectedConversationRef = useRef<Conversation | null>(null);
+  const conversationRefreshTimeoutRef = useRef<number | null>(null);
+  const messageRefreshTimeoutRef = useRef<number | null>(null);
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
@@ -245,7 +250,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       const refreshed = await refreshActiveSession();
       currentAccessTokenRef.current = refreshed?.access_token ?? null;
       if (refreshed?.access_token) {
-        setRealtimeVersion((current) => current + 1);
         return await apiFetch(input, init, false);
       }
     }
@@ -338,6 +342,37 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       next.unshift(conversation);
       return next;
     });
+  };
+
+  const scheduleConversationRefresh = () => {
+    if (conversationRefreshTimeoutRef.current !== null) {
+      window.clearTimeout(conversationRefreshTimeoutRef.current);
+    }
+
+    conversationRefreshTimeoutRef.current = window.setTimeout(() => {
+      conversationRefreshTimeoutRef.current = null;
+      void loadConversations().catch((error) => {
+        const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
+        setErrorMessage(message);
+      });
+    }, 80);
+  };
+
+  const scheduleMessageRefresh = () => {
+    if (messageRefreshTimeoutRef.current !== null) {
+      window.clearTimeout(messageRefreshTimeoutRef.current);
+    }
+
+    messageRefreshTimeoutRef.current = window.setTimeout(() => {
+      messageRefreshTimeoutRef.current = null;
+      const conversation = selectedConversationRef.current;
+      if (!conversation) return;
+
+      void loadMessages(conversation, { incremental: true }).catch((error) => {
+        const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
+        setErrorMessage(message);
+      });
+    }, 60);
   };
 
   const ensureConversation = async () => {
@@ -520,8 +555,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       });
 
       setDraft("");
-      await loadConversations();
-      await loadMessages(selectedConversation);
+      scheduleConversationRefresh();
+      scheduleMessageRefresh();
       setErrorMessage(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
@@ -546,30 +581,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   }, []);
 
   useEffect(() => {
-    if (!sessionReady) return;
-    void loadConversations().catch((error) => {
-      const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
-      setErrorMessage(message);
-    });
-    if (!bootstrap) return;
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
+  useEffect(() => {
+    if (!sessionReady || !bootstrap) return;
     const supabase = getBrowserSupabase();
-    const channel = supabase.channel(`messenger:${bootstrap.me.id}:${selectedConversationId ?? "all"}`);
-
-    const refreshConversationList = () => {
-      void loadConversations().catch((error) => {
-        const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
-        setErrorMessage(message);
-      });
-    };
-
-    const refreshSelectedMessages = () => {
-      if (!selectedConversation) return;
-      void loadMessages(selectedConversation, { incremental: true }).catch((error) => {
-        const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
-        setErrorMessage(message);
-      });
-    };
+    const channel = supabase.channel(`messenger:${bootstrap.me.id}`);
 
     channel.on(
       "postgres_changes",
@@ -580,7 +598,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         filter: `user_id=eq.${bootstrap.me.id}`,
       },
       () => {
-        refreshConversationList();
+        scheduleConversationRefresh();
       }
     );
 
@@ -593,8 +611,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         filter: `recipient_user_id=eq.${bootstrap.me.id}`,
       },
       () => {
-        refreshConversationList();
-        refreshSelectedMessages();
+        scheduleConversationRefresh();
+        scheduleMessageRefresh();
       }
     );
 
@@ -607,8 +625,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         filter: `sender_user_id=eq.${bootstrap.me.id}`,
       },
       () => {
-        refreshConversationList();
-        refreshSelectedMessages();
+        scheduleConversationRefresh();
+        scheduleMessageRefresh();
       }
     );
 
@@ -616,15 +634,30 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         void refreshActiveSession().then((session) => {
           currentAccessTokenRef.current = session?.access_token ?? null;
-          setRealtimeVersion((current) => current + 1);
         });
       }
     });
 
     return () => {
+      if (conversationRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(conversationRefreshTimeoutRef.current);
+        conversationRefreshTimeoutRef.current = null;
+      }
+      if (messageRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(messageRefreshTimeoutRef.current);
+        messageRefreshTimeoutRef.current = null;
+      }
       void supabase.removeChannel(channel);
     };
-  }, [sessionReady, targetUserId, selectedConversationId, selectedConversation, realtimeVersion]);
+  }, [sessionReady, bootstrap?.me.id]);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    void loadConversations().catch((error) => {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
+      setErrorMessage(message);
+    });
+  }, [sessionReady, targetUserId]);
 
   useEffect(() => {
     if (!sessionReady || !targetUserId) return;
@@ -657,6 +690,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     setRecoveringKeys(true);
     try {
       await resetLocalE2EEState();
+      setRecoveryPromptOpen(false);
+      setRecoveryDismissedMessage(null);
       window.location.reload();
     } finally {
       setRecoveringKeys(false);
@@ -886,14 +921,33 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                     messenger, сюда можно будет писать.
                   </div>
                 ) : null}
-                {hasDecryptFailures ? (
+                {hasDecryptFailures && showRecoveryNotice ? (
                   <div className="error-banner">
-                    Не удалось расшифровать часть сообщений на этом устройстве.
-                    <button type="button" className="cta-button danger-inline" onClick={() => void handleResetLocalKeys()}>
-                      {recoveringKeys ? <PentagramLoader size="sm" /> : "Сбросить локальные ключи"}
+                    <div className="error-banner-row">
+                      <div>
+                        <strong>Не удалось расшифровать часть сообщений на этом устройстве.</strong>
+                        <p className="error-banner-copy">
+                          Можно сбросить локальные ключи и заново инициализировать messenger на этом устройстве.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="icon-button banner-close"
+                        onClick={() => {
+                          setShowRecoveryNotice(false);
+                          setRecoveryDismissedMessage("Подсказка скрыта. Позже этот сброс будет доступен в настройках.");
+                        }}
+                        aria-label="Закрыть предупреждение"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <button type="button" className="cta-button danger-inline" onClick={() => setRecoveryPromptOpen(true)}>
+                      Сбросить локальные ключи
                     </button>
                   </div>
                 ) : null}
+                {recoveryDismissedMessage ? <div className="inline-notice">{recoveryDismissedMessage}</div> : null}
                 {messagesLoading ? (
                   <div className="inline-loader">
                     <PentagramLoader size="md" />
@@ -929,6 +983,40 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                 )}
                 <div ref={messageEndRef} />
               </div>
+
+              {recoveryPromptOpen ? (
+                <div className="confirm-backdrop" role="presentation">
+                  <div className="confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="recovery-title">
+                    <div className="confirm-card-head">
+                      <h2 id="recovery-title">Сбросить локальные ключи?</h2>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() => setRecoveryPromptOpen(false)}
+                        aria-label="Закрыть окно подтверждения"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <p>
+                      Это удалит локальные ключи и зашифрованный кэш только на текущем устройстве. После сброса messenger
+                      перезагрузится и заново зарегистрирует устройство.
+                    </p>
+                    <p className="confirm-warning">
+                      Старые сообщения на этом устройстве могут остаться недоступными до повторной синхронизации, а
+                      незавершённые локальные данные будут потеряны.
+                    </p>
+                    <div className="confirm-actions">
+                      <button type="button" className="cta-button" onClick={() => setRecoveryPromptOpen(false)}>
+                        Отмена
+                      </button>
+                      <button type="button" className="cta-button danger-button" onClick={() => void handleResetLocalKeys()}>
+                        {recoveringKeys ? <PentagramLoader size="sm" /> : "Да, сбросить"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <form
                 className="composer"
