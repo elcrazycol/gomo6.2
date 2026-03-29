@@ -67,6 +67,7 @@ type ApiMessage = {
 
 type MessageView = ApiMessage & {
   plainText: string;
+  optimistic?: boolean;
 };
 
 type Props = {
@@ -108,7 +109,6 @@ const buildConversationMessagesSignature = (conversation: Conversation | null) =
   conversation
     ? JSON.stringify({
         id: conversation.id,
-        lastMessageAt: conversation.lastMessageAt,
         keychain: conversation.keychain.map((entry) => `${entry.deviceId}:${entry.encryptedKey}`),
       })
     : null;
@@ -118,6 +118,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   const attemptedTargetRef = useRef<string | null>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
   const messageLoadRequestRef = useRef(0);
+  const latestActiveMessageIdRef = useRef<string | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -212,9 +213,11 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     return nextConversations;
   };
 
-  const loadMessages = async (conversation: Conversation) => {
+  const loadMessages = async (conversation: Conversation, options?: { showLoader?: boolean }) => {
     const requestId = ++messageLoadRequestRef.current;
-    setMessagesLoading(true);
+    if (options?.showLoader !== false) {
+      setMessagesLoading(true);
+    }
     try {
       const keys = await getOrCreateDeviceKeys();
       const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
@@ -266,6 +269,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       }
 
       setMessages(decrypted);
+      latestActiveMessageIdRef.current = decrypted.at(-1)?.id ?? null;
 
       const readResponse = await fetch(`/api/messages/${conversation.id}/read`, {
         method: "POST",
@@ -282,7 +286,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
         throw new Error(readPayload?.error || "Не удалось обновить статус прочтения");
       }
     } finally {
-      if (requestId === messageLoadRequestRef.current) {
+      if (requestId === messageLoadRequestRef.current && options?.showLoader !== false) {
         setMessagesLoading(false);
       }
     }
@@ -378,11 +382,41 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
       setDraft("");
       shouldStickToBottomRef.current = true;
-      await loadConversations();
-      const activeConversationId = selectedConversation.id;
-      const refreshedConversation =
-        conversations.find((conversation) => conversation.id === activeConversationId) ?? selectedConversation;
-      await loadMessages(refreshedConversation);
+      const optimisticMessage: MessageView = {
+        id: payload?.message?.id ?? `temp-${Date.now()}`,
+        ciphertext: encrypted.ciphertext,
+        nonce: encrypted.nonce,
+        sentAt: payload?.message?.sentAt ?? new Date().toISOString(),
+        deliveredAt: null,
+        senderDeviceId: deviceKeys.deviceId,
+        senderMainUserId: bootstrap?.me.mainUserId ?? "",
+        plainText: draft.trim(),
+        optimistic: true,
+      };
+
+      setMessages((current) => {
+        const next = [...current, optimisticMessage];
+        latestActiveMessageIdRef.current = optimisticMessage.id;
+        return next;
+      });
+
+      setConversations((current) => {
+        const updated = current.map((conversation) =>
+          conversation.id === selectedConversation.id
+            ? {
+                ...conversation,
+                lastMessageAt: optimisticMessage.sentAt,
+                lastMessagePreview: "[encrypted]",
+              }
+            : conversation
+        );
+        conversationListSignatureRef.current = buildConversationListSignature(updated);
+        return updated;
+      });
+
+      void loadConversations().catch((refreshError) => {
+        reportMessengerError("refresh_conversations_after_send_failed", refreshError);
+      });
     } catch (sendError) {
       reportMessengerError("send_message_failed", sendError);
     } finally {
@@ -466,10 +500,40 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
       void (async () => {
         try {
+          let snapshot: {
+            selectedConversation: {
+              id: string;
+              sentAt: string | null;
+            } | null;
+          } | null = null;
+
           if (typeof messageEvent.data === "string") {
             lastRealtimeSnapshotRef.current = messageEvent.data;
+            const parsed = JSON.parse(messageEvent.data) as {
+              at: number;
+              snapshot?: {
+                selectedConversation: {
+                  id: string;
+                  sentAt: string | null;
+                } | null;
+              };
+            };
+            snapshot = parsed.snapshot ?? null;
           }
-          await loadConversations();
+
+          const nextConversations = await loadConversations();
+
+          if (
+            snapshot?.selectedConversation &&
+            selectedConversationIdRef.current &&
+            snapshot.selectedConversation.id !== latestActiveMessageIdRef.current
+          ) {
+            const activeConversation =
+              nextConversations.find((conversation) => conversation.id === selectedConversationIdRef.current) ?? null;
+            if (activeConversation) {
+              await loadMessages(activeConversation, { showLoader: false });
+            }
+          }
         } catch (realtimeError) {
           reportMessengerError("realtime_refresh_failed", realtimeError);
         } finally {
