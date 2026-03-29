@@ -1039,8 +1039,7 @@ input {
   max-height: 1em !important;
   display: inline-flex;
   flex: 0 0 1em;
-  margin-left: 0.18em;
-  margin-right: 0.5em;
+  margin-inline: 0.15em 0.25em;
 }
 
 .danger-inline {
