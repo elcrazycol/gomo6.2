@@ -1,5 +1,14 @@
 "use client";
 
+import libsignal, {
+  KeyHelper,
+  SessionBuilder,
+  SessionCipher,
+  SignalProtocolAddress,
+  type Direction,
+  type KeyPairType,
+  type StorageType,
+} from "libsignal-protocol-typescript";
 import { textDecoder, textEncoder } from "@/lib/encoding";
 
 const DB_NAME = "gomo6-messenger-e2ee";
@@ -13,8 +22,19 @@ type LocalDeviceState = {
   clientDeviceId: string;
   signalDeviceId: number | null;
   registrationId: number;
-  publicKey: string;
-  privateKeyJwk: JsonWebKey;
+  identityKeyPair: {
+    pubKey: string;
+    privKey: string;
+  };
+  signedPreKeyId: number;
+  signedPreKey: {
+    pubKey: string;
+    privKey: string;
+    signature: string;
+  };
+  preKeys: Record<string, { pubKey: string; privKey: string }>;
+  sessions: Record<string, string>;
+  identities: Record<string, string>;
 };
 
 type UploadBundle = {
@@ -32,10 +52,33 @@ type UploadBundle = {
   oneTimePreKeys: Array<{ preKeyId: number; publicKey: string }>;
 };
 
-const randomRegistrationId = () => Math.floor(Math.random() * 16380) + 1;
-
 const toBase64 = (bytes: Uint8Array | ArrayBuffer) => Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString("base64");
-const fromBase64 = (value: string) => new Uint8Array(Buffer.from(value, "base64"));
+const fromBase64 = (value: string) => Buffer.from(value, "base64").buffer.slice(
+  Buffer.from(value, "base64").byteOffset,
+  Buffer.from(value, "base64").byteOffset + Buffer.from(value, "base64").byteLength
+);
+const binaryStringToBase64 = (value: string) => Buffer.from(value, "binary").toString("base64");
+
+const serializeKeyPair = (pair: KeyPairType<ArrayBuffer>) => ({
+  pubKey: toBase64(pair.pubKey),
+  privKey: toBase64(pair.privKey),
+});
+
+const deserializeKeyPair = (pair: { pubKey: string; privKey: string }): KeyPairType<ArrayBuffer> => ({
+  pubKey: fromBase64(pair.pubKey),
+  privKey: fromBase64(pair.privKey),
+});
+
+let libsignalReady: Promise<void> | null = null;
+
+const ensureLibsignalReady = async () => {
+  if (!libsignalReady) {
+    libsignalReady = (async () => {
+      await libsignal();
+    })();
+  }
+  await libsignalReady;
+};
 
 const openDb = async () => {
   return await new Promise<IDBDatabase>((resolve, reject) => {
@@ -71,28 +114,34 @@ const writeValue = async <T>(key: string, value: T) => {
   });
 };
 
-const exportPublicKey = async (key: CryptoKey) => toBase64(await crypto.subtle.exportKey("spki", key));
-
 const createInitialState = async (userId: string): Promise<LocalDeviceState> => {
-  const keyPair = await crypto.subtle.generateKey(
-    {
-      name: "ECDH",
-      namedCurve: "P-256",
-    },
-    true,
-    ["deriveBits"]
-  );
-  const privateKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
-  const publicKey = await exportPublicKey(keyPair.publicKey);
+  await ensureLibsignalReady();
+  const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
+  const registrationId = KeyHelper.generateRegistrationId();
+  const signedPreKeyId = 1;
+  const signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId);
+  const preKeys: LocalDeviceState["preKeys"] = {};
+
+  for (let id = 1; id <= 25; id += 1) {
+    const preKey = await KeyHelper.generatePreKey(id);
+    preKeys[String(preKey.keyId)] = serializeKeyPair(preKey.keyPair);
+  }
 
   return {
     version: 1,
     userId,
     clientDeviceId: crypto.randomUUID(),
     signalDeviceId: null,
-    registrationId: randomRegistrationId(),
-    publicKey,
-    privateKeyJwk,
+    registrationId,
+    identityKeyPair: serializeKeyPair(identityKeyPair),
+    signedPreKeyId,
+    signedPreKey: {
+      ...serializeKeyPair(signedPreKey.keyPair),
+      signature: toBase64(signedPreKey.signature),
+    },
+    preKeys,
+    sessions: {},
+    identities: {},
   };
 };
 
@@ -120,102 +169,184 @@ export const buildUploadBundle = (state: LocalDeviceState): UploadBundle => ({
   signalDeviceId: state.signalDeviceId,
   registrationId: state.registrationId,
   deviceLabel: "browser",
-  identityPublicKey: state.publicKey,
-  signedPreKeyId: 1,
-  signedPreKeyPublic: state.publicKey,
-  signedPreKeySignature: "",
+  identityPublicKey: state.identityKeyPair.pubKey,
+  signedPreKeyId: state.signedPreKeyId,
+  signedPreKeyPublic: state.signedPreKey.pubKey,
+  signedPreKeySignature: state.signedPreKey.signature,
   kyberPreKeyId: 1,
-  kyberPreKeyPublic: state.publicKey,
+  kyberPreKeyPublic: state.identityKeyPair.pubKey,
   kyberPreKeySignature: "",
-  oneTimePreKeys: [],
+  oneTimePreKeys: Object.entries(state.preKeys).map(([preKeyId, keyPair]) => ({
+    preKeyId: Number(preKeyId),
+    publicKey: keyPair.pubKey,
+  })),
 });
 
-const importPrivateKey = async (state: LocalDeviceState) =>
-  await crypto.subtle.importKey(
-    "jwk",
-    state.privateKeyJwk,
-    {
-      name: "ECDH",
-      namedCurve: "P-256",
-    },
-    true,
-    ["deriveBits"]
-  );
+class BrowserSignalStore implements StorageType {
+  constructor(private readonly state: LocalDeviceState) {}
 
-const importPublicKey = async (value: string) =>
-  await crypto.subtle.importKey(
-    "spki",
-    fromBase64(value),
-    {
-      name: "ECDH",
-      namedCurve: "P-256",
-    },
-    true,
-    []
-  );
+  async getIdentityKeyPair() {
+    return deserializeKeyPair(this.state.identityKeyPair);
+  }
 
-const deriveAesKey = async (privateKey: CryptoKey, publicKey: CryptoKey) => {
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "ECDH",
-      public: publicKey,
-    },
-    privateKey,
-    256
-  );
+  async getLocalRegistrationId() {
+    return this.state.registrationId;
+  }
 
-  return await crypto.subtle.importKey("raw", bits, "AES-GCM", false, ["encrypt", "decrypt"]);
-};
+  async isTrustedIdentity(identifier: string, identityKey: ArrayBuffer, _direction: Direction) {
+    const known = this.state.identities[identifier];
+    return !known || known === toBase64(identityKey);
+  }
 
-export const encryptForDevice = async (plainText: string, recipientPublicKey: string) => {
-  const ephemeral = await crypto.subtle.generateKey(
-    {
-      name: "ECDH",
-      namedCurve: "P-256",
-    },
-    true,
-    ["deriveBits"]
-  );
-  const recipientKey = await importPublicKey(recipientPublicKey);
-  const aesKey = await deriveAesKey(ephemeral.privateKey, recipientKey);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    aesKey,
-    textEncoder.encode(plainText)
-  );
+  async saveIdentity(encodedAddress: string, publicKey: ArrayBuffer) {
+    const serialized = toBase64(publicKey);
+    const changed = this.state.identities[encodedAddress] !== serialized;
+    this.state.identities[encodedAddress] = serialized;
+    await writeValue(DEVICE_KEY, this.state);
+    return changed;
+  }
 
-  return JSON.stringify({
-    version: 1,
-    ephemeralPublicKey: await exportPublicKey(ephemeral.publicKey),
-    iv: toBase64(iv),
-    ciphertext: toBase64(ciphertext),
-  });
-};
+  async loadPreKey(keyId: string | number) {
+    const pair = this.state.preKeys[String(keyId)];
+    return pair ? deserializeKeyPair(pair) : undefined;
+  }
 
-export const decryptEnvelope = async (userId: string, payload: string) => {
+  async storePreKey(keyId: string | number, keyPair: KeyPairType<ArrayBuffer>) {
+    this.state.preKeys[String(keyId)] = serializeKeyPair(keyPair);
+    await writeValue(DEVICE_KEY, this.state);
+  }
+
+  async removePreKey(keyId: string | number) {
+    delete this.state.preKeys[String(keyId)];
+    await writeValue(DEVICE_KEY, this.state);
+  }
+
+  async storeSession(encodedAddress: string, record: string) {
+    this.state.sessions[encodedAddress] = record;
+    await writeValue(DEVICE_KEY, this.state);
+  }
+
+  async loadSession(encodedAddress: string) {
+    return this.state.sessions[encodedAddress];
+  }
+
+  async loadSignedPreKey(keyId: string | number) {
+    if (Number(keyId) !== this.state.signedPreKeyId) return undefined;
+    return deserializeKeyPair(this.state.signedPreKey);
+  }
+
+  async storeSignedPreKey(keyId: string | number, keyPair: KeyPairType<ArrayBuffer>) {
+    this.state.signedPreKeyId = Number(keyId);
+    this.state.signedPreKey = {
+      ...serializeKeyPair(keyPair),
+      signature: this.state.signedPreKey.signature,
+    };
+    await writeValue(DEVICE_KEY, this.state);
+  }
+
+  async removeSignedPreKey(keyId: string | number) {
+    if (Number(keyId) === this.state.signedPreKeyId) {
+      this.state.signedPreKey = { pubKey: "", privKey: "", signature: "" };
+      await writeValue(DEVICE_KEY, this.state);
+    }
+  }
+}
+
+const getStore = async (userId: string) => {
+  await ensureLibsignalReady();
   const state = await ensureLocalDeviceState(userId);
-  const parsed = JSON.parse(payload) as {
-    version: number;
-    ephemeralPublicKey: string;
-    iv: string;
-    ciphertext: string;
+  return {
+    state,
+    store: new BrowserSignalStore(state),
   };
+};
 
-  const privateKey = await importPrivateKey(state);
-  const publicKey = await importPublicKey(parsed.ephemeralPublicKey);
-  const aesKey = await deriveAesKey(privateKey, publicKey);
-  const decrypted = await crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: fromBase64(parsed.iv),
+export const buildSignalAddress = (userId: string, signalDeviceId: number) =>
+  new SignalProtocolAddress(userId, signalDeviceId);
+
+export const ensureSessionForDevice = async (
+  userId: string,
+  device: {
+    userId: string;
+    signalDeviceId: number;
+    registrationId: number;
+    identityPublicKey: string;
+    signedPreKeyId: number;
+    signedPreKeyPublic: string;
+    signedPreKeySignature: string;
+    oneTimePreKeyId: number | null;
+    oneTimePreKeyPublic: string | null;
+  }
+) => {
+  const { store } = await getStore(userId);
+  const address = buildSignalAddress(device.userId, device.signalDeviceId);
+  const cipher = new SessionCipher(store, address);
+  if (await cipher.hasOpenSession()) {
+    return { cipher, address };
+  }
+
+  const builder = new SessionBuilder(store, address);
+  await builder.processPreKey({
+    registrationId: device.registrationId,
+    identityKey: fromBase64(device.identityPublicKey),
+    signedPreKey: {
+      keyId: device.signedPreKeyId,
+      publicKey: fromBase64(device.signedPreKeyPublic),
+      signature: fromBase64(device.signedPreKeySignature),
     },
-    aesKey,
-    fromBase64(parsed.ciphertext)
-  );
+    preKey:
+      device.oneTimePreKeyId && device.oneTimePreKeyPublic
+        ? {
+            keyId: device.oneTimePreKeyId,
+            publicKey: fromBase64(device.oneTimePreKeyPublic),
+          }
+        : undefined,
+  });
 
-  return textDecoder.decode(decrypted);
+  return { cipher, address };
+};
+
+export const encryptForDevice = async (
+  userId: string,
+  device: {
+    userId: string;
+    signalDeviceId: number;
+    registrationId: number;
+    identityPublicKey: string;
+    signedPreKeyId: number;
+    signedPreKeyPublic: string;
+    signedPreKeySignature: string;
+    oneTimePreKeyId: number | null;
+    oneTimePreKeyPublic: string | null;
+  },
+  plainText: string
+) => {
+  const { cipher } = await ensureSessionForDevice(userId, device);
+  const encrypted = await cipher.encrypt(textEncoder.encode(plainText).buffer);
+  return {
+    body:
+      typeof encrypted.body === "string"
+        ? binaryStringToBase64(encrypted.body)
+        : toBase64(encrypted.body ?? new ArrayBuffer(0)),
+    type: encrypted.type,
+  };
+};
+
+export const decryptEnvelope = async (
+  userId: string,
+  senderUserId: string,
+  senderSignalDeviceId: number,
+  messageType: number,
+  payload: string
+) => {
+  const { store } = await getStore(userId);
+  const address = buildSignalAddress(senderUserId, senderSignalDeviceId);
+  const cipher = new SessionCipher(store, address);
+  const body = fromBase64(payload);
+  const plaintext =
+    messageType === 3
+      ? await cipher.decryptPreKeyWhisperMessage(body, "binary")
+      : await cipher.decryptWhisperMessage(body, "binary");
+
+  return textDecoder.decode(new Uint8Array(plaintext));
 };
