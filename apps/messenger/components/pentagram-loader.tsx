@@ -8,11 +8,11 @@ type Props = {
 };
 
 export const PentagramLoader = ({ size = "md", className }: Props) => {
-  const sizeClasses = {
-    sm: "w-16 h-16",
-    md: "w-32 h-32",
-    lg: "w-48 h-48",
-    full: "w-64 h-64",
+  const sizeMap = {
+    sm: 36,
+    md: 72,
+    lg: 108,
+    full: 144,
   };
 
   useEffect(() => {
@@ -22,6 +22,9 @@ export const PentagramLoader = ({ size = "md", className }: Props) => {
     style.id = "pentagram-loader-styles";
     style.textContent = `
       .pentagram-loader svg {
+        display: block;
+        width: 100%;
+        height: 100%;
         animation: pentagram-pulse 3s infinite ease-in-out;
       }
 
@@ -89,18 +92,24 @@ export const PentagramLoader = ({ size = "md", className }: Props) => {
   }, []);
 
   return (
-    <div className={`flex items-center justify-center ${className ?? ""}`}>
-      <div className={`pentagram-loader ${sizeClasses[size]}`}>
-        <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" className="w-full h-full">
-        <path
-          className="pentagram-path"
-          d="M50,95 
-            L5,10 
-            L95,63 
-            L5,63 
-            L95,10 
-            Z"
-        />
+    <div
+      className={className}
+      style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+    >
+      <div
+        className="pentagram-loader"
+        style={{ width: `${sizeMap[size]}px`, height: `${sizeMap[size]}px`, flex: "0 0 auto" }}
+      >
+        <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <path
+            className="pentagram-path"
+            d="M50,95 
+              L5,10 
+              L95,63 
+              L5,63 
+              L95,10 
+              Z"
+          />
         </svg>
       </div>
     </div>
