@@ -123,7 +123,12 @@ type Receipt = {
   read_at: string | null;
 };
 
-type MessageView = ApiMessage & { plainText: string; peerDeliveredAt: string | null; peerReadAt: string | null };
+type MessageView = ApiMessage & {
+  plainText: string;
+  peerDeliveredAt: string | null;
+  peerReadAt: string | null;
+  localStatus?: "pending";
+};
 
 type Props = {
   appBaseUrl: string;
@@ -136,6 +141,14 @@ const formatDate = (value: string | null) => {
   return new Intl.DateTimeFormat("ru-RU", {
     day: "2-digit",
     month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+};
+
+const formatTime = (value: string | null) => {
+  if (!value) return "сейчас";
+  return new Intl.DateTimeFormat("ru-RU", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
@@ -539,7 +552,31 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       setErrorMessage("У собеседника пока нет зарегистрированного устройства messenger. Отправка станет доступна после его первого входа.");
       return;
     }
+    const plainText = draft.trim();
+    const localMessageId = `local-${randomClientMessageId()}`;
+    const sentAt = new Date().toISOString();
     setSending(true);
+    setMessages((current) => [
+      ...current,
+      {
+        id: localMessageId,
+        ciphertext: "",
+        messageType: 0,
+        sentAt,
+        deliveredAt: null,
+        openedAt: null,
+        senderUserId: bootstrap.me.id,
+        senderDeviceId: currentDevice.id,
+        plainText,
+        peerDeliveredAt: null,
+        peerReadAt: null,
+        localStatus: "pending",
+      },
+    ]);
+    patchConversation(selectedConversation.id, (current) => ({
+      ...current,
+      lastMessageAt: sentAt,
+    }));
     try {
       const allRecipients = [
         ...bootstrap.selfDevices.filter((device) => device.signalDeviceId > 0),
@@ -558,7 +595,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
             signedPreKeySignature: device.signedPreKeySignature,
             oneTimePreKeyId: device.oneTimePreKeyId,
             oneTimePreKeyPublic: device.oneTimePreKeyPublic,
-          }, draft.trim());
+          }, plainText);
           return {
             recipientUserId: device.userId,
             recipientDeviceId: device.id,
@@ -572,7 +609,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         (entry) => entry.recipientUserId === bootstrap.me.id && entry.recipientDeviceId === currentDevice.id
       );
       if (selfEnvelope) {
-        await cacheSentPlaintext(selfEnvelope.ciphertext, draft.trim());
+        await cacheSentPlaintext(selfEnvelope.ciphertext, plainText);
       }
 
       await apiFetch("/api/messages", {
@@ -588,10 +625,12 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       setDraft("");
       scheduleMessageRefresh();
       if (window.innerWidth <= 980) {
-        window.setTimeout(() => composerRef.current?.focus(), 0);
+        composerRef.current?.focus({ preventScroll: true });
+        window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 0);
       }
       setErrorMessage(null);
     } catch (error) {
+      setMessages((current) => current.filter((message) => message.id !== localMessageId));
       const message = error instanceof Error ? error.message : "Не удалось отправить сообщение";
       setErrorMessage(message);
     } finally {
@@ -1076,21 +1115,24 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                 ) : (
                   messages.map((message) => {
                     const isMine = message.senderUserId === bootstrap.me.id;
+                    const statusIcon = isMine
+                      ? message.localStatus === "pending"
+                        ? ">"
+                        : ">>"
+                      : null;
+                    const statusClassName =
+                      isMine && message.peerReadAt
+                        ? "message-status is-read"
+                        : isMine
+                          ? "message-status"
+                          : null;
                     return (
                       <article key={message.id} className={`bubble-row ${isMine ? "is-mine" : ""}`}>
                         <div className={`message-bubble ${isMine ? "is-mine" : ""}`}>
                           <p>{message.plainText}</p>
                           <div className="message-meta">
-                            <time>{formatDate(message.sentAt)}</time>
-                            {isMine ? (
-                              <span>
-                                {message.peerReadAt
-                                  ? "прочитано"
-                                  : message.peerDeliveredAt
-                                    ? "доставлено"
-                                    : "отправлено"}
-                              </span>
-                            ) : null}
+                            <time>{formatTime(message.sentAt)}</time>
+                            {statusIcon ? <span className={statusClassName ?? undefined}>{statusIcon}</span> : null}
                           </div>
                         </div>
                       </article>
