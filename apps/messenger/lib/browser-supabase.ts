@@ -80,3 +80,17 @@ export const getActiveSession = async (): Promise<Session | null> => {
   } = await client.auth.getSession();
   return session;
 };
+
+export const refreshActiveSession = async (): Promise<Session | null> => {
+  const client = getBrowserSupabase();
+  const {
+    data: { session },
+    error,
+  } = await client.auth.refreshSession();
+
+  if (error) {
+    return null;
+  }
+
+  return session;
+};

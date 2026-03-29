@@ -17,8 +17,13 @@ export async function GET(request: NextRequest) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const conversations = await listConversationsForUser(user.id);
-  return json({ conversations });
+  try {
+    const conversations = await listConversationsForUser(user.id);
+    return json({ conversations });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load conversations";
+    return json({ error: message }, 500);
+  }
 }
 
 export async function POST(request: NextRequest) {
