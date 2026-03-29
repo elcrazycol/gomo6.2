@@ -94,14 +94,35 @@ const initialsFrom = (username: string) => username.slice(0, 2).toUpperCase();
 const reportMessengerError = (context: string, error: unknown) => {
   console.error(`[messenger] ${context}`, error);
 };
+const buildConversationListSignature = (conversations: Conversation[]) =>
+  JSON.stringify(
+    conversations.map((conversation) => ({
+      id: conversation.id,
+      lastMessageAt: conversation.lastMessageAt,
+      lastReadAt: conversation.lastReadAt,
+      unreadCount: conversation.unreadCount,
+      otherUserId: conversation.otherUser?.id ?? null,
+    }))
+  );
+const buildConversationMessagesSignature = (conversation: Conversation | null) =>
+  conversation
+    ? JSON.stringify({
+        id: conversation.id,
+        lastMessageAt: conversation.lastMessageAt,
+        keychain: conversation.keychain.map((entry) => `${entry.deviceId}:${entry.encryptedKey}`),
+      })
+    : null;
 
 export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) => {
   const autoCreatedTargetRef = useRef<string | null>(null);
   const attemptedTargetRef = useRef<string | null>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
+  const messageLoadRequestRef = useRef(0);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const conversationListSignatureRef = useRef("");
+  const lastRealtimeSnapshotRef = useRef("");
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -121,6 +142,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   );
   const mobileChatOpen = !mobileSidebarOpen && !!selectedConversation;
   const totalUnreadCount = conversations.reduce((sum, conversation) => sum + Math.max(0, conversation.unreadCount), 0);
+  const selectedConversationLoadSignature = useMemo(
+    () => buildConversationMessagesSignature(selectedConversation),
+    [selectedConversation]
+  );
 
   const selectedKeyEntry = useMemo(() => {
     if (!selectedConversation || !bootstrap) return null;
@@ -164,7 +189,11 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     }
 
     const nextConversations = (payload?.conversations ?? []) as Conversation[];
-    setConversations(nextConversations);
+    const nextSignature = buildConversationListSignature(nextConversations);
+    if (nextSignature !== conversationListSignatureRef.current) {
+      conversationListSignatureRef.current = nextSignature;
+      setConversations(nextConversations);
+    }
     setConversationsLoaded(true);
     setSelectedConversationId((current) => {
       if (current && nextConversations.some((conversation) => conversation.id === current)) {
@@ -184,18 +213,23 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   };
 
   const loadMessages = async (conversation: Conversation) => {
+    const requestId = ++messageLoadRequestRef.current;
     setMessagesLoading(true);
     try {
       const keys = await getOrCreateDeviceKeys();
       const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
       if (!keyEntry) {
-        setMessages([]);
+        if (requestId === messageLoadRequestRef.current) {
+          setMessages([]);
+        }
         reportMessengerError("missing_conversation_key", { conversationId: conversation.id });
         return;
       }
 
       const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys).catch(() => {
-        setMessages([]);
+        if (requestId === messageLoadRequestRef.current) {
+          setMessages([]);
+        }
         reportMessengerError("invalid_conversation_key", { conversationId: conversation.id });
         return null;
       });
@@ -227,6 +261,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
         })
       );
 
+      if (requestId !== messageLoadRequestRef.current || selectedConversationIdRef.current !== conversation.id) {
+        return;
+      }
+
       setMessages(decrypted);
 
       const readResponse = await fetch(`/api/messages/${conversation.id}/read`, {
@@ -244,7 +282,9 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
         throw new Error(readPayload?.error || "Не удалось обновить статус прочтения");
       }
     } finally {
-      setMessagesLoading(false);
+      if (requestId === messageLoadRequestRef.current) {
+        setMessagesLoading(false);
+      }
     }
   };
 
@@ -296,6 +336,8 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
       autoCreatedTargetRef.current = bootstrap.target.mainUserId;
       await loadConversations();
+      setMessages([]);
+      setMessagesLoading(true);
       setSelectedConversationId(payload.conversation.id);
       setMobileSidebarOpen(false);
     } catch (conversationError) {
@@ -337,7 +379,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       setDraft("");
       shouldStickToBottomRef.current = true;
       await loadConversations();
-      await loadMessages(selectedConversation);
+      const activeConversationId = selectedConversation.id;
+      const refreshedConversation =
+        conversations.find((conversation) => conversation.id === activeConversationId) ?? selectedConversation;
+      await loadMessages(refreshedConversation);
     } catch (sendError) {
       reportMessengerError("send_message_failed", sendError);
     } finally {
@@ -382,6 +427,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
   useEffect(() => {
     if (!selectedConversationId || !selectedConversation) {
+      messageLoadRequestRef.current += 1;
       setMessages([]);
       setMessagesLoading(false);
       return;
@@ -391,7 +437,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
     void loadMessages(selectedConversation).catch((loadError) => {
       reportMessengerError("load_messages_failed", loadError);
     });
-  }, [selectedConversationId, selectedConversation]);
+  }, [selectedConversationId, selectedConversationLoadSignature]);
 
   useEffect(() => {
     if (!messageEndRef.current) return;
@@ -410,21 +456,20 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
     const source = new EventSource(`/api/realtime${params.toString() ? `?${params.toString()}` : ""}`);
 
-    const handleUpdate = () => {
+    const handleUpdate = (event: Event) => {
       if (realtimeReloadRef.current) return;
+      const messageEvent = event as MessageEvent<string>;
+      if (typeof messageEvent.data === "string" && messageEvent.data === lastRealtimeSnapshotRef.current) {
+        return;
+      }
       realtimeReloadRef.current = true;
 
       void (async () => {
         try {
-          const nextConversations = await loadConversations();
-
-          if (selectedConversationIdRef.current) {
-            const nextConversation =
-              nextConversations.find((conversation) => conversation.id === selectedConversationIdRef.current) ?? null;
-            if (nextConversation) {
-              await loadMessages(nextConversation);
-            }
+          if (typeof messageEvent.data === "string") {
+            lastRealtimeSnapshotRef.current = messageEvent.data;
           }
+          await loadConversations();
         } catch (realtimeError) {
           reportMessengerError("realtime_refresh_failed", realtimeError);
         } finally {
@@ -530,6 +575,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                   type="button"
                   className={`conversation-card ${active ? "is-active" : ""}`}
                   onClick={() => {
+                    messageLoadRequestRef.current += 1;
+                    setMessages([]);
+                    setMessagesLoading(true);
+                    shouldStickToBottomRef.current = true;
                     setSelectedConversationId(conversation.id);
                     setMobileSidebarOpen(false);
                   }}

@@ -784,7 +784,8 @@ input {
 }
 
 .inline-loader {
-  min-height: 140px;
+  min-height: 220px;
+  width: 100%;
 }
 
 .inline-notice {

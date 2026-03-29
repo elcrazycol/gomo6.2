@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
           const nextSnapshot = await getMessengerConversationSnapshot(self.id, conversationId);
           if (nextSnapshot !== previousSnapshot) {
             previousSnapshot = nextSnapshot;
-            controller.enqueue(eventChunk("update", { at: Date.now() }));
+            controller.enqueue(eventChunk("update", { at: Date.now(), snapshot: JSON.parse(nextSnapshot) }));
           } else {
             controller.enqueue(heartbeatChunk());
           }
