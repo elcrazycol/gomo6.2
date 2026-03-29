@@ -33,17 +33,38 @@ const verifyOrigin = (value: string | undefined) => {
   if (!value) return false;
   const allowed = [
     process.env.APP_BASE_URL,
+    "https://m.gomo6.ru",
     "https://gomo6.ru",
     "https://www.gomo6.ru",
+    "https://m.gomo6.wtf",
     "https://gomo6.wtf",
     "https://www.gomo6.wtf",
   ].filter(Boolean);
   return allowed.some((origin) => origin === value);
 };
 
-const sanitizeCookieDomain = () => {
-  const raw = process.env.SHARED_COOKIE_DOMAIN || ".gomo6.ru";
+const inferCookieDomain = (origin: string | undefined, refererOrigin: string | undefined) => {
+  const source = origin || refererOrigin || process.env.APP_BASE_URL || "https://www.gomo6.wtf";
+  const hostname = new URL(source).hostname.replace(/^www\./, "");
+  if (hostname.startsWith("m.")) {
+    return `.${hostname.slice(2)}`;
+  }
+  return `.${hostname}`;
+};
+
+const sanitizeCookieDomain = (origin: string | undefined, refererOrigin: string | undefined) => {
+  const raw = process.env.SHARED_COOKIE_DOMAIN || inferCookieDomain(origin, refererOrigin);
   return raw.startsWith(".") ? raw : `.${raw}`;
+};
+
+const inferMessengerBaseUrl = (origin: string | undefined, refererOrigin: string | undefined) => {
+  const source = origin || refererOrigin || process.env.APP_BASE_URL || "https://www.gomo6.wtf";
+  const parsed = new URL(source);
+  const hostname = parsed.hostname.replace(/^www\./, "");
+  if (hostname.startsWith("m.")) {
+    return `${parsed.protocol}//${hostname}`;
+  }
+  return `${parsed.protocol}//m.${hostname}`;
 };
 
 export default async function handler(req: any, res: any) {
@@ -104,7 +125,7 @@ export default async function handler(req: any, res: any) {
     exp: Math.floor(Date.now() / 1000) + 60 * 10,
   });
 
-  const cookieDomain = sanitizeCookieDomain();
+  const cookieDomain = sanitizeCookieDomain(origin, refererOrigin);
   const cookie = [
     `gomo6_messenger_session=${token}`,
     "Path=/",
@@ -117,7 +138,7 @@ export default async function handler(req: any, res: any) {
 
   res.setHeader("Set-Cookie", cookie);
 
-  const baseUrl = process.env.MESSENGER_BASE_URL || "https://m.gomo6.ru";
+  const baseUrl = process.env.MESSENGER_BASE_URL || inferMessengerBaseUrl(origin, refererOrigin);
   const redirectUrl = new URL(baseUrl);
   if (targetUserId) {
     redirectUrl.searchParams.set("user", targetUserId);

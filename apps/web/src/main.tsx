@@ -36,6 +36,12 @@ const clearOldCaches = async () => {
           await registration.unregister();
         }
       }
+
+      // Remove the controller immediately when possible so stale chunk maps stop intercepting requests.
+      if (navigator.serviceWorker.controller) {
+        console.log('Service worker controller detected, forcing one clean reload');
+        sessionStorage.setItem('gomo6-sw-reset', '1');
+      }
     } catch (error) {
       console.error('Error unregistering old service workers:', error);
     }
@@ -43,7 +49,12 @@ const clearOldCaches = async () => {
 };
 
 // Clear caches on app start
-clearOldCaches();
+void clearOldCaches().finally(() => {
+  if (sessionStorage.getItem('gomo6-sw-reset') === '1') {
+    sessionStorage.removeItem('gomo6-sw-reset');
+    window.location.reload();
+  }
+});
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
