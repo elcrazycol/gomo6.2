@@ -1,55 +1,53 @@
 import { NextRequest } from "next/server";
-import { getSessionFromCookies } from "@/lib/session";
-import { getMessengerConversationSnapshot, getMessengerUserByMainId } from "@/lib/server";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { listConversationsForUser } from "@/lib/messenger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const encoder = new TextEncoder();
 
-const eventChunk = (event: string, data: Record<string, unknown>) =>
-  encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-
-const heartbeatChunk = () => encoder.encode(": keepalive\n\n");
+const eventChunk = (event: string, payload: unknown) =>
+  encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromCookies();
-  if (!session) {
+  const user = await getAuthenticatedUser(request.headers.get("authorization"));
+  if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const self = await getMessengerUserByMainId(session.sub);
-  if (!self) {
-    return new Response("Messenger user not found", { status: 404 });
-  }
-
-  const conversationId = request.nextUrl.searchParams.get("conversationId");
-
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let closed = false;
       let previousSnapshot = "";
+      let closed = false;
 
-      const pushSnapshot = async () => {
+      const tick = async () => {
         if (closed) return;
 
         try {
-          const nextSnapshot = await getMessengerConversationSnapshot(self.id, conversationId);
-          if (nextSnapshot !== previousSnapshot) {
-            previousSnapshot = nextSnapshot;
-            controller.enqueue(eventChunk("update", { at: Date.now(), snapshot: JSON.parse(nextSnapshot) }));
+          const conversations = await listConversationsForUser(user.id);
+          const snapshot = JSON.stringify(
+            conversations.map((conversation) => ({
+              id: conversation.id,
+              lastMessageAt: conversation.lastMessageAt,
+              unreadCount: conversation.unreadCount,
+              peerId: conversation.otherUser.id,
+            }))
+          );
+
+          if (snapshot !== previousSnapshot) {
+            previousSnapshot = snapshot;
+            controller.enqueue(eventChunk("update", { snapshot: JSON.parse(snapshot), at: Date.now() }));
           } else {
-            controller.enqueue(heartbeatChunk());
+            controller.enqueue(encoder.encode(": keepalive\n\n"));
           }
         } catch {
           controller.enqueue(eventChunk("warning", { message: "snapshot_failed" }));
         }
       };
 
-      await pushSnapshot();
-      const interval = setInterval(() => {
-        void pushSnapshot();
-      }, 2000);
+      await tick();
+      const interval = setInterval(() => void tick(), 2500);
 
       request.signal.addEventListener("abort", () => {
         closed = true;

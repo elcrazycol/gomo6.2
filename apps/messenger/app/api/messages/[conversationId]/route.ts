@@ -1,60 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromCookies } from "@/lib/session";
-import { getConversationForUser, getMessengerUserByMainId } from "@/lib/server";
-import { messengerAdmin } from "@/lib/supabase";
+import { getAuthenticatedUser, messengerAdmin } from "@/lib/auth";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
-  const session = await getSessionFromCookies();
-  if (!session) {
+  const user = await getAuthenticatedUser(request.headers.get("authorization"));
+  if (!user) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const self = await getMessengerUserByMainId(session.sub);
-  if (!self) {
-    return json({ error: "Messenger user not found" }, 404);
+  const { conversationId } = await params;
+  const deviceId = request.nextUrl.searchParams.get("deviceId");
+
+  if (!conversationId || !deviceId) {
+    return json({ error: "Missing conversation or device" }, 400);
   }
 
-  const { conversationId } = await params;
-  const membership = await getConversationForUser(conversationId, self.id);
+  const admin = messengerAdmin();
+  const { data: membership } = await admin
+    .from("chat_conversation_members")
+    .select("conversation_id")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
   if (!membership) {
     return json({ error: "Conversation access denied" }, 403);
   }
 
-  const admin = messengerAdmin();
-  const { data: rows, error } = await admin
-    .from("messenger_messages")
+  const { data: device } = await admin
+    .from("chat_devices")
+    .select("id")
+    .eq("id", deviceId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!device) {
+    return json({ error: "Unknown recipient device" }, 403);
+  }
+
+  const { data: envelopes, error } = await admin
+    .from("chat_message_envelopes")
     .select(
-      "id, ciphertext, nonce, sent_at, delivered_at, sender_device_id, sender_user_id, messenger_users!messenger_messages_sender_user_id_fkey(main_user_id)"
+      `
+        message_id,
+        ciphertext,
+        message_type,
+        delivered_at,
+        opened_at,
+        chat_messages!inner (
+          id,
+          sender_user_id,
+          sender_device_id,
+          sent_at,
+          conversation_id
+        )
+      `
     )
-    .eq("conversation_id", conversationId)
-    .order("sent_at", { ascending: true });
+    .eq("recipient_user_id", user.id)
+    .eq("recipient_device_id", deviceId)
+    .eq("chat_messages.conversation_id", conversationId)
+    .order("created_at", { ascending: true });
 
   if (error) {
-    return json({ error: `Failed to load messages: ${error.message}` }, 500);
+    return json({ error: error.message }, 500);
   }
 
   return json({
-    messages: (rows ?? [])
-      .filter(
-        (row: any) =>
-          typeof row?.id === "string" &&
-          typeof row?.ciphertext === "string" &&
-          typeof row?.nonce === "string" &&
-          typeof row?.sent_at === "string"
-      )
-      .map((row: any) => ({
-        id: row.id,
-        ciphertext: row.ciphertext,
-        nonce: row.nonce,
-        sentAt: row.sent_at,
-        deliveredAt: typeof row.delivered_at === "string" ? row.delivered_at : null,
-        senderDeviceId: typeof row.sender_device_id === "string" ? row.sender_device_id : "",
-        senderMainUserId: typeof row.messenger_users?.main_user_id === "string" ? row.messenger_users.main_user_id : "",
-      })),
+    messages: ((envelopes as any[]) ?? []).map((row) => ({
+      id: row.chat_messages.id,
+      ciphertext: row.ciphertext,
+      messageType: row.message_type,
+      sentAt: row.chat_messages.sent_at,
+      deliveredAt: row.delivered_at,
+      openedAt: row.opened_at,
+      senderUserId: row.chat_messages.sender_user_id,
+      senderDeviceId: row.chat_messages.sender_device_id,
+    })),
   });
 }

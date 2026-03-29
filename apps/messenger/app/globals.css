@@ -427,6 +427,22 @@ input {
   font-weight: 700;
 }
 
+.brand-mark {
+  color: hsl(var(--board-header-foreground));
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.brand-mark:hover,
+.chat-profile-link:hover {
+  text-decoration: underline;
+}
+
+.presence-copy {
+  margin-top: 2px;
+}
+
 .brand p,
 .chat-topbar p,
 .empty-thread p,

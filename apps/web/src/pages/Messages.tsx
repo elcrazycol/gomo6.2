@@ -30,6 +30,8 @@ const Messages = () => {
           credentials: "include",
           body: JSON.stringify({
             targetUserId,
+            refreshToken: session.refresh_token,
+            expiresAt: session.expires_at,
           }),
         });
 
