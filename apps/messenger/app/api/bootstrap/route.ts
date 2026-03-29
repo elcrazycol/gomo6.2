@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromCookies } from "@/lib/session";
+import { getMessengerUserByMainId, getOrCreateMessengerUser, touchMessengerDevice } from "@/lib/server";
 import { messengerAdmin } from "@/lib/supabase";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
@@ -10,73 +11,73 @@ export async function POST(request: NextRequest) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const { publicKey } = await request.json();
-  if (typeof publicKey !== "string" || publicKey.length < 20) {
-    return json({ error: "Invalid public key" }, 400);
+  const body = await request.json().catch(() => null);
+  const publicKey = typeof body?.publicKey === "string" ? body.publicKey : null;
+  const deviceId = typeof body?.deviceId === "string" ? body.deviceId : null;
+  const deviceLabel = typeof body?.deviceLabel === "string" ? body.deviceLabel : "browser";
+
+  if (!publicKey || publicKey.length < 20 || !deviceId || deviceId.length < 8) {
+    return json({ error: "Invalid device payload" }, 400);
   }
 
-  const targetUserId = request.nextUrl.searchParams.get("targetUserId");
-  const admin = messengerAdmin();
+  const me = await getOrCreateMessengerUser({
+    mainUserId: session.sub,
+    username: session.username,
+    accountNumber: session.accountNumber,
+    avatarUrl: session.avatarUrl,
+  });
 
-  const { data: existingUser } = await admin
-    .from("messenger_users")
-    .upsert(
-      {
-        main_user_id: session.sub,
-        username: session.username,
-        account_number: session.accountNumber,
-      },
-      {
-        onConflict: "main_user_id",
-      }
-    )
-    .select("id, main_user_id, username")
-    .single();
+  await touchMessengerDevice({
+    userId: me.id,
+    deviceId,
+    label: deviceLabel,
+    publicKey,
+  });
 
-  if (!existingUser) {
-    return json({ error: "Failed to create messenger user" }, 500);
-  }
-
-  await admin.from("messenger_user_keys").upsert(
-    {
-      user_id: existingUser.id,
-      public_key: publicKey,
-    },
-    {
-      onConflict: "user_id",
-    }
-  );
-
+  const targetMainUserId = request.nextUrl.searchParams.get("targetUserId");
   let target = null;
-  if (targetUserId) {
-    const { data: targetUser } = await admin
-      .from("messenger_users")
-      .select("id, main_user_id, username, messenger_user_keys(public_key)")
-      .eq("main_user_id", targetUserId)
-      .maybeSingle();
 
-    if (targetUser) {
+  if (targetMainUserId) {
+    const existingTarget = await getMessengerUserByMainId(targetMainUserId);
+
+    if (existingTarget) {
+      const admin = messengerAdmin();
+      const { data: devices } = await admin
+        .from("messenger_devices")
+        .select("device_id, label, public_key")
+        .eq("user_id", existingTarget.id)
+        .order("last_seen_at", { ascending: false });
+
       target = {
-        id: targetUser.id,
-        mainUserId: targetUser.main_user_id,
-        username: targetUser.username,
-        publicKey: (targetUser as any).messenger_user_keys?.public_key ?? null,
+        id: existingTarget.id,
+        mainUserId: existingTarget.main_user_id,
+        username: existingTarget.username,
+        avatarUrl: existingTarget.avatar_url,
+        devices:
+          ((devices as Array<{ device_id: string; label: string; public_key: string }> | null) ?? []).map((device) => ({
+            deviceId: device.device_id,
+            label: device.label,
+            publicKey: device.public_key,
+          })),
       };
     } else {
       target = {
         id: "",
-        mainUserId: targetUserId,
+        mainUserId: targetMainUserId,
         username: "Пользователь gomo6",
-        publicKey: null,
+        avatarUrl: null,
+        devices: [],
       };
     }
   }
 
   return json({
     me: {
-      id: existingUser.id,
-      mainUserId: existingUser.main_user_id,
-      username: existingUser.username,
+      id: me.id,
+      mainUserId: me.main_user_id,
+      username: me.username,
+      avatarUrl: me.avatar_url,
+      deviceId,
       publicKey,
     },
     target,

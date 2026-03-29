@@ -5,6 +5,7 @@ export type MessengerSession = {
   sub: string;
   username: string;
   accountNumber: number | null;
+  avatarUrl: string | null;
   targetUserId: string | null;
   exp: number;
 };

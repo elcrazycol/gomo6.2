@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "gomo6 messenger",
-  description: "End-to-end encrypted messenger for gomo6",
+  description: "Secure end-to-end encrypted messenger for gomo6",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

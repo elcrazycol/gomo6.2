@@ -9,7 +9,7 @@ export default async function Page({
 }) {
   const session = await getSessionFromCookies();
   if (!session) {
-    redirect("https://gomo6.wtf/auth");
+    redirect("https://gomo6.ru/auth");
   }
 
   const params = await searchParams;
