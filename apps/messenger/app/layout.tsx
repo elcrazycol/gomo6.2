@@ -18,8 +18,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             __html: `
               (function() {
                 try {
-                  var savedColor = localStorage.getItem('color-theme') || 'cannabis';
-                  var savedMode = localStorage.getItem('dark-mode') === 'true';
+                  var cookieMap = document.cookie.split(';').reduce(function(acc, part) {
+                    var section = part.trim();
+                    if (!section) return acc;
+                    var eqIndex = section.indexOf('=');
+                    var key = eqIndex === -1 ? section : section.slice(0, eqIndex);
+                    var value = eqIndex === -1 ? '' : section.slice(eqIndex + 1);
+                    acc[key] = decodeURIComponent(value);
+                    return acc;
+                  }, {});
+                  var savedColor = cookieMap.gomo6_color_theme || localStorage.getItem('color-theme') || 'cannabis';
+                  var savedModeValue = cookieMap.gomo6_dark_mode || localStorage.getItem('dark-mode');
+                  var savedMode = savedModeValue === 'true';
                   var html = document.documentElement;
                   html.classList.remove(
                     'theme-cannabis', 'theme-cannabis-dark',
@@ -30,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   );
                   html.classList.add(savedMode ? ('theme-' + savedColor + '-dark') : ('theme-' + savedColor));
 
-                  var savedFont = localStorage.getItem('custom_font');
+                  var savedFont = cookieMap.gomo6_custom_font || localStorage.getItem('custom_font');
                   if (savedFont) {
                     var link = document.createElement('link');
                     link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(savedFont) + ':wght@400;500;600;700&display=swap';

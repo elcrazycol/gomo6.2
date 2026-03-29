@@ -466,11 +466,13 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       <header className={`messenger-header ${mobileChatOpen ? "is-hidden-on-mobile-chat" : ""}`}>
         <div className="messenger-header-inner">
           <div className="brand">
-            <a href={appBaseUrl} className="brand-link">
-              gomo6
-            </a>
             <div>
-              <strong>messenger</strong>
+              <strong className="brand-heading">
+                <span className="brand-m">m</span>
+                <a href={appBaseUrl} className="brand-gomo6-link">
+                  .gomo6
+                </a>
+              </strong>
               <p>Личные сообщения</p>
             </div>
           </div>
@@ -581,13 +583,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                     ) : (
                       <strong>{selectedConversation.otherUser?.username ?? "Диалог"}</strong>
                     )}
-                    <p>
-                      {messages.length > 0 &&
-                      messages.at(-1)?.senderMainUserId === bootstrap?.me.mainUserId &&
-                      selectedConversation.lastReadAt
-                        ? "Прочитано"
-                        : "Доставлено"}
-                    </p>
                   </div>
                 </div>
 

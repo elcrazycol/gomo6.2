@@ -47,6 +47,17 @@ const prefetchRoutes = () => {
 
 const queryClient = new QueryClient();
 
+const syncSharedAppearanceCookies = () => {
+  const colorTheme = localStorage.getItem("color-theme") || "cannabis";
+  const darkMode = localStorage.getItem("dark-mode") ?? "true";
+  const customFont = localStorage.getItem("custom_font") || "";
+  const maxAge = 60 * 60 * 24 * 365;
+
+  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+};
+
 const App = () => {
   useEffect(() => {
     // Prefetch critical routes for instant navigation
@@ -77,6 +88,18 @@ const App = () => {
       document.documentElement.style.setProperty('--font-family', fontFamily);
       document.body.style.fontFamily = fontFamily;
     }
+
+    syncSharedAppearanceCookies();
+
+    const handleStorage = () => {
+      syncSharedAppearanceCookies();
+    };
+
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
   }, []);
 
   return (
