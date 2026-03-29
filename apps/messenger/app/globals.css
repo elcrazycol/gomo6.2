@@ -686,7 +686,6 @@ input {
 .message-scroll {
   overflow: auto;
   padding: 12px;
-  padding-bottom: 88px;
   display: grid;
   align-content: start;
   gap: 8px;
@@ -729,8 +728,20 @@ input {
 .message-meta {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 6px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.message-status {
+  font-weight: 700;
+  letter-spacing: -0.08em;
+}
+
+.message-status.is-read {
+  color: hsl(var(--accent));
 }
 
 .composer {
@@ -1056,7 +1067,6 @@ input {
 
   .message-scroll {
     padding: 8px;
-    padding-bottom: 88px;
   }
 
   .message-bubble {
