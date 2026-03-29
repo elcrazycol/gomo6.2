@@ -238,9 +238,19 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
       const decrypted = await Promise.all(
         payload.messages.map(async (message) => {
           try {
+            const senderSignalDeviceId =
+              bootstrap.selfDevices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
+              conversation.devices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
+              bootstrap.me.signalDeviceId;
             return {
               ...message,
-              plainText: await decryptEnvelope(bootstrap.me.id, message.ciphertext),
+              plainText: await decryptEnvelope(
+                bootstrap.me.id,
+                message.senderUserId,
+                senderSignalDeviceId,
+                message.messageType,
+                message.ciphertext
+              ),
             };
           } catch {
             return {
@@ -275,11 +285,22 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId }: Props) => {
 
       const envelopes = await Promise.all(
         allRecipients.map(async (device) => {
+          const encrypted = await encryptForDevice(bootstrap.me.id, {
+            userId: device.userId,
+            signalDeviceId: device.signalDeviceId,
+            registrationId: device.registrationId,
+            identityPublicKey: device.identityPublicKey,
+            signedPreKeyId: device.signedPreKeyId,
+            signedPreKeyPublic: device.signedPreKeyPublic,
+            signedPreKeySignature: device.signedPreKeySignature,
+            oneTimePreKeyId: device.oneTimePreKeyId,
+            oneTimePreKeyPublic: device.oneTimePreKeyPublic,
+          }, draft.trim());
           return {
             recipientUserId: device.userId,
             recipientDeviceId: device.id,
-            ciphertext: await encryptForDevice(draft.trim(), device.identityPublicKey),
-            messageType: 1,
+            ciphertext: encrypted.body,
+            messageType: encrypted.type,
           };
         })
       );
