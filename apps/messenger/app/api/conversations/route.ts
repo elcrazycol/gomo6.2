@@ -177,7 +177,13 @@ export async function POST(request: NextRequest) {
     return json({ error: "Recipient has not activated messenger yet" }, 409);
   }
 
-  const normalizedKeychain: NormalizedConversationKey[] = keychain
+  if (recipient.main_user_id === self.main_user_id) {
+    return json({ error: "Cannot create conversation with self" }, 400);
+  }
+
+  const normalizedKeychainMap = new Map<string, NormalizedConversationKey>();
+
+  keychain
     .filter(
       (entry: any): entry is {
         userId: string;
@@ -188,11 +194,15 @@ export async function POST(request: NextRequest) {
         typeof entry?.deviceId === "string" &&
         typeof entry?.encryptedKey === "string"
     )
-    .map((entry: { userId: string; deviceId: string; encryptedKey: string }) => ({
-      user_id: entry.userId,
-      device_id: entry.deviceId,
-      encrypted_key: entry.encryptedKey,
-    }));
+    .forEach((entry: { userId: string; deviceId: string; encryptedKey: string }) => {
+      normalizedKeychainMap.set(`${entry.userId}:${entry.deviceId}`, {
+        user_id: entry.userId,
+        device_id: entry.deviceId,
+        encrypted_key: entry.encryptedKey,
+      });
+    });
+
+  const normalizedKeychain = [...normalizedKeychainMap.values()];
 
   const selfHasOwnKey = normalizedKeychain.some(
     (entry) => entry.user_id === self.id && entry.device_id && entry.encrypted_key

@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const targetMainUserId = request.nextUrl.searchParams.get("targetUserId");
     let target = null;
 
-    if (targetMainUserId) {
+    if (targetMainUserId && targetMainUserId !== session.sub) {
       const existingTarget = await getMessengerUserByMainId(targetMainUserId);
 
       if (existingTarget) {
