@@ -31,20 +31,12 @@ const signPayload = (payload: HandoffPayload) => {
 
 const verifyOrigin = (value: string | undefined) => {
   if (!value) return false;
-  const allowed = [
-    process.env.APP_BASE_URL,
-    "https://m.gomo6.ru",
-    "https://gomo6.ru",
-    "https://www.gomo6.ru",
-    "https://m.gomo6.wtf",
-    "https://gomo6.wtf",
-    "https://www.gomo6.wtf",
-  ].filter(Boolean);
+  const allowed = [process.env.APP_BASE_URL, process.env.MESSENGER_BASE_URL].filter(Boolean);
   return allowed.some((origin) => origin === value);
 };
 
 const inferCookieDomain = (origin: string | undefined, refererOrigin: string | undefined) => {
-  const source = origin || refererOrigin || process.env.APP_BASE_URL || "https://www.gomo6.wtf";
+  const source = origin || refererOrigin || process.env.APP_BASE_URL || "https://gomo6.wtf";
   const hostname = new URL(source).hostname.replace(/^www\./, "");
   if (hostname.startsWith("m.")) {
     return `.${hostname.slice(2)}`;
@@ -58,7 +50,7 @@ const sanitizeCookieDomain = (origin: string | undefined, refererOrigin: string 
 };
 
 const inferMessengerBaseUrl = (origin: string | undefined, refererOrigin: string | undefined) => {
-  const source = origin || refererOrigin || process.env.APP_BASE_URL || "https://www.gomo6.wtf";
+  const source = origin || refererOrigin || process.env.APP_BASE_URL || "https://gomo6.wtf";
   const parsed = new URL(source);
   const hostname = parsed.hostname.replace(/^www\./, "");
   if (hostname.startsWith("m.")) {

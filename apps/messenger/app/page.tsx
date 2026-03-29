@@ -7,13 +7,14 @@ export default async function Page({
 }: {
   searchParams: Promise<{ user?: string }>;
 }) {
+  const appBaseUrl = process.env.APP_BASE_URL || "https://gomo6.wtf";
   const session = await getSessionFromCookies();
   if (!session) {
-    redirect("https://gomo6.ru/auth");
+    redirect(`${appBaseUrl}/auth`);
   }
 
   const params = await searchParams;
   const targetUserId = params.user ?? session.targetUserId ?? null;
 
-  return <MessengerClient username={session.username} targetUserId={targetUserId} />;
+  return <MessengerClient username={session.username} targetUserId={targetUserId} appBaseUrl={appBaseUrl} />;
 }

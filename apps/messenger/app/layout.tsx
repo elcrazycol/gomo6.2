@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   title: "gomo6 messenger",
   description: "Secure end-to-end encrypted messenger for gomo6",
   icons: {
-    icon: "https://www.gomo6.wtf/photoes/gomo6.png",
+    icon: `${process.env.APP_BASE_URL || "https://gomo6.wtf"}/photoes/gomo6.png`,
   },
 };
 

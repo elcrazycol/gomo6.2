@@ -72,6 +72,7 @@ type MessageView = ApiMessage & {
 type Props = {
   username: string;
   targetUserId: string | null;
+  appBaseUrl: string;
 };
 
 const formatDate = (value: string | null) => {
@@ -91,8 +92,9 @@ const formatRelativeMeta = (value: string | null) => {
 
 const initialsFrom = (username: string) => username.slice(0, 2).toUpperCase();
 
-export const MessengerClient = ({ username, targetUserId }: Props) => {
+export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) => {
   const autoCreatedTargetRef = useRef<string | null>(null);
+  const attemptedTargetRef = useRef<string | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -103,11 +105,13 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   const [startingConversation, setStartingConversation] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
+  const mobileChatOpen = !mobileSidebarOpen && !!selectedConversation;
 
   const selectedKeyEntry = useMemo(() => {
     if (!selectedConversation || !bootstrap) return null;
@@ -152,6 +156,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
 
     const nextConversations = (payload?.conversations ?? []) as Conversation[];
     setConversations(nextConversations);
+    setConversationsLoaded(true);
     setSelectedConversationId((current) => {
       if (current && nextConversations.some((conversation) => conversation.id === current)) {
         return current;
@@ -171,7 +176,9 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
       throw new Error("Для этого устройства нет ключа диалога");
     }
 
-    const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys);
+    const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys).catch(() => {
+      throw new Error("Ключи этого диалога не подходят для текущего устройства");
+    });
     const response = await fetch(`/api/messages/${conversation.id}`, {
       credentials: "include",
     });
@@ -182,10 +189,19 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     }
 
     const decrypted = await Promise.all(
-      ((payload?.messages ?? []) as ApiMessage[]).map(async (message) => ({
-        ...message,
-        plainText: await decryptMessage(message.ciphertext, message.nonce, conversationKey),
-      }))
+      ((payload?.messages ?? []) as ApiMessage[]).map(async (message) => {
+        try {
+          return {
+            ...message,
+            plainText: await decryptMessage(message.ciphertext, message.nonce, conversationKey),
+          };
+        } catch {
+          return {
+            ...message,
+            plainText: "[Не удалось расшифровать сообщение на этом устройстве]",
+          };
+        }
+      })
     );
 
     setMessages(decrypted);
@@ -302,6 +318,8 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     const bootstrapMessenger = async () => {
       setLoading(true);
       setError(null);
+      setConversationsLoaded(false);
+      attemptedTargetRef.current = null;
 
       try {
         clearLegacyMessengerStorage();
@@ -327,22 +345,19 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
   }, [targetUserId]);
 
   useEffect(() => {
-    if (!selectedConversationId) {
+    if (!selectedConversationId || !selectedConversation) {
       setMessages([]);
       return;
     }
 
-    const conversation = conversations.find((item) => item.id === selectedConversationId);
-    if (!conversation) return;
-
-    void loadMessages(conversation).catch((loadError) => {
+    void loadMessages(selectedConversation).catch((loadError) => {
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить сообщения");
     });
-  }, [conversations, selectedConversationId]);
+  }, [selectedConversationId, selectedConversation]);
 
   useEffect(() => {
-    if (!bootstrap?.target || !targetUserId) return;
-    if (autoCreatedTargetRef.current === targetUserId) return;
+    if (!bootstrap?.target || !targetUserId || !conversationsLoaded) return;
+    if (autoCreatedTargetRef.current === targetUserId || attemptedTargetRef.current === targetUserId) return;
 
     const existing = conversations.some((conversation) => conversation.otherUser?.mainUserId === targetUserId);
     if (existing) {
@@ -351,8 +366,9 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     }
 
     if (startingConversation) return;
+    attemptedTargetRef.current = targetUserId;
     void startConversation();
-  }, [bootstrap, conversations, startingConversation, targetUserId]);
+  }, [bootstrap, conversations, conversationsLoaded, startingConversation, targetUserId]);
 
   if (loading) {
     return (
@@ -367,7 +383,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
     <div className="messenger-app">
       <header className="messenger-header">
         <div className="brand">
-          <a href="https://gomo6.ru" className="brand-badge">
+          <a href={appBaseUrl} className="brand-badge">
             gomo6
           </a>
           <div>
@@ -385,13 +401,13 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
           >
             <PanelLeft size={16} />
           </button>
-          <a href="https://gomo6.ru" className="ghost-link">
+          <a href={appBaseUrl} className="ghost-link">
             На сайт
           </a>
         </div>
       </header>
 
-      <div className="messenger-shell">
+      <div className={`messenger-shell ${mobileChatOpen ? "mobile-chat-open" : ""}`}>
         <aside className={`sidebar-panel ${mobileSidebarOpen ? "is-open" : ""}`}>
           <div className="sidebar-top">
             <div>
@@ -454,7 +470,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
           </div>
         </aside>
 
-        <main className="chat-panel">
+        <main className={`chat-panel ${mobileChatOpen ? "is-open" : ""}`}>
           {selectedConversation ? (
             <>
               <div className="chat-topbar">
@@ -490,7 +506,7 @@ export const MessengerClient = ({ username, targetUserId }: Props) => {
 
                 {selectedConversation.otherUser?.mainUserId && (
                   <a
-                    href={`https://gomo6.ru/profile/${selectedConversation.otherUser.mainUserId}`}
+                    href={`${appBaseUrl}/profile/${selectedConversation.otherUser.mainUserId}`}
                     className="ghost-link"
                   >
                     Профиль

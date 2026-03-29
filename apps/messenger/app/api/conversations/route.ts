@@ -195,6 +195,10 @@ export async function POST(request: NextRequest) {
     return json({ error: "Failed to save conversation members" }, 500);
   }
 
+  if (existingConversation) {
+    return json({ conversation: { id: conversationId, existed: true } });
+  }
+
   const normalizedKeychain = keychain
     .filter(
       (entry: any): entry is {
