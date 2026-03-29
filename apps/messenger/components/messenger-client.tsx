@@ -241,7 +241,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const ensureConversation = async () => {
     if (!bootstrap?.target || !targetUserId) return;
     if (conversations.some((conversation) => conversation.otherUser.id === targetUserId)) return;
-    if ((bootstrap.target.devices?.length ?? 0) === 0) return;
 
     setStartingConversation(true);
     try {
@@ -323,6 +322,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
 
   const sendCurrentMessage = async () => {
     if (!draft.trim() || !bootstrap || !selectedConversation || !currentDevice) return;
+    if (selectedConversation.devices.length === 0) {
+      setErrorMessage("У собеседника пока нет зарегистрированного устройства messenger. Отправка станет доступна после его первого входа.");
+      return;
+    }
     setSending(true);
     try {
       const allRecipients = [
@@ -595,6 +598,12 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
               </div>
 
               <div className="message-scroll">
+                {selectedConversation.devices.length === 0 ? (
+                  <div className="inline-notice">
+                    Диалог уже создан, но у собеседника пока нет устройства messenger. Как только он впервые откроет
+                    messenger, сюда можно будет писать.
+                  </div>
+                ) : null}
                 {messagesLoading ? (
                   <div className="inline-loader">
                     <PentagramLoader size="md" />
