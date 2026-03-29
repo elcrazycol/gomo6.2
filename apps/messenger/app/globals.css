@@ -315,6 +315,9 @@ input {
   padding: 8px 12px;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .brand {
@@ -514,6 +517,7 @@ input {
   display: grid;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
+  border-left: 1px solid hsl(var(--border));
 }
 
 .chat-topbar,
@@ -699,20 +703,33 @@ input {
 @media (max-width: 980px) {
   .messenger-shell {
     grid-template-columns: 1fr;
+    min-height: calc(100vh - 47px);
   }
 
   .sidebar-panel {
-    display: none;
-    border-right: 0;
-    border-bottom: 1px solid hsl(var(--border));
-  }
-
-  .sidebar-panel.is-open {
     display: block;
+    border-right: 0;
+    border-bottom: 0;
+    min-height: calc(100vh - 47px);
   }
 
   .chat-panel {
-    min-height: calc(100vh - 48px);
+    display: none;
+    border-left: 0;
+    min-height: calc(100vh - 47px);
+  }
+
+  .chat-panel.is-open {
+    display: grid;
+    position: fixed;
+    inset: 47px 0 0 0;
+    z-index: 30;
+    width: 100%;
+    background: hsl(var(--background));
+  }
+
+  .messenger-shell.mobile-chat-open .sidebar-panel {
+    display: none;
   }
 
   .mobile-only {
@@ -730,7 +747,28 @@ input {
     display: none;
   }
 
+  .messenger-header {
+    padding: 8px;
+  }
+
+  .sidebar-panel {
+    padding: 8px;
+  }
+
+  .chat-topbar,
+  .composer {
+    padding: 8px;
+  }
+
+  .message-scroll {
+    padding: 8px;
+  }
+
   .message-bubble {
     max-width: 88%;
+  }
+
+  .conversation-card {
+    padding: 9px;
   }
 }
