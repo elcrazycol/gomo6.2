@@ -29,10 +29,40 @@ const signPayload = (payload: HandoffPayload) => {
   return `${body}.${signature}`;
 };
 
+const normalizeOrigin = (value: string) => {
+  const parsed = new URL(value);
+  const hostname = parsed.hostname.replace(/^www\./, "");
+  return `${parsed.protocol}//${hostname}`;
+};
+
+const expandAllowedOrigins = () => {
+  const raw = [process.env.APP_BASE_URL, process.env.MESSENGER_BASE_URL].filter(
+    (value): value is string => Boolean(value)
+  );
+
+  const expanded = new Set<string>();
+  raw.forEach((value) => {
+    const parsed = new URL(value);
+    const bareHostname = parsed.hostname.replace(/^www\./, "");
+    expanded.add(`${parsed.protocol}//${bareHostname}`);
+    expanded.add(`${parsed.protocol}//www.${bareHostname}`);
+    if (!bareHostname.startsWith("m.")) {
+      expanded.add(`${parsed.protocol}//m.${bareHostname}`);
+    }
+  });
+
+  return expanded;
+};
+
 const verifyOrigin = (value: string | undefined) => {
   if (!value) return false;
-  const allowed = [process.env.APP_BASE_URL, process.env.MESSENGER_BASE_URL].filter(Boolean);
-  return allowed.some((origin) => origin === value);
+
+  try {
+    const normalized = normalizeOrigin(value);
+    return expandAllowedOrigins().has(normalized);
+  } catch {
+    return false;
+  }
 };
 
 const inferCookieDomain = (origin: string | undefined, refererOrigin: string | undefined) => {
