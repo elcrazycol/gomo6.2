@@ -108,6 +108,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [startingConversation, setStartingConversation] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
@@ -183,67 +184,76 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   };
 
   const loadMessages = async (conversation: Conversation) => {
-    const keys = await getOrCreateDeviceKeys();
-    const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
-    if (!keyEntry) {
-      setMessages([]);
-      reportMessengerError("missing_conversation_key", { conversationId: conversation.id });
-      return;
-    }
+    setMessagesLoading(true);
+    try {
+      const keys = await getOrCreateDeviceKeys();
+      const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
+      if (!keyEntry) {
+        setMessages([]);
+        reportMessengerError("missing_conversation_key", { conversationId: conversation.id });
+        return;
+      }
 
-    const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys).catch(() => {
-      setMessages([]);
-      reportMessengerError("invalid_conversation_key", { conversationId: conversation.id });
-      return null;
-    });
-    if (!conversationKey) {
-      return;
-    }
-    const response = await fetch(`/api/messages/${conversation.id}`, {
-      credentials: "include",
-    });
-    const payload = await response.json().catch(() => null);
+      const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys).catch(() => {
+        setMessages([]);
+        reportMessengerError("invalid_conversation_key", { conversationId: conversation.id });
+        return null;
+      });
+      if (!conversationKey) {
+        return;
+      }
+      const response = await fetch(`/api/messages/${conversation.id}`, {
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
 
-    if (!response.ok) {
-      throw new Error(payload?.error || "Не удалось загрузить сообщения");
-    }
+      if (!response.ok) {
+        throw new Error(payload?.error || "Не удалось загрузить сообщения");
+      }
 
-    const decrypted = await Promise.all(
-      ((payload?.messages ?? []) as ApiMessage[]).map(async (message) => {
-        try {
-          return {
-            ...message,
-            plainText: await decryptMessage(message.ciphertext, message.nonce, conversationKey),
-          };
-        } catch {
-          return {
-            ...message,
-            plainText: "[Не удалось расшифровать сообщение на этом устройстве]",
-          };
-        }
-      })
-    );
+      const decrypted = await Promise.all(
+        ((payload?.messages ?? []) as ApiMessage[]).map(async (message) => {
+          try {
+            return {
+              ...message,
+              plainText: await decryptMessage(message.ciphertext, message.nonce, conversationKey),
+            };
+          } catch {
+            return {
+              ...message,
+              plainText: "[Не удалось расшифровать сообщение на этом устройстве]",
+            };
+          }
+        })
+      );
 
-    setMessages(decrypted);
+      setMessages(decrypted);
 
-    const readResponse = await fetch(`/api/messages/${conversation.id}/read`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        lastReadMessageId: decrypted.at(-1)?.id ?? null,
-      }),
-    });
-    if (!readResponse.ok) {
-      const readPayload = await readResponse.json().catch(() => null);
-      throw new Error(readPayload?.error || "Не удалось обновить статус прочтения");
+      const readResponse = await fetch(`/api/messages/${conversation.id}/read`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lastReadMessageId: decrypted.at(-1)?.id ?? null,
+        }),
+      });
+      if (!readResponse.ok) {
+        const readPayload = await readResponse.json().catch(() => null);
+        throw new Error(readPayload?.error || "Не удалось обновить статус прочтения");
+      }
+    } finally {
+      setMessagesLoading(false);
     }
   };
 
   const startConversation = async () => {
     if (!bootstrap?.target) return;
+    if (bootstrap.target.mainUserId === bootstrap.me.mainUserId) {
+      reportMessengerError("self_conversation_blocked", { userId: bootstrap.me.mainUserId });
+      return;
+    }
     if (bootstrap.target.devices.length === 0) {
       reportMessengerError("target_has_no_devices", { targetUserId: bootstrap.target.mainUserId });
       return;
@@ -373,6 +383,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   useEffect(() => {
     if (!selectedConversationId || !selectedConversation) {
       setMessages([]);
+      setMessagesLoading(false);
       return;
     }
 
@@ -594,7 +605,11 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                   shouldStickToBottomRef.current = distanceToBottom < 48;
                 }}
               >
-                {messages.length === 0 ? (
+                {messagesLoading ? (
+                  <div className="inline-loader">
+                    <PentagramLoader size="md" />
+                  </div>
+                ) : messages.length === 0 ? (
                   <div className="empty-thread">
                     <MessageCircle size={20} />
                     <p>Диалог создан. Первое сообщение будет зашифровано в браузере.</p>
@@ -656,7 +671,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
               <p>Открой диалог из профиля пользователя или выбери переписку слева.</p>
               {bootstrap?.target && (
                 <button type="button" className="cta-button" onClick={() => void startConversation()}>
-                  {startingConversation ? "Создаем диалог..." : `Написать ${bootstrap.target.username}`}
+                  {startingConversation ? <PentagramLoader size="sm" /> : `Написать ${bootstrap.target.username}`}
                 </button>
               )}
             </div>

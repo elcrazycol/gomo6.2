@@ -756,7 +756,6 @@ input {
 
 .empty-card,
 .empty-thread,
-.messenger-loading,
 .inline-notice,
 .error-banner {
   border: 1px solid hsl(var(--border));
@@ -764,8 +763,7 @@ input {
 }
 
 .empty-card,
-.empty-thread,
-.messenger-loading {
+.empty-thread {
   display: grid;
   place-items: center;
   gap: 10px;
@@ -777,6 +775,16 @@ input {
 .empty-thread.hero {
   margin: auto;
   max-width: 560px;
+}
+
+.inline-loader,
+.messenger-loading {
+  display: grid;
+  place-items: center;
+}
+
+.inline-loader {
+  min-height: 140px;
 }
 
 .inline-notice {
@@ -797,9 +805,10 @@ input {
 }
 
 .messenger-loading {
-  width: min(420px, calc(100vw - 20px));
-  min-height: 220px;
-  margin: calc(50vh - 110px) auto 0;
+  flex: 1;
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
 }
 
 .mobile-only {
