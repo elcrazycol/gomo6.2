@@ -5,6 +5,7 @@ import {
   createOrLoadDirectConversation,
   getDeviceBundlesForUser,
   listConversationsForUser,
+  loadProfileAppearance,
   loadProfileSummaryOrFallback,
 } from "@/lib/messenger";
 
@@ -41,7 +42,10 @@ export async function POST(request: NextRequest) {
       (() => {
         throw new Error("Conversation was created but could not be loaded");
       })();
-    const targetProfile = await loadProfileSummaryOrFallback(recipientUserId);
+    const [targetProfile, targetAppearance] = await Promise.all([
+      loadProfileSummaryOrFallback(recipientUserId),
+      loadProfileAppearance(recipientUserId),
+    ]);
     return json({
       conversation: {
         ...conversation,
@@ -53,7 +57,13 @@ export async function POST(request: NextRequest) {
           accountNumber: targetProfile.account_number,
           isOnline: targetProfile.is_online,
           lastSeenAt: targetProfile.last_seen_at,
-          usernameColor: targetProfile.username_color,
+          usernameColor: targetAppearance.usernameColor,
+          usernameCss: targetAppearance.usernameCss,
+          usernameIconSvg: targetAppearance.usernameIconSvg,
+          usernameIconFill: targetAppearance.usernameIconFill,
+          usernameIconStroke: targetAppearance.usernameIconStroke,
+          profileBadgeText: targetAppearance.profileBadgeText,
+          profileBadgeCss: targetAppearance.profileBadgeCss,
         },
         recipientDevices: devices,
       },

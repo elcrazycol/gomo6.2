@@ -18,6 +18,16 @@ export type ChatDeviceBundle = {
   oneTimePreKeyPublic: string | null;
 };
 
+export type ProfileAppearance = {
+  usernameColor: string | null;
+  usernameCss: string | null;
+  usernameIconSvg: string | null;
+  usernameIconFill: string | null;
+  usernameIconStroke: string | null;
+  profileBadgeText: string | null;
+  profileBadgeCss: string | null;
+};
+
 export const upsertChatDeviceBundle = async (
   user: AuthenticatedUser,
   payload: {
@@ -249,7 +259,7 @@ export const loadProfileSummary = async (userId: string) => {
   const admin = messengerAdmin();
   const { data, error } = await admin
     .from("profiles")
-    .select("id, username, avatar_url, account_number, is_online, last_seen_at, username_color")
+    .select("id, username, avatar_url, account_number, is_online, last_seen_at")
     .eq("id", userId)
     .single();
 
@@ -264,7 +274,7 @@ export const loadProfileSummaryOrFallback = async (userId: string) => {
   const admin = messengerAdmin();
   const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id, username, avatar_url, account_number, is_online, last_seen_at, username_color")
+    .select("id, username, avatar_url, account_number, is_online, last_seen_at")
     .eq("id", userId)
     .maybeSingle();
 
@@ -285,7 +295,6 @@ export const loadProfileSummaryOrFallback = async (userId: string) => {
       account_number: null,
       is_online: null,
       last_seen_at: null,
-      username_color: null,
     };
   }
 
@@ -300,7 +309,54 @@ export const loadProfileSummaryOrFallback = async (userId: string) => {
     account_number: null,
     is_online: null,
     last_seen_at: null,
-    username_color: null,
+  };
+};
+
+export const loadProfileAppearance = async (userId: string): Promise<ProfileAppearance> => {
+  const admin = messengerAdmin();
+
+  const [{ data: customization, error: customizationError }, { data: achievements, error: achievementsError }] =
+    await Promise.all([
+      admin
+        .from("profile_customization")
+        .select("username_css, username_icon_svg, username_icon_fill, username_icon_stroke, profile_badge_text, profile_badge_css")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      admin
+        .from("user_achievements")
+        .select(`
+          achievement_id,
+          achievements (
+            reward_type,
+            reward_value
+          )
+        `)
+        .eq("user_id", userId),
+    ]);
+
+  if (customizationError) {
+    throw new Error(`Failed to load profile customization: ${customizationError.message}`);
+  }
+
+  if (achievementsError) {
+    throw new Error(`Failed to load profile achievements: ${achievementsError.message}`);
+  }
+
+  const colorRewards = ((achievements as any[]) ?? [])
+    .filter((entry) => entry.achievements?.reward_type === "username_color")
+    .map((entry) => entry.achievements?.reward_value)
+    .filter((value): value is string => typeof value === "string");
+
+  const colorPriority = ["purple", "gold", "orange", "red", "blue", "green", "yellow", "cyan"];
+
+  return {
+    usernameColor: colorPriority.find((value) => colorRewards.includes(value)) ?? null,
+    usernameCss: customization?.username_css ?? null,
+    usernameIconSvg: customization?.username_icon_svg ?? null,
+    usernameIconFill: customization?.username_icon_fill ?? null,
+    usernameIconStroke: customization?.username_icon_stroke ?? null,
+    profileBadgeText: customization?.profile_badge_text ?? null,
+    profileBadgeCss: customization?.profile_badge_css ?? null,
   };
 };
 
@@ -459,9 +515,15 @@ export const listConversationsForUser = async (userId: string) => {
 
   const otherUserIds = [...new Set(((members as any[]) ?? []).map((row) => row.user_id).filter((value) => value !== userId))];
   const profileMap = new Map<string, Awaited<ReturnType<typeof loadProfileSummaryOrFallback>>>();
+  const appearanceMap = new Map<string, ProfileAppearance>();
   await Promise.all(
     otherUserIds.map(async (otherUserId) => {
-      profileMap.set(otherUserId, await loadProfileSummaryOrFallback(otherUserId));
+      const [profile, appearance] = await Promise.all([
+        loadProfileSummaryOrFallback(otherUserId),
+        loadProfileAppearance(otherUserId),
+      ]);
+      profileMap.set(otherUserId, profile);
+      appearanceMap.set(otherUserId, appearance);
     })
   );
 
@@ -479,6 +541,7 @@ export const listConversationsForUser = async (userId: string) => {
         (row) => row.conversation_id === membership.conversation_id && row.user_id !== userId
       );
       const otherProfile = otherMember?.user_id ? profileMap.get(otherMember.user_id) : null;
+      const appearance = otherMember?.user_id ? appearanceMap.get(otherMember.user_id) : null;
       if (!conversation || !otherProfile) {
         return null;
       }
@@ -496,7 +559,13 @@ export const listConversationsForUser = async (userId: string) => {
           accountNumber: otherProfile.account_number,
           isOnline: otherProfile.is_online,
           lastSeenAt: otherProfile.last_seen_at,
-          usernameColor: otherProfile.username_color,
+          usernameColor: appearance?.usernameColor ?? null,
+          usernameCss: appearance?.usernameCss ?? null,
+          usernameIconSvg: appearance?.usernameIconSvg ?? null,
+          usernameIconFill: appearance?.usernameIconFill ?? null,
+          usernameIconStroke: appearance?.usernameIconStroke ?? null,
+          profileBadgeText: appearance?.profileBadgeText ?? null,
+          profileBadgeCss: appearance?.profileBadgeCss ?? null,
         },
         devices: deviceMap.get(otherProfile.id) ?? [],
       };
