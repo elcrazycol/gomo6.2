@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal, ShieldCheck } from "lucide-react";
+import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal } from "lucide-react";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
   clearLegacyMessengerStorage,
@@ -95,6 +95,7 @@ const initialsFrom = (username: string) => username.slice(0, 2).toUpperCase();
 export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) => {
   const autoCreatedTargetRef = useRef<string | null>(null);
   const attemptedTargetRef = useRef<string | null>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -106,6 +107,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const realtimeReloadRef = useRef(false);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -165,20 +167,32 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       const autoCreated = nextConversations.find(
         (conversation) => conversation.otherUser?.mainUserId === autoCreatedTargetRef.current
       );
-      return autoCreated?.id ?? nextConversations[0]?.id ?? null;
+      const readable = nextConversations.find(
+        (conversation) => conversation.keychain.some((entry) => entry.deviceId === bootstrap?.me.deviceId)
+      );
+      return autoCreated?.id ?? readable?.id ?? nextConversations[0]?.id ?? null;
     });
+
+    return nextConversations;
   };
 
   const loadMessages = async (conversation: Conversation) => {
     const keys = await getOrCreateDeviceKeys();
     const keyEntry = conversation.keychain.find((entry) => entry.deviceId === keys.deviceId);
     if (!keyEntry) {
-      throw new Error("Для этого устройства нет ключа диалога");
+      setMessages([]);
+      setError("На этом устройстве нет ключа этого диалога");
+      return;
     }
 
     const conversationKey = await decryptConversationKey(keyEntry.encryptedKey, keys).catch(() => {
-      throw new Error("Ключи этого диалога не подходят для текущего устройства");
+      setMessages([]);
+      setError("Ключи этого диалога не подходят для текущего устройства");
+      return null;
     });
+    if (!conversationKey) {
+      return;
+    }
     const response = await fetch(`/api/messages/${conversation.id}`, {
       credentials: "include",
     });
@@ -206,7 +220,7 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
     setMessages(decrypted);
 
-    await fetch(`/api/messages/${conversation.id}/read`, {
+    const readResponse = await fetch(`/api/messages/${conversation.id}/read`, {
       method: "POST",
       credentials: "include",
       headers: {
@@ -216,6 +230,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
         lastReadMessageId: decrypted.at(-1)?.id ?? null,
       }),
     });
+    if (!readResponse.ok) {
+      const readPayload = await readResponse.json().catch(() => null);
+      throw new Error(readPayload?.error || "Не удалось обновить статус прочтения");
+    }
   };
 
   const startConversation = async () => {
@@ -345,6 +363,10 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
   }, [targetUserId]);
 
   useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     if (!selectedConversationId || !selectedConversation) {
       setMessages([]);
       return;
@@ -354,6 +376,53 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить сообщения");
     });
   }, [selectedConversationId, selectedConversation]);
+
+  useEffect(() => {
+    if (!bootstrap || loading) return;
+
+    const params = new URLSearchParams();
+    if (selectedConversationId) {
+      params.set("conversationId", selectedConversationId);
+    }
+
+    const source = new EventSource(`/api/realtime${params.toString() ? `?${params.toString()}` : ""}`);
+
+    const handleUpdate = () => {
+      if (realtimeReloadRef.current) return;
+      realtimeReloadRef.current = true;
+
+      void (async () => {
+        try {
+          const nextConversations = await loadConversations();
+
+          if (selectedConversationIdRef.current) {
+            const nextConversation =
+              nextConversations.find((conversation) => conversation.id === selectedConversationIdRef.current) ?? null;
+            if (nextConversation) {
+              await loadMessages(nextConversation);
+            }
+          }
+        } catch (realtimeError) {
+          setError(realtimeError instanceof Error ? realtimeError.message : "Не удалось обновить переписки");
+        } finally {
+          realtimeReloadRef.current = false;
+        }
+      })();
+    };
+
+    source.addEventListener("update", handleUpdate);
+    source.addEventListener("warning", () => {
+      setError((current) => current ?? "Есть проблема с realtime-снимком, пробуем переподключиться");
+    });
+    source.onerror = () => {
+      setError((current) => current ?? "Realtime-соединение переподключается");
+    };
+
+    return () => {
+      source.removeEventListener("update", handleUpdate);
+      source.close();
+    };
+  }, [bootstrap, loading, selectedConversationId]);
 
   useEffect(() => {
     if (!bootstrap?.target || !targetUserId || !conversationsLoaded) return;
@@ -381,9 +450,9 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
 
   return (
     <div className="messenger-app">
-      <header className="messenger-header">
+      <header className={`messenger-header ${mobileChatOpen ? "is-hidden-on-mobile-chat" : ""}`}>
         <div className="brand">
-          <a href={appBaseUrl} className="brand-badge">
+          <a href={appBaseUrl} className="brand-link">
             gomo6
           </a>
           <div>
@@ -401,9 +470,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
           >
             <PanelLeft size={16} />
           </button>
-          <a href={appBaseUrl} className="ghost-link">
-            На сайт
-          </a>
         </div>
       </header>
 
@@ -413,10 +479,6 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
             <div>
               <p className="eyebrow">Диалоги</p>
               <h1>Сообщения</h1>
-            </div>
-            <div className="security-pill">
-              <ShieldCheck size={14} />
-              <span>E2EE</span>
             </div>
           </div>
 
@@ -493,7 +555,16 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                   </div>
 
                   <div>
-                    <strong>{selectedConversation.otherUser?.username ?? "Диалог"}</strong>
+                    {selectedConversation.otherUser?.mainUserId ? (
+                      <a
+                        href={`${appBaseUrl}/profile/${selectedConversation.otherUser.mainUserId}`}
+                        className="chat-profile-link"
+                      >
+                        <strong>{selectedConversation.otherUser?.username ?? "Диалог"}</strong>
+                      </a>
+                    ) : (
+                      <strong>{selectedConversation.otherUser?.username ?? "Диалог"}</strong>
+                    )}
                     <p>
                       {messages.length > 0 &&
                       messages.at(-1)?.senderMainUserId === bootstrap?.me.mainUserId &&
@@ -504,20 +575,12 @@ export const MessengerClient = ({ username, targetUserId, appBaseUrl }: Props) =
                   </div>
                 </div>
 
-                {selectedConversation.otherUser?.mainUserId && (
-                  <a
-                    href={`${appBaseUrl}/profile/${selectedConversation.otherUser.mainUserId}`}
-                    className="ghost-link"
-                  >
-                    Профиль
-                  </a>
-                )}
               </div>
 
               <div className="message-scroll">
                 {messages.length === 0 ? (
                   <div className="empty-thread">
-                    <ShieldCheck size={20} />
+                    <MessageCircle size={20} />
                     <p>Диалог создан. Первое сообщение будет зашифровано в браузере.</p>
                   </div>
                 ) : (

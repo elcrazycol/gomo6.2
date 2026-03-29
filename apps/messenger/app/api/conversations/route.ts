@@ -5,6 +5,14 @@ import { messengerAdmin } from "@/lib/supabase";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
 
+type NormalizedConversationKey = {
+  conversation_id: string;
+  user_id: string;
+  device_id: string;
+  encrypted_key: string;
+  key_version: number;
+};
+
 export async function GET() {
   const session = await getSessionFromCookies();
   if (!session) {
@@ -92,6 +100,10 @@ export async function GET() {
     const otherMembership = participants.find((row) => row.conversation_id === membership.conversation_id);
     const otherUser = otherUsers.find((row) => row.id === otherMembership?.user_id);
 
+    if (!conversation) {
+      return null;
+    }
+
     return {
       id: membership.conversation_id,
       createdAt: conversation?.created_at ?? null,
@@ -116,7 +128,7 @@ export async function GET() {
           }
         : null,
     };
-  });
+  }).filter((conversation): conversation is NonNullable<typeof conversation> => Boolean(conversation));
 
   serialized.sort((left, right) => {
     const leftTime = left.lastMessageAt ? new Date(left.lastMessageAt).getTime() : 0;
@@ -151,6 +163,36 @@ export async function POST(request: NextRequest) {
   const recipient = await getMessengerUserByMainId(recipientMainUserId);
   if (!recipient) {
     return json({ error: "Recipient has not activated messenger yet" }, 409);
+  }
+
+  const normalizedKeychain: NormalizedConversationKey[] = keychain
+    .filter(
+      (entry: any): entry is {
+        userId: string;
+        deviceId: string;
+        encryptedKey: string;
+      } =>
+        typeof entry?.userId === "string" &&
+        typeof entry?.deviceId === "string" &&
+        typeof entry?.encryptedKey === "string"
+    )
+    .map((entry: { userId: string; deviceId: string; encryptedKey: string }) => ({
+      conversation_id: conversationId,
+      user_id: entry.userId,
+      device_id: entry.deviceId,
+      encrypted_key: entry.encryptedKey,
+      key_version: 1,
+    }));
+
+  const selfHasOwnKey = normalizedKeychain.some(
+    (entry) => entry.user_id === self.id && entry.device_id && entry.encrypted_key
+  );
+  const recipientHasOwnKey = normalizedKeychain.some(
+    (entry) => entry.user_id === recipient.id && entry.device_id && entry.encrypted_key
+  );
+
+  if (!selfHasOwnKey || !recipientHasOwnKey) {
+    return json({ error: "Invalid conversation keychain" }, 400);
   }
 
   const directKey = [self.main_user_id, recipient.main_user_id].sort().join(":");
@@ -192,38 +234,24 @@ export async function POST(request: NextRequest) {
   );
 
   if (membersError) {
-    return json({ error: "Failed to save conversation members" }, 500);
+    return json(
+      {
+        error: `Failed to save conversation members: ${membersError.message}`,
+      },
+      500
+    );
   }
 
   if (existingConversation) {
     return json({ conversation: { id: conversationId, existed: true } });
   }
 
-  const normalizedKeychain = keychain
-    .filter(
-      (entry: any): entry is {
-        userId: string;
-        deviceId: string;
-        encryptedKey: string;
-      } =>
-        typeof entry?.userId === "string" &&
-        typeof entry?.deviceId === "string" &&
-        typeof entry?.encryptedKey === "string"
-    )
-    .map((entry: { userId: string; deviceId: string; encryptedKey: string }) => ({
-      conversation_id: conversationId,
-      user_id: entry.userId,
-      device_id: entry.deviceId,
-      encrypted_key: entry.encryptedKey,
-      key_version: 1,
-    }));
-
   const { error: keyError } = await admin.from("messenger_conversation_keys").upsert(normalizedKeychain, {
     onConflict: "conversation_id,user_id,device_id",
   });
 
   if (keyError) {
-    return json({ error: "Failed to save conversation keys" }, 500);
+    return json({ error: `Failed to save conversation keys: ${keyError.message}` }, 500);
   }
 
   return json({ conversation: { id: conversationId } });
