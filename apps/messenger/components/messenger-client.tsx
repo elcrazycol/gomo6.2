@@ -528,11 +528,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       setMessages((current) => {
         const pendingMessages = current.filter((message) => message.localStatus === "pending");
         const pendingIdsToDrop = new Set<string>();
+        const pendingByServerId = new Map<
+          string,
+          { plainText: string; sentAt: string; peerDeliveredAt: string | null; peerReadAt: string | null }
+        >();
 
         for (const pendingMessage of pendingMessages) {
           const matchedServerMessage = decrypted.find((message) => {
             if (message.senderUserId !== bootstrap.me.id) return false;
-            if (message.plainText !== pendingMessage.plainText) return false;
 
             const pendingTime = new Date(pendingMessage.sentAt).getTime();
             const serverTime = new Date(message.sentAt).getTime();
@@ -541,17 +544,39 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
 
           if (matchedServerMessage) {
             pendingIdsToDrop.add(pendingMessage.id);
+            pendingByServerId.set(matchedServerMessage.id, {
+              plainText: pendingMessage.plainText,
+              sentAt: pendingMessage.sentAt,
+              peerDeliveredAt: pendingMessage.peerDeliveredAt,
+              peerReadAt: pendingMessage.peerReadAt,
+            });
           }
         }
 
         const withoutMatchedPending = current.filter((message) => !pendingIdsToDrop.has(message.id));
+        const normalizedDecrypted = decrypted.map((message) => {
+          const pendingMatch = pendingByServerId.get(message.id);
+          if (!pendingMatch) {
+            return message;
+          }
+
+          return {
+            ...message,
+            plainText:
+              message.plainText === "[Не удалось расшифровать сообщение на этом устройстве]"
+                ? pendingMatch.plainText
+                : message.plainText,
+            peerDeliveredAt: message.peerDeliveredAt ?? pendingMatch.peerDeliveredAt,
+            peerReadAt: message.peerReadAt ?? pendingMatch.peerReadAt,
+          };
+        });
 
         if (!options?.incremental) {
-          return decrypted;
+          return normalizedDecrypted;
         }
 
         const merged = new Map(withoutMatchedPending.map((message) => [message.id, message]));
-        for (const message of decrypted) {
+        for (const message of normalizedDecrypted) {
           merged.set(message.id, message);
         }
 
@@ -1224,7 +1249,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                   onMouseDown={(event) => event.preventDefault()}
                   onTouchStart={(event) => event.preventDefault()}
                 >
-                  {sending ? <PentagramLoader size="sm" /> : <SendHorizonal size={16} />}
+                  <SendHorizonal size={16} />
                 </button>
               </form>
             </>
