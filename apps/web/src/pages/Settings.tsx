@@ -16,9 +16,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
+import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette, Check } from "lucide-react";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 const defaultPrivacySettings = {
@@ -538,44 +537,72 @@ const Settings = () => {
                     </div>
                   </div>
 
-                  <RadioGroup value={colorTheme} onValueChange={(val) => handleColorThemeChange(val as ColorTheme)}>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {themeOptions.map((theme) => (
-                        <label
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {themeOptions.map((theme) => {
+                      const isSelected = colorTheme === theme.id;
+
+                      return (
+                        <button
                           key={theme.id}
-                          htmlFor={`theme-${theme.id}`}
-                          className={`group flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
-                            colorTheme === theme.id
-                              ? "border-primary bg-primary/10 shadow-[0_0_0_1px_hsl(var(--primary)/0.35)]"
-                              : "border-border bg-background/60 hover:border-primary/40 hover:bg-muted/40"
+                          type="button"
+                          onClick={() => handleColorThemeChange(theme.id)}
+                          className={`group relative overflow-hidden rounded-2xl border p-3 text-left transition-all duration-300 ${
+                            isSelected
+                              ? "border-primary bg-primary/10 shadow-[0_0_0_1px_hsl(var(--primary)/0.45),0_18px_40px_hsl(var(--primary)/0.18)] scale-[1.01]"
+                              : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/40 hover:shadow-lg"
                           }`}
                         >
-                          <RadioGroupItem value={theme.id} id={`theme-${theme.id}`} className="mt-1" />
-                          <div className="flex-1 space-y-2">
+                          <div
+                            className={`absolute inset-0 opacity-0 transition-opacity duration-300 ${
+                              isSelected ? "opacity-100" : "group-hover:opacity-100"
+                            }`}
+                            style={{
+                              background: `radial-gradient(circle at top right, ${theme.accent}22, transparent 45%)`,
+                            }}
+                          />
+                          <div className="relative space-y-2">
                             <div className="flex items-center justify-between gap-3">
                               <div>
                                 <div className="font-semibold leading-tight">{theme.name}</div>
                                 <div className="text-xs text-muted-foreground">{theme.description}</div>
                               </div>
-                              <span
-                                className="h-3 w-3 rounded-full border border-white/20"
-                                style={{ backgroundColor: theme.accent, boxShadow: `0 0 12px ${theme.accent}55` }}
-                              />
+                              <div className="flex items-center gap-2">
+                                {isSelected && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground">
+                                    <Check className="h-3 w-3" />
+                                    Выбрано
+                                  </span>
+                                )}
+                                <span
+                                  className={`h-3 w-3 rounded-full border border-white/20 transition-transform duration-300 ${
+                                    isSelected ? "scale-125" : "group-hover:scale-110"
+                                  }`}
+                                  style={{ backgroundColor: theme.accent, boxShadow: `0 0 16px ${theme.accent}66` }}
+                                />
+                              </div>
                             </div>
                             <div
-                              className="h-16 rounded-lg border border-white/10"
+                              className={`h-20 rounded-xl border border-white/10 transition-transform duration-300 ${
+                                isSelected ? "scale-[1.01]" : "group-hover:scale-[1.01]"
+                              }`}
                               style={{ background: theme.preview }}
                             >
-                              <div className="flex h-full items-end gap-2 p-2">
-                                <span className="h-2.5 w-16 rounded-full bg-white/80" />
-                                <span className="h-2.5 w-10 rounded-full" style={{ backgroundColor: theme.accent }} />
+                              <div className="flex h-full items-end justify-between gap-2 p-3">
+                                <div className="space-y-2">
+                                  <span className="block h-2.5 w-20 rounded-full bg-white/80" />
+                                  <span className="block h-2.5 w-12 rounded-full bg-white/55" />
+                                </div>
+                                <span
+                                  className="block h-9 w-9 rounded-xl border border-white/20"
+                                  style={{ backgroundColor: theme.accent, boxShadow: `0 0 20px ${theme.accent}55` }}
+                                />
                               </div>
                             </div>
                           </div>
-                        </label>
-                      ))}
-                    </div>
-                  </RadioGroup>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Font Panel */}
