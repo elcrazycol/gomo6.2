@@ -175,6 +175,7 @@ export const MessengerView = () => {
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
+  const shouldShowMobileChat = Boolean(selectedConversation) && (!isMobileViewport || !mobileSidebarOpen);
 
   const openConversation = (conversation: ConversationView) => {
     setSelectedConversationId(conversation.id);
@@ -931,9 +932,7 @@ export const MessengerView = () => {
       </div>
     );
   }
-
   const totalUnread = conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0);
-  const shouldShowMobileChat = Boolean(selectedConversation) && (!isMobileViewport || !mobileSidebarOpen);
 
   return (
     <div className="messenger-app">
