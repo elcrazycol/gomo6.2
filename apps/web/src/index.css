@@ -9,7 +9,12 @@
 .theme-pink,
 .theme-blue,
 .theme-blood,
-.theme-pumpkin {
+.theme-pumpkin,
+.theme-graphite,
+.theme-lavender,
+.theme-volcanic,
+.theme-mint,
+.theme-glitch {
   --plyr-color-main: hsl(var(--primary));
   --plyr-video-controls-background: hsl(var(--card) / 0.92);
   --plyr-audio-controls-background: hsl(var(--card) / 0.96);
@@ -21,7 +26,12 @@
 .theme-pink-dark,
 .theme-blue-dark,
 .theme-blood-dark,
-.theme-pumpkin-dark {
+.theme-pumpkin-dark,
+.theme-graphite-dark,
+.theme-lavender-dark,
+.theme-volcanic-dark,
+.theme-mint-dark,
+.theme-glitch-dark {
   --plyr-video-controls-background: hsl(var(--card) / 0.9);
   --plyr-audio-controls-background: hsl(var(--card) / 0.9);
   --plyr-audio-controls-text: hsl(var(--foreground));
@@ -117,7 +127,12 @@ html, body {
 .theme-pink,
 .theme-blue,
 .theme-blood,
-.theme-pumpkin {
+.theme-pumpkin,
+.theme-graphite,
+.theme-lavender,
+.theme-volcanic,
+.theme-mint,
+.theme-glitch {
   --messenger-color-purple: #a855f7;
   --messenger-color-gold: #eab308;
   --messenger-color-orange: #f97316;
@@ -133,7 +148,12 @@ html, body {
 .theme-pink-dark,
 .theme-blue-dark,
 .theme-blood-dark,
-.theme-pumpkin-dark {
+.theme-pumpkin-dark,
+.theme-graphite-dark,
+.theme-lavender-dark,
+.theme-volcanic-dark,
+.theme-mint-dark,
+.theme-glitch-dark {
   --messenger-color-purple: #c084fc;
   --messenger-color-gold: #facc15;
   --messenger-color-orange: #fb923c;
@@ -1091,6 +1111,216 @@ All colors MUST be HSL.
     --thread-hover: 30 20% 16%;
     --post-header: 30 20% 12%;
     --link: 30 85% 55%;
+  }
+
+  .theme-graphite {
+    --background: 0 0% 94%;
+    --foreground: 0 0% 14%;
+    --card: 0 0% 98%;
+    --card-foreground: 0 0% 14%;
+    --primary: 208 100% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 88%;
+    --secondary-foreground: 0 0% 18%;
+    --muted: 0 0% 91%;
+    --muted-foreground: 0 0% 36%;
+    --border: 0 0% 78%;
+    --input: 0 0% 78%;
+    --ring: 208 100% 42%;
+    --board-header: 0 0% 24%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 90%;
+    --post-header: 0 0% 92%;
+    --link: 208 100% 42%;
+  }
+
+  .theme-graphite-dark {
+    --background: 0 0% 12%;
+    --foreground: 0 0% 90%;
+    --card: 0 0% 18%;
+    --card-foreground: 0 0% 92%;
+    --primary: 208 100% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 24%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 68%;
+    --border: 0 0% 24%;
+    --input: 0 0% 24%;
+    --ring: 208 100% 42%;
+    --board-header: 0 0% 24%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 24%;
+    --post-header: 0 0% 16%;
+    --link: 208 100% 48%;
+  }
+
+  .theme-lavender {
+    --background: 264 32% 95%;
+    --foreground: 264 22% 16%;
+    --card: 264 38% 98%;
+    --card-foreground: 264 22% 16%;
+    --primary: 265 100% 83%;
+    --primary-foreground: 264 32% 16%;
+    --secondary: 163 70% 90%;
+    --secondary-foreground: 264 22% 18%;
+    --muted: 264 32% 91%;
+    --muted-foreground: 264 12% 42%;
+    --border: 264 26% 82%;
+    --input: 264 26% 82%;
+    --ring: 265 100% 83%;
+    --board-header: 264 38% 38%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 264 30% 90%;
+    --post-header: 264 30% 93%;
+    --link: 265 78% 56%;
+  }
+
+  .theme-lavender-dark {
+    --background: 261 25% 12%;
+    --foreground: 264 40% 92%;
+    --card: 261 22% 16%;
+    --card-foreground: 264 40% 92%;
+    --primary: 265 100% 83%;
+    --primary-foreground: 264 32% 14%;
+    --secondary: 163 100% 84%;
+    --secondary-foreground: 264 30% 14%;
+    --muted: 261 18% 19%;
+    --muted-foreground: 264 18% 68%;
+    --border: 261 18% 23%;
+    --input: 261 18% 23%;
+    --ring: 265 100% 83%;
+    --board-header: 261 26% 20%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 261 18% 20%;
+    --post-header: 261 18% 15%;
+    --link: 265 100% 83%;
+  }
+
+  .theme-volcanic {
+    --background: 24 10% 93%;
+    --foreground: 24 12% 14%;
+    --card: 24 12% 97%;
+    --card-foreground: 24 12% 14%;
+    --primary: 18 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 24 10% 86%;
+    --secondary-foreground: 24 12% 16%;
+    --muted: 24 8% 89%;
+    --muted-foreground: 24 6% 40%;
+    --border: 24 8% 78%;
+    --input: 24 8% 78%;
+    --ring: 18 100% 50%;
+    --board-header: 24 10% 18%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 24 8% 87%;
+    --post-header: 24 8% 91%;
+    --link: 18 100% 44%;
+  }
+
+  .theme-volcanic-dark {
+    --background: 0 0% 12%;
+    --foreground: 0 0% 92%;
+    --card: 0 0% 14%;
+    --card-foreground: 0 0% 92%;
+    --primary: 18 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 20%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 17%;
+    --muted-foreground: 0 0% 63%;
+    --border: 0 0% 22%;
+    --input: 0 0% 22%;
+    --ring: 18 100% 50%;
+    --board-header: 0 0% 16%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 19%;
+    --post-header: 0 0% 14%;
+    --link: 18 100% 50%;
+  }
+
+  .theme-mint {
+    --background: 140 100% 97%;
+    --foreground: 145 35% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 145 35% 14%;
+    --primary: 158 100% 50%;
+    --primary-foreground: 145 35% 12%;
+    --secondary: 66 100% 74%;
+    --secondary-foreground: 145 35% 16%;
+    --muted: 140 65% 94%;
+    --muted-foreground: 145 12% 38%;
+    --border: 145 32% 84%;
+    --input: 145 32% 84%;
+    --ring: 158 100% 50%;
+    --board-header: 149 55% 90%;
+    --board-header-foreground: 145 45% 18%;
+    --thread-hover: 140 75% 95%;
+    --post-header: 140 75% 96%;
+    --link: 158 100% 38%;
+  }
+
+  .theme-mint-dark {
+    --background: 150 18% 10%;
+    --foreground: 145 36% 92%;
+    --card: 150 16% 13%;
+    --card-foreground: 145 36% 92%;
+    --primary: 158 100% 50%;
+    --primary-foreground: 145 40% 12%;
+    --secondary: 66 90% 68%;
+    --secondary-foreground: 145 40% 14%;
+    --muted: 150 14% 17%;
+    --muted-foreground: 145 12% 68%;
+    --border: 150 12% 22%;
+    --input: 150 12% 22%;
+    --ring: 158 100% 50%;
+    --board-header: 150 18% 16%;
+    --board-header-foreground: 145 36% 92%;
+    --thread-hover: 150 12% 19%;
+    --post-header: 150 12% 14%;
+    --link: 158 100% 56%;
+  }
+
+  .theme-glitch {
+    --background: 0 0% 95%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --primary: 186 100% 50%;
+    --primary-foreground: 0 0% 8%;
+    --secondary: 301 100% 50%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 92%;
+    --muted-foreground: 0 0% 38%;
+    --border: 0 0% 80%;
+    --input: 0 0% 80%;
+    --ring: 301 100% 50%;
+    --board-header: 0 0% 8%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 90%;
+    --post-header: 0 0% 93%;
+    --link: 301 100% 42%;
+  }
+
+  .theme-glitch-dark {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 94%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 94%;
+    --primary: 186 100% 50%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 301 100% 50%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 68%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 301 100% 50%;
+    --board-header: 0 0% 9%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 13%;
+    --post-header: 0 0% 10%;
+    --link: 186 100% 56%;
   }
   
   #lovable-badge {

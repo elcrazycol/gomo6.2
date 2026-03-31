@@ -12,6 +12,7 @@ interface UserBadgeProps {
   showOutline?: boolean;
   disableLink?: boolean;
   disableHoverCard?: boolean;
+  stopPropagationOnClick?: boolean;
 }
 
 export const UserBadge = ({
@@ -21,6 +22,7 @@ export const UserBadge = ({
   showOutline = true,
   disableLink = false,
   disableHoverCard = false,
+  stopPropagationOnClick = false,
 }: UserBadgeProps) => {
   const [color, setColor] = useState<string>("");
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
@@ -138,6 +140,7 @@ export const UserBadge = ({
       <Link
         to={`/profile/${userId}`}
         className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden"
+        onClick={stopPropagationOnClick ? (event) => event.stopPropagation() : undefined}
       >
         {usernameContent}
       </Link>

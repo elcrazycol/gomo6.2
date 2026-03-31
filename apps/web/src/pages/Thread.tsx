@@ -1114,7 +1114,7 @@ const Thread = () => {
         )}
             <div className="mb-4 flex justify-between items-center">
           <Link to={`${pathPrefix}/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
-            ← Назад к доске
+            {thread.boards.is_gomosub ? thread.boards.name : "← Назад к доске"}
           </Link>
           {user && (
             <Button
