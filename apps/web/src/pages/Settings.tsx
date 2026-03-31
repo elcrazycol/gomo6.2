@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette, Check } from "lucide-react";
+import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 const defaultPrivacySettings = {
@@ -548,8 +548,8 @@ const Settings = () => {
                           onClick={() => handleColorThemeChange(theme.id)}
                           className={`group relative overflow-hidden rounded-2xl border p-3 text-left transition-all duration-300 ${
                             isSelected
-                              ? "border-primary bg-primary/10 shadow-[0_0_0_1px_hsl(var(--primary)/0.45),0_18px_40px_hsl(var(--primary)/0.18)] scale-[1.01]"
-                              : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/40 hover:shadow-lg"
+                              ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_hsl(var(--primary)/0.22),0_10px_28px_hsl(var(--primary)/0.1)]"
+                              : "border-border bg-background/60 hover:-translate-y-0.5 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md"
                           }`}
                         >
                           <div
@@ -566,24 +566,16 @@ const Settings = () => {
                                 <div className="font-semibold leading-tight">{theme.name}</div>
                                 <div className="text-xs text-muted-foreground">{theme.description}</div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                {isSelected && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground">
-                                    <Check className="h-3 w-3" />
-                                    Выбрано
-                                  </span>
-                                )}
-                                <span
-                                  className={`h-3 w-3 rounded-full border border-white/20 transition-transform duration-300 ${
-                                    isSelected ? "scale-125" : "group-hover:scale-110"
-                                  }`}
-                                  style={{ backgroundColor: theme.accent, boxShadow: `0 0 16px ${theme.accent}66` }}
-                                />
-                              </div>
+                              <span
+                                className={`h-3 w-3 rounded-full border border-white/20 transition-all duration-300 ${
+                                  isSelected ? "scale-110 ring-4 ring-primary/15" : "group-hover:scale-105"
+                                }`}
+                                style={{ backgroundColor: theme.accent, boxShadow: isSelected ? `0 0 14px ${theme.accent}44` : `0 0 10px ${theme.accent}22` }}
+                              />
                             </div>
                             <div
                               className={`h-20 rounded-xl border border-white/10 transition-transform duration-300 ${
-                                isSelected ? "scale-[1.01]" : "group-hover:scale-[1.01]"
+                                isSelected ? "scale-[1.005]" : "group-hover:scale-[1.005]"
                               }`}
                               style={{ background: theme.preview }}
                             >
