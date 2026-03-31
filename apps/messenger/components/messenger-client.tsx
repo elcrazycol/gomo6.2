@@ -398,7 +398,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const markSelectedConversationAsRead = async () => {
     const conversation = selectedConversationRef.current;
     const lastMessage = messagesRef.current.at(-1);
-    if (!conversation || !lastMessage || lastReadMessageIdRef.current === lastMessage.id) {
+    if (
+      !conversation ||
+      !lastMessage ||
+      lastMessage.localStatus === "pending" ||
+      lastMessage.id.startsWith("local-") ||
+      lastReadMessageIdRef.current === lastMessage.id
+    ) {
       return;
     }
 
@@ -773,6 +779,30 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           unreadCount: next.unread_count_cache ?? current.unreadCount,
           lastReadAt: next.last_read_at ?? current.lastReadAt,
         }));
+      }
+    );
+
+    channel.on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "chat_message_envelopes",
+        filter: `recipient_user_id=eq.${bootstrap.me.id}`,
+      },
+      (payload) => {
+        const next = payload.new as { message_id?: string; recipient_user_id?: string } | null;
+        if (!next?.message_id) return;
+        if (messagesRef.current.some((message) => message.id === next.message_id)) {
+          return;
+        }
+
+        if (isConversationVisible() && selectedConversationRef.current) {
+          scheduleMessageRefresh();
+          return;
+        }
+
+        void loadConversations().catch(() => {});
       }
     );
 
