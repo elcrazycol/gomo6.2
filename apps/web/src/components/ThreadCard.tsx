@@ -39,6 +39,7 @@ interface ThreadCardProps {
   currentUsername: string;
   currentUserColor?: string;
   showPreview?: boolean;
+  hideTimestampOnCompactMobile?: boolean;
 }
 
 interface RecentPost {
@@ -158,7 +159,8 @@ const ThreadCard = ({
   currentUserId,
   currentUsername,
   currentUserColor,
-  showPreview = true
+  showPreview = true,
+  hideTimestampOnCompactMobile = false,
 }: ThreadCardProps) => {
   const navigate = useNavigate();
   const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
@@ -362,7 +364,7 @@ const ThreadCard = ({
               >
                 в {boardPrefix || ""}/{thread.boards.slug}/
               </Link>
-              <span className="text-xs text-muted-foreground">
+              <span className={`text-xs text-muted-foreground ${hideTimestampOnCompactMobile ? "compact-mobile-hide" : ""}`}>
                 {formatDistanceToNow(new Date(thread.created_at), {
                   locale: ru,
                   addSuffix: true,

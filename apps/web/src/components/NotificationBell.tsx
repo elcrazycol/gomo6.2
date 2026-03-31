@@ -125,7 +125,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
 
       {showCard && (
         <div
-          className="absolute top-full right-0 mt-1 z-50 w-80 bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg p-4"
+          className="absolute top-full right-0 mt-1 z-50 w-80 bg-background/95 text-foreground backdrop-blur-md border border-border rounded-lg shadow-lg p-4"
           onMouseEnter={() => {
             if (closeTimeoutRef.current) {
               clearTimeout(closeTimeoutRef.current);
@@ -180,13 +180,13 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
                             });
                         }
                       }}
-                      className={`block p-3 border transition-all duration-200 rounded relative ${
+                      className={`block p-3 border text-foreground transition-all duration-200 rounded relative ${
                         !notif.is_read
                           ? "bg-muted/30 border-muted-foreground/20 border-l-2 border-l-muted-foreground/40"
                           : "border-border hover:bg-primary/10 hover:border-primary/20"
                       }`}
                     >
-                      <p className="font-bold text-sm">{notif.title}</p>
+                      <p className="font-bold text-sm text-foreground">{notif.title}</p>
                       <p className="text-xs text-muted-foreground">{notif.message}</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         {formatDistanceToNow(new Date(notif.created_at), {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,8 @@ const themeOptions: Array<{
   { id: "volcanic", name: "Вулканический пепел", description: "Антрацит и тлеющий оранжевый", accent: "#FF4D00", preview: "linear-gradient(135deg, #1F1F1F 0%, #2A2422 50%, #FF4D00 140%)" },
   { id: "mint", name: "Мятный лимонад", description: "Светло, плоско, свежо", accent: "#00FFA3", preview: "linear-gradient(135deg, #F0FFF4 0%, #E6FFF1 55%, #F5FF7A 120%)" },
   { id: "glitch", name: "Глитч-кор", description: "RGB-двоение и цифровой шум", accent: "#00FFFF", preview: "linear-gradient(135deg, #121212 0%, #1D1D1D 50%, #2A1030 100%)" },
+  { id: "acid", name: "Кислотный шторм", description: "Неон, кислотный glow, киберпанк", accent: "#39FF14", preview: "linear-gradient(135deg, #000000 0%, #081507 45%, #FF10F0 130%)" },
+  { id: "void", name: "Пустота", description: "Только черный, белый и воздух", accent: "#FFFFFF", preview: "linear-gradient(135deg, #000000 0%, #101010 45%, #4A4A4A 100%)" },
   { id: "cannabis", name: "Зелёная каннабиоидная", description: "Старый фирменный зелёный", accent: "#3FA34D", preview: "linear-gradient(135deg, #1E2A1E 0%, #315C31 100%)" },
   { id: "pink", name: "Розовая няшная", description: "Мягкая и яркая", accent: "#FF4FA3", preview: "linear-gradient(135deg, #2A1722 0%, #7C2B5B 100%)" },
   { id: "blue", name: "Синяя депрессивная", description: "Холодная и спокойная", accent: "#4D7CFE", preview: "linear-gradient(135deg, #172033 0%, #27496D 100%)" },
@@ -69,6 +71,7 @@ const themeOptions: Array<{
 
 const Settings = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -116,6 +119,11 @@ const Settings = () => {
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
   });
+  const settingsTabs = useMemo(() => ["general", "appearance", "profile", "account", "privacy"] as const, []);
+  const currentTab = useMemo(() => {
+    const pathPart = location.pathname.split("/")[2] || "appearance";
+    return settingsTabs.includes(pathPart as any) ? pathPart : "appearance";
+  }, [location.pathname, settingsTabs]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -420,6 +428,10 @@ const Settings = () => {
     localStorage.setItem('sender-display-type', value);
   };
 
+  const handleTabChange = (value: string) => {
+    navigate(`/settings/${value}`);
+  };
+
   // Initialize theme on component mount (only update if changed)
   useEffect(() => {
     applyTheme(colorTheme, isDarkMode);
@@ -486,7 +498,7 @@ const Settings = () => {
               <p className="text-muted-foreground">Настройки профиля и приложения</p>
             </div>
 
-            <Tabs defaultValue="appearance" className="w-full">
+            <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
               <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-5 h-auto p-1">
                 <TabsTrigger value="general" className="text-xs sm:text-sm px-2 py-2">Основные</TabsTrigger>
                 <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">Внешний вид</TabsTrigger>
