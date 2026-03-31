@@ -201,6 +201,12 @@ export const MessengerView = () => {
     [conversations, selectedConversationId]
   );
 
+  const openConversation = (conversation: ConversationView) => {
+    setSelectedConversationId(conversation.id);
+    setMobileSidebarOpen(false);
+    updateSearch(conversation.id, conversation.otherUser.id);
+  };
+
   useEffect(() => {
     meRef.current = me;
   }, [me]);
@@ -225,6 +231,12 @@ export const MessengerView = () => {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    if (targetUserId) return;
+    setMobileSidebarOpen(true);
+  }, [isMobileViewport, targetUserId]);
 
   const updateSearch = (conversationId: string | null, userId: string | null) => {
     const next = new URLSearchParams(searchParams);
@@ -399,19 +411,23 @@ export const MessengerView = () => {
 
       setConversations(views);
       setSelectedConversationId((current) => {
-        if (requestedConversationId && views.some((conversation) => conversation.id === requestedConversationId)) {
-          return requestedConversationId;
+        if (targetUserId) {
+          return views.find((conversation) => conversation.otherUser.id === targetUserId)?.id ?? current ?? null;
         }
 
         if (current && views.some((conversation) => conversation.id === current)) {
           return current;
         }
 
-        if (targetUserId) {
-          return views.find((conversation) => conversation.otherUser.id === targetUserId)?.id ?? views[0]?.id ?? null;
+        if (!isMobileViewport && requestedConversationId && views.some((conversation) => conversation.id === requestedConversationId)) {
+          return requestedConversationId;
         }
 
-        return views[0]?.id ?? null;
+        if (!isMobileViewport) {
+          return views[0]?.id ?? null;
+        }
+
+        return null;
       });
 
       return views;
@@ -710,6 +726,7 @@ export const MessengerView = () => {
           }
         } else {
           setMobileSidebarOpen(true);
+          setSelectedConversationId(null);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Не удалось инициализировать messenger";
@@ -743,11 +760,6 @@ export const MessengerView = () => {
       setSelectedConversationId(conversations[0]?.id ?? null);
     }
   }, [conversations, me?.id, selectedConversationId]);
-
-  useEffect(() => {
-    if (!selectedConversation) return;
-    updateSearch(selectedConversation.id, selectedConversation.otherUser.id);
-  }, [selectedConversation?.id, selectedConversation?.otherUser.id]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -969,11 +981,7 @@ export const MessengerView = () => {
                   key={conversation.id}
                   type="button"
                   className={`conversation-card ${conversation.id === selectedConversationId ? "is-active" : ""}`}
-                  onClick={() => {
-                    setSelectedConversationId(conversation.id);
-                    setMobileSidebarOpen(false);
-                    updateSearch(conversation.id, conversation.otherUser.id);
-                  }}
+                  onClick={() => openConversation(conversation)}
                 >
                   <div className="avatar">
                     {conversation.otherUser.avatar_url ? (
