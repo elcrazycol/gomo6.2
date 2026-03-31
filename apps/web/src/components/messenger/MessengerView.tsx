@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { UserBadge } from "@/components/UserBadge";
 import { supabase } from "@/integrations/supabase/client";
 import {
   createClientMessageId,
@@ -114,33 +115,6 @@ const mergeMessages = (current: MessageView[], normalized: MessageView[], userId
   return merged;
 };
 
-const parseCssToStyle = (css: string | null) => {
-  const style: Record<string, string> = {};
-  if (!css) return style;
-
-  css
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .forEach((declaration) => {
-      const separatorIndex = declaration.indexOf(":");
-      if (separatorIndex === -1) return;
-      const property = declaration.slice(0, separatorIndex).trim();
-      const value = declaration.slice(separatorIndex + 1).trim();
-      if (!property || !value) return;
-
-      const reactProperty = property
-        .replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
-        .replace(/^webkit/, "Webkit")
-        .replace(/^moz/, "Moz")
-        .replace(/^ms/, "Ms");
-
-      style[reactProperty] = value;
-    });
-
-  return style;
-};
-
 const formatDate = (value: string | null) => {
   if (!value) return "сейчас";
   return new Intl.DateTimeFormat("ru-RU", {
@@ -242,6 +216,19 @@ export const MessengerView = () => {
     setSelectedConversationId(null);
     setMobileSidebarOpen(true);
   }, [isMobileViewport, requestedConversationId, targetUserId]);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+
+    const shouldHideChrome = isMobileViewport && shouldShowMobileChat;
+    document.body.classList.toggle("messenger-mobile-chat-active", shouldHideChrome);
+    window.dispatchEvent(new CustomEvent("gomo6:messenger-mobile-chat", { detail: shouldHideChrome }));
+
+    return () => {
+      document.body.classList.remove("messenger-mobile-chat-active");
+      window.dispatchEvent(new CustomEvent("gomo6:messenger-mobile-chat", { detail: false }));
+    };
+  }, [isMobileViewport, shouldShowMobileChat]);
 
   const updateSearch = (conversationId: string | null, userId: string | null) => {
     const next = new URLSearchParams(searchParams);
@@ -1030,7 +1017,6 @@ export const MessengerView = () => {
                     aria-label="Назад к диалогам"
                   >
                     <ArrowLeft size={16} />
-                    <span>Чаты</span>
                   </button>
                   <div className="avatar small">
                     {selectedConversation.otherUser.avatar_url ? (
@@ -1043,15 +1029,13 @@ export const MessengerView = () => {
                     )}
                   </div>
                   <div>
-                    <strong>
-                      <Link
-                        to={`/profile/${selectedConversation.otherUser.id}`}
-                        className="chat-profile-link"
-                        style={parseCssToStyle(null)}
-                      >
-                        {selectedConversation.otherUser.username}
-                      </Link>
-                    </strong>
+                    <div className="chat-user-badge">
+                      <UserBadge
+                        userId={selectedConversation.otherUser.id}
+                        username={selectedConversation.otherUser.username}
+                        showOutline={false}
+                      />
+                    </div>
                     <p className="presence-copy">
                       {formatPresence(selectedConversation.otherUser.is_online, selectedConversation.otherUser.last_seen_at)}
                     </p>

@@ -71,6 +71,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [desktopSearchExpanded, setDesktopSearchExpanded] = useState(false);
   const [searchResults, setSearchResults] = useState<GlobalSearchResult>({ users: [], gomosubs: [], threads: [] });
+  const [hideMessengerChrome, setHideMessengerChrome] = useState(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { scrollY } = useScroll();
@@ -805,8 +806,24 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     setSearchOpen(false);
   };
 
+  useEffect(() => {
+    const syncMessengerChrome = () => {
+      if (typeof document === "undefined") return;
+      setHideMessengerChrome(document.body.classList.contains("messenger-mobile-chat-active"));
+    };
+
+    const onMessengerChromeChange = () => syncMessengerChrome();
+    syncMessengerChrome();
+    window.addEventListener("gomo6:messenger-mobile-chat", onMessengerChromeChange as EventListener);
+
+    return () => {
+      window.removeEventListener("gomo6:messenger-mobile-chat", onMessengerChromeChange as EventListener);
+    };
+  }, []);
+
   // Check if current page is special (no header/footer)
   const isSpecialPage = location.pathname.startsWith('/auth');
+  const hideChrome = isSpecialPage || hideMessengerChrome;
 
   if (isSpecialPage) {
     return <>{children}</>;
@@ -816,7 +833,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
   return (
     <div className="bg-background min-h-screen flex flex-col">
+      {!hideChrome ? (
       <motion.header
+        data-app-layout-header="true"
         className="bg-board-header text-board-header-foreground p-2 sm:p-3 border-b border-border fixed top-0 left-0 right-0 z-50"
         initial={{ y: 0 }}
         animate={{ y: isHeaderVisible ? 0 : -100 }}
@@ -1009,8 +1028,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         )}
         </div>
       </motion.header>
+      ) : null}
 
-      {nowPlaying && !nowPlayingHidden && (
+      {!hideChrome && nowPlaying && !nowPlayingHidden && (
         <motion.div
           className="fixed left-0 right-0 z-40 px-2 sm:px-4"
           initial={false}
@@ -1191,14 +1211,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         </motion.div>
       )}
 
-      <div className="flex-1 min-h-0" style={{ paddingTop: contentPad }}>
+      <div className="flex-1 min-h-0" style={{ paddingTop: hideChrome ? 0 : contentPad }}>
         {children}
       </div>
 
-      <div className="mt-auto">
+      {!hideChrome ? (
+      <div className="mt-auto" data-app-layout-footer="true">
         <Footer />
         <CookieBanner />
       </div>
+      ) : null}
     </div>
   );
 };

@@ -368,30 +368,27 @@ html, body {
   z-index: 2;
 }
 
-.chat-profile-link {
-  color: inherit;
-  text-decoration: none;
+.chat-user-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
 
-.chat-profile-link:hover {
-  text-decoration: underline;
+.chat-user-badge a,
+.chat-user-badge span {
+  min-width: 0;
 }
 
 .messenger-back-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  width: auto;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
   flex: 0 0 auto;
-  padding: 7px 10px;
+  padding: 0;
   border-radius: 999px;
   background: hsl(var(--background));
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.messenger-back-button span {
-  line-height: 1;
 }
 
 .presence-copy {
@@ -675,8 +672,8 @@ html, body {
   }
 
   .messenger-back-button {
-    padding: 6px 9px;
-    font-size: 11px;
+    width: 32px;
+    height: 32px;
   }
 
   .chat-topbar strong {
