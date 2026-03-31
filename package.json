@@ -15,7 +15,6 @@
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "dev:web": "npm run dev --workspace @gomo6/web",
-    "dev:messenger": "npm run dev --workspace @gomo6/messenger",
     "lint": "turbo run lint"
   },
   "overrides": {
