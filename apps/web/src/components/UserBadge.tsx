@@ -11,9 +11,17 @@ interface UserBadgeProps {
   isAnonymous?: boolean;
   showOutline?: boolean;
   disableLink?: boolean;
+  disableHoverCard?: boolean;
 }
 
-export const UserBadge = ({ userId, username, isAnonymous, showOutline = true, disableLink = false }: UserBadgeProps) => {
+export const UserBadge = ({
+  userId,
+  username,
+  isAnonymous,
+  showOutline = true,
+  disableLink = false,
+  disableHoverCard = false,
+}: UserBadgeProps) => {
   const [color, setColor] = useState<string>("");
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
 
@@ -119,14 +127,14 @@ export const UserBadge = ({ userId, username, isAnonymous, showOutline = true, d
 
   if (disableLink) {
     return (
-      <ProfileHoverCard userId={userId}>
+      <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
         {usernameContent}
       </ProfileHoverCard>
     );
   }
 
   return (
-    <ProfileHoverCard userId={userId}>
+    <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
       <Link
         to={`/profile/${userId}`}
         className="inline-flex items-center gap-1"

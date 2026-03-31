@@ -10,6 +10,7 @@ import { processProfileBio } from "@/utils/profileBio";
 interface ProfileHoverCardProps {
   userId: string;
   children: React.ReactNode;
+  disabled?: boolean;
 }
 
 const getColorClass = (color: string): string => {
@@ -26,7 +27,7 @@ const getColorClass = (color: string): string => {
   return colorClasses[color] || "text-foreground";
 };
 
-export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) => {
+export const ProfileHoverCard = ({ userId, children, disabled = false }: ProfileHoverCardProps) => {
   const [showCard, setShowCard] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -90,12 +91,12 @@ export const ProfileHoverCard = ({ userId, children }: ProfileHoverCardProps) =>
     }
   }, [showCard, userId]);
 
-  const childrenWithHover = cloneElement(children as React.ReactElement, {
+  const childrenWithHover = cloneElement(children as React.ReactElement, disabled ? {} : {
     onMouseEnter: () => setShowCard(true),
     onMouseLeave: () => setShowCard(false),
   });
 
-  if (!showCard || !profile) {
+  if (disabled || !showCard || !profile) {
     return (
       <div className="relative">
         {childrenWithHover}
