@@ -985,7 +985,13 @@ export const MessengerView = () => {
                   </div>
                   <div className="conversation-copy">
                     <div className="conversation-head">
-                      <strong>{conversation.otherUser.username}</strong>
+                      <div className="conversation-user-badge">
+                        <UserBadge
+                          userId={conversation.otherUser.id}
+                          username={conversation.otherUser.username}
+                          showOutline={false}
+                        />
+                      </div>
                       <span>{formatDate(conversation.lastMessageAt)}</span>
                     </div>
                     <div className="conversation-meta">

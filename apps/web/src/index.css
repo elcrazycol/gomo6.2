@@ -312,6 +312,15 @@ html, body {
   min-width: 0;
 }
 
+.conversation-user-badge {
+  min-width: 0;
+}
+
+.conversation-user-badge a,
+.conversation-user-badge span {
+  min-width: 0;
+}
+
 .conversation-head strong,
 .chat-topbar strong {
   display: block;
