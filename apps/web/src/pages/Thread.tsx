@@ -55,13 +55,11 @@ const getAtmosphereTagLabel = (value: string) => {
   };
   return labels[value] || value;
 };
-import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { MentionLink } from "@/components/MentionLink";
 import { LinkButton } from "@/components/LinkButton";
 import { EmojiInline } from "@/components/EmojiInline";
 import { CensorBlur } from "@/components/CensorBlur";
-import { UserMentions } from "@/components/UserMentions";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { SpoilerText } from "@/components/SpoilerText";
 import { EmojiPicker } from "@/components/EmojiPicker";
@@ -70,7 +68,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { RichTextEditor, type RichTextEditorHandle } from "@/components/RichTextEditor";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
@@ -196,6 +194,7 @@ const Thread = () => {
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [content, setContent] = useState("");
+  const [contentJson, setContentJson] = useState<unknown>(null);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -216,6 +215,7 @@ const Thread = () => {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [editContentJson, setEditContentJson] = useState<unknown>(null);
   const [banUserId, setBanUserId] = useState<string | null>(null);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
@@ -277,8 +277,7 @@ const Thread = () => {
 
     return elements;
   };
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const editorRef = useRef<RichTextEditorHandle>(null);
+  const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const isNearBottom = useCallback(() => {
     const scrollEl = document.scrollingElement || document.documentElement;
@@ -834,6 +833,7 @@ const Thread = () => {
         thread_id: threadId,
         user_id: user.id,
         content: content.trim(),
+        content_json: contentJson,
         image_url: imageUrlForDb, // Keep for backward compatibility
         image_urls: imageUrlsJson, // New field for multiple images
         attachments: attachments.length > 0 ? attachments : null,
@@ -848,6 +848,7 @@ const Thread = () => {
       }
 
       setContent("");
+      setContentJson(null);
       setImageUrls([]);
       setAttachments([]);
       setReplyingTo(null);
@@ -952,7 +953,7 @@ const Thread = () => {
 
     const { error } = await supabase
       .from("posts")
-      .update({ content: editContent.trim() })
+      .update({ content: editContent.trim(), content_json: editContentJson })
       .eq("id", editingPostId);
     
     if (error) {
@@ -961,6 +962,7 @@ const Thread = () => {
       toast.success("Пост изменен");
       setEditingPostId(null);
       setEditContent("");
+      setEditContentJson(null);
       loadPosts();
     }
   };
@@ -989,29 +991,6 @@ const Thread = () => {
       setBanUserId(null);
       setBanReason("");
     }
-  };
-
-  const handleFormatText = (prefix: string, suffix: string) => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
-    const newText =
-      content.substring(0, start) +
-      prefix +
-      selectedText +
-      suffix +
-      content.substring(end);
-
-    setContent(newText);
-
-    // Restore cursor position after formatting
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
-    }, 0);
   };
 
   const handleEmojiSelect = (emojiCode: string) => {
@@ -1252,6 +1231,7 @@ const Thread = () => {
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
               <ProcessedContent
                 content={thread.content}
+                contentJson={(thread as any).content_json}
                 currentUserId={user?.id || null}
                 isAdmin={isAdmin}
                 currentUsername={currentUserUsername}
@@ -1410,6 +1390,7 @@ const Thread = () => {
                       onEdit={() => {
                         setEditingPostId(post.id);
                         setEditContent(post.content);
+                        setEditContentJson((post as any).content_json ?? null);
                       }}
                       onDelete={() => handleDeletePost(post.id)}
                       onReport={() => setReportingPost(post.id)}
@@ -1422,6 +1403,7 @@ const Thread = () => {
                       onEdit={() => {
                         setEditingPostId(post.id);
                         setEditContent(post.content);
+                        setEditContentJson((post as any).content_json ?? null);
                       }}
                       onBan={() => setBanUserId(post.user_id!)}
                     />
@@ -1483,11 +1465,14 @@ const Thread = () => {
               }, thread?.id || threadId || slug || "thread")}
               {editingPostId === post.id ? (
                 <div className="space-y-2">
-                  <Textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    rows={4}
-                    className="text-sm"
+                  <GomoRichEditor
+                    contentJson={(post as any).content_json}
+                    legacyContent={post.content}
+                    onChange={({ json, text }) => {
+                      setEditContentJson(json);
+                      setEditContent(text);
+                    }}
+                    minHeightClassName="min-h-[120px]"
                   />
                   <div className="flex gap-2">
                     <Button onClick={handleEditPost} size="sm">Сохранить</Button>
@@ -1495,6 +1480,7 @@ const Thread = () => {
                       onClick={() => {
                         setEditingPostId(null);
                         setEditContent("");
+                        setEditContentJson(null);
                       }} 
                       variant="secondary" 
                       size="sm"
@@ -1510,6 +1496,7 @@ const Thread = () => {
                   ) : (
                     <ProcessedContent
                       content={post.content}
+                      contentJson={(post as any).content_json}
                       currentUserId={user?.id || null}
                       isAdmin={isAdmin}
                       currentUsername={currentUserUsername}
@@ -1534,7 +1521,7 @@ const Thread = () => {
                       setIsInputPanelVisible(true);
                       // Focus textarea after a short delay to ensure panel is visible
                       setTimeout(() => {
-                        textareaRef.current?.focus();
+                        editorRef.current?.focus();
                       }, 300);
                     }}
                   >
@@ -1739,16 +1726,11 @@ const Thread = () => {
                       </Button>
                     </div>
                     
-                    {/* Formatting toolbar - only in preview mode */}
-                    <div>
-                      <InlineFormattingToolbar editorRef={editorRef} />
-                    </div>
-                    
                     {/* Preview */}
                     <div className="bg-card border border-border rounded-lg p-2 sm:p-3 min-h-[150px] sm:min-h-[200px] max-h-[250px] sm:max-h-[300px] overflow-y-auto">
                       <div className="text-xs sm:text-sm break-words">
                           {content ? (
-                            renderPreviewContent(content)
+                            <ProcessedContent content={content} contentJson={contentJson} currentUserId={user?.id || null} isAdmin={isAdmin} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={user?.id || null} authorUsername={currentUserUsername} />
                           ) : (
                             <span className="text-muted-foreground">Начните писать сообщение...</span>
                           )}
@@ -1791,28 +1773,19 @@ const Thread = () => {
                     className="flex-1 min-w-0"
                     onFocusCapture={() => setIsInputPanelVisible(true)}
                   >
-                    <RichTextEditor
+                    <GomoRichEditor
                       ref={editorRef}
-                      value={content}
-                      onChange={setContent}
+                      contentJson={contentJson}
+                      legacyContent={content}
+                      onChange={({ json, text }) => {
+                        setContentJson(json);
+                        setContent(text);
+                      }}
                       onSubmit={() => handleSubmitPost()}
                       placeholder="Напишите сообщение…"
-                      className={`text-sm sm:text-base ${isExpandedView ? 'min-h-[200px] sm:min-h-[300px]' : 'min-h-[60px] sm:min-h-[80px]'}`}
+                      minHeightClassName={isExpandedView ? 'min-h-[200px] sm:min-h-[300px]' : 'min-h-[60px] sm:min-h-[80px]'}
                     />
                   </div>
-                  <UserMentions
-                    content={content}
-                    onContentChange={setContent}
-                    onUserSelect={() => {}}
-                    textareaRef={textareaRef}
-                    getContent={() => editorRef.current?.getValue() ?? content}
-                    setContent={(v) => setContent(v)}
-                    getCursorPos={() => editorRef.current?.getSelectionStart() ?? 0}
-                    getCursorRect={() => editorRef.current?.getCursorRect() ?? null}
-                    getEditorEl={() => editorRef.current?.getElement() ?? null}
-                    focusInput={() => editorRef.current?.focus()}
-                    setCursorPos={(pos) => editorRef.current?.setSelectionStart(pos)}
-                  />
                   <EmojiPicker
                     onEmojiSelect={handleEmojiSelect}
                     triggerRef={emojiButtonRef}

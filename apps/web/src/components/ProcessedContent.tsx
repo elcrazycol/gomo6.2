@@ -4,9 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibility";
 import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";
+import { RichContentRenderer } from "./RichContentRenderer";
+import { isLegacyVisibilityContent } from "@/utils/lexicalContent";
 
 interface ProcessedContentProps {
   content: string;
+  contentJson?: unknown;
   currentUserId: string | null;
   isAdmin: boolean;
   currentUsername: string;
@@ -18,6 +21,7 @@ interface ProcessedContentProps {
 
 export const ProcessedContent = ({
   content,
+  contentJson,
   currentUserId,
   isAdmin,
   currentUsername,
@@ -132,6 +136,10 @@ export const ProcessedContent = ({
 
   const renderContent = (text: string) => {
     // Process special markers first (before BB code parsing)
+    if (contentJson && !isLegacyVisibilityContent(text)) {
+      return <RichContentRenderer contentJson={contentJson} />;
+    }
+
     const elements: React.ReactNode[] = [];
     let key = 0;
 
