@@ -111,9 +111,10 @@ const App = () => {
               <Route path="moderation/emojis/create" element={<LazyPage component={EmojiCreate} />} />
               <Route path="moderation/emojis/edit" element={<LazyPage component={EmojiEdit} />} />
               <Route path="moderation/emojis/edit/:emojiId" element={<LazyPage component={EmojiEditForm} />} />
-              <Route path="settings" element={<LazyPage component={Settings} />} />
               <Route path="settings/custom" element={<LazyPage component={CustomProfile} />} />
               <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
+              <Route path="settings/:section" element={<LazyPage component={Settings} />} />
+              <Route path="settings" element={<LazyPage component={Settings} />} />
               <Route path="stats" element={<LazyPage component={Stats} />} />
               <Route path="notify" element={<LazyPage component={Notify} />} />
               <Route path="search" element={<LazyPage component={SearchResults} />} />

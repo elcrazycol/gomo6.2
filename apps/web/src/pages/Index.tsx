@@ -477,6 +477,7 @@ const Index = () => {
                       currentUserId={user?.id ?? null}
                       currentUsername={currentUserUsername}
                       currentUserColor={currentUserColor}
+                      hideTimestampOnCompactMobile={true}
                     />
                   ))
                 )}

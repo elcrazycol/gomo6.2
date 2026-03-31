@@ -207,7 +207,7 @@ const Notify = () => {
                         }
                       }}
                       onClick={() => markAsRead(notif.id)}
-                      className={`block p-4 border transition-all duration-200 rounded relative ${
+                      className={`block p-4 border text-foreground transition-all duration-200 rounded relative ${
                         !notif.is_read
                           ? "bg-muted/30 border-muted-foreground/20 border-l-2 border-l-muted-foreground/40"
                           : "border-border hover:bg-primary/10 hover:border-primary/20"
@@ -215,7 +215,7 @@ const Notify = () => {
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <p className="font-bold text-base">{notif.title}</p>
+                          <p className="font-bold text-base text-foreground">{notif.title}</p>
                           <p className="text-sm text-muted-foreground mt-1">{notif.message}</p>
                           <p className="text-xs text-muted-foreground mt-2">
                             {formatDistanceToNow(new Date(notif.created_at), {

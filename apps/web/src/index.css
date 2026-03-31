@@ -14,7 +14,10 @@
 .theme-lavender,
 .theme-volcanic,
 .theme-mint,
-.theme-glitch {
+.theme-glitch,
+.theme-acid,
+.theme-void {
+  --background: 0 0% 95%;
   --plyr-color-main: hsl(var(--primary));
   --plyr-video-controls-background: hsl(var(--card) / 0.92);
   --plyr-audio-controls-background: hsl(var(--card) / 0.96);
@@ -31,7 +34,9 @@
 .theme-lavender-dark,
 .theme-volcanic-dark,
 .theme-mint-dark,
-.theme-glitch-dark {
+.theme-glitch-dark,
+.theme-acid-dark,
+.theme-void-dark {
   --plyr-video-controls-background: hsl(var(--card) / 0.9);
   --plyr-audio-controls-background: hsl(var(--card) / 0.9);
   --plyr-audio-controls-text: hsl(var(--foreground));
@@ -132,7 +137,9 @@ html, body {
 .theme-lavender,
 .theme-volcanic,
 .theme-mint,
-.theme-glitch {
+.theme-glitch,
+.theme-acid,
+.theme-void {
   --messenger-color-purple: #a855f7;
   --messenger-color-gold: #eab308;
   --messenger-color-orange: #f97316;
@@ -153,7 +160,9 @@ html, body {
 .theme-lavender-dark,
 .theme-volcanic-dark,
 .theme-mint-dark,
-.theme-glitch-dark {
+.theme-glitch-dark,
+.theme-acid-dark,
+.theme-void-dark {
   --messenger-color-purple: #c084fc;
   --messenger-color-gold: #facc15;
   --messenger-color-orange: #fb923c;
@@ -182,6 +191,12 @@ html, body {
   }
   /* hide volume range on mobile, leave mute toggle */
   .plyr__controls .plyr__volume {
+    display: none;
+  }
+}
+
+@media (max-width: 445px) {
+  .compact-mobile-hide {
     display: none;
   }
 }
@@ -1321,6 +1336,90 @@ All colors MUST be HSL.
     --thread-hover: 0 0% 13%;
     --post-header: 0 0% 10%;
     --link: 186 100% 56%;
+  }
+
+  .theme-acid {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 96%;
+    --primary: 110 100% 54%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 306 100% 53%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 70%;
+    --border: 0 0% 14%;
+    --input: 0 0% 14%;
+    --ring: 110 100% 54%;
+    --board-header: 0 0% 6%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 10%;
+    --post-header: 0 0% 8%;
+    --link: 306 100% 53%;
+  }
+
+  .theme-acid-dark {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 96%;
+    --primary: 110 100% 54%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 306 100% 53%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 8%;
+    --muted-foreground: 0 0% 70%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 110 100% 54%;
+    --board-header: 0 0% 4%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 8%;
+    --post-header: 0 0% 6%;
+    --link: 306 100% 53%;
+  }
+
+  .theme-void {
+    --background: 0 0% 8%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 96%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 72%;
+    --secondary-foreground: 0 0% 8%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 70%;
+    --border: 0 0% 20%;
+    --input: 0 0% 20%;
+    --ring: 0 0% 100%;
+    --board-header: 0 0% 10%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 15%;
+    --post-header: 0 0% 13%;
+    --link: 0 0% 100%;
+  }
+
+  .theme-void-dark {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 5%;
+    --card-foreground: 0 0% 96%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 74%;
+    --secondary-foreground: 0 0% 0%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 70%;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 100%;
+    --board-header: 0 0% 4%;
+    --board-header-foreground: 0 0% 100%;
+    --thread-hover: 0 0% 8%;
+    --post-header: 0 0% 6%;
+    --link: 0 0% 100%;
   }
   
   #lovable-badge {

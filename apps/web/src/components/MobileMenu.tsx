@@ -112,12 +112,12 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-[280px] sm:w-[300px]">
-          <SheetHeader>
+        <SheetContent side="right" className="w-[280px] sm:w-[320px] p-0 flex flex-col">
+          <SheetHeader className="px-4 pt-4 pb-3 border-b border-border bg-background/95 backdrop-blur sticky top-0 z-10">
             <SheetTitle className="text-left">Меню</SheetTitle>
           </SheetHeader>
 
-          <div className="mt-6 space-y-4 overflow-y-auto pb-4">
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4">
             {/* User profile panel */}
             <Link
               to={`/profile/${user.id}`}
@@ -152,15 +152,15 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             </Link>
 
             {/* Compact nav row */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 rounded-lg border border-border overflow-hidden grid grid-cols-2">
+            <div className="-mx-1 overflow-x-auto pb-1">
+              <div className="flex min-w-max items-center gap-2 px-1">
                 <Button
                   variant="ghost"
                   onClick={() => {
                     navigate("/boards");
                     setOpen(false);
                   }}
-                  className="rounded-none border-r border-border h-10 text-xs"
+                  className="h-10 rounded-xl border border-border bg-card px-3 text-xs shrink-0"
                 >
                   <Grid3X3 className="w-3.5 h-3.5 mr-1.5" />
                   Доски
@@ -171,28 +171,39 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     navigate("/g");
                     setOpen(false);
                   }}
-                  className="rounded-none h-10 text-xs"
+                  className="h-10 rounded-xl border border-border bg-card px-3 text-xs shrink-0"
                 >
                   <Users className="w-3.5 h-3.5 mr-1.5" />
                   G-сабы
                 </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigate("/search");
+                    setOpen(false);
+                  }}
+                  className="h-10 rounded-xl px-3 text-xs shrink-0"
+                >
+                  <Search className="w-3.5 h-3.5 mr-1.5" />
+                  Поиск
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigate("/settings/appearance");
+                    setOpen(false);
+                  }}
+                  className="h-10 rounded-xl px-3 text-xs shrink-0"
+                >
+                  <Settings className="w-3.5 h-3.5 mr-1.5" />
+                  Настройки
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => {
-                  navigate("/search");
-                  setOpen(false);
-                }}
-                className="h-10 w-10"
-              >
-                <Search className="w-4 h-4" />
-              </Button>
             </div>
 
             {/* Settings link */}
             <Link
-              to="/settings"
+              to="/settings/appearance"
               onClick={() => setOpen(false)}
               className="block"
             >
@@ -259,8 +270,10 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
               <Link to="/faq" onClick={() => setOpen(false)} className="block rounded-md border border-border px-3 py-2 text-sm hover:bg-muted/40 transition-colors">FAQ</Link>
             </div>
 
-            {/* Logout button - only show when viewing own profile */}
-            {isOwnProfile && (
+          </div>
+
+          {isOwnProfile && (
+            <div className="border-t border-border p-4 bg-background/95 backdrop-blur">
               <Button 
                 variant="ghost" 
                 className="w-full justify-start relative group !hover:bg-red-500/10 !hover:text-red-500"
@@ -270,8 +283,8 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                 Выйти из аккаунта
                 <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
     </>

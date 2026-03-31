@@ -114,6 +114,18 @@ export function ThemeToggle() {
                   Глитч-кор
                 </Label>
               </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="acid" id="acid" />
+                <Label htmlFor="acid" className="cursor-pointer">
+                  Кислотный шторм
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="void" id="void" />
+                <Label htmlFor="void" className="cursor-pointer">
+                  Пустота
+                </Label>
+              </div>
             </RadioGroup>
           </div>
           
