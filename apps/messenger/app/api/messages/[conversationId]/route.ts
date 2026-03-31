@@ -13,10 +13,8 @@ export async function GET(
   }
 
   const { conversationId } = await params;
-  const deviceId = request.nextUrl.searchParams.get("deviceId");
-
-  if (!conversationId || !deviceId) {
-    return json({ error: "Missing conversation or device" }, 400);
+  if (!conversationId) {
+    return json({ error: "Missing conversation" }, 400);
   }
 
   const admin = messengerAdmin();
@@ -31,56 +29,26 @@ export async function GET(
     return json({ error: "Conversation access denied" }, 403);
   }
 
-  const { data: device } = await admin
-    .from("chat_devices")
-    .select("id")
-    .eq("id", deviceId)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!device) {
-    return json({ error: "Unknown recipient device" }, 403);
-  }
-
-  const { data: envelopes, error } = await admin
-    .from("chat_message_envelopes")
-    .select(
-      `
-        message_id,
-        ciphertext,
-        message_type,
-        delivered_at,
-        opened_at,
-        chat_messages!inner (
-          id,
-          sender_user_id,
-          sender_device_id,
-          sent_at,
-          conversation_id
-        )
-      `
-    )
-    .eq("recipient_user_id", user.id)
-    .eq("recipient_device_id", deviceId)
-    .eq("chat_messages.conversation_id", conversationId)
+  const { data: messages, error } = await admin
+    .from("chat_messages")
+    .select("id, body, sent_at, sender_user_id, sender_device_id, client_message_id")
+    .eq("conversation_id", conversationId)
+    .order("sent_at", { ascending: true })
     .order("created_at", { ascending: true });
 
   if (error) {
     return json({ error: error.message }, 500);
   }
-
-  const messages = ((envelopes as any[]) ?? []).map((row) => ({
-    id: row.chat_messages.id,
-    ciphertext: row.ciphertext,
-    messageType: row.message_type,
-    sentAt: row.chat_messages.sent_at,
-    deliveredAt: row.delivered_at,
-    openedAt: row.opened_at,
-    senderUserId: row.chat_messages.sender_user_id,
-    senderDeviceId: row.chat_messages.sender_device_id,
+  const normalizedMessages = ((messages as any[]) ?? []).map((row) => ({
+    id: row.id,
+    body: row.body ?? "",
+    sentAt: row.sent_at,
+    senderUserId: row.sender_user_id,
+    senderDeviceId: row.sender_device_id,
+    clientMessageId: row.client_message_id,
   }));
 
-  const messageIds = messages.map((message) => message.id);
+  const messageIds = normalizedMessages.map((message) => message.id);
 
   const { data: receipts } = await admin
     .from("chat_receipts")
@@ -88,7 +56,7 @@ export async function GET(
     .in("message_id", messageIds);
 
   return json({
-    messages,
+    messages: normalizedMessages,
     receipts: (receipts as Array<{ message_id: string; user_id: string; delivered_at: string | null; read_at: string | null }> | null) ?? [],
   });
 }

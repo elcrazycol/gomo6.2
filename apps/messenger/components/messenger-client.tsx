@@ -7,13 +7,7 @@ import { randomClientMessageId } from "@/lib/encoding";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
   buildUploadBundle,
-  cacheMessagePlaintext,
-  decryptEnvelope,
-  encryptForDevice,
   ensureLocalDeviceState,
-  getCachedMessagePlaintext,
-  getCachedSentPlaintext,
-  cacheSentPlaintext,
   resetLocalE2EEState,
   updateSignalDeviceAssignment,
 } from "@/lib/signal-store";
@@ -107,13 +101,11 @@ type ConversationCreateResponse = {
 
 type ApiMessage = {
   id: string;
-  ciphertext: string;
-  messageType: number;
+  body: string;
   sentAt: string;
-  deliveredAt: string | null;
-  openedAt: string | null;
   senderUserId: string;
   senderDeviceId: string;
+  clientMessageId: string;
 };
 
 type Receipt = {
@@ -134,10 +126,8 @@ type SendMessageResponse = {
   message: {
     id: string;
     sentAt: string;
-    selfEnvelope: {
-      ciphertext: string;
-      messageType: number;
-    } | null;
+    clientMessageId: string;
+    body: string;
   };
 };
 
@@ -492,83 +482,44 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   };
 
   const loadMessages = async (conversation: Conversation, options?: { incremental?: boolean }) => {
-    if (!currentDevice || !bootstrap) return;
+    if (!bootstrap) return;
     if (!options?.incremental) {
       setMessagesLoading(true);
     }
     try {
-      const payload = (await apiFetch(
-        `/api/messages/${conversation.id}?deviceId=${encodeURIComponent(currentDevice.id)}`
-      )) as { messages: ApiMessage[]; receipts: Receipt[] };
-      const decrypted = await Promise.all(
-        payload.messages.map(async (message) => {
-          const cachedPlainText = await getCachedMessagePlaintext(message.id);
-          const peerReceipt =
-            payload.receipts.find(
-              (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
-            ) ?? null;
+      const payload = (await apiFetch(`/api/messages/${conversation.id}`)) as { messages: ApiMessage[]; receipts: Receipt[] };
+      const normalized = payload.messages.map((message) => {
+        const peerReceipt =
+          payload.receipts.find(
+            (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
+          ) ?? null;
 
-          if (cachedPlainText) {
-            return {
-              ...message,
-              plainText: cachedPlainText,
-              peerDeliveredAt: peerReceipt?.delivered_at ?? null,
-              peerReadAt: peerReceipt?.read_at ?? null,
-            };
-          }
-
-          try {
-            const senderSignalDeviceId =
-              bootstrap.selfDevices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
-              conversation.devices.find((device) => device.id === message.senderDeviceId)?.signalDeviceId ??
-              bootstrap.me.signalDeviceId;
-            const plainText = await decryptEnvelope(
-              bootstrap.me.id,
-              message.senderUserId,
-              senderSignalDeviceId,
-              message.messageType,
-              message.ciphertext
-            );
-            await cacheMessagePlaintext(message.id, plainText);
-            return {
-              ...message,
-              plainText,
-              peerDeliveredAt: peerReceipt?.delivered_at ?? null,
-              peerReadAt: peerReceipt?.read_at ?? null,
-            };
-          } catch {
-            const cachedSentPlainText =
-              message.senderUserId === bootstrap.me.id ? await getCachedSentPlaintext(message.ciphertext) : null;
-            return {
-              ...message,
-              plainText: cachedSentPlainText ?? "[Не удалось расшифровать сообщение на этом устройстве]",
-              peerDeliveredAt: peerReceipt?.delivered_at ?? null,
-              peerReadAt: peerReceipt?.read_at ?? null,
-            };
-          }
-        })
-      );
+        return {
+          ...message,
+          plainText: message.body,
+          peerDeliveredAt: peerReceipt?.delivered_at ?? null,
+          peerReadAt: peerReceipt?.read_at ?? null,
+        };
+      });
 
       setMessages((current) => {
         const pendingMessages = current.filter((message) => message.localStatus === "pending");
         const pendingIdsToDrop = new Set<string>();
-        const pendingByServerId = new Map<
+        const pendingByClientMessageId = new Map<
           string,
-          { plainText: string; sentAt: string; peerDeliveredAt: string | null; peerReadAt: string | null }
+          { id: string; plainText: string; sentAt: string; peerDeliveredAt: string | null; peerReadAt: string | null }
         >();
 
         for (const pendingMessage of pendingMessages) {
-          const matchedServerMessage = decrypted.find((message) => {
-            if (message.senderUserId !== bootstrap.me.id) return false;
-
-            const pendingTime = new Date(pendingMessage.sentAt).getTime();
-            const serverTime = new Date(message.sentAt).getTime();
-            return Math.abs(serverTime - pendingTime) <= 15000;
-          });
+          const matchedServerMessage = normalized.find(
+            (message) =>
+              message.senderUserId === bootstrap.me.id && message.clientMessageId === pendingMessage.clientMessageId
+          );
 
           if (matchedServerMessage) {
             pendingIdsToDrop.add(pendingMessage.id);
-            pendingByServerId.set(matchedServerMessage.id, {
+            pendingByClientMessageId.set(matchedServerMessage.clientMessageId, {
+              id: matchedServerMessage.id,
               plainText: pendingMessage.plainText,
               sentAt: pendingMessage.sentAt,
               peerDeliveredAt: pendingMessage.peerDeliveredAt,
@@ -578,29 +529,26 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         }
 
         const withoutMatchedPending = current.filter((message) => !pendingIdsToDrop.has(message.id));
-        const normalizedDecrypted = decrypted.map((message) => {
-          const pendingMatch = pendingByServerId.get(message.id);
+        const mergedServerMessages = normalized.map((message) => {
+          const pendingMatch = pendingByClientMessageId.get(message.clientMessageId);
           if (!pendingMatch) {
             return message;
           }
 
           return {
             ...message,
-            plainText:
-              message.plainText === "[Не удалось расшифровать сообщение на этом устройстве]"
-                ? pendingMatch.plainText
-                : message.plainText,
+            plainText: message.plainText || pendingMatch.plainText,
             peerDeliveredAt: message.peerDeliveredAt ?? pendingMatch.peerDeliveredAt,
             peerReadAt: message.peerReadAt ?? pendingMatch.peerReadAt,
           };
         });
 
         if (!options?.incremental) {
-          return normalizedDecrypted;
+          return mergedServerMessages;
         }
 
         const merged = new Map(withoutMatchedPending.map((message) => [message.id, message]));
-        for (const message of normalizedDecrypted) {
+        for (const message of mergedServerMessages) {
           merged.set(message.id, message);
         }
 
@@ -616,26 +564,21 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   };
 
   const sendCurrentMessage = async () => {
-    if (sending || !draft.trim() || !bootstrap || !selectedConversation || !currentDevice) return;
-    if (selectedConversation.devices.length === 0) {
-      setErrorMessage("У собеседника пока нет зарегистрированного устройства messenger. Отправка станет доступна после его первого входа.");
-      return;
-    }
+    if (sending || !draft.trim() || !bootstrap || !selectedConversation) return;
     const plainText = draft.trim();
-    const localMessageId = `local-${randomClientMessageId()}`;
+    const clientMessageId = randomClientMessageId();
+    const localMessageId = `local-${clientMessageId}`;
     const sentAt = new Date().toISOString();
     setSending(true);
     setMessages((current) => [
       ...current,
       {
         id: localMessageId,
-        ciphertext: "",
-        messageType: 0,
+        body: plainText,
         sentAt,
-        deliveredAt: null,
-        openedAt: null,
         senderUserId: bootstrap.me.id,
-        senderDeviceId: currentDevice.id,
+        senderDeviceId: currentDevice?.id ?? "",
+        clientMessageId,
         plainText,
         peerDeliveredAt: null,
         peerReadAt: null,
@@ -648,53 +591,14 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       lastMessageAt: sentAt,
     }));
     try {
-      const allRecipients = [
-        ...bootstrap.selfDevices.filter((device) => device.signalDeviceId > 0),
-        ...selectedConversation.devices.filter((device) => device.signalDeviceId > 0),
-      ];
-
-      const envelopes = await Promise.all(
-        allRecipients.map(async (device) => {
-          const encrypted = await encryptForDevice(bootstrap.me.id, {
-            userId: device.userId,
-            signalDeviceId: device.signalDeviceId,
-            registrationId: device.registrationId,
-            identityPublicKey: device.identityPublicKey,
-            signedPreKeyId: device.signedPreKeyId,
-            signedPreKeyPublic: device.signedPreKeyPublic,
-            signedPreKeySignature: device.signedPreKeySignature,
-            oneTimePreKeyId: device.oneTimePreKeyId,
-            oneTimePreKeyPublic: device.oneTimePreKeyPublic,
-          }, plainText);
-          return {
-            recipientUserId: device.userId,
-            recipientDeviceId: device.id,
-            ciphertext: encrypted.body,
-            messageType: encrypted.type,
-          };
-        })
-      );
-
-      const selfEnvelope = envelopes.find(
-        (entry) => entry.recipientUserId === bootstrap.me.id && entry.recipientDeviceId === currentDevice.id
-      );
-      if (selfEnvelope) {
-        await cacheSentPlaintext(selfEnvelope.ciphertext, plainText);
-      }
-
       const payload = (await apiFetch("/api/messages", {
         method: "POST",
         body: JSON.stringify({
           conversationId: selectedConversation.id,
-          senderDeviceId: currentDevice.id,
-          clientMessageId: randomClientMessageId(),
-          envelopes,
+          clientMessageId,
+          body: plainText,
         }),
       })) as SendMessageResponse;
-
-      if (payload.message.selfEnvelope) {
-        await cacheMessagePlaintext(payload.message.id, plainText);
-      }
 
       setMessages((current) =>
         current.map((message) =>
@@ -702,8 +606,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
             ? {
                 ...message,
                 id: payload.message.id,
-                ciphertext: payload.message.selfEnvelope?.ciphertext ?? message.ciphertext,
-                messageType: payload.message.selfEnvelope?.messageType ?? message.messageType,
+                body: payload.message.body,
+                clientMessageId: payload.message.clientMessageId,
                 sentAt: payload.message.sentAt,
                 localStatus: undefined,
               }
@@ -787,30 +691,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       {
         event: "INSERT",
         schema: "public",
-        table: "chat_message_envelopes",
-        filter: `recipient_user_id=eq.${bootstrap.me.id}`,
-      },
-      (payload) => {
-        const next = payload.new as { message_id?: string; recipient_user_id?: string } | null;
-        if (!next?.message_id) return;
-        if (messagesRef.current.some((message) => message.id === next.message_id)) {
-          return;
-        }
-
-        if (isConversationVisible() && selectedConversationRef.current) {
-          scheduleMessageRefresh();
-          return;
-        }
-
-        void loadConversations().catch(() => {});
-      }
-    );
-
-    channel.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
         table: "chat_messages",
       },
       (payload) => {
@@ -843,11 +723,16 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         event: "UPDATE",
         schema: "public",
         table: "chat_receipts",
-        filter: `user_id=eq.${bootstrap.me.id}`,
       },
       (payload) => {
-        const next = payload.new as { message_id?: string; delivered_at?: string | null; read_at?: string | null } | null;
+        const next = payload.new as {
+          message_id?: string;
+          user_id?: string;
+          delivered_at?: string | null;
+          read_at?: string | null;
+        } | null;
         if (!next?.message_id) return;
+        if (next.user_id === bootstrap.me.id) return;
 
         setMessages((current) =>
           current.map((message) =>
@@ -937,9 +822,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
-  const hasDecryptFailures = messages.some(
-    (message) => message.plainText === "[Не удалось расшифровать сообщение на этом устройстве]"
-  );
+  const hasDecryptFailures = false;
 
   const handleResetLocalKeys = async () => {
     setRecoveringKeys(true);
