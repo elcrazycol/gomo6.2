@@ -183,6 +183,7 @@ export const MessengerView = () => {
   const [startingConversation, setStartingConversation] = useState(false);
   const [sending, setSending] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -216,6 +217,14 @@ export const MessengerView = () => {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 980px)");
+    const update = () => setIsMobileViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   const updateSearch = (conversationId: string | null, userId: string | null) => {
     const next = new URLSearchParams(searchParams);
@@ -699,6 +708,8 @@ export const MessengerView = () => {
             setSelectedConversationId(targeted.id);
             setMobileSidebarOpen(false);
           }
+        } else {
+          setMobileSidebarOpen(true);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Не удалось инициализировать messenger";
@@ -915,10 +926,11 @@ export const MessengerView = () => {
   }
 
   const totalUnread = conversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0);
+  const shouldShowMobileChat = Boolean(selectedConversation) && (!isMobileViewport || !mobileSidebarOpen);
 
   return (
     <div className="messenger-app">
-      <div className={`messenger-shell ${selectedConversation && !mobileSidebarOpen ? "mobile-chat-open" : ""}`}>
+      <div className={`messenger-shell ${shouldShowMobileChat ? "mobile-chat-open" : ""}`}>
         <aside className={`sidebar-panel ${mobileSidebarOpen ? "is-open" : ""}`}>
           <div className="sidebar-top">
             <div>
@@ -988,7 +1000,7 @@ export const MessengerView = () => {
           </div>
         </aside>
 
-        <section className={`chat-panel ${selectedConversation ? "is-open" : ""}`}>
+        <section className={`chat-panel ${shouldShowMobileChat ? "is-open" : ""}`}>
           {selectedConversation ? (
             <>
               <div className="chat-topbar">
