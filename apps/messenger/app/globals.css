@@ -766,6 +766,10 @@ input {
   max-height: 140px;
   resize: none;
   overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-overflow-scrolling: auto;
+  scrollbar-width: none;
   padding: 10px 12px;
   border: 1px solid hsl(var(--input));
   border-radius: var(--radius);

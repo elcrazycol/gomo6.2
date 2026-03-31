@@ -81,22 +81,6 @@ export async function GET(
   }));
 
   const messageIds = messages.map((message) => message.id);
-  if (messageIds.length > 0) {
-    await admin
-      .from("chat_message_envelopes")
-      .update({ opened_at: new Date().toISOString() })
-      .eq("recipient_user_id", user.id)
-      .eq("recipient_device_id", deviceId)
-      .in("message_id", messageIds)
-      .is("opened_at", null);
-
-    await admin
-      .from("chat_receipts")
-      .update({ delivered_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq("user_id", user.id)
-      .in("message_id", messageIds)
-      .is("delivered_at", null);
-  }
 
   const { data: receipts } = await admin
     .from("chat_receipts")

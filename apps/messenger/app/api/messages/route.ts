@@ -120,10 +120,22 @@ export async function POST(request: NextRequest) {
     .eq("message_id", messageRow.id)
     .is("delivered_at", null);
 
+  const selfEnvelope =
+    rowsToInsert.find(
+      (entry: (typeof rowsToInsert)[number]) =>
+        entry.recipientUserId === user.id && entry.recipientDeviceId === senderDeviceId
+    ) ?? null;
+
   return json({
     message: {
       id: messageRow.id,
       sentAt: messageRow.sent_at,
+      selfEnvelope: selfEnvelope
+        ? {
+            ciphertext: selfEnvelope.ciphertext,
+            messageType: selfEnvelope.messageType,
+          }
+        : null,
     },
   });
 }
