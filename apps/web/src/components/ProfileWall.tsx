@@ -259,15 +259,7 @@ export const ProfileWall = ({
     <>
       <div className="space-y-4">
         <div className="rounded-[2rem] border border-border/70 bg-gradient-to-br from-background via-background to-muted/35 p-4 shadow-sm sm:p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Profile Wall</div>
-              <h3 className="mt-1 text-xl font-semibold">Записи на стене</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Пишите как в соцсети: форматирование, эмодзи, фото, аудио и файлы.
-              </p>
-            </div>
-
+          <div className="flex justify-end">
             {canPost && (
               <Button
                 variant="default"
@@ -276,10 +268,10 @@ export const ProfileWall = ({
                   setEditingPost(null);
                   setShowCreateForm((prev) => !prev);
                 }}
-                className="h-12 w-12 rounded-2xl text-xl shadow-sm"
+                className="h-12 w-12 rounded-2xl text-xl shadow-sm transition-all duration-300"
                 title={showCreateForm ? "Скрыть форму" : "Написать на стене"}
               >
-                <Plus className="h-5 w-5" />
+                <Plus className={`h-5 w-5 transition-transform duration-300 ${showCreateForm ? "rotate-45" : "rotate-0"}`} />
               </Button>
             )}
           </div>
@@ -291,14 +283,22 @@ export const ProfileWall = ({
           )}
         </div>
 
-        {showCreateForm && currentUserId && (
-          <CreateWallPost
-            profileUserId={profileUserId}
-            currentUserId={currentUserId}
-            onPostCreated={handlePostCreated}
-            onCancel={() => setShowCreateForm(false)}
-          />
-        )}
+        <div
+          className={`grid transition-all duration-300 ease-out ${
+            showCreateForm && currentUserId ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+          }`}
+        >
+          <div className="overflow-hidden">
+            {showCreateForm && currentUserId && (
+              <CreateWallPost
+                profileUserId={profileUserId}
+                currentUserId={currentUserId}
+                onPostCreated={handlePostCreated}
+                onCancel={() => setShowCreateForm(false)}
+              />
+            )}
+          </div>
+        </div>
 
         {posts.length === 0 ? (
           <div className="rounded-[2rem] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
