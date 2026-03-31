@@ -1,23 +1,29 @@
-import { useState, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useMemo, useRef, useState } from "react";
+import { AttachmentUpload } from "@/components/AttachmentUpload";
+import { EmojiPicker } from "@/components/EmojiPicker";
+import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
+import { ProcessedContent } from "@/components/ProcessedContent";
+import { RichTextEditor, type RichTextEditorHandle } from "@/components/RichTextEditor";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { AttachmentMeta } from "@/types/forum";
+import { supabase } from "@/integrations/supabase/client";
+import { ImageIcon, Loader2, Send, Smile, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { Upload, X, Save, Loader2 } from "lucide-react";
-import { imageProcessing } from "@/lib/imageProcessing";
 
-interface WallPost {
+export interface WallPost {
   id: string;
   user_id: string;
   author_id: string;
   title: string;
   content: string | null;
   image_url: string | null;
+  attachments?: AttachmentMeta[] | null;
   created_at: string;
   updated_at: string;
+  is_pinned?: boolean;
+  pinned_order?: number | null;
   author: {
     username: string;
     is_anonymous: boolean;
@@ -34,119 +40,87 @@ interface CreateWallPostProps {
   onCancel: () => void;
 }
 
-export const CreateWallPost: React.FC<CreateWallPostProps> = ({
+const deriveTitle = (content: string) => {
+  const plain = content
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!plain) return "Пост на стене";
+  return plain.length > 80 ? `${plain.slice(0, 77).trimEnd()}...` : plain;
+};
+
+const normalizeAttachments = (post?: WallPost): AttachmentMeta[] => {
+  if (!post) return [];
+  if (Array.isArray(post.attachments) && post.attachments.length > 0) {
+    return post.attachments;
+  }
+  if (post.image_url) {
+    return [{
+      url: post.image_url,
+      type: "image",
+      mime: "image/*",
+      name: "wall-image",
+      size: 0,
+    }];
+  }
+  return [];
+};
+
+export const CreateWallPost = ({
   profileUserId,
   currentUserId,
   editingPost,
   onPostCreated,
   onPostUpdated,
-  onCancel
-}) => {
-  const [title, setTitle] = useState(editingPost?.title || "");
+  onCancel,
+}: CreateWallPostProps) => {
+  const editorRef = useRef<RichTextEditorHandle>(null);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+
   const [content, setContent] = useState(editingPost?.content || "");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(editingPost?.image_url || null);
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(editingPost));
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isEditing = !!editingPost;
+  const canSubmit = content.trim().length > 0 || attachments.length > 0;
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const imageCount = useMemo(
+    () => attachments.filter((attachment) => attachment.type === "image").length,
+    [attachments]
+  );
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error("Пожалуйста, выберите изображение");
-      return;
-    }
-
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Изображение слишком большое. Максимальный размер: 5MB");
-      return;
-    }
-
-    try {
-      // Process image for privacy (remove metadata)
-      const processedImage = await imageProcessing.processImage(file);
-      setImageFile(processedImage);
-
-      // Create preview
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(processedImage);
-    } catch (error) {
-      console.error("Error processing image:", error);
-      toast.error("Ошибка обработки изображения");
-    }
+  const handleEmojiSelect = (emojiCode: string) => {
+    editorRef.current?.focus();
+    editorRef.current?.insertText(emojiCode);
   };
 
-  const removeImage = () => {
-    setImageFile(null);
-    setImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const uploadImage = async (file: File): Promise<string> => {
-    const fileName = `${profileUserId}/wall_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('post-images')
-      .upload(fileName, file);
-
-    if (uploadError) {
-      throw uploadError;
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('post-images')
-      .getPublicUrl(fileName);
-
-    return publicUrl;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!title.trim()) {
-      toast.error("Заголовок обязателен");
+  const handleSubmit = async () => {
+    if (!canSubmit) {
+      toast.error("Добавьте текст или вложение");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      let imageUrl = editingPost?.image_url || null;
-
-      // Upload new image if selected
-      if (imageFile) {
-        imageUrl = await uploadImage(imageFile);
-      }
-
+      const contentValue = content.trim() || null;
+      const imageAttachment = attachments.find((attachment) => attachment.type === "image");
       const postData = {
         user_id: profileUserId,
         author_id: currentUserId,
-        title: title.trim(),
-        content: content.trim() || null,
-        image_url: imageUrl,
+        title: deriveTitle(contentValue || ""),
+        content: contentValue,
+        image_url: imageAttachment?.url || null,
+        attachments: attachments.length > 0 ? attachments : null,
       };
 
       if (isEditing) {
-        // Update existing post
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from("profile_wall_posts")
-          .update({
-            title: postData.title,
-            content: postData.content,
-            image_url: postData.image_url,
-          })
+          .update(postData)
           .eq("id", editingPost.id)
-          .eq("author_id", currentUserId) // Ensure user can only edit their own posts
+          .eq("author_id", currentUserId)
           .select(`
             id,
             user_id,
@@ -154,8 +128,11 @@ export const CreateWallPost: React.FC<CreateWallPostProps> = ({
             title,
             content,
             image_url,
+            attachments,
             created_at,
             updated_at,
+            is_pinned,
+            pinned_order,
             author:profiles!author_id (
               username,
               is_anonymous,
@@ -166,11 +143,10 @@ export const CreateWallPost: React.FC<CreateWallPostProps> = ({
 
         if (error) throw error;
 
-        onPostUpdated?.(data);
+        onPostUpdated?.(data as WallPost);
         toast.success("Пост обновлен");
       } else {
-        // Create new post
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from("profile_wall_posts")
           .insert([postData])
           .select(`
@@ -180,8 +156,11 @@ export const CreateWallPost: React.FC<CreateWallPostProps> = ({
             title,
             content,
             image_url,
+            attachments,
             created_at,
             updated_at,
+            is_pinned,
+            pinned_order,
             author:profiles!author_id (
               username,
               is_anonymous,
@@ -192,11 +171,11 @@ export const CreateWallPost: React.FC<CreateWallPostProps> = ({
 
         if (error) throw error;
 
-        onPostCreated?.(data);
+        onPostCreated?.(data as WallPost);
         toast.success("Пост опубликован");
       }
     } catch (error) {
-      console.error("Error saving post:", error);
+      console.error("Error saving wall post:", error);
       toast.error(isEditing ? "Ошибка обновления поста" : "Ошибка публикации поста");
     } finally {
       setIsSubmitting(false);
@@ -204,95 +183,115 @@ export const CreateWallPost: React.FC<CreateWallPostProps> = ({
   };
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <Label htmlFor="title">Заголовок *</Label>
-            <Input
-              id="title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Введите заголовок поста..."
-              maxLength={100}
-              required
-            />
+    <Card className="overflow-hidden border-border/70 bg-gradient-to-br from-card via-card to-muted/30 shadow-sm">
+      <CardContent className="p-0">
+        <div className="border-b border-border/60 bg-gradient-to-r from-primary/8 via-transparent to-primary/5 px-4 py-3 sm:px-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Sparkles className="h-4 w-4 text-primary" />
+                {isEditing ? "Редактирование записи" : "Новая запись на стене"}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                BB-теги, эмодзи и вложения работают прямо здесь.
+              </p>
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onCancel}>
+              <X className="h-4 w-4" />
+            </Button>
           </div>
+        </div>
 
-          <div>
-            <Label htmlFor="content">Текст поста</Label>
-            <Textarea
-              id="content"
+        <div className="space-y-4 p-4 sm:p-5">
+          <div className="rounded-3xl border border-border/70 bg-background/85 p-3 shadow-inner sm:p-4">
+            <RichTextEditor
+              ref={editorRef}
               value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Напишите что-нибудь..."
-              rows={4}
-              maxLength={2000}
+              onChange={setContent}
+              onSubmit={handleSubmit}
+              placeholder="Что у вас нового? Напишите красиво, добавьте теги, спойлеры и эмодзи."
+              className="min-h-[140px] border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
             />
           </div>
 
-          <div>
-            <Label>Изображение</Label>
-            <div className="mt-2">
-              {imagePreview ? (
-                <div className="relative inline-block">
-                  <img
-                    src={imagePreview}
-                    alt="Preview"
-                    className="max-w-xs max-h-48 rounded-lg border"
-                  />
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={removeImage}
-                    className="absolute -top-2 -right-2 h-6 w-6 p-0"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
-              ) : (
-                <div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    Выбрать изображение
-                  </Button>
-                </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="rounded-2xl border border-border/70 bg-background/80 p-1">
+              <InlineFormattingToolbar editorRef={editorRef} />
+            </div>
+
+            <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
+              <Button
+                ref={emojiButtonRef}
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 rounded-2xl border-border/70"
+                title="Добавить эмодзи"
+              >
+                <Smile className="h-4 w-4" />
+              </Button>
+            </EmojiPicker>
+
+            <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
+
+            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{content.length} симв.</span>
+              <span>•</span>
+              <span>{attachments.length} влож.</span>
+              {imageCount > 0 && (
+                <>
+                  <span>•</span>
+                  <span className="inline-flex items-center gap-1">
+                    <ImageIcon className="h-3.5 w-3.5" />
+                    {imageCount}
+                  </span>
+                </>
               )}
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {isEditing ? "Сохранение..." : "Публикация..."}
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  {isEditing ? "Сохранить" : "Опубликовать"}
-                </>
-              )}
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancel}>
-              Отмена
-            </Button>
+          {(content.trim() || attachments.length > 0) && (
+            <>
+              <Separator />
+              <div className="space-y-3 rounded-3xl border border-dashed border-border/70 bg-muted/30 p-4">
+                <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                  Предпросмотр
+                </div>
+                <div className="rounded-3xl border border-border/70 bg-background p-4">
+                  {content.trim() ? (
+                    <ProcessedContent content={content} />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Текст появится здесь</span>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Enter отправляет пост на десктопе, Shift+Enter переносит строку.
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onCancel}>
+                Отмена
+              </Button>
+              <Button type="button" disabled={isSubmitting || !canSubmit} onClick={handleSubmit} className="rounded-2xl px-5">
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {isEditing ? "Сохраняем" : "Публикуем"}
+                  </>
+                ) : (
+                  <>
+                    <Send className="mr-2 h-4 w-4" />
+                    {isEditing ? "Сохранить" : "Опубликовать"}
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
-        </form>
+        </div>
       </CardContent>
     </Card>
   );
