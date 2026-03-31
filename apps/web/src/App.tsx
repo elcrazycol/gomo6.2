@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LazyPage } from "@/components/LazyPage";
+import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
@@ -47,17 +48,6 @@ const prefetchRoutes = () => {
 
 const queryClient = new QueryClient();
 
-const syncSharedAppearanceCookies = () => {
-  const colorTheme = localStorage.getItem("color-theme") || "cannabis";
-  const darkMode = localStorage.getItem("dark-mode") ?? "true";
-  const customFont = localStorage.getItem("custom_font") || "";
-  const maxAge = 60 * 60 * 24 * 365;
-
-  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-};
-
 const App = () => {
   useEffect(() => {
     // Prefetch critical routes for instant navigation
@@ -66,12 +56,8 @@ const App = () => {
 
   useEffect(() => {
     // Apply saved theme immediately to prevent layout flash
-    const savedColor = localStorage.getItem('color-theme') || 'cannabis';
-    const savedMode = localStorage.getItem('dark-mode') === 'true';
-
-    const html = document.documentElement;
-    const themeClass = savedMode ? `theme-${savedColor}-dark` : `theme-${savedColor}`;
-    html.classList.add(themeClass);
+    const { colorTheme, isDarkMode } = getStoredTheme();
+    applyTheme(colorTheme, isDarkMode);
 
     // Apply saved custom font
     const savedFont = localStorage.getItem('custom_font');

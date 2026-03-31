@@ -19,17 +19,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
+import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
-const syncSharedAppearanceCookies = () => {
-  const colorTheme = localStorage.getItem("color-theme") || "cannabis";
-  const darkMode = localStorage.getItem("dark-mode") ?? "true";
-  const customFont = localStorage.getItem("custom_font") || "";
-  const maxAge = 60 * 60 * 24 * 365;
-
-  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-};
+const themeOptions: Array<{
+  id: ColorTheme;
+  name: string;
+  description: string;
+  accent: string;
+  preview: string;
+}> = [
+  { id: "graphite", name: "Монохромный графит", description: "Строго, чисто, читаемо", accent: "#0078D7", preview: "linear-gradient(135deg, #1E1E1E 0%, #2D2D2D 50%, #3C3C3C 100%)" },
+  { id: "lavender", name: "Космический лавандовый", description: "Мягкий неон и уютный glow", accent: "#C6A9FF", preview: "linear-gradient(135deg, #1A1625 0%, #2D2440 55%, #B0FFE6 130%)" },
+  { id: "volcanic", name: "Вулканический пепел", description: "Антрацит и тлеющий оранжевый", accent: "#FF4D00", preview: "linear-gradient(135deg, #1F1F1F 0%, #2A2422 50%, #FF4D00 140%)" },
+  { id: "mint", name: "Мятный лимонад", description: "Светло, плоско, свежо", accent: "#00FFA3", preview: "linear-gradient(135deg, #F0FFF4 0%, #E6FFF1 55%, #F5FF7A 120%)" },
+  { id: "glitch", name: "Глитч-кор", description: "RGB-двоение и цифровой шум", accent: "#00FFFF", preview: "linear-gradient(135deg, #121212 0%, #1D1D1D 50%, #2A1030 100%)" },
+  { id: "cannabis", name: "Зелёная каннабиоидная", description: "Старый фирменный зелёный", accent: "#3FA34D", preview: "linear-gradient(135deg, #1E2A1E 0%, #315C31 100%)" },
+  { id: "pink", name: "Розовая няшная", description: "Мягкая и яркая", accent: "#FF4FA3", preview: "linear-gradient(135deg, #2A1722 0%, #7C2B5B 100%)" },
+  { id: "blue", name: "Синяя депрессивная", description: "Холодная и спокойная", accent: "#4D7CFE", preview: "linear-gradient(135deg, #172033 0%, #27496D 100%)" },
+  { id: "blood", name: "Кроваво-красная", description: "Контрастная и жёсткая", accent: "#D62839", preview: "linear-gradient(135deg, #2A1113 0%, #701B26 100%)" },
+  { id: "pumpkin", name: "Оранжево-тыквенная", description: "Тёплая и насыщенная", accent: "#FF8A00", preview: "linear-gradient(135deg, #2B190C 0%, #8C4A0F 100%)" },
+];
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -68,13 +77,13 @@ const Settings = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   // Theme settings
-  const [themeExpanded, setThemeExpanded] = useState(false);
-  const [colorTheme, setColorTheme] = useState<'cannabis' | 'pink' | 'blue' | 'blood' | 'pumpkin'>(() => {
-    return (localStorage.getItem('color-theme') as any) || 'cannabis';
-  });
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('dark-mode');
-    return saved !== null ? saved === 'true' : true; // Default to dark mode
+  const [themeExpanded, setThemeExpanded] = useState(true);
+  const [{ colorTheme, isDarkMode }, setThemeState] = useState(() => {
+    const stored = getStoredTheme();
+    return {
+      colorTheme: stored.colorTheme ?? DEFAULT_THEME,
+      isDarkMode: stored.isDarkMode ?? DEFAULT_DARK_MODE,
+    };
   });
 
   // Interface settings
@@ -412,33 +421,14 @@ const Settings = () => {
     }
   };
 
-  // Theme functions
-  const applyTheme = (color: typeof colorTheme, dark: boolean) => {
-    const html = document.documentElement;
-
-    // Remove all theme classes
-    html.classList.remove(
-      'theme-cannabis', 'theme-cannabis-dark',
-      'theme-pink', 'theme-pink-dark',
-      'theme-blue', 'theme-blue-dark',
-      'theme-blood', 'theme-blood-dark',
-      'theme-pumpkin', 'theme-pumpkin-dark'
-    );
-
-    // Add new theme class
-    const themeClass = dark ? `theme-${color}-dark` : `theme-${color}`;
-    html.classList.add(themeClass);
-    syncSharedAppearanceCookies();
-  };
-
-  const handleColorThemeChange = (newColor: typeof colorTheme) => {
-    setColorTheme(newColor);
+  const handleColorThemeChange = (newColor: ColorTheme) => {
+    setThemeState((prev) => ({ ...prev, colorTheme: newColor }));
     localStorage.setItem('color-theme', newColor);
     applyTheme(newColor, isDarkMode);
   };
 
   const handleDarkModeToggle = (checked: boolean) => {
-    setIsDarkMode(checked);
+    setThemeState((prev) => ({ ...prev, isDarkMode: checked }));
     localStorage.setItem('dark-mode', checked.toString());
     applyTheme(colorTheme, checked);
   };
@@ -450,13 +440,7 @@ const Settings = () => {
 
   // Initialize theme on component mount (only update if changed)
   useEffect(() => {
-    // Only apply theme if it differs from current settings
-    const currentTheme = localStorage.getItem('color-theme');
-    const currentMode = localStorage.getItem('dark-mode');
-
-    if (currentTheme !== colorTheme || currentMode !== isDarkMode.toString()) {
-      applyTheme(colorTheme, isDarkMode);
-    }
+    applyTheme(colorTheme, isDarkMode);
   }, [colorTheme, isDarkMode]);
 
   // Load custom font on component mount
@@ -550,71 +534,66 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="appearance" className="space-y-4">
-                {/* Theme Panel */}
-                <Collapsible open={themeExpanded} onOpenChange={setThemeExpanded}>
-                  <CollapsibleTrigger asChild>
-                    <button className="w-full bg-card border border-border p-4 sm:p-6 text-left flex items-center justify-between hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center gap-2">
-                        <Palette className="h-5 w-5" />
-                        <span className="text-lg font-semibold">Тема</span>
-                      </div>
-                      <ChevronDown className={`h-5 w-5 transition-transform ${themeExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-                  </CollapsibleTrigger>
-
-                  <CollapsibleContent className="space-y-6 pt-4 sm:pt-6">
-                    <div className="bg-card border border-border p-4 sm:p-6">
-                      <div className="space-y-6">
-                    <div>
-                          <Label className="text-base font-semibold mb-4 block">Цветовая схема</Label>
-                          <RadioGroup value={colorTheme} onValueChange={(val) => handleColorThemeChange(val as typeof colorTheme)}>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="cannabis" id="cannabis" />
-                              <Label htmlFor="cannabis" className="cursor-pointer">
-                                🌿 Зелёная каннабиоидная
-                              </Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="pink" id="pink" />
-                              <Label htmlFor="pink" className="cursor-pointer">
-                                💖 Розовая няшная
-                              </Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="blue" id="blue" />
-                              <Label htmlFor="blue" className="cursor-pointer">
-                                💙 Синяя депрессивная
-                              </Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="blood" id="blood" />
-                              <Label htmlFor="blood" className="cursor-pointer">
-                                🩸 Кроваво-красная
-                              </Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <RadioGroupItem value="pumpkin" id="pumpkin" />
-                              <Label htmlFor="pumpkin" className="cursor-pointer">
-                                🎃 Оранжево-тыквенная
-                              </Label>
-                            </div>
-                          </RadioGroup>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="dark-mode" className="text-base font-semibold">
-                            Тёмный режим
-                          </Label>
-                          <Switch
-                            id="dark-mode"
-                            checked={isDarkMode}
-                            onCheckedChange={handleDarkModeToggle}
-                          />
-                        </div>
+                <div className="bg-card p-4 sm:p-6 border border-border space-y-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                      <Palette className="h-5 w-5" />
+                      <div>
+                        <h2 className="text-lg font-semibold">Внешний вид</h2>
+                        <p className="text-sm text-muted-foreground">Тема применяется сразу и одинаково во всех разделах</p>
                       </div>
                     </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                    <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 px-3 py-2 sm:min-w-[220px]">
+                      <Label htmlFor="dark-mode" className="text-sm font-semibold">
+                        Тёмный режим
+                      </Label>
+                      <Switch
+                        id="dark-mode"
+                        checked={isDarkMode}
+                        onCheckedChange={handleDarkModeToggle}
+                      />
+                    </div>
+                  </div>
+
+                  <RadioGroup value={colorTheme} onValueChange={(val) => handleColorThemeChange(val as ColorTheme)}>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {themeOptions.map((theme) => (
+                        <label
+                          key={theme.id}
+                          htmlFor={`theme-${theme.id}`}
+                          className={`group flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
+                            colorTheme === theme.id
+                              ? "border-primary bg-primary/10 shadow-[0_0_0_1px_hsl(var(--primary)/0.35)]"
+                              : "border-border bg-background/60 hover:border-primary/40 hover:bg-muted/40"
+                          }`}
+                        >
+                          <RadioGroupItem value={theme.id} id={`theme-${theme.id}`} className="mt-1" />
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="font-semibold leading-tight">{theme.name}</div>
+                                <div className="text-xs text-muted-foreground">{theme.description}</div>
+                              </div>
+                              <span
+                                className="h-3 w-3 rounded-full border border-white/20"
+                                style={{ backgroundColor: theme.accent, boxShadow: `0 0 12px ${theme.accent}55` }}
+                              />
+                            </div>
+                            <div
+                              className="h-16 rounded-lg border border-white/10"
+                              style={{ background: theme.preview }}
+                            >
+                              <div className="flex h-full items-end gap-2 p-2">
+                                <span className="h-2.5 w-16 rounded-full bg-white/80" />
+                                <span className="h-2.5 w-10 rounded-full" style={{ backgroundColor: theme.accent }} />
+                              </div>
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </RadioGroup>
+                </div>
 
                 {/* Font Panel */}
                     <Collapsible open={fontSettingsExpanded} onOpenChange={setFontSettingsExpanded}>

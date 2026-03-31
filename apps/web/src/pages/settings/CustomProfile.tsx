@@ -55,7 +55,7 @@ const CustomProfile = () => {
   const [usernameBackgroundImage, setUsernameBackgroundImage] = useState("");
   const [usernameBackgroundClip, setUsernameBackgroundClip] = useState(false);
   const [usernameCustomCss, setUsernameCustomCss] = useState("");
-  const [isUpdatingFromCss, setIsUpdatingFromCss] = useState(false);
+  const [usernameCssMode, setUsernameCssMode] = useState<"constructor" | "manual">("constructor");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   // Icon customization
@@ -74,6 +74,7 @@ const CustomProfile = () => {
   const [badgeTextShadows, setBadgeTextShadows] = useState<TextShadow[]>([]);
   const [badgeBoxShadows, setBadgeBoxShadows] = useState<TextShadow[]>([]);
   const [badgeCustomCss, setBadgeCustomCss] = useState("");
+  const [badgeCssMode, setBadgeCssMode] = useState<"constructor" | "manual">("constructor");
 
   useEffect(() => {
     const getUser = async () => {
@@ -121,6 +122,7 @@ const CustomProfile = () => {
       if (data.username_css) {
         parseUsernameCss(data.username_css);
         setUsernameCustomCss(data.username_css);
+        setUsernameCssMode("manual");
       }
 
       // Load icon
@@ -133,12 +135,18 @@ const CustomProfile = () => {
       if (data.profile_badge_css) {
         parseBadgeCss(data.profile_badge_css);
         setBadgeCustomCss(data.profile_badge_css);
+        setBadgeCssMode("manual");
       }
     }
   };
 
   const parseUsernameCss = (css: string) => {
-    // Simple CSS parser - extract values
+    setUsernameTextShadows([]);
+    setUsernameBorderRadius(0);
+    setUsernameBackgroundColor("");
+    setUsernameBackgroundImage("");
+    setUsernameBackgroundClip(false);
+
     const colorMatch = css.match(/color:\s*([^;]+)/);
     if (colorMatch) {
       const color = colorMatch[1].trim();
@@ -147,12 +155,13 @@ const CustomProfile = () => {
         setUsernameGradientType("solid");
       } else if (color.includes('gradient')) {
         setUsernameGradientType("gradient");
-        // Parse gradient
-        const gradientMatch = css.match(/background:\s*([^;]+)/);
-        if (gradientMatch) {
-          setUsernameGradient(gradientMatch[1].trim());
-        }
       }
+    }
+
+    const gradientMatch = css.match(/background:\s*([^;]+)/);
+    if (gradientMatch && gradientMatch[1].includes("gradient")) {
+      setUsernameGradientType("gradient");
+      setUsernameGradient(gradientMatch[1].trim());
     }
 
     const borderRadiusMatch = css.match(/border-radius:\s*([^;]+)/);
@@ -185,6 +194,9 @@ const CustomProfile = () => {
   };
 
   const parseBadgeCss = (css: string) => {
+    setBadgeTextShadows([]);
+    setBadgeBoxShadows([]);
+
     const colorMatch = css.match(/color:\s*([^;]+)/);
     if (colorMatch) {
       const color = colorMatch[1].trim();
@@ -192,6 +204,12 @@ const CustomProfile = () => {
         setBadgeColor(color);
         setBadgeGradientType("solid");
       }
+    }
+
+    const gradientMatch = css.match(/background:\s*([^;]+)/);
+    if (gradientMatch && gradientMatch[1].includes("gradient")) {
+      setBadgeGradientType("gradient");
+      setBadgeGradient(gradientMatch[1].trim());
     }
 
     const shadowMatch = css.match(/text-shadow:\s*([^;]+)/);
@@ -275,6 +293,24 @@ const CustomProfile = () => {
     return styles.join(';');
   };
 
+  useEffect(() => {
+    if (usernameCssMode !== "constructor") return;
+    setUsernameCustomCss(generateUsernameCssFromConstructor());
+  }, [
+    usernameCssMode,
+    usernameColor,
+    usernameGradient,
+    usernameGradientType,
+    usernameGradientStart,
+    usernameGradientEnd,
+    usernameGradientDirection,
+    usernameTextShadows,
+    usernameBorderRadius,
+    usernameBackgroundColor,
+    usernameBackgroundImage,
+    usernameBackgroundClip,
+  ]);
+
   const generateBadgeCss = (): string => {
     return badgeCustomCss || generateBadgeCssFromConstructor();
   };
@@ -310,6 +346,33 @@ const CustomProfile = () => {
     }
 
     return styles.join(';');
+  };
+
+  useEffect(() => {
+    if (badgeCssMode !== "constructor") return;
+    setBadgeCustomCss(generateBadgeCssFromConstructor());
+  }, [
+    badgeCssMode,
+    badgeColor,
+    badgeGradient,
+    badgeGradientType,
+    badgeGradientStart,
+    badgeGradientEnd,
+    badgeGradientDirection,
+    badgeTextShadows,
+    badgeBoxShadows,
+  ]);
+
+  const handleUsernameCssChange = (value: string) => {
+    setUsernameCssMode("manual");
+    setUsernameCustomCss(value);
+    parseUsernameCss(value);
+  };
+
+  const handleBadgeCssChange = (value: string) => {
+    setBadgeCssMode("manual");
+    setBadgeCustomCss(value);
+    parseBadgeCss(value);
   };
 
   const addTextShadow = (type: "username" | "badge") => {
@@ -393,8 +456,12 @@ const CustomProfile = () => {
 
     setSaving(true);
     try {
-      const usernameCss = usernameCustomCss || generateUsernameCssFromConstructor();
-      const badgeCss = badgeCustomCss || generateBadgeCssFromConstructor();
+      const usernameCss = usernameCssMode === "manual"
+        ? usernameCustomCss.trim()
+        : generateUsernameCssFromConstructor();
+      const badgeCss = badgeCssMode === "manual"
+        ? badgeCustomCss.trim()
+        : generateBadgeCssFromConstructor();
 
       const { error } = await supabase
         .from("profile_customization")
@@ -437,8 +504,8 @@ const CustomProfile = () => {
     return null;
   }
 
-  const previewUsernameCss = usernameCustomCss || generateUsernameCssFromConstructor();
-  const previewBadgeCss = badgeCustomCss || generateBadgeCssFromConstructor();
+  const previewUsernameCss = usernameCssMode === "manual" ? usernameCustomCss : generateUsernameCssFromConstructor();
+  const previewBadgeCss = badgeCssMode === "manual" ? badgeCustomCss : generateBadgeCssFromConstructor();
 
   return (
     <main className="max-w-6xl mx-auto p-4">
@@ -523,7 +590,30 @@ const CustomProfile = () => {
                   <div className="space-y-6">
                     {/* Custom CSS Input */}
                     <div>
-                      <Label>Прямой ввод CSS (опционально)</Label>
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <Label>CSS никнейма</Label>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={usernameCssMode === "constructor" ? "default" : "outline"}
+                            onClick={() => {
+                              setUsernameCssMode("constructor");
+                              setUsernameCustomCss(generateUsernameCssFromConstructor());
+                            }}
+                          >
+                            Конструктор
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={usernameCssMode === "manual" ? "default" : "outline"}
+                            onClick={() => setUsernameCssMode("manual")}
+                          >
+                            Ручной CSS
+                          </Button>
+                        </div>
+                      </div>
                       <Textarea
                         value={usernameCustomCss}
                         onChange={(e) => handleUsernameCssChange(e.target.value)}
@@ -532,7 +622,9 @@ const CustomProfile = () => {
                         className="font-mono text-sm"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Или используйте конструктор ниже
+                        {usernameCssMode === "constructor"
+                          ? "Поле синхронизируется с конструктором ниже."
+                          : "Ручной CSS применяется сразу и остаётся редактируемым."}
                       </p>
                     </div>
 
@@ -875,7 +967,30 @@ const CustomProfile = () => {
 
                     {/* Custom CSS Input */}
                     <div>
-                      <Label>Прямой ввод CSS (опционально)</Label>
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <Label>CSS пада</Label>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={badgeCssMode === "constructor" ? "default" : "outline"}
+                            onClick={() => {
+                              setBadgeCssMode("constructor");
+                              setBadgeCustomCss(generateBadgeCssFromConstructor());
+                            }}
+                          >
+                            Конструктор
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={badgeCssMode === "manual" ? "default" : "outline"}
+                            onClick={() => setBadgeCssMode("manual")}
+                          >
+                            Ручной CSS
+                          </Button>
+                        </div>
+                      </div>
                       <Textarea
                         value={badgeCustomCss}
                         onChange={(e) => handleBadgeCssChange(e.target.value)}
@@ -883,6 +998,11 @@ const CustomProfile = () => {
                         rows={3}
                         className="font-mono text-sm"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {badgeCssMode === "constructor"
+                          ? "CSS здесь обновляется от конструктора."
+                          : "Можно свободно править CSS вручную."}
+                      </p>
                     </div>
 
                     {/* Color Type */}

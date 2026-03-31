@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -160,6 +160,7 @@ const ThreadCard = ({
   currentUserColor,
   showPreview = true
 }: ThreadCardProps) => {
+  const navigate = useNavigate();
   const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
   const [likesCount, setLikesCount] = useState(0);
   const [userLiked, setUserLiked] = useState(false);
@@ -322,8 +323,10 @@ const ThreadCard = ({
   const boardPrefix = thread.boards.is_gomosub ? "/g" : "";
 
   return (
-    <Link to={`${boardPrefix}/${thread.boards.slug}/thread/${thread.id}`} className="block">
-        <div className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 cursor-pointer">
+    <article
+      className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 cursor-pointer"
+      onClick={() => navigate(`${boardPrefix}/${thread.boards.slug}/thread/${thread.id}`)}
+    >
         {/* Thread Header */}
         <div className="flex items-start gap-3 mb-3">
           {/* Author Avatar */}
@@ -349,11 +352,16 @@ const ThreadCard = ({
                 username={thread.profiles?.username || "Аноним"}
                 isAnonymous={thread.profiles?.is_anonymous}
                 showOutline={false}
-                disableLink={true}
+                disableLink={false}
+                stopPropagationOnClick={true}
               />
-              <span className="text-xs text-muted-foreground">
+              <Link
+                to={`${boardPrefix}/${thread.boards.slug}`}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
                 в {boardPrefix || ""}/{thread.boards.slug}/
-              </span>
+              </Link>
               <span className="text-xs text-muted-foreground">
                 {formatDistanceToNow(new Date(thread.created_at), {
                   locale: ru,
@@ -568,8 +576,7 @@ const ThreadCard = ({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                // Navigate to thread
-                window.location.href = `/${thread.boards.slug}/thread/${thread.id}`;
+                navigate(`${boardPrefix}/${thread.boards.slug}/thread/${thread.id}`);
               }}
               className="
                 flex items-center gap-1
@@ -592,9 +599,12 @@ const ThreadCard = ({
             </button>
           </div>
         </div>
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          <Eye className="h-3 w-3" />
+          <span>{thread.updated_at !== thread.created_at ? "Активен" : "Новый"}</span>
+        </div>
       </div>
-      </div>
-    </Link>
+    </article>
   );
 };
 

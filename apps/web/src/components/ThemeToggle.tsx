@@ -11,67 +11,28 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-
-type ColorTheme = 'cannabis' | 'pink' | 'blue' | 'blood' | 'pumpkin';
-
-const syncSharedAppearanceCookies = () => {
-  const colorTheme = localStorage.getItem("color-theme") || "cannabis";
-  const darkMode = localStorage.getItem("dark-mode") ?? "true";
-  const customFont = localStorage.getItem("custom_font") || "";
-  const maxAge = 60 * 60 * 24 * 365;
-
-  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-};
+import { applyTheme, getStoredTheme, type ColorTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 export function ThemeToggle() {
   const [open, setOpen] = useState(false);
-  const [colorTheme, setColorTheme] = useState<ColorTheme>('cannabis');
-  const [isDark, setIsDark] = useState(false);
+  const [{ colorTheme, isDarkMode }, setThemeState] = useState(() => getStoredTheme());
 
   // Load theme from localStorage on mount
   useEffect(() => {
-    const savedColor = localStorage.getItem('color-theme') as ColorTheme;
-    const savedMode = localStorage.getItem('dark-mode');
-    
-    if (savedColor) {
-      setColorTheme(savedColor);
-    }
-    if (savedMode) {
-      setIsDark(savedMode === 'true');
-    }
-    
-    // Apply theme immediately
-    applyTheme(savedColor || 'cannabis', savedMode === 'true');
+    const storedTheme = getStoredTheme();
+    setThemeState(storedTheme);
+    applyTheme(storedTheme.colorTheme, storedTheme.isDarkMode);
   }, []);
 
-  const applyTheme = (color: ColorTheme, dark: boolean) => {
-    const html = document.documentElement;
-    
-    // Remove all theme classes
-    html.classList.remove(
-      'theme-cannabis', 'theme-cannabis-dark',
-      'theme-pink', 'theme-pink-dark',
-      'theme-blue', 'theme-blue-dark',
-      'theme-blood', 'theme-blood-dark',
-      'theme-pumpkin', 'theme-pumpkin-dark'
-    );
-    
-    // Add new theme class
-    const themeClass = dark ? `theme-${color}-dark` : `theme-${color}`;
-    html.classList.add(themeClass);
-  };
-
   const handleColorChange = (newColor: ColorTheme) => {
-    setColorTheme(newColor);
+    setThemeState((prev) => ({ ...prev, colorTheme: newColor }));
     localStorage.setItem('color-theme', newColor);
-    applyTheme(newColor, isDark);
+    applyTheme(newColor, isDarkMode);
     syncSharedAppearanceCookies();
   };
 
   const handleModeToggle = (checked: boolean) => {
-    setIsDark(checked);
+    setThemeState((prev) => ({ ...prev, isDarkMode: checked }));
     localStorage.setItem('dark-mode', checked.toString());
     applyTheme(colorTheme, checked);
     syncSharedAppearanceCookies();
@@ -123,6 +84,36 @@ export function ThemeToggle() {
                   🎃 Оранжево-тыквенная
                 </Label>
               </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="graphite" id="graphite" />
+                <Label htmlFor="graphite" className="cursor-pointer">
+                  Монохромный графит
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="lavender" id="lavender" />
+                <Label htmlFor="lavender" className="cursor-pointer">
+                  Космический лавандовый
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="volcanic" id="volcanic" />
+                <Label htmlFor="volcanic" className="cursor-pointer">
+                  Вулканический пепел
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="mint" id="mint" />
+                <Label htmlFor="mint" className="cursor-pointer">
+                  Мятный лимонад
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="glitch" id="glitch" />
+                <Label htmlFor="glitch" className="cursor-pointer">
+                  Глитч-кор
+                </Label>
+              </div>
             </RadioGroup>
           </div>
           
@@ -132,7 +123,7 @@ export function ThemeToggle() {
             </Label>
             <Switch
               id="dark-mode"
-              checked={isDark}
+              checked={isDarkMode}
               onCheckedChange={handleModeToggle}
             />
           </div>
