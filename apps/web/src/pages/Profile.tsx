@@ -25,6 +25,7 @@ import { processProfileBio } from "@/utils/profileBio";
 import { AdminBadge } from "@/components/AdminBadge";
 import { ProfileWall } from "@/components/ProfileWall";
 import { ThreadCard } from "@/components/ThreadCard";
+import { AvatarCropper } from "@/components/AvatarCropper";
 
 interface Profile {
   id: string;
@@ -50,12 +51,6 @@ interface Achievement {
   level?: number;
   is_pinned?: boolean;
   pinned_order?: number;
-}
-
-interface AvatarCropperProps {
-  imageSrc: string;
-  onCropComplete: (croppedImage: string) => void;
-  onCancel: () => void;
 }
 
 interface AchievementCardProps {
@@ -151,313 +146,6 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ achievement, onToggle
   );
 };
 
-const AvatarCropper: React.FC<AvatarCropperProps> = ({ imageSrc, onCropComplete, onCancel }) => {
-  // Элементы DOM (React refs)
-  const imageCanvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Переменные для работы с изображением (точная копия из оригинального кода)
-  const [originalImage, setOriginalImage] = useState<string>('');
-  const [circleRadius, setCircleRadius] = useState(150);
-  const [circleX, setCircleX] = useState(0);
-  const [circleY, setCircleY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStartX, setDragStartX] = useState(0);
-  const [dragStartY, setDragStartY] = useState(0);
-  const [circleStartX, setCircleStartX] = useState(0);
-  const [circleStartY, setCircleStartY] = useState(0);
-  const [scale, setScale] = useState(1);
-  const [imageLoaded, setImageLoaded] = useState(false);
-
-  const canvasWidth = 400;
-  const canvasHeight = 400;
-
-  // Загрузка изображения (точная копия из оригинального кода)
-  useEffect(() => {
-    setOriginalImage(imageSrc);
-    loadImage(imageSrc);
-  }, [imageSrc]);
-
-  // Функция загрузки изображения (точная копия)
-  const loadImage = (src: string) => {
-    const img = new Image();
-    img.onload = function() {
-      // Рассчитываем масштаб для отображения изображения в канвасе
-      const newScale = Math.min(canvasWidth / img.width, canvasHeight / img.height);
-      setScale(newScale);
-
-      // Устанавливаем начальную позицию круга по центру канваса
-      setCircleX(canvasWidth / 2);
-      setCircleY(canvasHeight / 2);
-
-      setImageLoaded(true);
-      drawImageAndCircle();
-    };
-
-    img.src = src;
-  };
-
-  // Отрисовка изображения и круга (точная копия из оригинального кода)
-  const drawImageAndCircle = () => {
-    if (!imageCanvasRef.current || !imageLoaded) return;
-
-    const ctx = imageCanvasRef.current.getContext('2d');
-    if (!ctx) return;
-
-    const img = new Image();
-    img.onload = () => {
-      // Очищаем канвас
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-      // Вычисляем размеры изображения с учетом масштаба
-      const scaledWidth = img.width * scale;
-      const scaledHeight = img.height * scale;
-
-      // Вычисляем позицию для центрирования изображения
-      const offsetX = (canvasWidth - scaledWidth) / 2;
-      const offsetY = (canvasHeight - scaledHeight) / 2;
-
-      // Рисуем изображение
-      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
-
-      // Рисуем обрезанную область (круг) для предпросмотра
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
-      ctx.restore();
-
-      // Рисуем границу круга
-      ctx.beginPath();
-      ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#3498db';
-      ctx.stroke();
-
-      // Рисуем перекрестие в центре круга
-      const crossSize = 10;
-      ctx.beginPath();
-      ctx.moveTo(circleX - crossSize, circleY);
-      ctx.lineTo(circleX + crossSize, circleY);
-      ctx.moveTo(circleX, circleY - crossSize);
-      ctx.lineTo(circleX, circleY + crossSize);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#3498db';
-      ctx.stroke();
-  };
-    img.src = originalImage;
-  };
-
-  // Обновление отрисовки при изменении параметров
-  useEffect(() => {
-    if (imageLoaded) {
-      drawImageAndCircle();
-    }
-  }, [circleX, circleY, circleRadius, imageLoaded, scale]);
-
-  // Обработчики событий для изменения размера круга
-  const handleCircleSizeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newRadius = parseInt(e.target.value);
-    setCircleRadius(newRadius);
-  };
-
-  // Конвертация координат из видимого размера в внутренний размер canvas
-  const convertCanvasCoordinates = (clientX: number, clientY: number) => {
-    if (!imageCanvasRef.current) return { x: 0, y: 0 };
-
-    const rect = imageCanvasRef.current.getBoundingClientRect();
-    // Canvas всегда квадратный (400x400), поэтому используем один масштаб
-    const scale = canvasWidth / rect.width;
-
-    const x = (clientX - rect.left) * scale;
-    const y = (clientY - rect.top) * scale;
-
-    return { x, y };
-  };
-
-  // Обработчики событий для перетаскивания круга
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const coords = convertCanvasCoordinates(e.clientX, e.clientY);
-    const x = coords.x;
-    const y = coords.y;
-
-    // Проверяем, находится ли курсор внутри круга
-    const distance = Math.sqrt((x - circleX) ** 2 + (y - circleY) ** 2);
-
-    if (distance <= circleRadius) {
-      setIsDragging(true);
-      setDragStartX(x);
-      setDragStartY(y);
-      setCircleStartX(circleX);
-      setCircleStartY(circleY);
-      if (imageCanvasRef.current) {
-        imageCanvasRef.current.style.cursor = 'grabbing';
-      }
-    }
-  };
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isDragging || !imageCanvasRef.current) return;
-
-    const coords = convertCanvasCoordinates(e.clientX, e.clientY);
-    const x = coords.x;
-    const y = coords.y;
-
-    let newCircleX = circleStartX + (x - dragStartX);
-    let newCircleY = circleStartY + (y - dragStartY);
-
-    // Ограничиваем движение круга в пределах канваса
-    const img = new Image();
-    img.onload = () => {
-      const scaledWidth = img.width * scale;
-      const scaledHeight = img.height * scale;
-      const offsetX = (canvasWidth - scaledWidth) / 2;
-      const offsetY = (canvasHeight - scaledHeight) / 2;
-
-      // Проверяем границы изображения
-      const minX = offsetX + circleRadius;
-      const maxX = offsetX + scaledWidth - circleRadius;
-      const minY = offsetY + circleRadius;
-      const maxY = offsetY + scaledHeight - circleRadius;
-
-      if (newCircleX < minX) newCircleX = minX;
-      if (newCircleX > maxX) newCircleX = maxX;
-      if (newCircleY < minY) newCircleY = minY;
-      if (newCircleY > maxY) newCircleY = maxY;
-
-      setCircleX(newCircleX);
-      setCircleY(newCircleY);
-    };
-    img.src = originalImage;
-  };
-
-  const handleMouseUp = () => {
-    if (isDragging && imageCanvasRef.current) {
-      setIsDragging(false);
-      imageCanvasRef.current.style.cursor = 'default';
-    }
-  };
-
-  // Глобальные обработчики событий
-  useEffect(() => {
-    if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging]);
-
-
-  // Сброс настроек к начальным
-  const handleReset = () => {
-    if (originalImage) {
-      setCircleRadius(150);
-      loadImage(originalImage);
-    }
-  };
-
-  // Создание обрезанного аватара (точная копия из оригинального кода)
-  const handleCrop = () => {
-    if (!imageLoaded) return;
-
-    // Создаем временный канвас для сохранения
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-
-    // Устанавливаем размеры для высококачественного аватара
-    const avatarSize = 300; // Размер итогового аватара
-    tempCanvas.width = avatarSize;
-    tempCanvas.height = avatarSize;
-
-    // Рассчитываем координаты для обрезки
-    const img = new Image();
-    img.onload = () => {
-      const scaledWidth = img.width * scale;
-      const scaledHeight = img.height * scale;
-      const offsetX = (canvasWidth - scaledWidth) / 2;
-      const offsetY = (canvasHeight - scaledHeight) / 2;
-
-      const sourceX = (circleX - offsetX - circleRadius) / scale;
-      const sourceY = (circleY - offsetY - circleRadius) / scale;
-      const sourceSize = (circleRadius * 2) / scale;
-
-      // Обрезаем изображение в форме круга
-      tempCtx.save();
-      tempCtx.beginPath();
-      tempCtx.arc(avatarSize/2, avatarSize/2, avatarSize/2, 0, Math.PI * 2);
-      tempCtx.clip();
-
-      // Рисуем обрезанное изображение
-      tempCtx.drawImage(
-        img,
-        sourceX, sourceY, sourceSize, sourceSize,
-        0, 0, avatarSize, avatarSize
-      );
-
-      tempCtx.restore();
-
-      const croppedImage = tempCanvas.toDataURL('image/png');
-      onCropComplete(croppedImage);
-    };
-    img.src = originalImage;
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="relative w-full aspect-square max-w-md mx-auto bg-muted rounded-lg overflow-hidden">
-        <canvas
-          ref={imageCanvasRef}
-          width={canvasWidth}
-          height={canvasHeight}
-          className="block w-full h-auto max-w-full bg-gray-900 rounded-lg shadow-lg"
-          onMouseDown={handleMouseDown}
-          style={{
-            cursor: isDragging ? 'grabbing' : 'default',
-            aspectRatio: '1'
-          }}
-        />
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Размер круга</label>
-        <input
-          type="range"
-          id="circleSize"
-          min="50"
-          max="300"
-          value={circleRadius}
-          onChange={handleCircleSizeChange}
-          className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer touch-manipulation"
-          style={{
-            background: `linear-gradient(to right, hsl(var(--primary)) 0%, hsl(var(--primary)) ${((circleRadius - 50) / 250) * 100}%, hsl(var(--muted)) ${((circleRadius - 50) / 250) * 100}%, hsl(var(--muted)) 100%)`
-          }}
-        />
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Маленький</span>
-          <span>Размер: {circleRadius}px</span>
-          <span>Большой</span>
-        </div>
-      </div>
-
-      <div className="flex gap-2">
-        <Button onClick={onCancel} variant="outline" className="flex-1">
-          Отмена
-        </Button>
-        <Button onClick={handleReset} variant="secondary" className="flex-1" disabled={!imageLoaded}>
-          Сбросить
-        </Button>
-        <Button onClick={handleCrop} className="flex-1" disabled={!imageLoaded}>
-          Сохранить
-        </Button>
-      </div>
-    </div>
-  );
-};
-
 const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
@@ -480,8 +168,6 @@ const Profile = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
-  const [minScale, setMinScale] = useState(0.5);
-  const [maxScale, setMaxScale] = useState(3);
   const [customization, setCustomization] = useState<any>(null);
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(false);
@@ -1015,33 +701,10 @@ const Profile = () => {
     const file = e.target.files?.[0];
     if (!file || !userId) return;
 
-    // Convert file to data URL for cropping
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
         setCropImage(event.target.result as string);
-
-        // Calculate min/max scale for this image
-        const img = new Image();
-        img.onload = () => {
-          const containerSize = 256;
-          const cropRadius = 96;
-
-          // Min scale: circle should fit in the smallest dimension
-          const minScaleNeeded = Math.max(
-            (cropRadius * 2) / Math.min(img.width, img.height),
-            0.1
-          );
-          setMinScale(minScaleNeeded);
-
-          // Max scale: allow up to 3x or until circle fills the container
-          const maxScalePossible = Math.min(
-            3,
-            containerSize / Math.min(img.width, img.height)
-          );
-          setMaxScale(maxScalePossible);
-        };
-        img.src = event.target.result as string;
       }
     };
     reader.readAsDataURL(file);
