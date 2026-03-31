@@ -170,6 +170,8 @@ export const MessengerView = () => {
   const messagesRef = useRef<MessageView[]>([]);
   const lastDeliveredMessageIdRef = useRef<string | null>(null);
   const deliveryRpcBrokenRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const previousConversationIdRef = useRef<string | null>(null);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -757,8 +759,34 @@ export const MessengerView = () => {
   useEffect(() => {
     const container = messageScrollRef.current;
     if (!container) return;
+
+    const onScroll = () => {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      isNearBottomRef.current = distanceFromBottom <= 64;
+    };
+
+    onScroll();
+    container.addEventListener("scroll", onScroll);
+
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+    };
+  }, [selectedConversationId]);
+
+  useEffect(() => {
+    const container = messageScrollRef.current;
+    if (!container) return;
+
+    const conversationChanged = previousConversationIdRef.current !== selectedConversationId;
+    const shouldStickToBottom = conversationChanged || isNearBottomRef.current;
+
+    previousConversationIdRef.current = selectedConversationId;
+
+    if (!shouldStickToBottom) return;
+
     container.scrollTop = container.scrollHeight;
     endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    isNearBottomRef.current = true;
   }, [messages, selectedConversationId]);
 
   useEffect(() => {
@@ -990,11 +1018,13 @@ export const MessengerView = () => {
                           userId={conversation.otherUser.id}
                           username={conversation.otherUser.username}
                           showOutline={false}
+                          disableLink
+                          disableHoverCard
                         />
                       </div>
-                      <span>{formatDate(conversation.lastMessageAt)}</span>
                     </div>
                     <div className="conversation-meta">
+                      <span>{formatDate(conversation.lastMessageAt)}</span>
                       <span>#{conversation.otherUser.account_number ?? "?"}</span>
                       <span>{formatPresence(conversation.otherUser.is_online, conversation.otherUser.last_seen_at)}</span>
                       {conversation.unreadCount > 0 ? <span className="count-badge">{conversation.unreadCount}</span> : null}
@@ -1102,7 +1132,7 @@ export const MessengerView = () => {
                   placeholder="Напиши сообщение..."
                 />
                 <button type="submit" className="send-button" disabled={sending || !draft.trim()}>
-                  {sending ? <PentagramLoader size="sm" /> : <SendHorizontal size={16} />}
+                  <SendHorizontal size={16} />
                 </button>
               </form>
             </>
