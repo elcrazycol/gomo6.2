@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -56,7 +56,7 @@ const WallAttachments = ({
             <button
               key={url}
               type="button"
-              className="overflow-hidden rounded-3xl border border-border/60 bg-muted/40"
+              className="overflow-hidden border border-border/60 bg-muted/30"
               onClick={() => onImageClick(imageUrls, index)}
             >
               <img src={url} alt={`attachment-${index + 1}`} className="h-40 w-full object-cover transition-transform hover:scale-[1.02]" />
@@ -73,7 +73,7 @@ const WallAttachments = ({
             <button
               key={`${galleryKey}-${index}`}
               type="button"
-              className="block overflow-hidden rounded-3xl border border-border/60 bg-muted/40"
+              className="block overflow-hidden border border-border/60 bg-muted/30"
               onClick={() => onImageClick(imageUrls, 0)}
             >
               <img src={attachment.url} alt={attachment.name || "attachment"} className="max-h-[32rem] w-full object-cover" />
@@ -114,7 +114,7 @@ const WallAttachments = ({
             href={attachment.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-2xl border border-border/60 bg-background/80 px-3 py-2 text-sm text-primary"
+            className="inline-flex items-center gap-2 border border-border/60 bg-background px-3 py-2 text-sm text-primary"
           >
             <FileText className="h-4 w-4" />
             <span className="max-w-[18rem] truncate">{attachment.name || attachment.url}</span>
@@ -237,8 +237,6 @@ export const ProfileWall = ({
     setEditingPost(null);
   };
 
-  const pinnedPost = useMemo(() => posts.find((post) => post.is_pinned), [posts]);
-
   if (!showWall) {
     return null;
   }
@@ -258,50 +256,50 @@ export const ProfileWall = ({
   return (
     <>
       <div className="space-y-4">
-        <div className="rounded-[2rem] border border-border/70 bg-gradient-to-br from-background via-background to-muted/35 p-4 shadow-sm sm:p-5">
+        {canPost && (
           <div className="flex justify-end">
-            {canPost && (
-              <Button
-                variant="default"
-                size="icon"
-                onClick={() => {
-                  setEditingPost(null);
-                  setShowCreateForm((prev) => !prev);
-                }}
-                className="h-12 w-12 rounded-2xl text-xl shadow-sm transition-all duration-300"
-                title={showCreateForm ? "Скрыть форму" : "Написать на стене"}
+            <div className="relative w-full max-w-3xl">
+              <div className={`flex ${showCreateForm ? "justify-start" : "justify-end"} transition-all duration-300 ease-out`}>
+                <Button
+                  variant="default"
+                  size="icon"
+                  onClick={() => {
+                    setEditingPost(null);
+                    setShowCreateForm((prev) => !prev);
+                  }}
+                  className={`z-20 h-12 w-12 rounded-2xl text-xl shadow-lg transition-all duration-300 ease-out ${
+                    showCreateForm ? "absolute right-4 top-0" : "relative"
+                  }`}
+                  title={showCreateForm ? "Скрыть форму" : "Написать на стене"}
+                >
+                  <Plus className={`h-5 w-5 transition-transform duration-300 ease-out ${showCreateForm ? "rotate-45" : "rotate-0"}`} />
+                </Button>
+              </div>
+
+              <div
+                className={`origin-top-right overflow-hidden transition-all duration-300 ease-out ${
+                  showCreateForm && currentUserId
+                    ? "max-h-[1200px] translate-y-0 opacity-100"
+                    : "pointer-events-none max-h-0 -translate-y-2 opacity-0"
+                }`}
               >
-                <Plus className={`h-5 w-5 transition-transform duration-300 ${showCreateForm ? "rotate-45" : "rotate-0"}`} />
-              </Button>
-            )}
-          </div>
-
-          {pinnedPost && !showCreateForm && (
-            <div className="mt-4 rounded-3xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-              Закреплено: <span className="font-medium text-foreground">{pinnedPost.title}</span>
+                <div className="pt-3">
+                  {currentUserId && (
+                    <CreateWallPost
+                      profileUserId={profileUserId}
+                      currentUserId={currentUserId}
+                      onPostCreated={handlePostCreated}
+                      onCancel={() => setShowCreateForm(false)}
+                    />
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-
-        <div
-          className={`grid transition-all duration-300 ease-out ${
-            showCreateForm && currentUserId ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-          }`}
-        >
-          <div className="overflow-hidden">
-            {showCreateForm && currentUserId && (
-              <CreateWallPost
-                profileUserId={profileUserId}
-                currentUserId={currentUserId}
-                onPostCreated={handlePostCreated}
-                onCancel={() => setShowCreateForm(false)}
-              />
-            )}
           </div>
-        </div>
+        )}
 
         {posts.length === 0 ? (
-          <div className="rounded-[2rem] border border-dashed border-border/70 bg-muted/20 py-12 text-center">
+          <div className="border border-dashed border-border/70 bg-muted/20 py-12 text-center">
             <p className="text-lg font-medium">На стене пока тихо</p>
             {canPost && <p className="mt-2 text-sm text-muted-foreground">Нажмите `+`, чтобы оставить первую запись.</p>}
           </div>
@@ -314,11 +312,11 @@ export const ProfileWall = ({
               return (
                 <Card
                   key={post.id}
-                  className={`overflow-hidden rounded-[2rem] border-border/70 shadow-sm ${
-                    post.is_pinned ? "border-primary/30 bg-gradient-to-br from-primary/5 via-background to-background" : "bg-background/95"
+                  className={`overflow-hidden border-border/70 shadow-none ${
+                    post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
                   }`}
                 >
-                  <CardContent className="space-y-4 p-4 sm:p-5">
+                  <CardContent className="space-y-3 p-3 sm:space-y-4 sm:p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                         <div className="min-w-0 flex-1">
@@ -337,7 +335,7 @@ export const ProfileWall = ({
                               })}
                             </span>
                             {post.is_pinned && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                              <span className="inline-flex items-center gap-1 border border-primary/20 bg-primary/5 px-2 py-0.5 text-[11px] font-medium text-primary">
                                 <Pin className="h-3.5 w-3.5" />
                                 Закреплено
                               </span>
@@ -345,7 +343,7 @@ export const ProfileWall = ({
                           </div>
 
                           {post.content && (
-                            <div className="mt-3 break-words text-[15px] leading-7">
+                            <div className="mt-2 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
                               <ProcessedContent content={post.content} />
                             </div>
                           )}
@@ -359,7 +357,7 @@ export const ProfileWall = ({
                               variant="ghost"
                               size="icon"
                               onClick={() => handleTogglePin(post.id)}
-                              className="h-9 w-9 rounded-full"
+                              className="h-8 w-8"
                               title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
                             >
                               {post.is_pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
@@ -371,7 +369,7 @@ export const ProfileWall = ({
                               variant="ghost"
                               size="icon"
                               onClick={() => setEditingPost(post.id)}
-                              className="h-9 w-9 rounded-full"
+                              className="h-8 w-8"
                               title="Редактировать"
                             >
                               <Edit3 className="h-4 w-4" />
@@ -382,7 +380,7 @@ export const ProfileWall = ({
                             variant="ghost"
                             size="icon"
                             onClick={() => handleDeletePost(post.id)}
-                            className="h-9 w-9 rounded-full text-destructive hover:text-destructive"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
                             title="Удалить"
                           >
                             <Trash2 className="h-4 w-4" />

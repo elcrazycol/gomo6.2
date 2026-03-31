@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { AttachmentMeta } from "@/types/forum";
 import { supabase } from "@/integrations/supabase/client";
-import { ImageIcon, Loader2, Send, Smile, Sparkles, X } from "lucide-react";
+import { ImageIcon, Loader2, Send, Smile, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 export interface WallPost {
@@ -183,58 +183,57 @@ export const CreateWallPost = ({
   };
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-gradient-to-br from-card via-card to-muted/30 shadow-sm">
+    <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
       <CardContent className="p-0">
-        <div className="border-b border-border/60 bg-gradient-to-r from-primary/8 via-transparent to-primary/5 px-4 py-3 sm:px-5">
+        <div className="border-b border-border/60 px-3 py-2.5 sm:px-5 sm:py-3">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Sparkles className="h-4 w-4 text-primary" />
                 {isEditing ? "Редактирование записи" : "Новая запись на стене"}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="hidden text-xs text-muted-foreground sm:block">
                 BB-теги, эмодзи и вложения работают прямо здесь.
               </p>
             </div>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onCancel}>
-              <X className="h-4 w-4" />
-            </Button>
           </div>
         </div>
 
-        <div className="space-y-4 p-4 sm:p-5">
-          <div className="rounded-3xl border border-border/70 bg-background/85 p-3 shadow-inner sm:p-4">
+        <div className="space-y-3 p-3 sm:space-y-4 sm:p-5">
+          <div className="border border-border/70 bg-background p-2.5 sm:p-4">
             <RichTextEditor
               ref={editorRef}
               value={content}
               onChange={setContent}
               onSubmit={handleSubmit}
               placeholder="Что у вас нового? Напишите красиво, добавьте теги, спойлеры и эмодзи."
-              className="min-h-[140px] border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
+              className="min-h-[120px] text-sm border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 sm:min-h-[140px] sm:text-base"
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-2xl border border-border/70 bg-background/80 p-1">
-              <InlineFormattingToolbar editorRef={editorRef} />
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="border border-border/70 bg-background p-1">
+                <InlineFormattingToolbar editorRef={editorRef} />
+              </div>
+
+              <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
+                <Button
+                  ref={emojiButtonRef}
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 border-border/70 sm:h-10 sm:w-10"
+                  title="Добавить эмодзи"
+                >
+                  <Smile className="h-4 w-4" />
+                </Button>
+              </EmojiPicker>
+
+              <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
             </div>
 
-            <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
-              <Button
-                ref={emojiButtonRef}
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 rounded-2xl border-border/70"
-                title="Добавить эмодзи"
-              >
-                <Smile className="h-4 w-4" />
-              </Button>
-            </EmojiPicker>
-
-            <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
-
-            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:text-xs">
               <span>{content.length} симв.</span>
               <span>•</span>
               <span>{attachments.length} влож.</span>
@@ -253,11 +252,11 @@ export const CreateWallPost = ({
           {(content.trim() || attachments.length > 0) && (
             <>
               <Separator />
-              <div className="space-y-3 rounded-3xl border border-dashed border-border/70 bg-muted/30 p-4">
+              <div className="space-y-2 border border-dashed border-border/70 bg-muted/20 p-3 sm:space-y-3 sm:p-4">
                 <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
                   Предпросмотр
                 </div>
-                <div className="rounded-3xl border border-border/70 bg-background p-4">
+                <div className="border border-border/70 bg-background p-3 sm:p-4">
                   {content.trim() ? (
                     <ProcessedContent content={content} />
                   ) : (
@@ -268,15 +267,15 @@ export const CreateWallPost = ({
             </>
           )}
 
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="hidden text-[11px] text-muted-foreground sm:block sm:text-xs">
               Enter отправляет пост на десктопе, Shift+Enter переносит строку.
             </p>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={onCancel}>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <Button type="button" variant="outline" onClick={onCancel} className="flex-1 sm:flex-none">
                 Отмена
               </Button>
-              <Button type="button" disabled={isSubmitting || !canSubmit} onClick={handleSubmit} className="rounded-2xl px-5">
+              <Button type="button" disabled={isSubmitting || !canSubmit} onClick={handleSubmit} className="flex-1 px-4 sm:flex-none sm:px-5">
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
