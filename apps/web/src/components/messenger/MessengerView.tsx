@@ -72,6 +72,48 @@ type MessageView = ChatMessageRecord & {
   localStatus?: "pending";
 };
 
+const mergeMessages = (current: MessageView[], normalized: MessageView[], userId: string) => {
+  const pending = current.filter((message) => message.localStatus === "pending");
+  const nonPending = current.filter((message) => message.localStatus !== "pending");
+  const pendingMatchedIds = new Set<string>();
+
+  const mergedServer = normalized.map((message) => {
+    const localPending = pending.find(
+      (pendingMessage) =>
+        pendingMessage.client_message_id === message.client_message_id && pendingMessage.sender_user_id === userId
+    );
+
+    if (!localPending) {
+      return message;
+    }
+
+    pendingMatchedIds.add(localPending.id);
+    return {
+      ...message,
+      plainText: localPending.plainText,
+      peerDeliveredAt: message.peerDeliveredAt ?? localPending.peerDeliveredAt,
+      peerReadAt: message.peerReadAt ?? localPending.peerReadAt,
+    };
+  });
+
+  const pendingStillLocal = pending.filter((message) => !pendingMatchedIds.has(message.id));
+  const mergedById = new Map<string, MessageView>();
+
+  for (const message of nonPending) {
+    mergedById.set(message.id, message);
+  }
+
+  for (const message of mergedServer) {
+    mergedById.set(message.id, message);
+  }
+
+  const merged = [...pendingStillLocal, ...Array.from(mergedById.values())].sort(
+    (left, right) => new Date(left.sent_at).getTime() - new Date(right.sent_at).getTime()
+  );
+
+  return merged;
+};
+
 const parseCssToStyle = (css: string | null) => {
   const style: Record<string, string> = {};
   if (!css) return style;
@@ -150,6 +192,8 @@ export const MessengerView = () => {
   const conversationsRef = useRef<ConversationView[]>([]);
   const selectedConversationRef = useRef<ConversationView | null>(null);
   const messagesRef = useRef<MessageView[]>([]);
+  const lastDeliveredMessageIdRef = useRef<string | null>(null);
+  const deliveryRpcBrokenRef = useRef(false);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -225,8 +269,10 @@ export const MessengerView = () => {
     return cryptoState;
   };
 
-  const loadConversations = async (userId: string) => {
-    setConversationsLoading(true);
+  const loadConversations = async (userId: string, options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setConversationsLoading(true);
+    }
     try {
       const { data: membershipRows, error: membershipError } = await supabase
         .from("chat_conversation_members" as never)
@@ -364,7 +410,9 @@ export const MessengerView = () => {
       const message = error instanceof Error ? error.message : "Не удалось загрузить диалоги";
       throw new Error(message);
     } finally {
-      setConversationsLoading(false);
+      if (!options?.silent) {
+        setConversationsLoading(false);
+      }
     }
   };
 
@@ -433,29 +481,9 @@ export const MessengerView = () => {
 
       setMessages((current) => {
         if (!incremental) {
-          return normalized;
+          return mergeMessages(current, normalized, userId);
         }
-
-        const pending = current.filter((message) => message.localStatus === "pending");
-        const pendingMatchedIds = new Set<string>();
-        const mergedServer = normalized.map((message) => {
-          const localPending = pending.find(
-            (pendingMessage) =>
-              pendingMessage.client_message_id === message.client_message_id && pendingMessage.sender_user_id === userId
-          );
-          if (!localPending) {
-            return message;
-          }
-
-          pendingMatchedIds.add(localPending.id);
-          return {
-            ...message,
-            plainText: localPending.plainText,
-          };
-        });
-
-        return [...current.filter((message) => !pendingMatchedIds.has(message.id) && message.localStatus === "pending"), ...mergedServer]
-          .sort((left, right) => new Date(left.sent_at).getTime() - new Date(right.sent_at).getTime());
+        return mergeMessages(current, normalized, userId);
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
@@ -494,11 +522,21 @@ export const MessengerView = () => {
   };
 
   const markDelivered = async (conversationId: string, latestMessageId: string | null) => {
-    if (!latestMessageId) return;
-    await supabase.rpc("chat_mark_delivered" as never, {
+    if (!latestMessageId || deliveryRpcBrokenRef.current || lastDeliveredMessageIdRef.current === latestMessageId) {
+      return;
+    }
+
+    const { error } = await supabase.rpc("chat_mark_delivered" as never, {
       target_conversation_id: conversationId,
       target_message_id: latestMessageId,
     } as never);
+
+    if (error) {
+      deliveryRpcBrokenRef.current = true;
+      throw error;
+    }
+
+    lastDeliveredMessageIdRef.current = latestMessageId;
   };
 
   const markRead = async (conversationId: string, latestMessageId: string | null) => {
@@ -616,6 +654,7 @@ export const MessengerView = () => {
             : message
         )
       );
+      void refreshCurrentConversation(true).catch(() => undefined);
       setErrorMessage(null);
       updateSearch(selectedConversation.id, selectedConversation.otherUser.id);
     } catch (error) {
@@ -680,6 +719,7 @@ export const MessengerView = () => {
 
     visibleConversationIdRef.current = selectedConversation.id;
     lastReadMessageIdRef.current = null;
+    lastDeliveredMessageIdRef.current = null;
 
     void loadMessages(selectedConversation, me.id).catch((error) => {
       setErrorMessage(error.message);
@@ -734,15 +774,24 @@ export const MessengerView = () => {
         if (!next?.conversation_id) return;
 
         setConversations((current) =>
-          current.map((conversation) =>
-            conversation.id === next.conversation_id
-              ? {
-                  ...conversation,
-                  unreadCount: next.unread_count_cache ?? conversation.unreadCount,
-                  lastReadAt: next.last_read_at ?? conversation.lastReadAt,
-                }
-              : conversation
-          )
+          current.map((conversation) => {
+            if (conversation.id !== next.conversation_id) {
+              return conversation;
+            }
+
+            const unreadCount = next.unread_count_cache ?? conversation.unreadCount;
+            const lastReadAt = next.last_read_at ?? conversation.lastReadAt;
+
+            if (unreadCount === conversation.unreadCount && lastReadAt === conversation.lastReadAt) {
+              return conversation;
+            }
+
+            return {
+              ...conversation,
+              unreadCount,
+              lastReadAt,
+            };
+          })
         );
 
         if (visibleConversationIdRef.current === next.conversation_id) {
@@ -784,10 +833,10 @@ export const MessengerView = () => {
           if (activeConversation) {
             void loadMessages(activeConversation, me.id, true).catch(() => undefined);
           } else {
-            void loadConversations(me.id).catch(() => undefined);
+            void loadConversations(me.id, { silent: true }).catch(() => undefined);
           }
         } else {
-          void loadConversations(me.id).catch(() => undefined);
+          void loadConversations(me.id, { silent: true }).catch(() => undefined);
         }
       }
     );
@@ -804,15 +853,24 @@ export const MessengerView = () => {
         if (!next || next.user_id === me.id) return;
 
         setMessages((current) =>
-          current.map((message) =>
-            message.id === next.message_id
-              ? {
-                  ...message,
-                  peerDeliveredAt: next.delivered_at ?? message.peerDeliveredAt,
-                  peerReadAt: next.read_at ?? message.peerReadAt,
-                }
-              : message
-          )
+          current.map((message) => {
+            if (message.id !== next.message_id) {
+              return message;
+            }
+
+            const peerDeliveredAt = next.delivered_at ?? message.peerDeliveredAt;
+            const peerReadAt = next.read_at ?? message.peerReadAt;
+
+            if (peerDeliveredAt === message.peerDeliveredAt && peerReadAt === message.peerReadAt) {
+              return message;
+            }
+
+            return {
+              ...message,
+              peerDeliveredAt,
+              peerReadAt,
+            };
+          })
         );
 
         if (visibleConversationIdRef.current) {
@@ -836,6 +894,7 @@ export const MessengerView = () => {
       if (!latestMessage || latestMessage.localStatus === "pending") return;
       void markRead(selectedConversation.id, latestMessage.id).catch(() => undefined);
       void refreshCurrentConversation(true).catch(() => undefined);
+      void loadConversations(me.id, { silent: true }).catch(() => undefined);
     };
 
     window.addEventListener("focus", onFocus);
@@ -846,21 +905,6 @@ export const MessengerView = () => {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [messages, selectedConversation?.id]);
-
-  useEffect(() => {
-    if (!me) return;
-
-    const refreshThreads = () => {
-      if (document.visibilityState !== "visible") return;
-      void loadConversations(me.id).catch(() => undefined);
-      if (selectedConversationRef.current) {
-        void refreshCurrentConversation(true).catch(() => undefined);
-      }
-    };
-
-    const intervalId = window.setInterval(refreshThreads, 4500);
-    return () => window.clearInterval(intervalId);
-  }, [me?.id]);
 
   if (loading || !me) {
     return (
@@ -887,7 +931,7 @@ export const MessengerView = () => {
           {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
 
           <div className="conversation-list">
-            {conversationsLoading ? (
+            {conversationsLoading && conversations.length === 0 ? (
               <div className="panel-loader-overlay sidebar-loader">
                 <PentagramLoader size="md" />
               </div>
