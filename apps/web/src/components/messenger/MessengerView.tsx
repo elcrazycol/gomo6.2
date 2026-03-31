@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, MessageCircle, PanelLeft, SendHorizontal } from "lucide-react";
+import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -146,11 +146,32 @@ export const MessengerView = () => {
   const endRef = useRef<HTMLDivElement | null>(null);
   const lastReadMessageIdRef = useRef<string | null>(null);
   const visibleConversationIdRef = useRef<string | null>(null);
+  const meRef = useRef<ProfileSummary | null>(null);
+  const conversationsRef = useRef<ConversationView[]>([]);
+  const selectedConversationRef = useRef<ConversationView | null>(null);
+  const messagesRef = useRef<MessageView[]>([]);
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
+
+  useEffect(() => {
+    meRef.current = me;
+  }, [me]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+    visibleConversationIdRef.current = selectedConversation?.id ?? null;
+  }, [selectedConversation]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const updateSearch = (conversationId: string | null, userId: string | null) => {
     const next = new URLSearchParams(searchParams);
@@ -499,11 +520,18 @@ export const MessengerView = () => {
           ? {
               ...conversation,
               unreadCount: 0,
-              lastReadAt: messages.at(-1)?.sent_at ?? conversation.lastReadAt,
+              lastReadAt: messagesRef.current.at(-1)?.sent_at ?? conversation.lastReadAt,
             }
           : conversation
       )
     );
+  };
+
+  const refreshCurrentConversation = async (incremental = true) => {
+    const currentMe = meRef.current;
+    const currentConversation = selectedConversationRef.current;
+    if (!currentMe || !currentConversation) return;
+    await loadMessages(currentConversation, currentMe.id, incremental);
   };
 
   const sendMessage = async () => {
@@ -625,7 +653,14 @@ export const MessengerView = () => {
           await ensureConversation(user.id, targetUserId);
         }
 
-        await loadConversations(user.id);
+        const loaded = await loadConversations(user.id);
+        if (targetUserId) {
+          const targeted = loaded.find((conversation) => conversation.otherUser.id === targetUserId);
+          if (targeted) {
+            setSelectedConversationId(targeted.id);
+            setMobileSidebarOpen(false);
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Не удалось инициализировать messenger";
         setErrorMessage(message);
@@ -661,7 +696,7 @@ export const MessengerView = () => {
   useEffect(() => {
     if (!selectedConversation) return;
     updateSearch(selectedConversation.id, selectedConversation.otherUser.id);
-  }, [selectedConversation?.id]);
+  }, [selectedConversation?.id, selectedConversation?.otherUser.id]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -709,6 +744,10 @@ export const MessengerView = () => {
               : conversation
           )
         );
+
+        if (visibleConversationIdRef.current === next.conversation_id) {
+          void refreshCurrentConversation(true).catch(() => undefined);
+        }
       }
     );
 
@@ -741,7 +780,7 @@ export const MessengerView = () => {
         );
 
         if (visibleConversationIdRef.current === next.conversation_id) {
-          const activeConversation = conversations.find((conversation) => conversation.id === next.conversation_id);
+          const activeConversation = conversationsRef.current.find((conversation) => conversation.id === next.conversation_id);
           if (activeConversation) {
             void loadMessages(activeConversation, me.id, true).catch(() => undefined);
           } else {
@@ -775,6 +814,10 @@ export const MessengerView = () => {
               : message
           )
         );
+
+        if (visibleConversationIdRef.current) {
+          void refreshCurrentConversation(true).catch(() => undefined);
+        }
       }
     );
 
@@ -783,15 +826,16 @@ export const MessengerView = () => {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [conversations, me?.id]);
+  }, [me?.id]);
 
   useEffect(() => {
     if (!selectedConversation) return;
 
     const onFocus = () => {
-      const latestMessage = messages.at(-1);
+      const latestMessage = messagesRef.current.at(-1);
       if (!latestMessage || latestMessage.localStatus === "pending") return;
       void markRead(selectedConversation.id, latestMessage.id).catch(() => undefined);
+      void refreshCurrentConversation(true).catch(() => undefined);
     };
 
     window.addEventListener("focus", onFocus);
@@ -802,6 +846,21 @@ export const MessengerView = () => {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [messages, selectedConversation?.id]);
+
+  useEffect(() => {
+    if (!me) return;
+
+    const refreshThreads = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadConversations(me.id).catch(() => undefined);
+      if (selectedConversationRef.current) {
+        void refreshCurrentConversation(true).catch(() => undefined);
+      }
+    };
+
+    const intervalId = window.setInterval(refreshThreads, 4500);
+    return () => window.clearInterval(intervalId);
+  }, [me?.id]);
 
   if (loading || !me) {
     return (
@@ -815,25 +874,6 @@ export const MessengerView = () => {
 
   return (
     <div className="messenger-app">
-      <header className={`messenger-header ${selectedConversation && !mobileSidebarOpen ? "is-hidden-on-mobile-chat" : ""}`}>
-        <div className="messenger-header-inner">
-          <Link to="/" className="brand-mark">
-            gomo6 messenger
-          </Link>
-          <div className="header-actions">
-            {totalUnread > 0 ? <span className="header-unread-badge">{totalUnread}</span> : null}
-            <button
-              type="button"
-              className="icon-button mobile-only"
-              onClick={() => setMobileSidebarOpen((current) => !current)}
-              aria-label="Показать список диалогов"
-            >
-              <PanelLeft size={16} />
-            </button>
-          </div>
-        </div>
-      </header>
-
       <div className={`messenger-shell ${selectedConversation && !mobileSidebarOpen ? "mobile-chat-open" : ""}`}>
         <aside className={`sidebar-panel ${mobileSidebarOpen ? "is-open" : ""}`}>
           <div className="sidebar-top">
@@ -841,6 +881,7 @@ export const MessengerView = () => {
               <p className="eyebrow">внутри gomo6</p>
               <h1>Сообщения</h1>
             </div>
+            {totalUnread > 0 ? <span className="header-unread-badge">{totalUnread}</span> : null}
           </div>
 
           {errorMessage ? <div className="error-banner">{errorMessage}</div> : null}
@@ -965,7 +1006,7 @@ export const MessengerView = () => {
                             <span>{formatTime(message.sent_at)}</span>
                             {isMine ? (
                               <span className={`message-status ${message.peerReadAt ? "is-read" : ""}`}>
-                                {message.localStatus === "pending" ? "…" : message.peerReadAt ? "••" : message.peerDeliveredAt ? "✓✓" : "✓"}
+                                {message.localStatus === "pending" ? ">" : message.peerReadAt ? ">>" : message.peerDeliveredAt ? ">>" : ">"}
                               </span>
                             ) : null}
                           </div>
