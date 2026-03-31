@@ -1,6 +1,5 @@
 "use client";
 
-import sodium from "libsodium-wrappers";
 import { fromBase64, textDecoder, textEncoder, toBase64 } from "@/lib/encoding";
 
 const STORE_KEY = "gomo6-messenger-sodium-state";
@@ -46,9 +45,37 @@ const writeState = (state: LocalCryptoState) => {
   window.localStorage.setItem(STORE_KEY, JSON.stringify(state));
 };
 
+type SodiumModule = {
+  ready: Promise<unknown>;
+  crypto_box_NONCEBYTES: number;
+  crypto_box_keypair: () => { publicKey: Uint8Array; privateKey: Uint8Array };
+  crypto_box_easy: (
+    message: Uint8Array,
+    nonce: Uint8Array,
+    publicKey: Uint8Array,
+    privateKey: Uint8Array
+  ) => Uint8Array;
+  crypto_box_open_easy: (
+    cipherText: Uint8Array,
+    nonce: Uint8Array,
+    publicKey: Uint8Array,
+    privateKey: Uint8Array
+  ) => Uint8Array;
+  randombytes_buf: (length: number) => Uint8Array;
+};
+
+let sodiumPromise: Promise<SodiumModule> | null = null;
+
 const ensureSodium = async () => {
-  await sodium.ready;
-  return sodium;
+  if (!sodiumPromise) {
+    sodiumPromise = import("libsodium-wrappers").then(async (module) => {
+      const sodium = (module.default ?? module) as unknown as SodiumModule;
+      await sodium.ready;
+      return sodium;
+    });
+  }
+
+  return await sodiumPromise;
 };
 
 export const ensureLocalCryptoState = async (userId: string) => {
