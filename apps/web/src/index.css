@@ -377,6 +377,23 @@ html, body {
   text-decoration: underline;
 }
 
+.messenger-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: hsl(var(--background));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.messenger-back-button span {
+  line-height: 1;
+}
+
 .presence-copy {
   margin-top: 2px;
 }
@@ -640,10 +657,34 @@ html, body {
   .chat-topbar {
     gap: 10px;
     padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: 8px;
+    background: hsl(var(--card));
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   .chat-topbar-main {
     min-width: 0;
+    width: 100%;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .chat-topbar-main > div:last-child {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .messenger-back-button {
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+
+  .chat-topbar strong {
+    font-size: 13px;
+  }
+
+  .presence-copy {
+    font-size: 11px;
   }
 
   .message-bubble {
