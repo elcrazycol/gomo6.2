@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -17,7 +16,6 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
-import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -25,6 +23,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 
 interface Board {
   id: string;
@@ -76,12 +75,13 @@ const Board = () => {
   const [showNewThread, setShowNewThread] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [contentJson, setContentJson] = useState<unknown>(null);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
-  const contentTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<GomoRichEditorHandle>(null);
   
   useSessionTime(user?.id);
 
@@ -284,6 +284,7 @@ const Board = () => {
       user_id: user.id,
       title: title.trim(),
       content: content.trim(),
+      content_json: contentJson,
       image_url: imageUrlForDb, // Keep for backward compatibility
       image_urls: imageUrlsJson, // New field for multiple images
     });
@@ -298,32 +299,10 @@ const Board = () => {
     toast.success("Тред создан");
     setTitle("");
     setContent("");
+    setContentJson(null);
     setImageUrls([]);
     setShowNewThread(false);
     loadThreads(board!.id);
-  };
-
-  const handleFormatText = (prefix: string, suffix: string) => {
-    const textarea = contentTextareaRef.current;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
-    const newText = 
-      content.substring(0, start) + 
-      prefix + 
-      selectedText + 
-      suffix + 
-      content.substring(end);
-    
-    setContent(newText);
-    
-    // Restore cursor position after formatting
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
-    }, 0);
   };
 
   const handleLogout = async () => {
@@ -441,22 +420,17 @@ const Board = () => {
               className="mb-2"
               disabled={loading}
             />
-            <InlineFormattingToolbar onFormat={handleFormatText} />
-            <Textarea
-              ref={contentTextareaRef}
-              placeholder="Сообщение"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              onKeyDown={(e) => {
-                // Send on Enter only on desktop
-                if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) {
-                  e.preventDefault();
-                  handleCreateThread(e as any);
-                }
+            <GomoRichEditor
+              ref={editorRef}
+              contentJson={contentJson}
+              legacyContent={content}
+              onChange={({ json, text }) => {
+                setContentJson(json);
+                setContent(text);
               }}
-              className="mb-2"
-              rows={4}
-              disabled={loading}
+              onSubmit={() => handleCreateThread({ preventDefault() {} } as React.FormEvent)}
+              placeholder="Сообщение"
+              minHeightClassName="min-h-[120px]"
             />
             <ImageUpload
               onImagesUploaded={setImageUrls}

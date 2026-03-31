@@ -6,13 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { X, Plus, Eye, EyeOff, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
+import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
-import { ProcessedContent } from "@/components/ProcessedContent";
 
 interface Board {
   id: string;
@@ -102,7 +100,6 @@ const CreateThread = () => {
   });
   const [isExpandedView, setIsExpandedView] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
   const [showPoll, setShowPoll] = useState(false);
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const [poll, setPoll] = useState<Poll>({
@@ -417,23 +414,13 @@ const CreateThread = () => {
               >
                 Сменить доску
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowPreview(!showPreview)}
-                className="hover:bg-primary hover:text-primary-foreground"
-              >
-                {showPreview ? <EyeOff className="h-4 w-4 mr-2" /> : <Eye className="h-4 w-4 mr-2" />}
-                {showPreview ? 'Редактор' : 'Предпросмотр'}
-              </Button>
             </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto p-4">
-        {!showPreview ? (
-          <div className="space-y-6">
+        <div className="space-y-6">
             {/* Title */}
             <div>
               <label className="text-sm font-medium mb-2 block">Заголовок</label>
@@ -847,100 +834,6 @@ const CreateThread = () => {
               </Button>
             </div>
           </div>
-        ) : (
-          /* Preview */
-          <Card className="max-w-2xl mx-auto">
-            <CardHeader>
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                  <span className="text-sm font-medium">Вы</span>
-                </div>
-                <div className="flex-1">
-                  <div className="font-semibold">Ваш тред</div>
-                  <div className="text-xs text-muted-foreground">
-                    в /{board.slug}/ • только что
-                  </div>
-                </div>
-              </div>
-
-              <CardTitle className="text-left">{title || 'Заголовок треда'}</CardTitle>
-
-              {/* Preview tags */}
-              <div className="flex flex-wrap gap-1 mt-2">
-                {tags.content && (
-                  <Badge variant="secondary" className="text-xs">
-                    {CONTENT_TAGS.find(t => t.value === tags.content)?.label}
-                  </Badge>
-                )}
-                {tags.format && (
-                  <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600">
-                    {FORMAT_TAGS.find(t => t.value === tags.format)?.label}
-                  </Badge>
-                )}
-                {tags.atmosphere && (
-                  <Badge variant="secondary" className="text-xs bg-purple-500/10 text-purple-600">
-                    {ATMOSPHERE_TAGS.find(t => t.value === tags.atmosphere)?.label}
-                  </Badge>
-                )}
-                {tags.flag && tags.flag !== 'normal' && (
-                  <Badge variant="secondary" className="text-xs bg-orange-500/10 text-orange-600">
-                    {FLAG_TAGS.find(t => t.value === tags.flag)?.label}
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-
-            <CardContent>
-              {threadImageUrl && (
-                <div className="mb-4">
-                  <img src={threadImageUrl} alt="Thread" className="w-full max-h-64 object-cover rounded" />
-                </div>
-              )}
-
-              <div className="text-sm break-words">
-                {content ? (
-                  <ProcessedContent content={content} contentJson={contentJson} currentUserId={null} isAdmin={false} currentUsername="" />
-                ) : (
-                  <span className="text-muted-foreground">Содержание треда...</span>
-                )}
-              </div>
-
-              {imageUrls.length > 0 && (
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  {imageUrls.map((url, index) => (
-                    <img
-                      key={index}
-                      src={url}
-                      alt={`Image ${index + 1}`}
-                      className="w-full h-16 object-cover rounded border border-border"
-                    />
-                  ))}
-                </div>
-              )}
-
-              {showPoll && poll.question.trim() && (
-                <div className="mt-4 p-3 border border-border rounded-lg bg-muted/50">
-                  <h4 className="font-medium text-sm mb-2">📊 {poll.question}</h4>
-                  <div className="space-y-1">
-                    {poll.options.filter(option => option.text.trim()).map((option, index) => (
-                      <div key={option.id} className="flex items-center gap-2 text-sm">
-                        <div className="w-4 h-4 border border-border rounded flex items-center justify-center text-xs">
-                          {index + 1}
-                        </div>
-                        <span>{option.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    {poll.allow_multiple ? 'Можно выбрать несколько вариантов' : 'Можно выбрать 1 вариант'}
-                    {poll.show_results && ' • Результаты видны'}
-                    {poll.allow_change_vote && ' • Можно изменить голос'}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       {renderBoardDialog}
