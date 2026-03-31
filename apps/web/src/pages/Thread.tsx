@@ -1708,63 +1708,35 @@ const Thread = () => {
                   </div>
                 )}
 
-                {isExpandedView && (
-                  <div className="space-y-3 sm:space-y-4">
-                    {/* Header with preview toggle */}
-                    <div className="flex items-center justify-between pb-2 border-b border-border/50">
-                      <label className="text-xs sm:text-sm font-medium">Предпросмотр</label>
+                <div className={`flex gap-1.5 sm:gap-2 ${isExpandedView ? 'items-start' : 'items-end'}`}>
+                  {isExpandedView && (
+                    <div className="flex flex-col gap-1.5 sm:gap-2 shrink-0">
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs shrink-0"
+                        size="icon"
+                        className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                         onClick={() => setIsExpandedView(false)}
-                        title="Скрыть предпросмотр"
+                        title="Свернуть редактор"
                       >
-                        <Minimize2 className="h-3 w-3 mr-1" />
-                        <span className="hidden sm:inline">Скрыть</span>
+                        <Minimize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                       </Button>
+                      <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
                     </div>
-                    
-                    {/* Preview */}
-                    <div className="bg-card border border-border rounded-lg p-2 sm:p-3 min-h-[150px] sm:min-h-[200px] max-h-[250px] sm:max-h-[300px] overflow-y-auto">
-                      <div className="text-xs sm:text-sm break-words">
-                          {content ? (
-                            <ProcessedContent content={content} contentJson={contentJson} currentUserId={user?.id || null} isAdmin={isAdmin} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={user?.id || null} authorUsername={currentUserUsername} />
-                          ) : (
-                            <span className="text-muted-foreground">Начните писать сообщение...</span>
-                          )}
-                        </div>
-                        {imageUrls.length > 0 && (
-                          <div className="mt-3 grid grid-cols-3 gap-2">
-                            {imageUrls.map((url, index) => (
-                              <img
-                                key={index}
-                                src={url}
-                                alt={`Preview ${index + 1}`}
-                                className="w-full h-16 object-cover rounded border border-border"
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                  </div>
-                )}
-
-                <div className={`flex gap-1.5 sm:gap-2 ${isExpandedView ? 'items-start' : 'items-end'}`}>
+                  )}
                   {!isExpandedView && (
                     <>
                       <div className="flex flex-col gap-1.5 sm:gap-2 shrink-0">
-                  <Button
-                    type="button"
+                        <Button
+                          type="button"
                     variant="ghost"
                     size="icon"
                           className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl shrink-0"
                           onClick={() => setIsExpandedView(true)}
-                          title="Показать предпросмотр"
-                  >
+                          title="Развернуть редактор"
+                        >
                           <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </Button>
+                        </Button>
                         <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
                       </div>
                     </>

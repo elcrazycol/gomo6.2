@@ -4,15 +4,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
 import { Loader2, Smile, X } from "lucide-react";
-import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { ImageGallery } from "@/components/ImageGallery";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 
 type GomoBoard = {
   id: string;
@@ -30,9 +29,10 @@ const CreateGomoThread = () => {
   const [board, setBoard] = useState<GomoBoard | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [contentJson, setContentJson] = useState<unknown>(null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorRef = useRef<GomoRichEditorHandle | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -94,34 +94,9 @@ const CreateGomoThread = () => {
     [attachments]
   );
 
-  const insertAtSelection = (prefix: string, suffix: string = "") => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
-    const newText = prefix + selectedText + suffix;
-    setContent(content.substring(0, start) + newText + content.substring(end));
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
-    }, 0);
-  };
-
   const handleEmojiSelect = (emojiCode: string) => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      setContent((prev) => `${prev}${emojiCode}`);
-      return;
-    }
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    setContent(content.substring(0, start) + emojiCode + content.substring(end));
-    setTimeout(() => {
-      textarea.focus();
-      const pos = start + emojiCode.length;
-      textarea.setSelectionRange(pos, pos);
-    }, 0);
+    editorRef.current?.focus();
+    editorRef.current?.insertText(emojiCode);
   };
 
   const handleCreate = async () => {
@@ -147,6 +122,7 @@ const CreateGomoThread = () => {
         user_id: user.id,
         title: title.trim(),
         content: content.trim(),
+        content_json: contentJson,
         image_url: imageUrl,
         attachments: attachments.length ? attachments : null,
         tags: selectedTags.length ? { gomosub_tags: selectedTags } : null
@@ -188,7 +164,6 @@ const CreateGomoThread = () => {
             <label className="text-sm font-medium">Текст</label>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <InlineFormattingToolbar onFormat={insertAtSelection} />
                 <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
                   <Button
                     ref={emojiButtonRef}
@@ -202,12 +177,17 @@ const CreateGomoThread = () => {
                   </Button>
                 </EmojiPicker>
               </div>
-              <Textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={8}
+              <GomoRichEditor
+                ref={editorRef}
+                contentJson={contentJson}
+                legacyContent={content}
+                onChange={({ json, text }) => {
+                  setContentJson(json);
+                  setContent(text);
+                }}
+                onSubmit={handleCreate}
                 placeholder="Текст треда"
+                minHeightClassName="min-h-[180px]"
               />
             </div>
           </div>
