@@ -295,6 +295,7 @@ html, body {
   text-align: left;
   cursor: pointer;
   background: hsl(var(--post-header));
+  overflow: hidden;
 }
 
 .conversation-card:hover,
@@ -310,15 +311,25 @@ html, body {
 
 .conversation-copy {
   min-width: 0;
+  overflow: hidden;
 }
 
 .conversation-user-badge {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .conversation-user-badge a,
 .conversation-user-badge span {
   min-width: 0;
+  max-width: 100%;
+}
+
+.conversation-head,
+.conversation-meta {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .conversation-head strong,
