@@ -130,6 +130,17 @@ type MessageView = ApiMessage & {
   localStatus?: "pending";
 };
 
+type SendMessageResponse = {
+  message: {
+    id: string;
+    sentAt: string;
+    selfEnvelope: {
+      ciphertext: string;
+      messageType: number;
+    } | null;
+  };
+};
+
 type Props = {
   appBaseUrl: string;
   initialTargetUserId: string | null;
@@ -427,6 +438,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     }, 60);
   };
 
+  const resizeComposer = () => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.style.height = "0px";
+    composer.style.height = `${Math.min(composer.scrollHeight, 140)}px`;
+  };
+
   const ensureConversation = async () => {
     if (!targetUserId || targetUserId === bootstrap?.me.id) return;
 
@@ -658,7 +676,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
         await cacheSentPlaintext(selfEnvelope.ciphertext, plainText);
       }
 
-      await apiFetch("/api/messages", {
+      const payload = (await apiFetch("/api/messages", {
         method: "POST",
         body: JSON.stringify({
           conversationId: selectedConversation.id,
@@ -666,9 +684,28 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           clientMessageId: randomClientMessageId(),
           envelopes,
         }),
-      });
+      })) as SendMessageResponse;
 
-      scheduleMessageRefresh();
+      if (payload.message.selfEnvelope) {
+        await cacheMessagePlaintext(payload.message.id, plainText);
+      }
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === localMessageId
+            ? {
+                ...message,
+                id: payload.message.id,
+                ciphertext: payload.message.selfEnvelope?.ciphertext ?? message.ciphertext,
+                messageType: payload.message.selfEnvelope?.messageType ?? message.messageType,
+                sentAt: payload.message.sentAt,
+                localStatus: undefined,
+              }
+            : message
+        )
+      );
+
+      lastReadMessageIdRef.current = payload.message.id;
       if (window.innerWidth <= 980) {
         composerRef.current?.focus({ preventScroll: true });
         window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 0);
@@ -711,6 +748,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   }, [messages]);
 
   useEffect(() => {
+    resizeComposer();
+  }, [draft]);
+
+  useEffect(() => {
     if (!sessionReady || !bootstrap) return;
     const supabase = getBrowserSupabase();
     const channel = supabase.channel(`messenger:${bootstrap.me.id}`);
@@ -740,23 +781,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       {
         event: "INSERT",
         schema: "public",
-        table: "chat_message_envelopes",
-        filter: `recipient_user_id=eq.${bootstrap.me.id}`,
-      },
-      (payload) => {
-        const next = payload.new as { message_id?: string } | null;
-        if (next?.message_id && messagesRef.current.some((message) => message.id === next.message_id)) {
-          return;
-        }
-        scheduleMessageRefresh();
-      }
-    );
-
-    channel.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
         table: "chat_messages",
       },
       (payload) => {
@@ -773,7 +797,11 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
           lastMessageAt: next.sent_at ?? current.lastMessageAt,
         }));
 
-        if (next.conversation_id === selectedConversationRef.current?.id) {
+        if (
+          next.sender_user_id !== bootstrap.me.id &&
+          next.conversation_id === selectedConversationRef.current?.id &&
+          isConversationVisible()
+        ) {
           scheduleMessageRefresh();
         }
       }
