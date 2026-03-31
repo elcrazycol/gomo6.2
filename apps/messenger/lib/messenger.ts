@@ -491,12 +491,13 @@ export const markConversationRead = async (userId: string, conversationId: strin
     throw new Error("Conversation access denied");
   }
 
+  let safeLastReadMessageId: string | null = lastReadMessageId;
   let resolvedReadAt = new Date().toISOString();
-  if (lastReadMessageId) {
+  if (safeLastReadMessageId) {
     const { data: messageRow, error: messageError } = await admin
       .from("chat_messages")
       .select("sent_at")
-      .eq("id", lastReadMessageId)
+      .eq("id", safeLastReadMessageId)
       .eq("conversation_id", conversationId)
       .maybeSingle();
 
@@ -504,13 +505,17 @@ export const markConversationRead = async (userId: string, conversationId: strin
       throw new Error(`Failed to resolve last read message: ${messageError.message}`);
     }
 
-    resolvedReadAt = messageRow?.sent_at ?? resolvedReadAt;
+    if (messageRow?.sent_at) {
+      resolvedReadAt = messageRow.sent_at;
+    } else {
+      safeLastReadMessageId = null;
+    }
   }
 
   const { error: memberUpdateError } = await admin
     .from("chat_conversation_members")
     .update({
-      last_read_message_id: lastReadMessageId,
+      last_read_message_id: safeLastReadMessageId,
       last_read_at: resolvedReadAt,
       unread_count_cache: 0,
       updated_at: new Date().toISOString(),
