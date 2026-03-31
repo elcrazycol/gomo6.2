@@ -3,10 +3,10 @@ import { getAuthenticatedUser } from "@/lib/auth";
 import {
   buildConversationSummary,
   createOrLoadDirectConversation,
-  getDeviceBundlesForUser,
   listConversationsForUser,
   loadProfileAppearance,
   loadProfileSummaryOrFallback,
+  getChatPublicKeyForUser,
 } from "@/lib/messenger";
 
 const json = (payload: Record<string, unknown>, status = 200) => NextResponse.json(payload, { status });
@@ -41,15 +41,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const conversationId = await createOrLoadDirectConversation(user.id, recipientUserId);
-    const devices = await getDeviceBundlesForUser(recipientUserId);
     const conversation =
       (await buildConversationSummary(user.id, conversationId)) ??
       (() => {
         throw new Error("Conversation was created but could not be loaded");
       })();
-    const [targetProfile, targetAppearance] = await Promise.all([
+    const [targetProfile, targetAppearance, targetPublicKey] = await Promise.all([
       loadProfileSummaryOrFallback(recipientUserId),
       loadProfileAppearance(recipientUserId),
+      getChatPublicKeyForUser(recipientUserId),
     ]);
     return json({
       conversation: {
@@ -69,8 +69,8 @@ export async function POST(request: NextRequest) {
           usernameIconStroke: targetAppearance.usernameIconStroke,
           profileBadgeText: targetAppearance.profileBadgeText,
           profileBadgeCss: targetAppearance.profileBadgeCss,
+          publicKey: targetPublicKey,
         },
-        recipientDevices: devices,
       },
     });
   } catch (error) {

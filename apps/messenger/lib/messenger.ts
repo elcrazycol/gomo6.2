@@ -1,22 +1,4 @@
-import { messengerAdmin, type AuthenticatedUser } from "@/lib/auth";
-
-export type ChatDeviceBundle = {
-  id: string;
-  userId: string;
-  clientDeviceId: string;
-  signalDeviceId: number;
-  registrationId: number;
-  deviceLabel: string;
-  identityPublicKey: string;
-  signedPreKeyId: number;
-  signedPreKeyPublic: string;
-  signedPreKeySignature: string;
-  kyberPreKeyId: number;
-  kyberPreKeyPublic: string;
-  kyberPreKeySignature: string;
-  oneTimePreKeyId: number | null;
-  oneTimePreKeyPublic: string | null;
-};
+import { messengerAdmin } from "@/lib/auth";
 
 export type ProfileAppearance = {
   usernameColor: string | null;
@@ -30,246 +12,30 @@ export type ProfileAppearance = {
 
 const usernameColorPriority = ["purple", "gold", "orange", "red", "blue", "green", "yellow", "cyan"];
 
-export const upsertChatDeviceBundle = async (
-  user: AuthenticatedUser,
-  payload: {
-    clientDeviceId: string;
-    signalDeviceId: number | null;
-    registrationId: number;
-    deviceLabel: string;
-    identityPublicKey: string;
-    signedPreKeyId: number;
-    signedPreKeyPublic: string;
-    signedPreKeySignature: string;
-    kyberPreKeyId: number;
-    kyberPreKeyPublic: string;
-    kyberPreKeySignature: string;
-    oneTimePreKeys: Array<{ preKeyId: number; publicKey: string }>;
-  }
-) => {
+export const upsertChatUserKey = async (userId: string, publicKey: string) => {
   const admin = messengerAdmin();
-
-  const { data: existingDevice, error: existingDeviceError } = await admin
-    .from("chat_devices")
-    .select("id, signal_device_id")
-    .eq("user_id", user.id)
-    .eq("client_device_id", payload.clientDeviceId)
-    .maybeSingle();
-
-  if (existingDeviceError) {
-    throw new Error(`Failed to load existing chat device: ${existingDeviceError.message}`);
-  }
-
-  let signalDeviceId = payload.signalDeviceId;
-  if (!signalDeviceId) {
-    if (existingDevice?.signal_device_id) {
-      signalDeviceId = existingDevice.signal_device_id;
-    } else {
-      const { data: devices, error: devicesError } = await admin
-        .from("chat_devices")
-        .select("signal_device_id")
-        .eq("user_id", user.id);
-      if (devicesError) {
-        throw new Error(`Failed to list chat devices: ${devicesError.message}`);
-      }
-      const nextSignalDeviceId =
-        Math.max(
-          0,
-          ...((devices as Array<{ signal_device_id: number | null }> | null) ?? [])
-            .map((device) => device.signal_device_id ?? 0)
-            .filter((value) => Number.isFinite(value))
-        ) + 1;
-      signalDeviceId = Math.min(nextSignalDeviceId, 127);
-    }
-  }
-
-  const { data: deviceRow, error: deviceError } = await admin
-    .from("chat_devices")
-    .upsert(
-      {
-        user_id: user.id,
-        client_device_id: payload.clientDeviceId,
-        signal_device_id: signalDeviceId,
-        registration_id: payload.registrationId,
-        device_label: payload.deviceLabel,
-        identity_public_key: payload.identityPublicKey,
-        is_active: true,
-        last_seen_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,client_device_id" }
-    )
-    .select("id, signal_device_id")
-    .single();
-
-  if (deviceError || !deviceRow) {
-    throw new Error(`Failed to upsert chat device: ${deviceError?.message ?? "unknown"}`);
-  }
-
-  const { error: identityError } = await admin.from("chat_identity_keys").upsert({
-    device_id: deviceRow.id,
-    user_id: user.id,
-    public_key: payload.identityPublicKey,
-  });
-  if (identityError) {
-    throw new Error(`Failed to upsert identity key: ${identityError.message}`);
-  }
-
-  const { error: signedRotateError } = await admin
-    .from("chat_signed_prekeys")
-    .update({ replaced_at: new Date().toISOString() })
-    .eq("device_id", deviceRow.id)
-    .is("replaced_at", null)
-    .neq("signed_prekey_id", payload.signedPreKeyId);
-  if (signedRotateError) {
-    throw new Error(`Failed to rotate signed prekeys: ${signedRotateError.message}`);
-  }
-
-  const { error: signedPreKeyError } = await admin.from("chat_signed_prekeys").upsert(
-    {
-      device_id: deviceRow.id,
-      user_id: user.id,
-      signed_prekey_id: payload.signedPreKeyId,
-      public_key: payload.signedPreKeyPublic,
-      signature: payload.signedPreKeySignature,
-      replaced_at: null,
-    },
-    { onConflict: "device_id,signed_prekey_id" }
-  );
-  if (signedPreKeyError) {
-    throw new Error(`Failed to upsert signed prekey: ${signedPreKeyError.message}`);
-  }
-
-  const { error: kyberRotateError } = await admin
-    .from("chat_kyber_prekeys")
-    .update({ replaced_at: new Date().toISOString() })
-    .eq("device_id", deviceRow.id)
-    .is("replaced_at", null)
-    .neq("kyber_prekey_id", payload.kyberPreKeyId);
-  if (kyberRotateError) {
-    throw new Error(`Failed to rotate kyber prekeys: ${kyberRotateError.message}`);
-  }
-
-  const { error: kyberError } = await admin.from("chat_kyber_prekeys").upsert(
-    {
-      device_id: deviceRow.id,
-      user_id: user.id,
-      kyber_prekey_id: payload.kyberPreKeyId,
-      public_key: payload.kyberPreKeyPublic,
-      signature: payload.kyberPreKeySignature,
-      replaced_at: null,
-    },
-    { onConflict: "device_id,kyber_prekey_id" }
-  );
-  if (kyberError) {
-    throw new Error(`Failed to upsert kyber prekey: ${kyberError.message}`);
-  }
-
-  if (payload.oneTimePreKeys.length > 0) {
-    const { error: prekeysError } = await admin.from("chat_one_time_prekeys").upsert(
-      payload.oneTimePreKeys.map((preKey) => ({
-        device_id: deviceRow.id,
-        user_id: user.id,
-        prekey_id: preKey.preKeyId,
-        public_key: preKey.publicKey,
-      })),
-      { onConflict: "device_id,prekey_id", ignoreDuplicates: true }
-    );
-    if (prekeysError) {
-      throw new Error(`Failed to upsert one-time prekeys: ${prekeysError.message}`);
-    }
-  }
-
-  const { error: preferencesError } = await admin
-    .from("chat_user_preferences")
-    .upsert({ user_id: user.id }, { onConflict: "user_id" });
-  if (preferencesError) {
-    throw new Error(`Failed to upsert messenger preferences: ${preferencesError.message}`);
-  }
-
-  return {
-    deviceId: deviceRow.id,
-    signalDeviceId: deviceRow.signal_device_id,
-  };
-};
-
-export const getDeviceBundlesForUser = async (userId: string): Promise<ChatDeviceBundle[]> => {
-  const admin = messengerAdmin();
-  const { data: rows, error } = await admin
-    .from("chat_devices")
-    .select(
-      `
-        id,
-        user_id,
-        client_device_id,
-        signal_device_id,
-        registration_id,
-        device_label,
-        identity_public_key,
-        chat_signed_prekeys!inner (
-          signed_prekey_id,
-          public_key,
-          signature,
-          replaced_at
-        ),
-        chat_kyber_prekeys!inner (
-          kyber_prekey_id,
-          public_key,
-          signature,
-          replaced_at
-        ),
-        chat_one_time_prekeys (
-          prekey_id,
-          public_key,
-          claimed_at
-        )
-      `
-    )
-    .eq("user_id", userId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: true });
+  const { error } = await admin
+    .from("chat_user_keys")
+    .upsert({ user_id: userId, public_key: publicKey }, { onConflict: "user_id" });
 
   if (error) {
-    throw new Error(`Failed to load chat device bundles: ${error.message}`);
+    throw new Error(`Failed to save messenger key: ${error.message}`);
   }
-
-  return ((rows as any[]) ?? []).map((row) => {
-    const signedPreKey = (row.chat_signed_prekeys as any[]).find((entry) => !entry.replaced_at);
-    const kyberPreKey = (row.chat_kyber_prekeys as any[]).find((entry) => !entry.replaced_at);
-    const availablePreKey = (row.chat_one_time_prekeys as any[]).find((entry) => !entry.claimed_at) ?? null;
-
-    return {
-      id: row.id,
-      userId: row.user_id,
-      clientDeviceId: row.client_device_id,
-      signalDeviceId: row.signal_device_id,
-      registrationId: row.registration_id,
-      deviceLabel: row.device_label,
-      identityPublicKey: row.identity_public_key,
-      signedPreKeyId: signedPreKey?.signed_prekey_id,
-      signedPreKeyPublic: signedPreKey?.public_key,
-      signedPreKeySignature: signedPreKey?.signature,
-      kyberPreKeyId: kyberPreKey?.kyber_prekey_id,
-      kyberPreKeyPublic: kyberPreKey?.public_key,
-      kyberPreKeySignature: kyberPreKey?.signature,
-      oneTimePreKeyId: availablePreKey?.prekey_id ?? null,
-      oneTimePreKeyPublic: availablePreKey?.public_key ?? null,
-    } satisfies ChatDeviceBundle;
-  });
 };
 
-export const loadProfileSummary = async (userId: string) => {
+export const getChatPublicKeyForUser = async (userId: string) => {
   const admin = messengerAdmin();
   const { data, error } = await admin
-    .from("profiles")
-    .select("id, username, avatar_url, account_number, is_online, last_seen_at")
-    .eq("id", userId)
-    .single();
+    .from("chat_user_keys")
+    .select("public_key")
+    .eq("user_id", userId)
+    .maybeSingle();
 
-  if (error || !data) {
-    throw new Error(`Failed to load profile summary: ${error?.message ?? "unknown"}`);
+  if (error) {
+    throw new Error(`Failed to load messenger key: ${error.message}`);
   }
 
-  return data;
+  return data?.public_key ?? null;
 };
 
 export const loadProfileSummaryOrFallback = async (userId: string) => {
@@ -392,9 +158,7 @@ export const loadProfileAppearanceMap = async (userIds: string[]) => {
     throw new Error(`Failed to load profile achievements: ${achievementsError.message}`);
   }
 
-  const customizationMap = new Map(
-    ((customizations as any[]) ?? []).map((entry) => [entry.user_id, entry])
-  );
+  const customizationMap = new Map(((customizations as any[]) ?? []).map((entry) => [entry.user_id, entry]));
   const colorRewardMap = new Map<string, string[]>();
 
   for (const entry of (achievements as any[]) ?? []) {
@@ -527,27 +291,29 @@ export const markConversationRead = async (userId: string, conversationId: strin
     throw new Error(`Failed to update read state: ${memberUpdateError.message}`);
   }
 
-  const { error: receiptsError } = await admin
-    .from("chat_receipts")
-    .update({
-      read_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("user_id", userId)
-    .in(
-      "message_id",
-      (
-        (
-          await admin
-            .from("chat_messages")
-            .select("id")
-            .eq("conversation_id", conversationId)
-        ).data ?? []
-      ).map((row: { id: string }) => row.id)
-    );
+  const { data: messageRows, error: messageRowsError } = await admin
+    .from("chat_messages")
+    .select("id")
+    .eq("conversation_id", conversationId);
 
-  if (receiptsError) {
-    throw new Error(`Failed to update receipts: ${receiptsError.message}`);
+  if (messageRowsError) {
+    throw new Error(`Failed to list conversation messages: ${messageRowsError.message}`);
+  }
+
+  const messageIds = ((messageRows as Array<{ id: string }> | null) ?? []).map((row) => row.id);
+  if (messageIds.length > 0) {
+    const { error: receiptsError } = await admin
+      .from("chat_receipts")
+      .update({
+        read_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .in("message_id", messageIds);
+
+    if (receiptsError) {
+      throw new Error(`Failed to update receipts: ${receiptsError.message}`);
+    }
   }
 
   await admin
@@ -560,10 +326,14 @@ export const markConversationRead = async (userId: string, conversationId: strin
 
 export const listConversationsForUser = async (userId: string) => {
   const admin = messengerAdmin();
-  const { data: memberships } = await admin
+  const { data: memberships, error: membershipsError } = await admin
     .from("chat_conversation_members")
     .select("conversation_id, unread_count_cache, last_read_at")
     .eq("user_id", userId);
+
+  if (membershipsError) {
+    throw new Error(`Failed to load conversation memberships: ${membershipsError.message}`);
+  }
 
   const conversationIds = ((memberships as Array<{ conversation_id: string }> | null) ?? []).map(
     (membership) => membership.conversation_id
@@ -573,29 +343,39 @@ export const listConversationsForUser = async (userId: string) => {
     return [];
   }
 
-  const { data: conversations } = await admin
-    .from("chat_conversations")
-    .select("id, kind, last_message_at, last_message_sender_id")
-    .in("id", conversationIds);
+  const [{ data: conversations, error: conversationsError }, { data: members, error: membersError }] =
+    await Promise.all([
+      admin
+        .from("chat_conversations")
+        .select("id, kind, last_message_at, last_message_sender_id")
+        .in("id", conversationIds),
+      admin
+        .from("chat_conversation_members")
+        .select("conversation_id, user_id")
+        .in("conversation_id", conversationIds),
+    ]);
 
-  const { data: members } = await admin
-    .from("chat_conversation_members")
-    .select("conversation_id, user_id")
-    .in("conversation_id", conversationIds);
+  if (conversationsError) {
+    throw new Error(`Failed to load conversations: ${conversationsError.message}`);
+  }
+
+  if (membersError) {
+    throw new Error(`Failed to load conversation members: ${membersError.message}`);
+  }
 
   const otherUserIds = [...new Set(((members as any[]) ?? []).map((row) => row.user_id).filter((value) => value !== userId))];
   const profileMap = new Map<string, Awaited<ReturnType<typeof loadProfileSummaryOrFallback>>>();
   const appearanceMap = await loadProfileAppearanceMap(otherUserIds);
-  await Promise.all(
-    otherUserIds.map(async (otherUserId) => {
-      profileMap.set(otherUserId, await loadProfileSummaryOrFallback(otherUserId));
-    })
-  );
+  const publicKeyMap = new Map<string, string | null>();
 
-  const deviceMap = new Map<string, ChatDeviceBundle[]>();
   await Promise.all(
     otherUserIds.map(async (otherUserId) => {
-      deviceMap.set(otherUserId, await getDeviceBundlesForUser(otherUserId));
+      const [profile, publicKey] = await Promise.all([
+        loadProfileSummaryOrFallback(otherUserId),
+        getChatPublicKeyForUser(otherUserId),
+      ]);
+      profileMap.set(otherUserId, profile);
+      publicKeyMap.set(otherUserId, publicKey);
     })
   );
 
@@ -631,8 +411,8 @@ export const listConversationsForUser = async (userId: string) => {
           usernameIconStroke: appearance?.usernameIconStroke ?? null,
           profileBadgeText: appearance?.profileBadgeText ?? null,
           profileBadgeCss: appearance?.profileBadgeCss ?? null,
+          publicKey: publicKeyMap.get(otherProfile.id) ?? null,
         },
-        devices: deviceMap.get(otherProfile.id) ?? [],
       };
     })
     .filter((value): value is NonNullable<typeof value> => Boolean(value))
