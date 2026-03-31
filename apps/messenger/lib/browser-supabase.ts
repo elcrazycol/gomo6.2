@@ -3,6 +3,7 @@
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 
 let browserClient: SupabaseClient | null = null;
+let authSyncInitialized = false;
 
 const getUrl = () => {
   const value = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,7 +32,28 @@ export const getBrowserSupabase = () => {
     });
   }
 
-  return browserClient;
+  const client = browserClient;
+
+  if (!authSyncInitialized) {
+    authSyncInitialized = true;
+    void syncRealtimeAuth(client);
+    client.auth.onAuthStateChange((_event, session) => {
+      void syncRealtimeAuth(client, session);
+    });
+  }
+
+  return client;
+};
+
+const syncRealtimeAuth = async (client: SupabaseClient, session?: Session | null) => {
+  const activeSession =
+    session === undefined
+      ? (
+          await client.auth.getSession()
+        ).data.session
+      : session;
+
+  client.realtime.setAuth(activeSession?.access_token ?? null);
 };
 
 export const applySessionFromUrlHash = async () => {
@@ -56,6 +78,7 @@ export const applySessionFromUrlHash = async () => {
     access_token: accessToken,
     refresh_token: refreshToken,
   });
+  await syncRealtimeAuth(client);
 
   const nextUrl = new URL(window.location.href);
   nextUrl.hash = "";
@@ -78,6 +101,7 @@ export const getActiveSession = async (): Promise<Session | null> => {
   const {
     data: { session },
   } = await client.auth.getSession();
+  await syncRealtimeAuth(client, session);
   return session;
 };
 
@@ -92,5 +116,6 @@ export const refreshActiveSession = async (): Promise<Session | null> => {
     return null;
   }
 
+  await syncRealtimeAuth(client, session);
   return session;
 };
