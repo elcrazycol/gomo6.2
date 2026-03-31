@@ -1,9 +1,8 @@
 import React from "react";
 import { createHeadlessEditor } from "@lexical/headless";
 import { $generateNodesFromDOM } from "@lexical/html";
-import { $createParagraphNode, $createTextNode, $getRoot, $getSelection, $isRangeSelection, TextNode } from "lexical";
+import { $createParagraphNode, $createTextNode, $getRoot, $getSelection, $isRangeSelection } from "lexical";
 import { LinkNode } from "@lexical/link";
-import { BbCodeSpoiler } from "@/components/BbCodeSpoiler";
 import { CensorBlur } from "@/components/CensorBlur";
 import { EmojiInline } from "@/components/EmojiInline";
 import { MentionLink } from "@/components/MentionLink";
@@ -68,8 +67,8 @@ const bbcodeToHtml = (content: string) => {
     [/\[s\]/gi, "<s>"],
     [/\[\/s\]/gi, "</s>"],
     [/\[br\]/gi, "<br>"],
-    [/\[spoiler(?:=[^\]]+)?\]/gi, '<span style="--gomo-spoiler:1">'],
-    [/\[\/spoiler\]/gi, "</span>"],
+    [/\[spoiler(?:=[^\]]+)?\]/gi, ""],
+    [/\[\/spoiler\]/gi, ""],
     [/\[blur\]/gi, '<span style="--gomo-blur:1">'],
     [/\[\/blur\]/gi, "</span>"],
     [/\[me\]/gi, '<span style="--gomo-me:1">'],
@@ -192,6 +191,8 @@ const styleStringToObject = (style = ""): React.CSSProperties => {
   for (const part of style.split(";")) {
     const [key, value] = part.split(":");
     if (!key || !value) continue;
+    const trimmedKey = key.trim();
+    if (!trimmedKey || trimmedKey.startsWith("--")) continue;
     const camelKey = key
       .trim()
       .replace(/-([a-z])/g, (_, char) => char.toUpperCase())
@@ -225,7 +226,46 @@ const textToInlineNodes = (text: string, keyPrefix: string): React.ReactNode[] =
 const renderTextNode = (node: LexicalJsonNode, key: string): React.ReactNode => {
   const style = node.style || "";
   const css = styleStringToObject(style);
+  const hasLegacySpoiler = style.includes("--gomo-spoiler:1");
+  const hasBlur =
+    style.includes("--gomo-blur:1") ||
+    /(^|;)\s*(?:-webkit-)?filter\s*:\s*blur\(/i.test(style);
+  const hasMeLink = style.includes("--gomo-me:1");
+  const hasDudeLink = style.includes("--gomo-dude:1");
   const content = textToInlineNodes(node.text || "", key);
+  const renderCss = { ...css };
+
+  if (hasBlur) {
+    for (const key of Object.keys(renderCss)) {
+      const lowered = key.toLowerCase();
+      if (
+        lowered.includes("filter") ||
+        lowered.includes("cursor") ||
+        lowered.includes("transition") ||
+        lowered.includes("background") ||
+        lowered.includes("border") ||
+        lowered.includes("padding") ||
+        lowered.includes("borderradius")
+      ) {
+        delete renderCss[key as keyof typeof renderCss];
+      }
+    }
+  }
+
+  if (hasLegacySpoiler) {
+    for (const key of Object.keys(renderCss)) {
+      const lowered = key.toLowerCase();
+      if (
+        lowered.includes("background") ||
+        lowered === "color" ||
+        lowered.includes("borderradius") ||
+        lowered.includes("cursor") ||
+        lowered.includes("transition")
+      ) {
+        delete renderCss[key as keyof typeof renderCss];
+      }
+    }
+  }
 
   let rendered: React.ReactNode = <>{content}</>;
 
@@ -234,19 +274,19 @@ const renderTextNode = (node: LexicalJsonNode, key: string): React.ReactNode => 
   if ((node.format || 0) & FORMAT_UNDERLINE) rendered = <u>{rendered}</u>;
   if ((node.format || 0) & FORMAT_STRIKETHROUGH) rendered = <s>{rendered}</s>;
 
-  if (style.includes("--gomo-spoiler:1")) {
-    return <BbCodeSpoiler key={key}>{rendered}</BbCodeSpoiler>;
+  if (Object.keys(renderCss).length > 0) {
+    rendered = <span style={renderCss}>{rendered}</span>;
   }
 
-  if (style.includes("--gomo-blur:1")) {
-    return <CensorBlur key={key}>{rendered}</CensorBlur>;
+  if (hasMeLink || hasDudeLink) {
+    rendered = <span className="font-bold text-quote">{rendered}</span>;
   }
 
-  if (style.includes("--gomo-me:1") || style.includes("--gomo-dude:1")) {
-    return <span key={key} className="font-bold text-quote">{rendered}</span>;
+  if (hasBlur) {
+    rendered = <CensorBlur>{rendered}</CensorBlur>;
   }
 
-  return <span key={key} style={css}>{rendered}</span>;
+  return <React.Fragment key={key}>{rendered}</React.Fragment>;
 };
 
 const renderNode = (node: LexicalJsonNode, key: string): React.ReactNode => {
@@ -289,12 +329,3 @@ export const insertTextAtSelection = (editor: { update: (fn: () => void) => void
 
 export const isLegacyVisibilityContent = (content: string) =>
   content.includes("[seeusers=") || content.includes("[nousers=") || content.includes("[adm]") || content.includes("[me]") || content.includes("[dude]");
-
-export class ExtendedTextNode extends TextNode {
-  static getType() {
-    return "text";
-  }
-  static clone(node: ExtendedTextNode) {
-    return new ExtendedTextNode(node.__text, node.__key);
-  }
-}

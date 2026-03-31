@@ -279,7 +279,11 @@ export const ProcessedContent = ({
         });
         
         if (rendered) {
-          elements.push(rendered);
+          elements.push(
+            <span key={`bb-${key++}`} className="contents">
+              {rendered}
+            </span>
+          );
         }
       }
     }
