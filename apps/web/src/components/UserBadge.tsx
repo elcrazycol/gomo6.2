@@ -95,7 +95,7 @@ export const UserBadge = ({
     : `font-bold hover:underline ${textSizeClass} ${outlineClass} ${color ? colorClasses[color] : "text-quote"}`;
 
   const usernameContent = (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden">
       <span className={usernameClassName} style={usernameStyle}>
         {username}
       </span>
@@ -137,7 +137,7 @@ export const UserBadge = ({
     <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
       <Link
         to={`/profile/${userId}`}
-        className="inline-flex items-center gap-1"
+        className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden"
       >
         {usernameContent}
       </Link>
