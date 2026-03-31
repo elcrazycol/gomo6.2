@@ -18,12 +18,16 @@ export async function GET(
   }
 
   const admin = messengerAdmin();
-  const { data: membership } = await admin
+  const { data: membership, error: membershipError } = await admin
     .from("chat_conversation_members")
     .select("conversation_id")
     .eq("conversation_id", conversationId)
     .eq("user_id", user.id)
     .maybeSingle();
+
+  if (membershipError) {
+    return json({ error: membershipError.message }, 500);
+  }
 
   if (!membership) {
     return json({ error: "Conversation access denied" }, 403);
@@ -31,7 +35,7 @@ export async function GET(
 
   const { data: messages, error } = await admin
     .from("chat_messages")
-    .select("id, body, sent_at, sender_user_id, sender_device_id, client_message_id")
+    .select("id, sent_at, sender_user_id, client_message_id, ciphertext, nonce, sender_public_key, recipient_public_key")
     .eq("conversation_id", conversationId)
     .order("sent_at", { ascending: true })
     .order("created_at", { ascending: true });
@@ -39,21 +43,27 @@ export async function GET(
   if (error) {
     return json({ error: error.message }, 500);
   }
+
   const normalizedMessages = ((messages as any[]) ?? []).map((row) => ({
     id: row.id,
-    body: row.body ?? "",
     sentAt: row.sent_at,
     senderUserId: row.sender_user_id,
-    senderDeviceId: row.sender_device_id,
+    senderDeviceId: null,
     clientMessageId: row.client_message_id,
+    cipherText: row.ciphertext,
+    nonce: row.nonce,
+    senderPublicKey: row.sender_public_key,
+    recipientPublicKey: row.recipient_public_key,
   }));
 
   const messageIds = normalizedMessages.map((message) => message.id);
-
-  const { data: receipts } = await admin
-    .from("chat_receipts")
-    .select("message_id, user_id, delivered_at, read_at")
-    .in("message_id", messageIds);
+  const receipts =
+    messageIds.length === 0
+      ? []
+      : (
+          (await admin.from("chat_receipts").select("message_id, user_id, delivered_at, read_at").in("message_id", messageIds))
+            .data ?? []
+        );
 
   return json({
     messages: normalizedMessages,

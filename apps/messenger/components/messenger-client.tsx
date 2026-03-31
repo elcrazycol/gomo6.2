@@ -1,34 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal, X } from "lucide-react";
+import { ArrowLeft, MessageCircle, PanelLeft, SendHorizonal } from "lucide-react";
 import { getActiveSession, applySessionFromUrlHash, getBrowserSupabase, refreshActiveSession } from "@/lib/browser-supabase";
 import { randomClientMessageId } from "@/lib/encoding";
 import { PentagramLoader } from "@/components/pentagram-loader";
 import {
-  buildUploadBundle,
-  ensureLocalDeviceState,
-  resetLocalE2EEState,
-  updateSignalDeviceAssignment,
-} from "@/lib/signal-store";
-
-type DeviceBundle = {
-  id: string;
-  userId: string;
-  clientDeviceId: string;
-  signalDeviceId: number;
-  registrationId: number;
-  deviceLabel: string;
-  identityPublicKey: string;
-  signedPreKeyId: number;
-  signedPreKeyPublic: string;
-  signedPreKeySignature: string;
-  kyberPreKeyId: number;
-  kyberPreKeyPublic: string;
-  kyberPreKeySignature: string;
-  oneTimePreKeyId: number | null;
-  oneTimePreKeyPublic: string | null;
-};
+  buildBootstrapPayload,
+  decryptChatMessage,
+  encryptChatMessage,
+  ensureLocalCryptoState,
+} from "@/lib/crypto-store";
 
 type BootstrapPayload = {
   me: {
@@ -45,10 +27,8 @@ type BootstrapPayload = {
     usernameIconStroke: string | null;
     profileBadgeText: string | null;
     profileBadgeCss: string | null;
-    clientDeviceId: string;
-    signalDeviceId: number;
+    publicKey: string;
   };
-  selfDevices: DeviceBundle[];
   target: {
     id: string;
     username: string;
@@ -63,7 +43,7 @@ type BootstrapPayload = {
     usernameIconStroke: string | null;
     profileBadgeText: string | null;
     profileBadgeCss: string | null;
-    devices: DeviceBundle[];
+    publicKey: string | null;
   } | null;
 };
 
@@ -87,25 +67,27 @@ type Conversation = {
     usernameIconStroke: string | null;
     profileBadgeText: string | null;
     profileBadgeCss: string | null;
+    publicKey: string | null;
   };
-  devices: DeviceBundle[];
 };
 
 type ConversationCreateResponse = {
   conversation: Conversation & {
     recipientUserId: string;
     recipientProfile: Conversation["otherUser"];
-    recipientDevices: DeviceBundle[];
   };
 };
 
 type ApiMessage = {
   id: string;
-  body: string;
   sentAt: string;
   senderUserId: string;
-  senderDeviceId: string;
+  senderDeviceId: string | null;
   clientMessageId: string;
+  cipherText: string | null;
+  nonce: string | null;
+  senderPublicKey: string | null;
+  recipientPublicKey: string | null;
 };
 
 type Receipt = {
@@ -127,7 +109,10 @@ type SendMessageResponse = {
     id: string;
     sentAt: string;
     clientMessageId: string;
-    body: string;
+    cipherText: string | null;
+    nonce: string | null;
+    senderPublicKey: string | null;
+    recipientPublicKey: string | null;
   };
 };
 
@@ -218,15 +203,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   const [targetUserId, setTargetUserId] = useState(initialTargetUserId);
   const [requestedConversationId, setRequestedConversationId] = useState(initialConversationId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [recoveringKeys, setRecoveringKeys] = useState(false);
-  const [showRecoveryNotice, setShowRecoveryNotice] = useState(true);
-  const [recoveryPromptOpen, setRecoveryPromptOpen] = useState(false);
-  const [recoveryDismissedMessage, setRecoveryDismissedMessage] = useState<string | null>(null);
   const currentAccessTokenRef = useRef<string | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedConversationRef = useRef<Conversation | null>(null);
-  const conversationsRef = useRef<Conversation[]>([]);
   const messagesRef = useRef<MessageView[]>([]);
   const messageRefreshTimeoutRef = useRef<number | null>(null);
   const lastReadMessageIdRef = useRef<string | null>(null);
@@ -235,11 +215,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   );
-
-  const currentDevice = useMemo(() => {
-    if (!bootstrap) return null;
-    return bootstrap.selfDevices.find((device) => device.clientDeviceId === bootstrap.me.clientDeviceId) ?? null;
-  }, [bootstrap]);
 
   const resolveSession = async () => {
     const active = await getActiveSession();
@@ -304,8 +279,8 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       return;
     }
 
-    const state = await ensureLocalDeviceState(user.id);
-    const uploadBundle = buildUploadBundle(state);
+    const state = await ensureLocalCryptoState(user.id);
+    const uploadBundle = buildBootstrapPayload(state);
     const payload = (await apiFetch(
       `/api/bootstrap${resolvedTargetUserId ? `?targetUserId=${encodeURIComponent(resolvedTargetUserId)}` : ""}`,
       {
@@ -314,7 +289,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       }
     )) as BootstrapPayload;
 
-    await updateSignalDeviceAssignment(payload.me.signalDeviceId);
     setBootstrap(payload);
     setSessionReady(true);
     setErrorMessage(null);
@@ -488,19 +462,41 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
     }
     try {
       const payload = (await apiFetch(`/api/messages/${conversation.id}`)) as { messages: ApiMessage[]; receipts: Receipt[] };
-      const normalized = payload.messages.map((message) => {
+      const cryptoState = await ensureLocalCryptoState(bootstrap.me.id);
+      const normalized = await Promise.all(payload.messages.map(async (message) => {
         const peerReceipt =
           payload.receipts.find(
             (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
           ) ?? null;
 
+        let plainText = "[Не удалось расшифровать сообщение]";
+        if (message.cipherText && message.nonce) {
+          const peerPublicKey =
+            message.senderUserId === bootstrap.me.id
+              ? message.recipientPublicKey
+              : message.senderPublicKey;
+
+          if (peerPublicKey) {
+            try {
+              plainText = await decryptChatMessage({
+                cipherText: message.cipherText,
+                nonce: message.nonce,
+                peerPublicKey,
+                myPrivateKey: cryptoState.privateKey,
+              });
+            } catch {
+              plainText = "[Не удалось расшифровать сообщение]";
+            }
+          }
+        }
+
         return {
           ...message,
-          plainText: message.body,
+          plainText,
           peerDeliveredAt: peerReceipt?.delivered_at ?? null,
           peerReadAt: peerReceipt?.read_at ?? null,
         };
-      });
+      }));
 
       setMessages((current) => {
         const pendingMessages = current.filter((message) => message.localStatus === "pending");
@@ -565,6 +561,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
 
   const sendCurrentMessage = async () => {
     if (sending || !draft.trim() || !bootstrap || !selectedConversation) return;
+    if (!selectedConversation.otherUser.publicKey) {
+      setErrorMessage("У собеседника ещё не инициализирован messenger-ключ. Он сможет получать сообщения после первого входа.");
+      return;
+    }
     const plainText = draft.trim();
     const clientMessageId = randomClientMessageId();
     const localMessageId = `local-${clientMessageId}`;
@@ -574,10 +574,13 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       ...current,
       {
         id: localMessageId,
-        body: plainText,
+        cipherText: null,
+        nonce: null,
+        senderPublicKey: bootstrap.me.publicKey,
+        recipientPublicKey: selectedConversation.otherUser.publicKey,
         sentAt,
         senderUserId: bootstrap.me.id,
-        senderDeviceId: currentDevice?.id ?? "",
+        senderDeviceId: null,
         clientMessageId,
         plainText,
         peerDeliveredAt: null,
@@ -591,12 +594,22 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       lastMessageAt: sentAt,
     }));
     try {
+      const cryptoState = await ensureLocalCryptoState(bootstrap.me.id);
+      const encrypted = await encryptChatMessage({
+        plainText,
+        recipientPublicKey: selectedConversation.otherUser.publicKey,
+        senderPrivateKey: cryptoState.privateKey,
+      });
+
       const payload = (await apiFetch("/api/messages", {
         method: "POST",
         body: JSON.stringify({
           conversationId: selectedConversation.id,
           clientMessageId,
-          body: plainText,
+          cipherText: encrypted.cipherText,
+          nonce: encrypted.nonce,
+          senderPublicKey: bootstrap.me.publicKey,
+          recipientPublicKey: selectedConversation.otherUser.publicKey,
         }),
       })) as SendMessageResponse;
 
@@ -606,7 +619,10 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
             ? {
                 ...message,
                 id: payload.message.id,
-                body: payload.message.body,
+                cipherText: payload.message.cipherText,
+                nonce: payload.message.nonce,
+                senderPublicKey: payload.message.senderPublicKey,
+                recipientPublicKey: payload.message.recipientPublicKey,
                 clientMessageId: payload.message.clientMessageId,
                 sentAt: payload.message.sentAt,
                 localStatus: undefined,
@@ -648,10 +664,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
   }, [selectedConversation]);
-
-  useEffect(() => {
-    conversationsRef.current = conversations;
-  }, [conversations]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -792,7 +804,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
       const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
       setErrorMessage(message);
     });
-  }, [selectedConversationId, currentDevice?.id]);
+  }, [selectedConversationId, bootstrap?.me.id]);
 
   useEffect(() => {
     if (!selectedConversation || messages.length === 0 || !isConversationVisible()) {
@@ -821,20 +833,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
-
-  const hasDecryptFailures = false;
-
-  const handleResetLocalKeys = async () => {
-    setRecoveringKeys(true);
-    try {
-      await resetLocalE2EEState();
-      setRecoveryPromptOpen(false);
-      setRecoveryDismissedMessage(null);
-      window.location.reload();
-    } finally {
-      setRecoveringKeys(false);
-    }
-  };
 
   if (loading || !bootstrap) {
     return (
@@ -876,10 +874,9 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
             </div>
           </div>
 
-          {bootstrap.target && bootstrap.target.devices.length === 0 ? (
+          {bootstrap.target && !bootstrap.target.publicKey ? (
             <div className="inline-notice">
-              У пользователя пока нет зарегистрированного устройства messenger. Диалог откроется, когда он зайдёт в
-              messenger хотя бы один раз.
+              У пользователя пока нет messenger-ключа. Диалог откроется, когда он зайдёт в messenger хотя бы один раз.
             </div>
           ) : null}
 
@@ -971,7 +968,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                         </strong>
                         <span>{formatDate(conversation.lastMessageAt)}</span>
                       </div>
-                      <p>End-to-end encrypted</p>
+                      <p>libsodium end-to-end encrypted</p>
                       <div className="conversation-meta">
                         <span>#{conversation.otherUser.accountNumber ?? "?"}</span>
                         <span>{formatPresence(conversation.otherUser.isOnline, conversation.otherUser.lastSeenAt)}</span>
@@ -1053,39 +1050,12 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                     <PentagramLoader size="md" />
                   </div>
                 ) : null}
-                {selectedConversation.devices.length === 0 ? (
+                {!selectedConversation.otherUser.publicKey ? (
                   <div className="inline-notice">
-                    Диалог уже создан, но у собеседника пока нет устройства messenger. Как только он впервые откроет
+                    Диалог уже создан, но у собеседника ещё нет messenger-ключа. Как только он впервые откроет
                     messenger, сюда можно будет писать.
                   </div>
                 ) : null}
-                {hasDecryptFailures && showRecoveryNotice ? (
-                  <div className="error-banner">
-                    <div className="error-banner-row">
-                      <div>
-                        <strong>Не удалось расшифровать часть сообщений на этом устройстве.</strong>
-                        <p className="error-banner-copy">
-                          Можно сбросить локальные ключи и заново инициализировать messenger на этом устройстве.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="icon-button banner-close"
-                        onClick={() => {
-                          setShowRecoveryNotice(false);
-                          setRecoveryDismissedMessage("Подсказка скрыта. Позже этот сброс будет доступен в настройках.");
-                        }}
-                        aria-label="Закрыть предупреждение"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                    <button type="button" className="cta-button danger-inline" onClick={() => setRecoveryPromptOpen(true)}>
-                      Сбросить локальные ключи
-                    </button>
-                  </div>
-                ) : null}
-                {recoveryDismissedMessage ? <div className="inline-notice">{recoveryDismissedMessage}</div> : null}
                 {messagesLoading ? (
                   <div className="inline-loader">
                     <PentagramLoader size="md" />
@@ -1093,7 +1063,7 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                 ) : messages.length === 0 ? (
                   <div className="empty-thread">
                     <MessageCircle size={20} />
-                    <p>Диалог создан. Все сообщения шифруются на устройстве.</p>
+                    <p>Диалог создан. Сообщения шифруются через libsodium прямо в браузере.</p>
                   </div>
                 ) : (
                   messages.map((message) => {
@@ -1124,40 +1094,6 @@ export const MessengerClient = ({ appBaseUrl, initialTargetUserId, initialConver
                 )}
                 <div ref={messageEndRef} />
               </div>
-
-              {recoveryPromptOpen ? (
-                <div className="confirm-backdrop" role="presentation">
-                  <div className="confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="recovery-title">
-                    <div className="confirm-card-head">
-                      <h2 id="recovery-title">Сбросить локальные ключи?</h2>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => setRecoveryPromptOpen(false)}
-                        aria-label="Закрыть окно подтверждения"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                    <p>
-                      Это удалит локальные ключи и зашифрованный кэш только на текущем устройстве. После сброса messenger
-                      перезагрузится и заново зарегистрирует устройство.
-                    </p>
-                    <p className="confirm-warning">
-                      Старые сообщения на этом устройстве могут остаться недоступными до повторной синхронизации, а
-                      незавершённые локальные данные будут потеряны.
-                    </p>
-                    <div className="confirm-actions">
-                      <button type="button" className="cta-button" onClick={() => setRecoveryPromptOpen(false)}>
-                        Отмена
-                      </button>
-                      <button type="button" className="cta-button danger-button" onClick={() => void handleResetLocalKeys()}>
-                        {recoveringKeys ? <PentagramLoader size="sm" /> : "Да, сбросить"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
 
               <form
                 className={`composer ${composerFocused ? "is-focused" : ""}`}
