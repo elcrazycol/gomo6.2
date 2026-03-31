@@ -187,6 +187,7 @@ export const MessengerView = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const lastReadMessageIdRef = useRef<string | null>(null);
   const visibleConversationIdRef = useRef<string | null>(null);
   const meRef = useRef<ProfileSummary | null>(null);
@@ -235,8 +236,12 @@ export const MessengerView = () => {
   useEffect(() => {
     if (!isMobileViewport) return;
     if (targetUserId) return;
+    if (requestedConversationId) {
+      updateSearch(null, null);
+    }
+    setSelectedConversationId(null);
     setMobileSidebarOpen(true);
-  }, [isMobileViewport, targetUserId]);
+  }, [isMobileViewport, requestedConversationId, targetUserId]);
 
   const updateSearch = (conversationId: string | null, userId: string | null) => {
     const next = new URLSearchParams(searchParams);
@@ -762,8 +767,11 @@ export const MessengerView = () => {
   }, [conversations, me?.id, selectedConversationId]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    const container = messageScrollRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+  }, [messages, selectedConversationId]);
 
   useEffect(() => {
     if (!me || !selectedConversation || messages.length === 0) return;
@@ -946,7 +954,6 @@ export const MessengerView = () => {
         <aside className={`sidebar-panel ${mobileSidebarOpen ? "is-open" : ""}`}>
           <div className="sidebar-top">
             <div>
-              <p className="eyebrow">внутри gomo6</p>
               <h1>Сообщения</h1>
             </div>
             {totalUnread > 0 ? <span className="header-unread-badge">{totalUnread}</span> : null}
@@ -995,7 +1002,6 @@ export const MessengerView = () => {
                       <strong>{conversation.otherUser.username}</strong>
                       <span>{formatDate(conversation.lastMessageAt)}</span>
                     </div>
-                    <p>libsodium end-to-end encrypted</p>
                     <div className="conversation-meta">
                       <span>#{conversation.otherUser.account_number ?? "?"}</span>
                       <span>{formatPresence(conversation.otherUser.is_online, conversation.otherUser.last_seen_at)}</span>
@@ -1015,11 +1021,16 @@ export const MessengerView = () => {
                 <div className="chat-topbar-main">
                   <button
                     type="button"
-                    className="icon-button mobile-only"
-                    onClick={() => setMobileSidebarOpen(true)}
+                    className="icon-button mobile-only messenger-back-button"
+                    onClick={() => {
+                      setMobileSidebarOpen(true);
+                      setSelectedConversationId(null);
+                      updateSearch(null, null);
+                    }}
                     aria-label="Назад к диалогам"
                   >
                     <ArrowLeft size={16} />
+                    <span>Чаты</span>
                   </button>
                   <div className="avatar small">
                     {selectedConversation.otherUser.avatar_url ? (
@@ -1048,7 +1059,7 @@ export const MessengerView = () => {
                 </div>
               </div>
 
-              <div className="message-scroll">
+              <div ref={messageScrollRef} className="message-scroll">
                 {messagesLoading ? (
                   <div className="inline-loader">
                     <PentagramLoader size="md" />
@@ -1057,7 +1068,7 @@ export const MessengerView = () => {
                   <div className="empty-thread hero">
                     <MessageCircle size={18} />
                     <h2>Диалог готов</h2>
-                    <p>Сообщения шифруются через libsodium прямо в браузере и живут внутри самого сайта.</p>
+                    <p>Напиши первое сообщение, и переписка начнётся сразу.</p>
                   </div>
                 ) : (
                   messages.map((message) => {
