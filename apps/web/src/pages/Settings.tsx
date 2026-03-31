@@ -21,6 +21,34 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
+const defaultPrivacySettings = {
+  visibility_profile: true,
+  hide_messages_from_unregistered: false,
+  hide_threads_from_unregistered: false,
+  block_profile_visits_from_unregistered: false,
+  allow_search_by_username: true,
+  allow_search_by_id: true,
+  allow_search_by_secondary_id: true,
+  allow_private_messages: true,
+  anonymous_mode: false,
+  remove_image_metadata: true,
+  show_last_seen: true,
+  show_online_status: true,
+  show_profile_wall: true,
+  allow_wall_posts_from_others: true,
+  show_profile_stats: false,
+  show_detailed_stats: false,
+  stats_visibility: {
+    garma: false,
+    posts: false,
+    threads: false,
+    postLikes: false,
+    threadLikes: false,
+    replies: false,
+    time: false,
+  },
+};
+
 const themeOptions: Array<{
   id: ColorTheme;
   name: string;
@@ -46,7 +74,7 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
-  const [privacySettings, setPrivacySettings] = useState<any>(null);
+  const [privacySettings, setPrivacySettings] = useState<any>(defaultPrivacySettings);
 
   interface PrivacySettingsData {
     visibility_profile: boolean;
@@ -77,7 +105,6 @@ const Settings = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   // Theme settings
-  const [themeExpanded, setThemeExpanded] = useState(true);
   const [{ colorTheme, isDarkMode }, setThemeState] = useState(() => {
     const stored = getStoredTheme();
     return {
@@ -153,22 +180,10 @@ const Settings = () => {
       if (!error && data) {
         // Data exists in database - use it and cache in localStorage
         const merged = {
-          visibility_profile: true,
-          hide_messages_from_unregistered: false,
-          hide_threads_from_unregistered: false,
-          block_profile_visits_from_unregistered: false,
-          allow_search_by_username: true,
-          allow_search_by_id: true,
-          allow_search_by_secondary_id: true,
-          allow_private_messages: true,
-          anonymous_mode: false,
-          remove_image_metadata: true,
-          show_last_seen: true,
-          show_online_status: true,
-          show_profile_wall: true,
-          allow_wall_posts_from_others: true,
+          ...defaultPrivacySettings,
           show_profile_stats: data.show_profile_stats ?? false,
           show_detailed_stats: data.show_detailed_stats ?? false,
+          ...data,
         };
         setPrivacySettings(merged);
         localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(merged));
@@ -179,31 +194,8 @@ const Settings = () => {
       if (error && error.code === 'PGRST116') {
         console.log('Creating default privacy settings for user');
         const defaultSettings = {
+          ...defaultPrivacySettings,
           user_id: user.id,
-          visibility_profile: true,
-          hide_messages_from_unregistered: false,
-          hide_threads_from_unregistered: false,
-          block_profile_visits_from_unregistered: false,
-          allow_search_by_username: true,
-          allow_search_by_id: true,
-          allow_search_by_secondary_id: true,
-          allow_private_messages: true,
-          anonymous_mode: false,
-          remove_image_metadata: true,
-          show_last_seen: true,
-          show_online_status: true,
-          show_profile_wall: true,
-          allow_wall_posts_from_others: true,
-          show_detailed_stats: false,
-          stats_visibility: {
-            garma: false,
-            posts: false,
-            threads: false,
-            postLikes: false,
-            threadLikes: false,
-            replies: false,
-            time: false,
-          },
         };
 
         const { error: insertError, data: insertedData } = await (supabase as any)
@@ -213,8 +205,12 @@ const Settings = () => {
           .single();
 
         if (!insertError && insertedData) {
-          setPrivacySettings(insertedData);
-          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(insertedData));
+          const mergedInserted = {
+            ...defaultPrivacySettings,
+            ...insertedData,
+          };
+          setPrivacySettings(mergedInserted);
+          localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(mergedInserted));
           return;
         }
       }
@@ -227,7 +223,10 @@ const Settings = () => {
     if (saved) {
       try {
         const parsedSettings = JSON.parse(saved);
-        setPrivacySettings(parsedSettings);
+        setPrivacySettings({
+          ...defaultPrivacySettings,
+          ...parsedSettings,
+        });
         console.log('Loaded privacy settings from localStorage');
         return;
       } catch (error) {
@@ -236,23 +235,7 @@ const Settings = () => {
     }
 
     // Last resort: use hardcoded defaults
-    const defaultSettings = {
-      visibility_profile: true,
-      hide_messages_from_unregistered: false,
-      hide_threads_from_unregistered: false,
-      block_profile_visits_from_unregistered: false,
-      allow_search_by_username: true,
-      allow_search_by_id: true,
-      allow_search_by_secondary_id: true,
-      allow_private_messages: true,
-      anonymous_mode: false,
-      remove_image_metadata: true,
-          show_profile_wall: true,
-          allow_wall_posts_from_others: true,
-          show_profile_stats: false,
-          show_detailed_stats: false,
-    };
-    setPrivacySettings(defaultSettings);
+    setPrivacySettings(defaultPrivacySettings);
     console.log('Using default privacy settings');
   };
 
@@ -862,7 +845,6 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="privacy" className="space-y-4">
-                {privacySettings && (
                   <>
                     {/* Profile Visibility Section */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
@@ -1098,7 +1080,6 @@ const Settings = () => {
                       </div>
                     </div>
                   </>
-                )}
               </TabsContent>
             </Tabs>
           </div>
