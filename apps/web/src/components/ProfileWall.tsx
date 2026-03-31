@@ -156,6 +156,7 @@ export const ProfileWall = ({
           author_id,
           title,
           content,
+          content_json,
           image_url,
           attachments,
           created_at,
@@ -344,7 +345,7 @@ export const ProfileWall = ({
 
                           {post.content && (
                             <div className="mt-2 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-                              <ProcessedContent content={post.content} />
+                              <ProcessedContent content={post.content || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
                             </div>
                           )}
                         </div>

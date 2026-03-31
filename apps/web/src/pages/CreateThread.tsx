@@ -1,19 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { X, Plus, Eye, EyeOff, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
-import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
-import { renderPreviewContent } from "@/utils/emojiUtils";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { ProcessedContent } from "@/components/ProcessedContent";
 
 interface Board {
   id: string;
@@ -87,6 +86,7 @@ const CreateThread = () => {
   const [boards, setBoards] = useState<Board[]>([]);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [contentJson, setContentJson] = useState<unknown>(null);
   const [imageUrls, setImageUrls] = useState<string[]>([]); // legacy image urls
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [threadImageUrl, setThreadImageUrl] = useState('');
@@ -104,6 +104,7 @@ const CreateThread = () => {
   const [loading, setLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showPoll, setShowPoll] = useState(false);
+  const editorRef = useRef<GomoRichEditorHandle>(null);
   const [poll, setPoll] = useState<Poll>({
     question: '',
     options: [
@@ -265,6 +266,7 @@ const CreateThread = () => {
         user_id: user.id,
         title: title.trim(),
         content: content.trim(),
+        content_json: contentJson,
         image_url: threadImageUrl || imageUrlsFromAttachments[0] || null,
         tags: tags,
         attachments: attachments.length > 0 ? attachments : null,
@@ -523,34 +525,31 @@ const CreateThread = () => {
 
               {isExpandedView ? (
                 <div className="space-y-4">
-                  <InlineFormattingToolbar onFormat={(prefix, suffix) => {
-                    const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
-                    if (textarea) {
-                      const start = textarea.selectionStart;
-                      const end = textarea.selectionEnd;
-                      const selectedText = content.substring(start, end);
-                      const newText = prefix + selectedText + suffix;
-                      setContent(content.substring(0, start) + newText + content.substring(end));
-                      setTimeout(() => {
-                        textarea.focus();
-                        textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
-                      }, 0);
-                    }
-                  }} />
-
-                  <Textarea
+                  <GomoRichEditor
+                    ref={editorRef}
+                    contentJson={contentJson}
+                    legacyContent={content}
+                    onChange={({ json, text }) => {
+                      setContentJson(json);
+                      setContent(text);
+                    }}
+                    onSubmit={handleCreateThread}
                     placeholder="Напишите содержание треда..."
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    className="min-h-[400px] resize-none"
+                    minHeightClassName="min-h-[400px]"
                   />
                 </div>
               ) : (
-                <Textarea
+                <GomoRichEditor
+                  ref={editorRef}
+                  contentJson={contentJson}
+                  legacyContent={content}
+                  onChange={({ json, text }) => {
+                    setContentJson(json);
+                    setContent(text);
+                  }}
+                  onSubmit={handleCreateThread}
                   placeholder="Напишите содержание треда..."
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  className="min-h-[120px] resize-none"
+                  minHeightClassName="min-h-[120px]"
                 />
               )}
             </div>
@@ -900,7 +899,7 @@ const CreateThread = () => {
 
               <div className="text-sm break-words">
                 {content ? (
-                  <div>{renderPreviewContent(content, 'thread')}</div>
+                  <ProcessedContent content={content} contentJson={contentJson} currentUserId={null} isAdmin={false} currentUsername="" />
                 ) : (
                   <span className="text-muted-foreground">Содержание треда...</span>
                 )}

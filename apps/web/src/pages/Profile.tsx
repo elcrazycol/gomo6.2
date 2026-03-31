@@ -4,7 +4,6 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -21,11 +20,12 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
-import { processProfileBio } from "@/utils/profileBio";
 import { AdminBadge } from "@/components/AdminBadge";
 import { ProfileWall } from "@/components/ProfileWall";
 import { ThreadCard } from "@/components/ThreadCard";
 import { AvatarCropper } from "@/components/AvatarCropper";
+import { GomoRichEditor } from "@/components/GomoRichEditor";
+import { ProcessedContent } from "@/components/ProcessedContent";
 
 interface Profile {
   id: string;
@@ -158,6 +158,7 @@ const Profile = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
+  const [bioJson, setBioJson] = useState<unknown>(null);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [confirmUsername, setConfirmUsername] = useState("");
@@ -315,6 +316,7 @@ const Profile = () => {
       });
       setUsername(data.username);
       setBio(data.bio || "");
+      setBioJson((data as any).bio_json || null);
       setIsAnonymous(data.is_anonymous);
       setAvatarUrl(data.avatar_url);
       setLastSeen(data.last_seen_at);
@@ -663,6 +665,7 @@ const Profile = () => {
       .update({
         username,
         bio,
+        bio_json: bioJson,
         is_anonymous: isAnonymous,
       })
       .eq("id", userId);
@@ -772,7 +775,7 @@ const Profile = () => {
       if (userId && bio !== profile.bio) {
         const { error: bioError } = await supabase
           .from("profiles")
-          .update({ bio })
+          .update({ bio, bio_json: bioJson })
           .eq("id", userId);
 
         if (bioError) throw bioError;
@@ -816,6 +819,7 @@ const Profile = () => {
   const startEditing = () => {
     setNewUsername(profile.username);
     setBio(profile.bio || "");
+    setBioJson((profile as any).bio_json || null);
     setIsAnonymous(profile.is_anonymous);
     setIsEditing(true);
   };
@@ -993,16 +997,22 @@ const Profile = () => {
             <div className="space-y-4">
               <div>
                 <Label>О себе</Label>
-                <Textarea
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
+                <GomoRichEditor
+                  contentJson={bioJson}
+                  legacyContent={bio}
+                  onChange={({ json, text }) => {
+                    setBioJson(json);
+                    setBio(text);
+                  }}
                   placeholder="Расскажите о себе..."
-                  rows={4}
+                  minHeightClassName="min-h-[120px]"
                 />
                 {bio && (
                   <div className="mt-2 p-3 bg-muted/30 border border-border rounded text-sm">
                     <Label className="text-xs text-muted-foreground mb-1 block">Предпросмотр:</Label>
-                    <div>{processProfileBio(bio, `preview-${profile.id}`)}</div>
+                    <div>
+                      <ProcessedContent content={bio} contentJson={bioJson} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1078,7 +1088,7 @@ const Profile = () => {
 
               {profile.bio && (
                 <div className="text-sm">
-                  {processProfileBio(profile.bio, `profile-${profile.id}`)}
+                  <ProcessedContent content={profile.bio} contentJson={(profile as any).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
                 </div>
               )}
 

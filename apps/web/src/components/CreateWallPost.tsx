@@ -1,9 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { EmojiPicker } from "@/components/EmojiPicker";
-import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
+import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
-import { RichTextEditor, type RichTextEditorHandle } from "@/components/RichTextEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -18,6 +17,7 @@ export interface WallPost {
   author_id: string;
   title: string;
   content: string | null;
+  content_json?: unknown;
   image_url: string | null;
   attachments?: AttachmentMeta[] | null;
   created_at: string;
@@ -75,10 +75,11 @@ export const CreateWallPost = ({
   onPostUpdated,
   onCancel,
 }: CreateWallPostProps) => {
-  const editorRef = useRef<RichTextEditorHandle>(null);
+  const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
 
   const [content, setContent] = useState(editingPost?.content || "");
+  const [contentJson, setContentJson] = useState<unknown>(editingPost?.content_json || null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(editingPost));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -111,6 +112,7 @@ export const CreateWallPost = ({
         author_id: currentUserId,
         title: deriveTitle(contentValue || ""),
         content: contentValue,
+        content_json: contentJson,
         image_url: imageAttachment?.url || null,
         attachments: attachments.length > 0 ? attachments : null,
       };
@@ -127,6 +129,7 @@ export const CreateWallPost = ({
             author_id,
             title,
             content,
+            content_json,
             image_url,
             attachments,
             created_at,
@@ -155,6 +158,7 @@ export const CreateWallPost = ({
             author_id,
             title,
             content,
+            content_json,
             image_url,
             attachments,
             created_at,
@@ -193,7 +197,7 @@ export const CreateWallPost = ({
                 {isEditing ? "Редактирование записи" : "Новая запись на стене"}
               </div>
               <p className="hidden text-xs text-muted-foreground sm:block">
-                BB-теги, эмодзи и вложения работают прямо здесь.
+                Форматирование видно сразу, без BB-тегов.
               </p>
             </div>
           </div>
@@ -201,22 +205,22 @@ export const CreateWallPost = ({
 
         <div className="space-y-3 p-3 sm:space-y-4 sm:p-5">
           <div className="border border-border/70 bg-background p-2.5 sm:p-4">
-            <RichTextEditor
+            <GomoRichEditor
               ref={editorRef}
-              value={content}
-              onChange={setContent}
+              contentJson={editingPost?.content_json}
+              legacyContent={editingPost?.content}
+              onChange={({ json, text }) => {
+                setContentJson(json);
+                setContent(text);
+              }}
               onSubmit={handleSubmit}
               placeholder="Что у вас нового? Напишите красиво, добавьте теги, спойлеры и эмодзи."
-              className="min-h-[120px] text-sm border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0 sm:min-h-[140px] sm:text-base"
+              minHeightClassName="min-h-[120px] sm:min-h-[140px]"
             />
           </div>
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="border border-border/70 bg-background p-1">
-                <InlineFormattingToolbar editorRef={editorRef} />
-              </div>
-
               <EmojiPicker onEmojiSelect={handleEmojiSelect} triggerRef={emojiButtonRef}>
                 <Button
                   ref={emojiButtonRef}
@@ -258,7 +262,7 @@ export const CreateWallPost = ({
                 </div>
                 <div className="border border-border/70 bg-background p-3 sm:p-4">
                   {content.trim() ? (
-                    <ProcessedContent content={content} />
+                    <ProcessedContent content={content} contentJson={contentJson} currentUserId={null} isAdmin={false} currentUsername="" />
                   ) : (
                     <span className="text-sm text-muted-foreground">Текст появится здесь</span>
                   )}

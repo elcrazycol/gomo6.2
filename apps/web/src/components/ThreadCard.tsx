@@ -14,6 +14,7 @@ interface ThreadCardProps {
     id: string;
     title: string;
     content: string;
+    content_json?: unknown;
     image_url: string | null;
     image_urls?: string[] | null;
     created_at: string;
@@ -45,6 +46,7 @@ interface ThreadCardProps {
 interface RecentPost {
   id: string;
   content: string;
+  content_json?: unknown;
   created_at: string;
   user_id: string | null;
   profiles: {
@@ -201,6 +203,7 @@ const ThreadCard = ({
         .select(`
           id,
           content,
+          content_json,
           created_at,
           user_id
         `)
@@ -420,6 +423,7 @@ const ThreadCard = ({
           <div className={`text-sm break-words relative ${!isExpanded && thread.content.length > 300 ? 'max-h-20 overflow-hidden' : ''}`}>
             <ProcessedContent
               content={thread.content}
+              contentJson={thread.content_json}
               currentUserId={currentUserId}
               isAdmin={false}
               currentUsername={currentUsername}
@@ -500,6 +504,7 @@ const ThreadCard = ({
               <div className="text-xs break-words line-clamp-3">
                 <ProcessedContent
                   content={recentPosts[0].content}
+                  contentJson={recentPosts[0].content_json}
                   currentUserId={currentUserId}
                   isAdmin={false}
                   currentUsername={currentUsername}
