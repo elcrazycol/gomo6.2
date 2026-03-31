@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -138,6 +138,10 @@ export const ProfileWall = ({
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [galleryImages, setGalleryImages] = useState<string[] | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const activeEditingPost = useMemo(
+    () => posts.find((post) => post.id === editingPost),
+    [editingPost, posts]
+  );
 
   useEffect(() => {
     if (showWall) {
@@ -287,6 +291,7 @@ export const ProfileWall = ({
                 <div className="pt-3">
                   {currentUserId && (
                     <CreateWallPost
+                      key={showCreateForm ? "wall-create-open" : "wall-create-closed"}
                       profileUserId={profileUserId}
                       currentUserId={currentUserId}
                       onPostCreated={handlePostCreated}
@@ -343,7 +348,7 @@ export const ProfileWall = ({
                             )}
                           </div>
 
-                          {post.content && (
+                          {(post.content || post.content_json) && (
                             <div className="mt-2 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
                               <ProcessedContent content={post.content || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
                             </div>
@@ -401,11 +406,12 @@ export const ProfileWall = ({
                       />
                     )}
 
-                    {editingPost === post.id && currentUserId && (
+                    {editingPost === post.id && currentUserId && activeEditingPost && (
                       <CreateWallPost
+                        key={`wall-edit-${activeEditingPost.id}-${activeEditingPost.updated_at}`}
                         profileUserId={profileUserId}
                         currentUserId={currentUserId}
-                        editingPost={post}
+                        editingPost={activeEditingPost}
                         onPostUpdated={handlePostUpdated}
                         onCancel={() => setEditingPost(null)}
                       />

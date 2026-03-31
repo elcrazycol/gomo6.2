@@ -1,15 +1,14 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
-import { ProcessedContent } from "@/components/ProcessedContent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { AttachmentMeta } from "@/types/forum";
 import { supabase } from "@/integrations/supabase/client";
-import { ImageIcon, Loader2, Send, Smile, Sparkles } from "lucide-react";
+import { ImageIcon, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
+import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
 
 export interface WallPost {
   id: string;
@@ -82,9 +81,17 @@ export const CreateWallPost = ({
   const [contentJson, setContentJson] = useState<unknown>(editingPost?.content_json || null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(editingPost));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editorResetKey, setEditorResetKey] = useState(0);
 
   const isEditing = !!editingPost;
   const canSubmit = content.trim().length > 0 || attachments.length > 0;
+
+  useEffect(() => {
+    setContent(editingPost?.content || "");
+    setContentJson(editingPost?.content_json || null);
+    setAttachments(normalizeAttachments(editingPost));
+    setEditorResetKey((prev) => prev + 1);
+  }, [editingPost]);
 
   const imageCount = useMemo(
     () => attachments.filter((attachment) => attachment.type === "image").length,
@@ -176,6 +183,10 @@ export const CreateWallPost = ({
         if (error) throw error;
 
         onPostCreated?.(data as WallPost);
+        setContent("");
+        setContentJson(EMPTY_EDITOR_STATE);
+        setAttachments([]);
+        setEditorResetKey((prev) => prev + 1);
         toast.success("Пост опубликован");
       }
     } catch (error) {
@@ -190,16 +201,8 @@ export const CreateWallPost = ({
     <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
       <CardContent className="p-0">
         <div className="border-b border-border/60 px-3 py-2.5 sm:px-5 sm:py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Sparkles className="h-4 w-4 text-primary" />
-                {isEditing ? "Редактирование записи" : "Новая запись на стене"}
-              </div>
-              <p className="hidden text-xs text-muted-foreground sm:block">
-                Форматирование видно сразу, без BB-тегов.
-              </p>
-            </div>
+          <div className="text-sm font-semibold">
+            {isEditing ? "Редактирование записи" : "Новая запись на стене"}
           </div>
         </div>
 
@@ -207,8 +210,9 @@ export const CreateWallPost = ({
           <div className="border border-border/70 bg-background p-2.5 sm:p-4">
             <GomoRichEditor
               ref={editorRef}
-              contentJson={editingPost?.content_json}
-              legacyContent={editingPost?.content}
+              resetKey={editorResetKey}
+              contentJson={contentJson}
+              legacyContent={content}
               onChange={({ json, text }) => {
                 setContentJson(json);
                 setContent(text);
@@ -252,24 +256,6 @@ export const CreateWallPost = ({
               )}
             </div>
           </div>
-
-          {(content.trim() || attachments.length > 0) && (
-            <>
-              <Separator />
-              <div className="space-y-2 border border-dashed border-border/70 bg-muted/20 p-3 sm:space-y-3 sm:p-4">
-                <div className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-                  Предпросмотр
-                </div>
-                <div className="border border-border/70 bg-background p-3 sm:p-4">
-                  {content.trim() ? (
-                    <ProcessedContent content={content} contentJson={contentJson} currentUserId={null} isAdmin={false} currentUsername="" />
-                  ) : (
-                    <span className="text-sm text-muted-foreground">Текст появится здесь</span>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="hidden text-[11px] text-muted-foreground sm:block sm:text-xs">
