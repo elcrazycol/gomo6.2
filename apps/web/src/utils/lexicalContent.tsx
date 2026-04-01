@@ -22,17 +22,25 @@ export type LexicalEditorStateJson = {
   root: LexicalJsonNode;
 };
 
+const EMPTY_PARAGRAPH_NODE: LexicalJsonNode = {
+  children: [],
+  direction: null as unknown as never,
+  format: "" as unknown as never,
+  indent: 0 as unknown as never,
+  textFormat: 0 as unknown as never,
+  textStyle: "" as unknown as never,
+  type: "paragraph",
+  version: 1,
+};
+
 export const EMPTY_EDITOR_STATE: LexicalEditorStateJson = {
   root: {
+    children: [EMPTY_PARAGRAPH_NODE],
+    direction: null as unknown as never,
+    format: "" as unknown as never,
+    indent: 0 as unknown as never,
     type: "root",
     version: 1,
-    children: [
-      {
-        type: "paragraph",
-        version: 1,
-        children: [],
-      },
-    ],
   },
 };
 
@@ -157,9 +165,71 @@ export const legacyContentToLexicalJson = (content: string): LexicalEditorStateJ
 
 export const bbcodeToLexical = legacyContentToLexicalJson;
 
+const isLexicalNodeJson = (node: unknown): node is LexicalJsonNode => {
+  if (!node || typeof node !== "object") return false;
+
+  const candidate = node as Record<string, unknown>;
+  if (typeof candidate.type !== "string") return false;
+
+  if ("children" in candidate && candidate.children != null) {
+    if (!Array.isArray(candidate.children)) return false;
+    if (!candidate.children.every((child) => isLexicalNodeJson(child))) return false;
+  }
+
+  return true;
+};
+
+const isLexicalEditorStateJson = (value: unknown): value is LexicalEditorStateJson => {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Record<string, unknown>;
+  if (!("root" in candidate) || !isLexicalNodeJson(candidate.root)) return false;
+
+  return candidate.root.type === "root" && Array.isArray(candidate.root.children);
+};
+
+const coerceLexicalContentJson = (value: unknown): unknown => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return value;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+};
+
+const ensureNonEmptyEditorState = (state: LexicalEditorStateJson): LexicalEditorStateJson => {
+  const rootChildren = Array.isArray(state.root.children) ? state.root.children : [];
+
+  if (rootChildren.length > 0) {
+    return state;
+  }
+
+  return {
+    root: {
+      ...state.root,
+      type: "root",
+      version: state.root.version ?? 1,
+      direction: ("direction" in state.root ? (state.root as Record<string, unknown>).direction : null) as never,
+      format: ("format" in state.root ? (state.root as Record<string, unknown>).format : "") as never,
+      indent: ("indent" in state.root ? (state.root as Record<string, unknown>).indent : 0) as never,
+      children: [EMPTY_PARAGRAPH_NODE],
+    },
+  };
+};
+
 export const normalizeLexicalContent = (contentJson: unknown, legacyContent?: string | null): LexicalEditorStateJson => {
-  if (contentJson && typeof contentJson === "object" && "root" in (contentJson as Record<string, unknown>)) {
-    return contentJson as LexicalEditorStateJson;
+  const normalizedInput = coerceLexicalContentJson(contentJson);
+
+  if (isLexicalEditorStateJson(normalizedInput)) {
+    return ensureNonEmptyEditorState(normalizedInput);
   }
   if (legacyContent && legacyContent.trim().length > 0) {
     return legacyContentToLexicalJson(legacyContent);
@@ -178,7 +248,8 @@ export const lexicalJsonToPlainText = (contentJson: unknown, fallback = ""): str
   };
 
   try {
-    const root = (contentJson as LexicalEditorStateJson | undefined)?.root;
+    const normalizedInput = coerceLexicalContentJson(contentJson) as LexicalEditorStateJson | undefined;
+    const root = normalizedInput?.root;
     const text = walk(root).replace(/\n{3,}/g, "\n\n").trimEnd();
     return text || fallback;
   } catch {
