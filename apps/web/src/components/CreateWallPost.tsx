@@ -218,7 +218,7 @@ export const CreateWallPost = ({
                 setContent(text);
               }}
               onSubmit={handleSubmit}
-              placeholder="Что у вас нового? Напишите красиво, добавьте теги, спойлеры и эмодзи."
+              placeholder="Что у вас нового? Напишите красиво, добавьте теги, эмодзи и вложения."
               minHeightClassName="min-h-[120px] sm:min-h-[140px]"
             />
           </div>

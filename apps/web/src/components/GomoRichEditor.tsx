@@ -6,7 +6,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
+import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import { TOGGLE_LINK_COMMAND, LinkNode } from "@lexical/link";
 import { $getSelectionStyleValueForProperty, $patchStyleText } from "@lexical/selection";
 import { mergeRegister } from "@lexical/utils";
@@ -151,6 +151,34 @@ const StyleContinuationPlugin = () => {
   return null;
 };
 
+const InitialContentPlugin = ({
+  initialState,
+}: {
+  initialState: unknown;
+}) => {
+  const [editor] = useLexicalComposerContext();
+  const initializedRef = useRef(false);
+
+  React.useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
+    try {
+      const parsedState = editor.parseEditorState(JSON.stringify(initialState));
+      editor.setEditorState(parsedState);
+    } catch (error) {
+      console.error("Failed to initialize Lexical editor state, falling back to empty paragraph", error);
+      editor.update(() => {
+        const root = $getRoot();
+        root.clear();
+        root.append($createParagraphNode());
+      });
+    }
+  }, [editor, initialState]);
+
+  return null;
+};
+
 const Toolbar = () => {
   const [editor] = useLexicalComposerContext();
 
@@ -291,7 +319,6 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           throw error;
         },
         nodes: [LinkNode],
-        editorState: JSON.stringify(initialState),
       }}
     >
       <div className="space-y-2">
@@ -348,16 +375,21 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`${minHeightClassName} outline-none text-sm sm:text-base`}
+                className={`${minHeightClassName} relative z-10 outline-none bg-transparent text-sm sm:text-base`}
                 spellCheck
               />
             }
-            placeholder={<div className="pointer-events-none absolute text-muted-foreground">{placeholder}</div>}
+            placeholder={(
+              <div className="pointer-events-none absolute inset-x-3 top-3 max-w-[calc(100%-1.5rem)] whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground/80 sm:text-base sm:leading-7">
+                {placeholder}
+              </div>
+            )}
             ErrorBoundary={() => null}
           />
           <HistoryPlugin />
           <LinkPlugin />
           <StyleContinuationPlugin />
+          <InitialContentPlugin initialState={initialState} />
           <OnChangePlugin
             onChange={(editorState) => {
               const json = editorState.toJSON();

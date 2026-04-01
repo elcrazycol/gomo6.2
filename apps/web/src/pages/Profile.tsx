@@ -159,6 +159,7 @@ const Profile = () => {
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [bioJson, setBioJson] = useState<unknown>(null);
+  const [bioEditorResetKey, setBioEditorResetKey] = useState(0);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [confirmUsername, setConfirmUsername] = useState("");
@@ -317,6 +318,7 @@ const Profile = () => {
       setUsername(data.username);
       setBio(data.bio || "");
       setBioJson((data as any).bio_json || null);
+      setBioEditorResetKey((prev) => prev + 1);
       setIsAnonymous(data.is_anonymous);
       setAvatarUrl(data.avatar_url);
       setLastSeen(data.last_seen_at);
@@ -819,7 +821,8 @@ const Profile = () => {
   const startEditing = () => {
     setNewUsername(profile.username);
     setBio(profile.bio || "");
-    setBioJson((profile as any).bio_json || null);
+    setBioJson(null);
+    setBioEditorResetKey((prev) => prev + 1);
     setIsAnonymous(profile.is_anonymous);
     setIsEditing(true);
   };
@@ -998,6 +1001,7 @@ const Profile = () => {
               <div>
                 <Label>О себе</Label>
                 <GomoRichEditor
+                  resetKey={bioEditorResetKey}
                   contentJson={bioJson}
                   legacyContent={bio}
                   onChange={({ json, text }) => {
@@ -1007,14 +1011,6 @@ const Profile = () => {
                   placeholder="Расскажите о себе..."
                   minHeightClassName="min-h-[120px]"
                 />
-                {bio && (
-                  <div className="mt-2 p-3 bg-muted/30 border border-border rounded text-sm">
-                    <Label className="text-xs text-muted-foreground mb-1 block">Предпросмотр:</Label>
-                    <div>
-                      <ProcessedContent content={bio} contentJson={bioJson} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
-                    </div>
-                  </div>
-                )}
               </div>
 
 
