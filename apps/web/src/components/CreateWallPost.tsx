@@ -19,6 +19,8 @@ export interface WallPost {
   content_json?: unknown;
   image_url: string | null;
   attachments?: AttachmentMeta[] | null;
+  repost_of_post_id?: string | null;
+  original_post?: WallPost | null;
   created_at: string;
   updated_at: string;
   is_pinned?: boolean;

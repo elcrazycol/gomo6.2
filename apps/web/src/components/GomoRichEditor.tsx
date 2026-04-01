@@ -6,13 +6,13 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
+import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $createTextNode, $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import { TOGGLE_LINK_COMMAND, LinkNode } from "@lexical/link";
 import { $getSelectionStyleValueForProperty, $patchStyleText } from "@lexical/selection";
 import { mergeRegister } from "@lexical/utils";
 import { Bold, Eye, Italic, Link2, Palette, Strikethrough, Type, Underline } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { normalizeLexicalContent, lexicalJsonToPlainText, insertTextAtSelection } from "@/utils/lexicalContent";
+import { normalizeLexicalContent, lexicalJsonToPlainText, insertTextAtSelection, EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -168,11 +168,18 @@ const InitialContentPlugin = ({
       editor.setEditorState(parsedState);
     } catch (error) {
       console.error("Failed to initialize Lexical editor state, falling back to empty paragraph", error);
-      editor.update(() => {
-        const root = $getRoot();
-        root.clear();
-        root.append($createParagraphNode());
-      });
+      try {
+        const fallbackState = editor.parseEditorState(JSON.stringify(EMPTY_EDITOR_STATE));
+        editor.setEditorState(fallbackState);
+      } catch {
+        editor.update(() => {
+          const root = $getRoot();
+          root.clear();
+          const paragraph = $createParagraphNode();
+          paragraph.append($createTextNode(""));
+          root.append(paragraph);
+        });
+      }
     }
   }, [editor, initialState]);
 

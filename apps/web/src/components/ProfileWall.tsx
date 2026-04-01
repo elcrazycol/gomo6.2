@@ -9,8 +9,15 @@ import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ImageGallery } from "@/components/ImageGallery";
 import { MediaPlayer } from "@/components/MediaPlayer";
 import { ProcessedContent } from "@/components/ProcessedContent";
-import { RichContentRenderer } from "@/components/RichContentRenderer";
 import { UserBadge } from "@/components/UserBadge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AttachmentMeta } from "@/types/forum";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
 import { lexicalJsonToPlainText, normalizeLexicalContent } from "@/utils/lexicalContent";
@@ -52,8 +59,33 @@ interface WallComment {
   };
 }
 
+const normalizeWallPostAuthor = (author: any) => {
+  const authorSource = Array.isArray(author) ? author[0] : author;
+  return {
+    username: authorSource?.username || "user",
+    is_anonymous: Boolean(authorSource?.is_anonymous),
+    avatar_url: authorSource?.avatar_url || null,
+  };
+};
+
+const normalizeWallPostRecord = (post: any): WallPost => {
+  const originalPostSource = post?.original_post ?? null;
+
+  return {
+    ...post,
+    repost_of_post_id: post?.repost_of_post_id ?? null,
+    author: normalizeWallPostAuthor(post?.author),
+    original_post: originalPostSource
+      ? {
+          ...originalPostSource,
+          repost_of_post_id: originalPostSource?.repost_of_post_id ?? null,
+          author: normalizeWallPostAuthor(originalPostSource?.author),
+        }
+      : null,
+  } as WallPost;
+};
+
 const normalizeWallComment = (comment: any): WallComment => {
-  const authorSource = Array.isArray(comment?.author) ? comment.author[0] : comment?.author;
   const contentJson = comment?.content_json ?? null;
   const content = typeof comment?.content === "string" && comment.content.trim().length > 0
     ? comment.content
@@ -67,11 +99,7 @@ const normalizeWallComment = (comment: any): WallComment => {
     content_json: contentJson,
     created_at: comment.created_at,
     updated_at: comment.updated_at,
-    author: {
-      username: authorSource?.username || "user",
-      is_anonymous: Boolean(authorSource?.is_anonymous),
-      avatar_url: authorSource?.avatar_url || null,
-    },
+    author: normalizeWallPostAuthor(comment?.author),
   };
 };
 
@@ -117,15 +145,70 @@ const ActionButton = ({
     size="sm"
     onClick={onClick}
     disabled={disabled || loading}
-    className={`h-9 rounded-full px-3 text-xs transition-colors sm:text-sm ${
-      active ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary" : "text-muted-foreground"
+    className={`h-8 gap-1.5 px-1.5 text-xs transition-colors sm:h-9 sm:px-2 sm:text-sm ${
+      active ? "text-primary hover:text-primary" : "text-muted-foreground"
     }`}
   >
     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
-    <span>{label}</span>
+    <span className="hidden sm:inline">{label}</span>
     <span className="text-foreground/80">{count}</span>
   </Button>
 );
+
+const EmbeddedWallPost = ({
+  post,
+  currentUserId,
+  currentUsername,
+  onImageClick,
+}: {
+  post: WallPost;
+  currentUserId: string | null;
+  currentUsername: string;
+  onImageClick: (images: string[], index: number) => void;
+}) => {
+  const attachments = normalizeAttachments(post);
+
+  return (
+    <div className="border border-border/70 bg-muted/[0.12] p-3 sm:p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <UserBadge
+          userId={post.author_id}
+          username={post.author.username}
+          isAnonymous={post.author.is_anonymous}
+          disableLink={false}
+        />
+        <span className="text-xs text-muted-foreground">
+          {formatDistanceToNow(new Date(post.created_at), {
+            locale: ru,
+            addSuffix: true,
+          })}
+        </span>
+      </div>
+
+      {(post.content || post.content_json) && (
+        <div className="break-words text-sm leading-6 sm:text-[15px]">
+          <ProcessedContent
+            content={post.content || ""}
+            contentJson={post.content_json}
+            currentUserId={currentUserId}
+            isAdmin={false}
+            currentUsername={currentUsername}
+          />
+        </div>
+      )}
+
+      {attachments.length > 0 && (
+        <div className="mt-3">
+          <WallAttachments
+            attachments={attachments}
+            galleryKey={`embedded-${post.id}`}
+            onImageClick={onImageClick}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
 
 const WallAttachments = ({
   attachments,
@@ -268,6 +351,10 @@ const WallPostCard = ({
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
+  const [repostComposerOpen, setRepostComposerOpen] = useState(false);
+  const [repostText, setRepostText] = useState("");
+  const [repostJson, setRepostJson] = useState<unknown>(EMPTY_EDITOR_STATE);
+  const [repostResetKey, setRepostResetKey] = useState(0);
 
   useEffect(() => {
     const loadInteractionState = async () => {
@@ -445,9 +532,9 @@ const WallPostCard = ({
   const handleRepostToggle = async () => {
     if (!currentUserId || isReposting) return;
 
-    setIsReposting(true);
-    try {
-      if (isReposted && repostRecordId) {
+    if (isReposted && repostRecordId) {
+      setIsReposting(true);
+      try {
         if (repostedWallPostId) {
           const { error: repostedPostDeleteError } = await supabase
             .from("profile_wall_posts")
@@ -477,19 +564,41 @@ const WallPostCard = ({
         }
 
         return;
+      } catch (error: any) {
+        console.error("Error toggling wall repost:", error);
+        if (error?.code === "23505") {
+          toast.error("Вы уже репостнули эту запись к себе");
+        } else {
+          toast.error("Не удалось выполнить репост");
+        }
+      } finally {
+        setIsReposting(false);
       }
+      return;
+    }
 
-      const repostTitle = post.title?.trim() ? `Репост: ${post.title}` : "Репост на стене";
+    setRepostText("");
+    setRepostJson(EMPTY_EDITOR_STATE);
+    setRepostResetKey((prev) => prev + 1);
+    setRepostComposerOpen(true);
+  };
+
+  const handleSubmitRepost = async () => {
+    if (!currentUserId || isReposting) return;
+
+    setIsReposting(true);
+    try {
+      const repostTitleSource = repostText.trim() || post.title || "Репост на стене";
       const { data: repostedPost, error: repostedPostError } = await (supabase as any)
         .from("profile_wall_posts")
         .insert({
           user_id: currentUserId,
           author_id: currentUserId,
-          title: repostTitle,
-          content: post.content,
-          content_json: post.content_json,
-          image_url: post.image_url,
-          attachments: post.attachments || null,
+          title: repostTitleSource.length > 80 ? `${repostTitleSource.slice(0, 77).trimEnd()}...` : repostTitleSource,
+          content: repostText.trim() || null,
+          content_json: repostText.trim().length > 0 ? repostJson : null,
+          image_url: null,
+          attachments: null,
           repost_of_post_id: post.id,
         })
         .select("id")
@@ -514,13 +623,16 @@ const WallPostCard = ({
       setRepostRecordId(repostRecord.id);
       setRepostedWallPostId(repostRecord.reposted_wall_post_id || repostedPost.id);
       setRepostsCount((prev) => prev + 1);
+      setRepostComposerOpen(false);
+      setRepostText("");
+      setRepostJson(EMPTY_EDITOR_STATE);
       toast.success(currentUserId === profileUserId ? "Репост появился у вас на стене" : "Репост отправлен на вашу стену");
 
       if (currentUserId === profileUserId) {
         await onRefreshPosts();
       }
     } catch (error: any) {
-      console.error("Error toggling wall repost:", error);
+      console.error("Error creating wall repost:", error);
       if (error?.code === "23505") {
         toast.error("Вы уже репостнули эту запись к себе");
       } else {
@@ -717,7 +829,7 @@ const WallPostCard = ({
           />
           <ActionButton
             icon={<Repeat2 className="h-4 w-4" />}
-            label="Репост"
+            label={isReposted ? "Убрать" : "Репост"}
             count={repostsCount}
             active={isReposted}
             disabled={!currentUserId}
@@ -725,6 +837,15 @@ const WallPostCard = ({
             onClick={handleRepostToggle}
           />
         </div>
+
+        {post.original_post && (
+          <EmbeddedWallPost
+            post={post.original_post}
+            currentUserId={currentUserId}
+            currentUsername={currentUsername}
+            onImageClick={onImageClick}
+          />
+        )}
 
         {commentsOpen && (
           <div className="space-y-3 border-t border-border/60 pt-4">
@@ -884,6 +1005,62 @@ const WallPostCard = ({
           />
         )}
       </CardContent>
+
+      <Dialog open={repostComposerOpen} onOpenChange={setRepostComposerOpen}>
+        <DialogContent className="max-w-2xl gap-0 border-border/70 bg-background p-0">
+          <DialogHeader className="border-b border-border/60 px-4 py-3 sm:px-5">
+            <DialogTitle className="text-base">Репост записи</DialogTitle>
+            <DialogDescription className="text-sm">
+              Добавь подпись сверху или просто выкладывай оригинал как есть.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 p-4 sm:p-5">
+            <div className="border border-border/70 bg-background p-3">
+              <GomoRichEditor
+                resetKey={repostResetKey}
+                contentJson={repostJson}
+                legacyContent={repostText}
+                onChange={({ json, text }) => {
+                  setRepostJson(json);
+                  setRepostText(text);
+                }}
+                onSubmit={handleSubmitRepost}
+                placeholder="Добавь подпись к репосту, если хочешь"
+                minHeightClassName="min-h-[120px]"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Оригинальная запись
+              </div>
+              <EmbeddedWallPost
+                post={post.original_post || post}
+                currentUserId={currentUserId}
+                currentUsername={currentUsername}
+                onImageClick={onImageClick}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-border/60 px-4 py-3 sm:px-5">
+            <Button type="button" variant="outline" onClick={() => setRepostComposerOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={handleSubmitRepost} disabled={isReposting}>
+              {isReposting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Публикуем
+                </>
+              ) : (
+                "Выложить"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
@@ -943,7 +1120,60 @@ export const ProfileWall = ({
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setPosts((data || []) as WallPost[]);
+
+      const rawPosts = (data || []) as any[];
+      const repostIds = Array.from(
+        new Set(
+          rawPosts
+            .map((post) => post.repost_of_post_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        )
+      );
+
+      let originalPostsMap = new Map<string, WallPost>();
+      if (repostIds.length > 0) {
+        const { data: originalPosts, error: originalPostsError } = await (supabase as any)
+          .from("profile_wall_posts")
+          .select(`
+            id,
+            user_id,
+            author_id,
+            title,
+            content,
+            content_json,
+            image_url,
+            attachments,
+            repost_of_post_id,
+            created_at,
+            updated_at,
+            is_pinned,
+            pinned_order,
+            author:profiles!author_id (
+              username,
+              is_anonymous,
+              avatar_url
+            )
+          `)
+          .in("id", repostIds);
+
+        if (originalPostsError) throw originalPostsError;
+
+        originalPostsMap = new Map(
+          ((originalPosts || []) as any[]).map((originalPost) => {
+            const normalized = normalizeWallPostRecord(originalPost);
+            return [normalized.id, normalized];
+          })
+        );
+      }
+
+      setPosts(
+        rawPosts.map((post) =>
+          normalizeWallPostRecord({
+            ...post,
+            original_post: post.repost_of_post_id ? originalPostsMap.get(post.repost_of_post_id) || null : null,
+          })
+        )
+      );
     } catch (error) {
       console.error("Error loading wall posts:", error);
       toast.error("Ошибка загрузки постов стены");
@@ -997,12 +1227,12 @@ export const ProfileWall = ({
   };
 
   const handlePostCreated = (newPost: WallPost) => {
-    setPosts((prev) => [newPost, ...prev]);
+    setPosts((prev) => [normalizeWallPostRecord(newPost), ...prev]);
     setShowCreateForm(false);
   };
 
   const handlePostUpdated = (updatedPost: WallPost) => {
-    setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? updatedPost : post)));
+    setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? normalizeWallPostRecord(updatedPost) : post)));
     setEditingPost(null);
   };
 

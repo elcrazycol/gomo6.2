@@ -23,7 +23,15 @@ export type LexicalEditorStateJson = {
 };
 
 const EMPTY_PARAGRAPH_NODE: LexicalJsonNode = {
-  children: [],
+  children: [
+    {
+      type: "text",
+      version: 1,
+      text: "",
+      format: 0,
+      style: "",
+    },
+  ],
   direction: null as unknown as never,
   format: "" as unknown as never,
   indent: 0 as unknown as never,
