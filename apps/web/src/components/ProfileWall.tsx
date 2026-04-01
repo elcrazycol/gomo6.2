@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { ImageGallery } from "@/components/ImageGallery";
 import { MediaPlayer } from "@/components/MediaPlayer";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { UserBadge } from "@/components/UserBadge";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +43,8 @@ interface ProfileWallProps {
   currentUsername: string;
   canPost: boolean;
   showWall: boolean;
+  focusedPostId?: string | null;
+  standalone?: boolean;
 }
 
 interface WallComment {
@@ -103,8 +106,20 @@ const normalizeWallComment = (comment: any): WallComment => {
   };
 };
 
-const getRenderableCommentState = (comment: WallComment) =>
-  normalizeLexicalContent(comment.content_json, comment.content || "");
+export const getWallPostPath = (profileUserId: string, postId: string) =>
+  `/profile/${profileUserId}/wall/${postId}`;
+
+const isInteractiveTarget = (target: EventTarget | null, currentTarget?: HTMLElement | null) => {
+  if (!(target instanceof HTMLElement)) return false;
+  const interactiveElement = target.closest(
+    "a, button, input, textarea, select, summary, [role='button'], [contenteditable='true'], [data-wall-no-open='true']"
+  );
+
+  if (!interactiveElement) return false;
+  if (currentTarget && interactiveElement === currentTarget) return false;
+
+  return true;
+};
 
 const normalizeAttachments = (post: WallPost): AttachmentMeta[] => {
   if (Array.isArray(post.attachments) && post.attachments.length > 0) {
@@ -166,16 +181,32 @@ const EmbeddedWallPost = ({
   currentUsername: string;
   onImageClick: (images: string[], index: number) => void;
 }) => {
+  const navigate = useNavigate();
   const attachments = normalizeAttachments(post);
+  const handleOpenPost = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isInteractiveTarget(event.target, event.currentTarget)) return;
+    navigate(getWallPostPath(post.user_id, post.id));
+  };
 
   return (
-    <div className="border border-border/70 bg-muted/[0.12] p-3 sm:p-4">
+    <div
+      className="rounded-[1.1rem] border border-border/70 bg-muted/[0.12] p-3 transition-colors hover:bg-muted/[0.18] sm:p-4"
+      onClick={handleOpenPost}
+      role="button"
+      tabIndex={0}
+    >
+      <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+        <Repeat2 className="h-3.5 w-3.5" />
+        <span>Оригинальная запись</span>
+      </div>
+
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <UserBadge
           userId={post.author_id}
           username={post.author.username}
           isAnonymous={post.author.is_anonymous}
           disableLink={false}
+          stopPropagationOnClick
         />
         <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(new Date(post.created_at), {
@@ -312,6 +343,9 @@ const WallPostCard = ({
   onTogglePin,
   onRefreshPosts,
   onImageClick,
+  forceCommentsOpen = false,
+  postHref,
+  standalone = false,
 }: {
   post: WallPost;
   profileUserId: string;
@@ -326,7 +360,11 @@ const WallPostCard = ({
   onTogglePin: (postId: string) => void;
   onRefreshPosts: () => Promise<void>;
   onImageClick: (images: string[], index: number) => void;
+  forceCommentsOpen?: boolean;
+  postHref?: string | null;
+  standalone?: boolean;
 }) => {
+  const navigate = useNavigate();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   const canManage = currentUserId === post.author_id || currentUserId === post.user_id;
   const [likesCount, setLikesCount] = useState(0);
@@ -355,6 +393,12 @@ const WallPostCard = ({
   const [repostText, setRepostText] = useState("");
   const [repostJson, setRepostJson] = useState<unknown>(EMPTY_EDITOR_STATE);
   const [repostResetKey, setRepostResetKey] = useState(0);
+
+  useEffect(() => {
+    if (!forceCommentsOpen || commentsOpen) return;
+    setCommentsOpen(true);
+    void loadComments();
+  }, [forceCommentsOpen, commentsOpen, post.id]);
 
   useEffect(() => {
     const loadInteractionState = async () => {
@@ -718,6 +762,11 @@ const WallPostCard = ({
     }
   };
 
+  const handleOpenPost = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!postHref || isEditing || isInteractiveTarget(event.target, event.currentTarget)) return;
+    navigate(postHref);
+  };
+
   return (
     <Card
       className={`overflow-hidden border-border/70 shadow-none ${
@@ -734,6 +783,7 @@ const WallPostCard = ({
                   username={post.author.username}
                   isAnonymous={post.author.is_anonymous}
                   disableLink={false}
+                  stopPropagationOnClick
                 />
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(new Date(post.created_at), {
@@ -755,11 +805,6 @@ const WallPostCard = ({
                 )}
               </div>
 
-              {(post.content || post.content_json) && (
-                <div className="mt-2 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-                  <ProcessedContent content={post.content || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
-                </div>
-              )}
             </div>
           </div>
 
@@ -802,13 +847,37 @@ const WallPostCard = ({
           )}
         </div>
 
-        {attachments.length > 0 && (
-          <WallAttachments
-            attachments={attachments}
-            galleryKey={post.id}
-            onImageClick={onImageClick}
-          />
-        )}
+        <div
+          className={`${postHref && !isEditing ? "cursor-pointer" : ""}`}
+          onClick={handleOpenPost}
+          role={postHref && !isEditing ? "button" : undefined}
+          tabIndex={postHref && !isEditing ? 0 : undefined}
+        >
+          {(post.content || post.content_json) && (
+            <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+              <ProcessedContent content={post.content || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
+            </div>
+          )}
+
+          {attachments.length > 0 && (
+            <WallAttachments
+              attachments={attachments}
+              galleryKey={post.id}
+              onImageClick={onImageClick}
+            />
+          )}
+
+          {post.original_post && (
+            <div className={attachments.length > 0 ? "mt-4" : ""}>
+              <EmbeddedWallPost
+                post={post.original_post}
+                currentUserId={currentUserId}
+                currentUsername={currentUsername}
+                onImageClick={onImageClick}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
           <ActionButton
@@ -837,15 +906,6 @@ const WallPostCard = ({
             onClick={handleRepostToggle}
           />
         </div>
-
-        {post.original_post && (
-          <EmbeddedWallPost
-            post={post.original_post}
-            currentUserId={currentUserId}
-            currentUsername={currentUsername}
-            onImageClick={onImageClick}
-          />
-        )}
 
         {commentsOpen && (
           <div className="space-y-3 border-t border-border/60 pt-4">
@@ -971,20 +1031,13 @@ const WallPostCard = ({
                       </div>
                     ) : (
                       <div className="break-words text-sm leading-6 sm:text-[15px]">
-                        {(() => {
-                          const renderState = getRenderableCommentState(comment);
-                          const renderText = lexicalJsonToPlainText(renderState, comment.content || "");
-
-                          if (renderText.trim().length > 0) {
-                            return <RichContentRenderer contentJson={renderState} />;
-                          }
-
-                          if ((comment.content || "").trim().length > 0) {
-                            return <span className="whitespace-pre-wrap">{comment.content}</span>;
-                          }
-
-                          return <span className="text-muted-foreground">(пустой комментарий)</span>;
-                        })()}
+                        <ProcessedContent
+                          content={comment.content || ""}
+                          contentJson={comment.content_json}
+                          currentUserId={currentUserId}
+                          isAdmin={false}
+                          currentUsername={currentUsername}
+                        />
                       </div>
                     )}
                   </div>
@@ -1071,6 +1124,8 @@ export const ProfileWall = ({
   currentUsername,
   canPost,
   showWall,
+  focusedPostId = null,
+  standalone = false,
 }: ProfileWallProps) => {
   const [posts, setPosts] = useState<WallPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1092,7 +1147,7 @@ export const ProfileWall = ({
   const loadPosts = async () => {
     try {
       setLoading(true);
-      const { data, error } = await (supabase as any)
+      let query = (supabase as any)
         .from("profile_wall_posts")
         .select(`
           id,
@@ -1114,10 +1169,18 @@ export const ProfileWall = ({
             avatar_url
           )
         `)
-        .eq("user_id", profileUserId)
-        .order("is_pinned", { ascending: false })
-        .order("pinned_order", { ascending: true })
-        .order("created_at", { ascending: false });
+        .eq("user_id", profileUserId);
+
+      if (focusedPostId) {
+        query = query.eq("id", focusedPostId);
+      } else {
+        query = query
+          .order("is_pinned", { ascending: false })
+          .order("pinned_order", { ascending: true })
+          .order("created_at", { ascending: false });
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -1255,7 +1318,7 @@ export const ProfileWall = ({
   return (
     <>
       <div className="space-y-4">
-        {canPost && (
+        {canPost && !standalone && !focusedPostId && (
           <div className="flex justify-end">
             <div className="relative w-full max-w-3xl">
               <div className={`flex ${showCreateForm ? "justify-start" : "justify-end"} transition-all duration-300 ease-out`}>
@@ -1300,8 +1363,10 @@ export const ProfileWall = ({
 
         {posts.length === 0 ? (
           <div className="border border-dashed border-border/70 bg-muted/20 py-12 text-center">
-            <p className="text-lg font-medium">На стене пока тихо</p>
-            {canPost && <p className="mt-2 text-sm text-muted-foreground">Нажмите `+`, чтобы оставить первую запись.</p>}
+            <p className="text-lg font-medium">
+              {focusedPostId ? "Запись на стене не найдена" : "На стене пока тихо"}
+            </p>
+            {!focusedPostId && canPost && <p className="mt-2 text-sm text-muted-foreground">Нажмите `+`, чтобы оставить первую запись.</p>}
           </div>
         ) : (
           <div className="space-y-4">
@@ -1320,6 +1385,9 @@ export const ProfileWall = ({
                 onDeletePost={handleDeletePost}
                 onTogglePin={handleTogglePin}
                 onRefreshPosts={loadPosts}
+                forceCommentsOpen={Boolean(focusedPostId)}
+                postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
+                standalone={standalone}
                 onImageClick={(images, index) => {
                   setGalleryImages(images);
                   setGalleryIndex(index);

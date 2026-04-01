@@ -18,6 +18,7 @@ const Auth = lazy(() => import("./pages/Auth"));
 const Board = lazy(() => import("./pages/Board"));
 const Thread = lazy(() => import("./pages/Thread"));
 const Profile = lazy(() => import("./pages/Profile"));
+const WallPost = lazy(() => import("./pages/WallPost"));
 const Moderation = lazy(() => import("./pages/Moderation"));
 const ModerationPosts = lazy(() => import("./pages/ModerationPosts"));
 const EmojiModeration = lazy(() => import("./pages/EmojiModeration"));
@@ -104,6 +105,7 @@ const App = () => {
               <Route index element={<LazyPage component={Index} />} />
               <Route path="boards" element={<LazyPage component={BoardsView} />} />
               <Route path="messages" element={<LazyPage component={Messages} />} />
+              <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
               <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
               <Route path="moderation" element={<LazyPage component={Moderation} />} />
               <Route path="moderation/posts" element={<LazyPage component={ModerationPosts} />} />
