@@ -23,6 +23,7 @@ import { AttachmentMeta } from "@/types/forum";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
 import { lexicalJsonToPlainText, normalizeLexicalContent } from "@/utils/lexicalContent";
 import {
+  Copy,
   Edit3,
   FileText,
   Heart,
@@ -33,6 +34,7 @@ import {
   Plus,
   Repeat2,
   Send,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -140,7 +142,8 @@ const normalizeAttachments = (post: WallPost): AttachmentMeta[] => {
 const ActionButton = ({
   icon,
   label,
-  count,
+  count = null,
+  showLabel = true,
   active = false,
   disabled = false,
   loading = false,
@@ -148,7 +151,8 @@ const ActionButton = ({
 }: {
   icon: ReactNode;
   label: string;
-  count: number;
+  count?: number | null;
+  showLabel?: boolean;
   active?: boolean;
   disabled?: boolean;
   loading?: boolean;
@@ -165,8 +169,8 @@ const ActionButton = ({
     }`}
   >
     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
-    <span className="hidden sm:inline">{label}</span>
-    <span className="text-foreground/80">{count}</span>
+    {showLabel && <span className="hidden sm:inline">{label}</span>}
+    {typeof count === "number" && <span className="text-foreground/80">{count}</span>}
   </Button>
 );
 
@@ -389,6 +393,8 @@ const WallPostCard = ({
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [repostComposerOpen, setRepostComposerOpen] = useState(false);
   const [repostText, setRepostText] = useState("");
   const [repostJson, setRepostJson] = useState<unknown>(EMPTY_EDITOR_STATE);
@@ -626,6 +632,49 @@ const WallPostCard = ({
     setRepostResetKey((prev) => prev + 1);
     setRepostComposerOpen(true);
   };
+
+  const handleSharePost = async () => {
+    setShareDialogOpen(true);
+  };
+
+  const sharePath = getWallPostPath(post.user_id, post.id);
+  const shareUrl = `${window.location.origin}${sharePath}`;
+
+  const handleCopyShareUrl = async () => {
+    if (isSharing) return;
+
+    setIsSharing(true);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Ссылка на запись скопирована");
+    } catch {
+      toast.error("Не удалось скопировать ссылку");
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleNativeShare = async () => {
+    if (!navigator.share || isSharing) return;
+
+    setIsSharing(true);
+    try {
+      await navigator.share({
+        title: post.title || "Пост на стене",
+        text: post.content || "Посмотри эту запись",
+        url: shareUrl,
+      });
+    } catch (error) {
+      if ((error as Error)?.name !== "AbortError") {
+        toast.error("Не удалось поделиться записью");
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const encodedShareUrl = encodeURIComponent(shareUrl);
+  const encodedShareText = encodeURIComponent(post.content || post.title || "Посмотри эту запись");
 
   const handleSubmitRepost = async () => {
     if (!currentUserId || isReposting) return;
@@ -905,6 +954,15 @@ const WallPostCard = ({
             loading={isReposting}
             onClick={handleRepostToggle}
           />
+          <ActionButton
+            icon={<Share2 className="h-4 w-4" />}
+            label="Поделиться"
+            showLabel={false}
+            active={false}
+            disabled={false}
+            loading={isSharing}
+            onClick={handleSharePost}
+          />
         </div>
 
         {commentsOpen && (
@@ -1112,6 +1170,63 @@ const WallPostCard = ({
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="max-w-md border-border/70 bg-background">
+          <DialogHeader>
+            <DialogTitle>Поделиться записью</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+              {shareUrl}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {navigator.share && (
+                <Button type="button" variant="outline" onClick={handleNativeShare} disabled={isSharing}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Системно
+                </Button>
+              )}
+              <Button type="button" variant="outline" onClick={handleCopyShareUrl} disabled={isSharing}>
+                <Copy className="mr-2 h-4 w-4" />
+                Копировать
+              </Button>
+              <a
+                href={`https://t.me/share/url?url=${encodedShareUrl}&text=${encodedShareText}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                Telegram
+              </a>
+              <a
+                href={`https://twitter.com/intent/tweet?url=${encodedShareUrl}&text=${encodedShareText}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                X
+              </a>
+              <a
+                href={`https://vk.com/share.php?url=${encodedShareUrl}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                VK
+              </a>
+              <a
+                href={`mailto:?subject=${encodeURIComponent(post.title || "Пост на стене")}&body=${encodedShareText}%0A%0A${encodedShareUrl}`}
+                className="inline-flex h-10 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                Email
+              </a>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </Card>
