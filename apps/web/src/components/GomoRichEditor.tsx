@@ -563,15 +563,15 @@ const Toolbar = ({
 
   return (
     <>
-      <div className="flex flex-wrap gap-1 border border-border/70 bg-background p-1">
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("underline")}><Underline className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={toggleLink}><Link2 className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={openColorDialog}><Palette className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={setSize}><Type className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={toggleBlur}><Eye className="h-4 w-4" /></Button>
+      <div className="flex flex-nowrap gap-1 overflow-x-auto scrollbar-hide max-w-full border border-border/70 bg-background p-1">
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("underline")}><Underline className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={toggleLink}><Link2 className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={openColorDialog}><Palette className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={setSize}><Type className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={keepSelection} onClick={toggleBlur}><Eye className="h-4 w-4" /></Button>
       </div>
 
       <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
