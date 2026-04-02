@@ -1118,7 +1118,7 @@ const WallPostCard = ({
       </CardContent>
 
       <Dialog open={repostComposerOpen} onOpenChange={setRepostComposerOpen}>
-        <DialogContent className="max-w-2xl gap-0 border-border/70 bg-background p-0">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] gap-0 border-border/70 bg-background p-0 sm:max-w-2xl">
           <DialogHeader className="border-b border-border/60 px-4 py-3 sm:px-5">
             <DialogTitle className="text-base">Репост записи</DialogTitle>
             <DialogDescription className="text-sm">
@@ -1126,7 +1126,7 @@ const WallPostCard = ({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 p-4 sm:p-5">
+          <div className="max-h-[72vh] space-y-4 overflow-y-auto p-3 sm:max-h-[78vh] sm:p-5">
             <div className="border border-border/70 bg-background p-3">
               <GomoRichEditor
                 resetKey={repostResetKey}
@@ -1138,7 +1138,7 @@ const WallPostCard = ({
                 }}
                 onSubmit={handleSubmitRepost}
                 placeholder="Добавь подпись к репосту, если хочешь"
-                minHeightClassName="min-h-[120px]"
+                minHeightClassName="min-h-[100px] sm:min-h-[120px]"
               />
             </div>
 
@@ -1155,11 +1155,11 @@ const WallPostCard = ({
             </div>
           </div>
 
-          <DialogFooter className="border-t border-border/60 px-4 py-3 sm:px-5">
-            <Button type="button" variant="outline" onClick={() => setRepostComposerOpen(false)}>
+          <DialogFooter className="border-t border-border/60 px-3 py-3 sm:px-5">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setRepostComposerOpen(false)}>
               Отмена
             </Button>
-            <Button type="button" onClick={handleSubmitRepost} disabled={isReposting}>
+            <Button type="button" className="w-full sm:w-auto" onClick={handleSubmitRepost} disabled={isReposting}>
               {isReposting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
