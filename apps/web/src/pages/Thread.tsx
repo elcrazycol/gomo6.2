@@ -1127,7 +1127,19 @@ const Thread = () => {
                 postAuthorId={thread.user_id}
                 isThread={true}
               />
-              {isModerator && thread.user_id && (
+              {user && thread.user_id === user.id && (
+                <UserMenu
+                  type="thread"
+                  onEdit={() => {
+                    setEditingPostId(thread.id);
+                    setEditContent(thread.content);
+                    setEditContentJson((thread as any).content_json);
+                  }}
+                  onDelete={() => handleDeleteThread()}
+                  onReport={() => setReportingPost(thread.id)}
+                />
+              )}
+              {isModerator && thread.user_id && thread.user_id !== user?.id && (
                 <ModeratorMenu
                   type="thread"
                   onDelete={handleDeleteThread}
@@ -1210,18 +1222,46 @@ const Thread = () => {
               setShowGallery(true);
             }, thread?.id || threadId || slug || "thread")}
 
-            <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
-              <ProcessedContent
-                content={thread.content}
-                contentJson={(thread as any).content_json}
-                currentUserId={user?.id || null}
-                isAdmin={isAdmin}
-                currentUsername={currentUserUsername}
-                currentUserColor={currentUserColor}
-                postAuthorId={thread.user_id}
-                authorUsername={thread.profiles?.username}
-              />
-            </p>
+            {editingPostId === thread.id ? (
+              <div className="space-y-2">
+                <GomoRichEditor
+                  contentJson={(thread as any).content_json}
+                  legacyContent={thread.content}
+                  onChange={({ json, text }) => {
+                    setEditContentJson(json);
+                    setEditContent(text);
+                  }}
+                  minHeightClassName="min-h-[120px]"
+                />
+                <div className="flex gap-2">
+                  <Button onClick={handleEditPost} size="sm">Сохранить</Button>
+                  <Button 
+                    onClick={() => {
+                      setEditingPostId(null);
+                      setEditContent("");
+                      setEditContentJson(null);
+                    }} 
+                    variant="outline" 
+                    size="sm"
+                  >
+                    Отмена
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+                <ProcessedContent
+                  content={thread.content}
+                  contentJson={(thread as any).content_json}
+                  currentUserId={user?.id || null}
+                  isAdmin={isAdmin}
+                  currentUsername={currentUserUsername}
+                  currentUserColor={currentUserColor}
+                  postAuthorId={thread.user_id}
+                  authorUsername={thread.profiles?.username}
+                />
+              </p>
+            )}
 
             {/* Thread tags */}
             {((thread as any).tags) && (
