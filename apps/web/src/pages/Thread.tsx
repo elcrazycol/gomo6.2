@@ -78,6 +78,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { AttachmentUpload } from "@/components/AttachmentUpload";
+import { ThreadAttachmentUpload } from "@/components/ThreadAttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
 import type { Thread as ThreadModel, Post as PostModel, UserProfileLite } from "@/types/forum";
 import { FileAudio2, FileVideo2, FileText, Image as ImageIcon, SkipBack, SkipForward, Play, Pause } from "lucide-react";
@@ -1703,7 +1704,7 @@ const Thread = () => {
 
                   <form
                     onSubmit={handleSubmitPost}
-                    className={`bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl transition-all duration-300 ${
+                    className={`bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl transition-all duration-300 relative ${
                       isExpandedView
                         ? isMobile
                           ? 'p-4 space-y-3 max-h-[80vh] overflow-y-auto'
@@ -1729,7 +1730,7 @@ const Thread = () => {
                   </div>
                 )}
 
-                <div className={`flex gap-1.5 sm:gap-2 ${isExpandedView ? 'items-start' : 'items-end'}`}>
+                <div className={`flex gap-1.5 sm:gap-2 ${isExpandedView ? 'items-start' : 'items-end'} relative`}>
                   {isExpandedView && (
                     <div className="flex flex-col gap-1.5 sm:gap-2 shrink-0">
                       <Button
@@ -1742,7 +1743,7 @@ const Thread = () => {
                       >
                         <Minimize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                       </Button>
-                      <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
+                      <ThreadAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
                     </div>
                   )}
                   {!isExpandedView && (
@@ -1758,7 +1759,7 @@ const Thread = () => {
                         >
                           <Maximize2 className="h-4 w-4 sm:h-5 sm:w-5" />
                         </Button>
-                        <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
+                        <ThreadAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
                       </div>
                     </>
                   )}

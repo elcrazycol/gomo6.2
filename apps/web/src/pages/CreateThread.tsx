@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
-import { AttachmentUpload } from "@/components/AttachmentUpload";
-import { AttachmentMeta } from "@/utils/mediaUpload";
+import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
+import { AttachmentMeta } from "@/types/forum";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 
 interface Board {
@@ -544,7 +544,7 @@ const CreateThread = () => {
             {/* Attachments: images, video, audio, files */}
             <div>
               <label className="text-sm font-medium mb-2 block">Файлы / медиа</label>
-              <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
+              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
             </div>
 
             {/* Poll */}
