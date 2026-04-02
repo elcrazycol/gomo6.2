@@ -33,7 +33,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
-  const [panelHeight, setPanelHeight] = useState(300); // Conservative initial height
+  const [panelHeight, setPanelHeight] = useState(300); // More realistic initial height
   const [closeTimeout, setCloseTimeout] = useState<NodeJS.Timeout | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -55,12 +55,11 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   useEffect(() => {
     if (open) {
       loadEmojis();
-      // Calculate initial position immediately
+      // Calculate initial position immediately - always position above button
       if (triggerRef?.current) {
         const rect = triggerRef.current.getBoundingClientRect();
-        const estimatedHeight = 400; // Conservative estimate
-        const idealTop = rect.top - estimatedHeight;
-        const top = idealTop >= 8 ? idealTop : rect.bottom;
+        const estimatedHeight = 300; // More realistic initial estimate
+        const top = rect.top - estimatedHeight; // Position above button with estimated height
         const panelWidth = 320;
         const buttonCenter = rect.left + rect.width / 2;
         const panelLeft = buttonCenter - panelWidth / 2;
@@ -133,23 +132,9 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
     setOpen(true);
   };
 
-  const handlePanelMouseEnter = () => {
-    // Clear any pending close timeout when hovering over panel
-    if (closeTimeout) {
-      clearTimeout(closeTimeout);
-      setCloseTimeout(null);
-    }
-  };
-
   const handleButtonMouseLeave = (e: React.MouseEvent) => {
-    // Check if we're moving to the panel
-    const relatedTarget = e.relatedTarget as HTMLElement;
-    const isMovingToPanel = pickerRef?.current?.contains(relatedTarget);
-
-    // Don't close if moving to panel
-    if (!isMovingToPanel) {
-      closePicker();
-    }
+    // Don't close immediately - let the user move to the panel
+    // The panel will handle closing when mouse leaves it
   };
 
   const handlePanelMouseLeave = (e: React.MouseEvent) => {
@@ -164,12 +149,10 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   };
 
   const closePicker = () => {
-    // Only close if we're not hovering over the panel
+    // Clear any existing timeout
     if (closeTimeout) clearTimeout(closeTimeout);
-    const timeout = setTimeout(() => {
-      setOpen(false);
-    }, 300); // 300ms delay before closing
-    setCloseTimeout(timeout);
+    // Close immediately when mouse leaves panel area
+    setOpen(false);
   };
 
   const updatePosition = () => {
@@ -182,25 +165,8 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         currentPanelHeight = panelRef.current.offsetHeight;
       }
 
-      // Position so panel bottom is exactly at button top
-      const idealTop = rect.top - currentPanelHeight;
-
-      let top: number;
-
-      // Check if ideal position fits in viewport
-      if (idealTop >= 8) {
-        // Perfect - panel bottom touches button top
-        top = idealTop;
-      } else {
-        // Not enough space above, try below
-        const belowTop = rect.bottom;
-        if (belowTop + currentPanelHeight <= window.innerHeight - 8) {
-          top = belowTop;
-        } else {
-          // Force position as close as possible to button
-          top = Math.max(8, rect.top - Math.min(currentPanelHeight, rect.top - 8));
-        }
-      }
+      // Always position above button
+      const top = rect.top - currentPanelHeight;
 
       // Center panel horizontally relative to button
       const panelWidth = 320;
@@ -287,7 +253,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
 
   const handleEmojiClick = (emojiCode: string) => {
     onEmojiSelect(`:${emojiCode}:`);
-    closePicker();
+    // Don't close picker - let user continue selecting emojis
   };
 
   const renderGroupNavigation = () => {
@@ -393,7 +359,6 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
             left: position.left,
             maxHeight: '400px'
           }}
-          onMouseEnter={!isMobile ? handlePanelMouseEnter : undefined}
           onMouseLeave={!isMobile ? handlePanelMouseLeave : undefined}
         >
           {loading ? (
