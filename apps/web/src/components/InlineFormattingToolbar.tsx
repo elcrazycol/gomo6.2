@@ -124,14 +124,14 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
 
   return (
     <TooltipProvider>
-      <div className="flex gap-0.5 sm:gap-1 flex-wrap relative z-50">
+      <div className="flex gap-0.5 sm:gap-1 flex-nowrap relative z-50 overflow-x-auto scrollbar-hide max-w-full">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[B]", "[/B]")}
             >
               <Bold className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -148,7 +148,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[I]", "[/I]")}
             >
               <Italic className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -165,7 +165,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[U]", "[/U]")}
             >
               <Underline className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -182,7 +182,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[S]", "[/S]")}
             >
               <Strikethrough className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -199,7 +199,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[col=#ff0000]", "[/col]")}
             >
               <Palette className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -216,7 +216,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[size=2]", "[/size]")}
             >
               <Type className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -233,7 +233,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[blur]", "[/blur]")}
             >
               <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -250,7 +250,7 @@ export const InlineFormattingToolbar = ({ editorRef, textareaRef, onFormat }: In
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+              className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
               onClick={() => insertFormatting("[spoiler]", "[/spoiler]")}
             >
               <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
