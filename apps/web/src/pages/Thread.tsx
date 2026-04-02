@@ -1203,30 +1203,12 @@ const Thread = () => {
                 </>
               )}
             </div>
-            {(((thread as any).image_urls || (thread as any).imageUrls) && ((thread as any).image_urls || (thread as any).imageUrls).length > 0) && (
-              <div className="mb-2 flex flex-wrap gap-2">
-                {((thread as any).image_urls || (thread as any).imageUrls).map((img: string, idx: number) => (
-                  <img
-                    key={idx}
-                    src={img}
-                    alt={`Thread image ${idx + 1}`}
-                    className="max-w-32 max-h-32 border border-border cursor-pointer rounded"
-                    onClick={() => {
-                      setGalleryEditable(false);
-                      setGalleryImages((thread as any).image_urls || (thread as any).imageUrls);
-                      setGalleryIndex(idx);
-                      setShowGallery(true);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-  {renderAttachments((thread as any).attachments, (urls, idx) => {
-    setGalleryEditable(false);
-    setGalleryImages(urls);
-    setGalleryIndex(idx);
-    setShowGallery(true);
-  }, thread?.id || threadId || slug || "thread")}
+            {renderAttachments((thread as any).attachments, (urls, idx) => {
+              setGalleryEditable(false);
+              setGalleryImages(urls);
+              setGalleryIndex(idx);
+              setShowGallery(true);
+            }, thread?.id || threadId || slug || "thread")}
 
             <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
               <ProcessedContent
@@ -1455,14 +1437,12 @@ const Thread = () => {
                   <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
                 </a>
               )}
-              {renderAttachments(((post as any).attachments && (post as any).attachments.length > 0)
-                ? (post as any).attachments
-                : ((post as any).imageUrls || []).map((url: string) => ({ url, type: "image", mime: "image/*", name: url, size: 0 })), (urls, idx) => {
+              {renderAttachments((post as any).attachments || [], (urls, idx) => {
                 setGalleryEditable(false);
                 setGalleryImages(urls);
                 setGalleryIndex(idx);
                 setShowGallery(true);
-              }, thread?.id || threadId || slug || "thread")}
+              }, `post-${post.id}`)}
               {editingPostId === post.id ? (
                 <div className="space-y-2">
                   <GomoRichEditor
@@ -1590,26 +1570,27 @@ const Thread = () => {
               )}
 
               {/* Превью вложений над формой */}
-              {(attachments.length > 0 || imageUrls.length > 0) && !isExpandedView && (
+              {attachments.length > 0 && !isExpandedView && (
                 <div className="mb-3 bg-card/70 border border-border/50 rounded-xl p-3">
                   <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                    {imageUrls.map((url, idx) => (
+                    {attachments.filter((att) => att.type === "image").map((att, idx) => (
                       <div
-                        key={url}
+                        key={att.url}
                         className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 overflow-hidden flex items-center justify-center cursor-pointer"
                         onClick={() => {
+                          const imageUrls = attachments.filter((att) => att.type === "image").map((att) => att.url);
                           setGalleryEditable(true);
                           setGalleryImages(imageUrls);
                           setGalleryIndex(idx);
                           setShowGallery(true);
                         }}
                       >
-                        <img src={url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
+                        <img src={att.url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
                         <button
                           className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setAttachments((prev) => prev.filter((att) => att.type !== 'image' || att.url !== url));
+                            setAttachments((prev) => prev.filter((_, i) => i !== idx));
                           }}
                         >
                           ✕
@@ -1618,12 +1599,12 @@ const Thread = () => {
                     ))}
                     {attachments
                       .filter((att) => att.type !== "image")
-                      .map((att, idx) => {
+                      .map((att) => {
                         const kind = (att.mime || att.type || "").split("/")[0] || att.type || "file";
                         const label = (att.name || att.url || "").split(".").pop()?.slice(0, 4) || kind.slice(0, 4);
                         return (
                           <div
-                            key={`${att.url}-${idx}`}
+                            key={att.url}
                             className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 flex flex-col items-center justify-center gap-1 overflow-hidden"
                             title={att.name || att.url}
                           >
@@ -1637,7 +1618,7 @@ const Thread = () => {
                               className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setAttachments((prev) => prev.filter((_, i) => i !== idx));
+                                setAttachments((prev) => prev.filter((a) => a !== att));
                               }}
                             >
                               ✕
@@ -1820,7 +1801,7 @@ const Thread = () => {
                     <div className="p-4">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold">
-                          Приложенные фото ({imageUrls.length})
+                          Приложенные фото ({attachments.filter(att => att.type === 'image').length})
                         </h3>
                         <Button
                           variant="ghost"
@@ -1832,13 +1813,14 @@ const Thread = () => {
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[55vh] overflow-y-auto">
-                        {imageUrls.map((url, index) => (
-                          <div key={index} className="relative rounded-lg border border-border bg-muted/40 aspect-square flex items-center justify-center overflow-hidden">
+                        {attachments.filter((att) => att.type === "image").map((att, index) => (
+                          <div key={att.url} className="relative rounded-lg border border-border bg-muted/40 aspect-square flex items-center justify-center overflow-hidden">
                             <img
-                              src={url}
+                              src={att.url}
                               alt={`Фото ${index + 1}`}
                               className="max-h-full max-w-full object-contain"
                               onClick={() => {
+                                const imageUrls = attachments.filter((att) => att.type === "image").map((att) => att.url);
                                 setGalleryEditable(true);
                                 setGalleryImages(imageUrls);
                                 setGalleryIndex(index);
@@ -1850,7 +1832,7 @@ const Thread = () => {
                               size="sm"
                               className="absolute top-1 right-1 h-6 w-6 p-0"
                               onClick={() => {
-                                setAttachments(prev => prev.filter(att => att.type !== "image" || att.url !== imageUrls[index]));
+                                setAttachments(prev => prev.filter((a) => a !== att));
                               }}
                             >
                               ✕
