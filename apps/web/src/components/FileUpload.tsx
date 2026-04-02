@@ -85,12 +85,14 @@ export const FileUpload = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all duration-200
+          relative border-2 border-dashed rounded-xl text-center cursor-pointer transition-all duration-200
+          flex items-center justify-center
+          h-[80px] w-80 bg-background hover:bg-muted/30
           ${isDragOver
-            ? 'border-primary bg-primary/5'
+            ? 'border-primary bg-primary/10 scale-[1.02]'
             : currentFile
               ? 'border-green-500 bg-green-50 dark:bg-green-950/20'
-              : 'border-border hover:border-primary/50 hover:bg-muted/50'
+              : 'border-border/60 hover:border-primary/40'
           }
         `}
       >
@@ -103,15 +105,13 @@ export const FileUpload = ({
         />
 
         {currentFile ? (
-          <div className="space-y-3">
-            <div className="flex items-center justify-center space-x-2">
-              <ImageIcon className="h-8 w-8 text-green-500" />
-              <div className="text-left">
-                <p className="font-medium text-sm">{currentFile.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {(currentFile.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
+          <div className="flex items-center justify-center gap-2">
+            <ImageIcon className="h-6 w-6 text-green-500 flex-shrink-0" />
+            <div className="text-left">
+              <p className="font-medium text-sm truncate max-w-[200px]">{currentFile.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {(currentFile.size / 1024 / 1024).toFixed(2)} MB
+              </p>
             </div>
             <Button
               type="button"
@@ -121,22 +121,17 @@ export const FileUpload = ({
                 e.stopPropagation();
                 handleRemove();
               }}
-              className="absolute top-2 right-2 h-6 w-6 p-0"
+              className="h-6 w-6 p-0 flex-shrink-0"
             >
               <X className="h-3 w-3" />
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
-            <Upload className={`h-10 w-10 mx-auto ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`} />
-            <div>
-              <p className="font-medium text-sm">
-                {isDragOver ? 'Отпустите файл здесь' : 'Перетащите файл сюда или нажмите'}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                PNG, JPG, GIF до {maxSize}MB
-              </p>
-            </div>
+          <div className="flex items-center justify-center gap-2">
+            <Upload className={`h-5 w-5 flex-shrink-0 ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`} />
+            <span className="text-sm text-muted-foreground text-center">
+              {isDragOver ? 'Отпустите файл здесь' : 'Перетащите или нажмите для загрузки'}
+            </span>
           </div>
         )}
       </div>

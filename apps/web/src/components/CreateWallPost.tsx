@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AttachmentUpload } from "@/components/AttachmentUpload";
+import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { Button } from "@/components/ui/button";
@@ -240,7 +240,7 @@ export const CreateWallPost = ({
                 </Button>
               </EmojiPicker>
 
-              <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
+              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:text-xs">

@@ -1,11 +1,10 @@
 import { useRef, useState, useEffect } from "react";
 import { Upload, Loader2, FileAudio2, FileVideo2, FileText, Image as ImageIcon, X } from "lucide-react";
-import { toast } from "sonner";
 import { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
 
-interface AttachmentUploadProps {
+interface ProfileAttachmentUploadProps {
   value: AttachmentMeta[];
   onChange: (attachments: AttachmentMeta[]) => void;
   maxFiles?: number;
@@ -16,27 +15,8 @@ interface UploadingFile {
   file: File;
   progress: number;
   name: string;
-  type: string;
+  type: 'image' | 'video' | 'audio' | 'file';
 }
-
-const ACCEPT = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/wav",
-  "audio/ogg",
-  "audio/flac",
-  "application/pdf",
-  "text/plain",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
 
 const iconFor = (type: string) => {
   switch (type) {
@@ -51,7 +31,7 @@ const iconFor = (type: string) => {
   }
 };
 
-export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUploadProps) => {
+export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6 }: ProfileAttachmentUploadProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -62,28 +42,22 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
 
   const handleSelect = () => {
     if (value.length >= maxFiles) {
-      toast.error(`Максимум ${maxFiles} файлов`);
       return;
     }
     inputRef.current?.click();
   };
 
-  const handleFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
+    
     if (value.length + files.length > maxFiles) {
-      toast.error(`Максимум ${maxFiles} файлов`);
       return;
     }
-
-    await processFiles(files);
-  };
-
-  const processFiles = async (files: File[]) => {
-    setUploading(true);
     
+    setUploading(true);
     const newUploadingFiles: UploadingFile[] = files.map(file => ({
-      id: Math.random().toString(36).slice(2),
+      id: Math.random().toString(36).substr(2, 9),
       file,
       progress: 0,
       name: file.name,
@@ -95,35 +69,40 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
     setUploadingFiles(prev => [...prev, ...newUploadingFiles]);
     
     try {
-      for (const uploadingFile of newUploadingFiles) {
-        for (let progress = 10; progress <= 90; progress += 10) {
+      // Имитация прогресса
+      for (let progress = 10; progress <= 90; progress += 10) {
+        newUploadingFiles.forEach(uploadingFile => {
           setUploadingFiles(prev => 
             prev.map(f => f.id === uploadingFile.id ? { ...f, progress } : f)
           );
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+        });
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
       
       const uploaded = await uploadAttachments(files);
       const updated = [...value, ...uploaded];
       onChange(updated);
       
+      // Завершаем прогресс
       newUploadingFiles.forEach(uploadingFile => {
         setUploadingFiles(prev => 
           prev.map(f => f.id === uploadingFile.id ? { ...f, progress: 100 } : f)
         );
       });
       
+      // Убираем файлы из состояния загрузки через секунду
       setTimeout(() => {
         setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
       }, 1000);
       
-    } catch (error: any) {
-      console.error("Attachment upload error", error);
-      toast.error("Не удалось загрузить файлы");
+    } catch (error) {
+      console.error('Upload error:', error);
       setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
     } finally {
       setUploading(false);
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
     }
   };
 
@@ -137,12 +116,12 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
   };
 
   return (
-    <div className="space-y-2">
-      {/* Простая кнопка */}
+    <div className="space-y-3">
+      {/* Компактная кнопка */}
       <input
         ref={inputRef}
         type="file"
-        accept={ACCEPT.join(',')}
+        accept="image/*,video/*,audio/*,.pdf,.txt,.doc,.docx"
         multiple
         className="hidden"
         onChange={handleFiles}
@@ -159,9 +138,9 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
       
       {/* Загружаемые файлы */}
       {uploadingFiles.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {uploadingFiles.map(uploadingFile => (
-            <div key={uploadingFile.id} className="flex items-center gap-2 p-1.5 bg-muted/30 rounded-md">
+            <div key={uploadingFile.id} className="flex items-center gap-2 p-2 bg-muted/20 rounded-lg">
               <div className="flex-shrink-0">
                 {iconFor(uploadingFile.type)}
               </div>
@@ -188,30 +167,25 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
         </div>
       )}
       
-      {/* Загруженные файлы */}
+      {/* Уже загруженные файлы */}
       {value.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {value.map((att, idx) => (
-            <div key={att.url} className="relative group">
-              <div className="aspect-square border rounded-md overflow-hidden bg-muted/40 flex items-center justify-center">
-                {att.type === 'image' ? (
-                  <img 
-                    src={att.url} 
-                    alt={att.name || ''}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-center p-2">
-                    {iconFor(att.type)}
-                    <p className="text-xs truncate mt-1">{att.name || ''}</p>
-                  </div>
-                )}
+        <div className="space-y-2">
+          {value.map((attachment, index) => (
+            <div key={index} className="flex items-center gap-2 p-2 bg-muted/10 rounded-lg border border-border/30">
+              <div className="flex-shrink-0">
+                {iconFor(attachment.type)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{attachment.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {attachment.type} • {(attachment.size / 1024 / 1024).toFixed(2)} MB
+                </p>
               </div>
               <button
-                onClick={() => handleRemove(idx)}
-                className="absolute -top-1 -right-1 bg-destructive text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => handleRemove(index)}
+                className="flex-shrink-0 p-1 hover:bg-muted rounded transition-colors"
               >
-                <X className="w-3 h-3" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           ))}
