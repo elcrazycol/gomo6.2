@@ -55,7 +55,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   useEffect(() => {
     if (open) {
       loadEmojis();
-      // Calculate initial position immediately before rendering
+      // Calculate initial position immediately
       if (triggerRef?.current) {
         const rect = triggerRef.current.getBoundingClientRect();
         const estimatedHeight = 400; // Conservative estimate
@@ -69,12 +69,13 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         setPosition({ top, left: clampedLeft });
       }
       
-      // Update position after render
+      // Update position after content loads and panel is measured
       requestAnimationFrame(() => {
-        updatePosition();
-        setTimeout(() => {
+        if (panelRef.current) {
+          const height = panelRef.current.offsetHeight;
+          setPanelHeight(height);
           updatePosition();
-        }, 10);
+        }
       });
     }
   }, [open]);
@@ -174,11 +175,11 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   const updatePosition = () => {
     if (triggerRef?.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      let currentPanelHeight = panelRef.current?.offsetHeight || panelHeight;
+      let currentPanelHeight = panelHeight; // Use measured height, fallback to initial estimate
 
-      // For first render when panel hasn't been measured yet, use a conservative estimate
-      if (!panelRef.current) {
-        currentPanelHeight = Math.min(panelHeight, rect.top - 16); // Don't go below safe margin
+      // If panel exists, use its actual height
+      if (panelRef.current) {
+        currentPanelHeight = panelRef.current.offsetHeight;
       }
 
       // Position so panel bottom is exactly at button top
@@ -201,7 +202,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         }
       }
 
-      // Center the panel horizontally relative to the button
+      // Center panel horizontally relative to button
       const panelWidth = 320;
       const buttonCenter = rect.left + rect.width / 2;
       const panelLeft = buttonCenter - panelWidth / 2;
@@ -378,22 +379,12 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       {open && createPortal(
         <div
           ref={(el) => {
-            pickerRef.current = el;
             if (el && panelRef.current !== el) {
               panelRef.current = el;
-              // Measure height and update position after render
-              const updatePos = () => {
-                if (el) {
-                  const height = el.offsetHeight;
-                  setPanelHeight(height);
-                  updatePosition();
-                }
-              };
-              // Multiple updates to ensure correct positioning
-              requestAnimationFrame(updatePos);
-              setTimeout(updatePos, 0);
-              setTimeout(updatePos, 10);
-              setTimeout(updatePos, 50);
+              // Update position after render with proper measurement
+              requestAnimationFrame(() => {
+                updatePosition();
+              });
             }
           }}
           className="fixed z-[100] w-80 bg-background/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden"
