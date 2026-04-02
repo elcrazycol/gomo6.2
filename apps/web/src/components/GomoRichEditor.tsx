@@ -48,6 +48,8 @@ const theme = {
   link: "text-primary underline",
 };
 
+const TAB_SPACES = "    ";
+
 const hasBlurStyle = (styleText: string) =>
   styleText.includes("--gomo-blur") || /(^|;)\s*(?:-webkit-)?filter\s*:\s*blur\(/i.test(styleText);
 
@@ -313,6 +315,74 @@ const StyleContinuationPlugin = () => {
         },
         COMMAND_PRIORITY_LOW
       )
+    );
+  }, [editor]);
+
+  return null;
+};
+
+const IndentationPlugin = () => {
+  const [editor] = useLexicalComposerContext();
+
+  React.useEffect(() => {
+    return editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event: KeyboardEvent) => {
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          return false;
+        }
+
+        let handled = false;
+
+        editor.update(() => {
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) return;
+
+          if (event.key === "Tab") {
+            event.preventDefault();
+            selection.insertText(TAB_SPACES);
+            handled = true;
+            return;
+          }
+
+          if (event.key !== "Backspace" || !selection.isCollapsed()) {
+            return;
+          }
+
+          const anchorNode = selection.anchor.getNode();
+          if (!$isTextNode(anchorNode)) {
+            return;
+          }
+
+          const offset = selection.anchor.offset;
+          if (offset < TAB_SPACES.length) {
+            return;
+          }
+
+          const text = anchorNode.getTextContent();
+          const textBeforeCaret = text.slice(0, offset);
+
+          if (!textBeforeCaret.endsWith(TAB_SPACES)) {
+            return;
+          }
+
+          selection.setTextNodeRange(
+            anchorNode,
+            offset - TAB_SPACES.length,
+            anchorNode,
+            offset
+          );
+          selection.insertText("");
+          handled = true;
+        });
+
+        if (handled) {
+          event.preventDefault();
+        }
+
+        return handled;
+      },
+      COMMAND_PRIORITY_LOW
     );
   }, [editor]);
 
@@ -671,6 +741,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           <HistoryPlugin />
           <LinkPlugin />
           <StyleContinuationPlugin />
+          <IndentationPlugin />
           <InitialContentPlugin initialState={initialState} />
           <OnChangePlugin
             onChange={(editorState) => {

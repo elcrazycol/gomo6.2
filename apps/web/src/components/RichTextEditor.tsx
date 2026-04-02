@@ -22,6 +22,7 @@ export interface RichTextEditorHandle {
 type EmojiIndex = Record<string, string>; // code -> image_url
 
 const ZWS = "\u200B"; // zero-width space helper to keep caret usable around non-editable nodes
+const TAB_SPACES = "    ";
 
 function isElement(node: Node): node is HTMLElement {
   return node.nodeType === Node.ELEMENT_NODE;
@@ -295,14 +296,38 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       return false;
     };
 
+    if (e.key === "Tab") {
+      e.preventDefault();
+      document.execCommand("insertText", false, TAB_SPACES);
+      return;
+    }
+
     // If caret is just after an emoji object and user presses Backspace, delete the whole object
     if (e.key === "Backspace") {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (range.collapsed) {
+          const caret = getCaretPlainOffset(el);
+          const plain = extractPlainTextFromNode(el);
+          const textBeforeCaret = plain.slice(0, caret);
+
+          if (textBeforeCaret.endsWith(TAB_SPACES)) {
+            e.preventDefault();
+            const nextPlain = plain.slice(0, caret - TAB_SPACES.length) + plain.slice(caret);
+            rerenderFromPlainText(nextPlain, caret - TAB_SPACES.length);
+            onChange(nextPlain);
+            return;
+          }
+        }
+      }
+
       // If we delete ourselves, prevent default backspace (so it doesn't eat extra chars)
       if (deleteEmojiBeforeCaret()) {
         e.preventDefault();
       }
     }
-  }, [onSubmit, emitChangeFromDom]);
+  }, [onSubmit, emitChangeFromDom, onChange, rerenderFromPlainText]);
 
   const handleInput = useCallback(async () => {
     if (isComposing) return;
