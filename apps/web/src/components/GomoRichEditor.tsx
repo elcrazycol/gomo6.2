@@ -48,7 +48,83 @@ const theme = {
   link: "text-primary underline",
 };
 
+const hasBlurStyle = (styleText: string) =>
+  styleText.includes("--gomo-blur") || /(^|;)\s*(?:-webkit-)?filter\s*:\s*blur\(/i.test(styleText);
+
+const styleStringToMap = (styleText = "") => {
+  const styleMap = new Map<string, string>();
+
+  styleText.split(";").forEach((part) => {
+    const separatorIndex = part.indexOf(":");
+    if (separatorIndex === -1) return;
+
+    const key = part.slice(0, separatorIndex).trim();
+    const value = part.slice(separatorIndex + 1).trim();
+
+    if (!key) return;
+    styleMap.set(key, value);
+  });
+
+  return styleMap;
+};
+
+const styleMapToString = (styleMap: Map<string, string>) =>
+  Array.from(styleMap.entries())
+    .filter(([, value]) => value.trim().length > 0)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("; ");
+
+const applyBlurToStyleText = (styleText: string) => {
+  const styleMap = styleStringToMap(styleText);
+  styleMap.set("--gomo-blur", "1");
+  styleMap.set("filter", "blur(6px)");
+  styleMap.set("-webkit-filter", "blur(6px)");
+  styleMap.set("transition", "filter 180ms ease");
+  styleMap.set("cursor", "pointer");
+  styleMap.set("background-color", "hsl(var(--muted) / 0.7)");
+  styleMap.set("border", "1px solid hsl(var(--border) / 0.8)");
+  styleMap.set("border-radius", "0.45rem");
+  styleMap.set("padding", "0.08rem 0.35rem");
+  return styleMapToString(styleMap);
+};
+
+const removeBlurFromStyleText = (styleText: string) => {
+  const styleMap = styleStringToMap(styleText);
+  [
+    "--gomo-blur",
+    "filter",
+    "-webkit-filter",
+    "transition",
+    "cursor",
+    "background-color",
+    "border",
+    "border-radius",
+    "padding",
+  ].forEach((key) => styleMap.delete(key));
+  return styleMapToString(styleMap);
+};
+
+const resetBlurNodeVisuals = (node: HTMLElement) => {
+  node.style.filter = "";
+  node.style.webkitFilter = "";
+  node.style.backgroundColor = "";
+  node.style.border = "";
+  node.style.borderRadius = "";
+  node.style.padding = "";
+  if (node.dataset.gomoBlurTimer) {
+    window.clearTimeout(Number(node.dataset.gomoBlurTimer));
+    delete node.dataset.gomoBlurTimer;
+  }
+  delete node.dataset.gomoBlurFilter;
+  delete node.dataset.gomoBlurWebkitFilter;
+  delete node.dataset.gomoBlurEditing;
+};
+
 const revealBlurNode = (node: HTMLElement) => {
+  if (!hasBlurStyle(node.style.cssText)) {
+    resetBlurNodeVisuals(node);
+    return;
+  }
   node.style.filter = "blur(0px)";
   node.style.webkitFilter = "blur(0px)";
   node.style.backgroundColor = "hsl(var(--muted) / 0.45)";
@@ -59,6 +135,10 @@ const revealBlurNode = (node: HTMLElement) => {
 };
 
 const concealBlurNode = (node: HTMLElement) => {
+  if (!hasBlurStyle(node.style.cssText)) {
+    resetBlurNodeVisuals(node);
+    return;
+  }
   node.style.filter = node.dataset.gomoBlurFilter || "blur(6px)";
   node.style.webkitFilter = node.dataset.gomoBlurWebkitFilter || "blur(6px)";
   node.style.backgroundColor = "hsl(var(--muted) / 0.7)";
@@ -68,19 +148,42 @@ const concealBlurNode = (node: HTMLElement) => {
   delete node.dataset.gomoBlurEditing;
 };
 
+const getBlurNodes = (container: HTMLElement | null) => {
+  if (!container) return [] as HTMLElement[];
+  return Array.from(container.querySelectorAll("span[style]")).filter((node): node is HTMLElement =>
+    node instanceof HTMLElement && hasBlurStyle(node.getAttribute("style") || "")
+  );
+};
+
+const getClosestBlurNode = (element: HTMLElement | null) => {
+  let current = element;
+  while (current) {
+    if (current.tagName === "SPAN" && hasBlurStyle(current.getAttribute("style") || "")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+};
+
 const syncActiveBlurNode = (container: HTMLElement | null) => {
   if (!container) return;
 
-  const blurNodes = Array.from(container.querySelectorAll("span[style*='--gomo-blur']")) as HTMLElement[];
+  const blurNodes = getBlurNodes(container);
   if (blurNodes.length === 0) return;
 
   const selection = window.getSelection();
   const anchorNode = selection?.anchorNode ?? null;
   const anchorElement =
     anchorNode instanceof HTMLElement ? anchorNode : anchorNode?.parentElement ?? null;
-  const activeBlurNode = anchorElement?.closest("span[style*='--gomo-blur']") as HTMLElement | null;
+  const activeBlurNode = getClosestBlurNode(anchorElement);
 
   blurNodes.forEach((node) => {
+    if (!hasBlurStyle(node.getAttribute("style") || "")) {
+      resetBlurNodeVisuals(node);
+      return;
+    }
+
     node.dataset.gomoBlurFilter = node.dataset.gomoBlurFilter || node.style.filter || "blur(6px)";
     node.dataset.gomoBlurWebkitFilter = node.dataset.gomoBlurWebkitFilter || node.style.webkitFilter || "blur(6px)";
 
@@ -95,8 +198,24 @@ const syncActiveBlurNode = (container: HTMLElement | null) => {
 const concealAllBlurNodes = (container: HTMLElement | null) => {
   if (!container) return;
 
-  const blurNodes = Array.from(container.querySelectorAll("span[style*='--gomo-blur']")) as HTMLElement[];
+  const blurNodes = getBlurNodes(container);
   blurNodes.forEach((node) => concealBlurNode(node));
+};
+
+const syncBlurNodesWithDocument = (container: HTMLElement | null) => {
+  if (!container) return;
+
+  const styledNodes = Array.from(container.querySelectorAll("span[style]")).filter(
+    (node): node is HTMLElement => node instanceof HTMLElement
+  );
+
+  styledNodes.forEach((node) => {
+    if (!hasBlurStyle(node.getAttribute("style") || "")) {
+      resetBlurNodeVisuals(node);
+    }
+  });
+
+  syncActiveBlurNode(container);
 };
 
 interface RangeSelectionSnapshot {
@@ -107,6 +226,26 @@ interface RangeSelectionSnapshot {
   text: string;
   color: string;
 }
+
+const createSelectionSnapshot = (
+  selection: ReturnType<typeof $getSelection>
+): RangeSelectionSnapshot | null => {
+  if (!$isRangeSelection(selection) || selection.isCollapsed()) {
+    return null;
+  }
+
+  const anchorNode = selection.anchor.getNode();
+  const focusNode = selection.focus.getNode();
+
+  return {
+    anchorKey: anchorNode.getKey(),
+    anchorOffset: selection.anchor.offset,
+    focusKey: focusNode.getKey(),
+    focusOffset: selection.focus.offset,
+    text: selection.getTextContent(),
+    color: $getSelectionStyleValueForProperty(selection, "color", "") || "",
+  };
+};
 
 const randomHexColor = () =>
   `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
@@ -166,6 +305,7 @@ const StyleContinuationPlugin = () => {
             if (previousChar === " " || previousChar === "\n") {
               selection.setStyle("");
               selection.setFormat(0);
+              handled = false;
             }
           });
 
@@ -214,7 +354,11 @@ const InitialContentPlugin = ({
   return null;
 };
 
-const Toolbar = () => {
+const Toolbar = ({
+  editorContainerRef,
+}: {
+  editorContainerRef: React.RefObject<HTMLDivElement>;
+}) => {
   const [editor] = useLexicalComposerContext();
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState("#ff5500");
@@ -230,9 +374,8 @@ const Toolbar = () => {
   };
 
   const patchStyle = (style: Record<string, string>) => {
-    editor.update(() => {
-      const selection = $getSelection();
-      if ($isRangeSelection(selection)) {
+    withSavedSelection((selection) => {
+      if (!selection.isCollapsed()) {
         $patchStyleText(selection, style);
       }
     });
@@ -266,20 +409,29 @@ const Toolbar = () => {
     });
   };
 
-  const toggleStyle = (styleProperty: string, onStyles: Record<string, string>, offStyles: Record<string, string>) => {
-    editor.update(() => {
-      const selection = $getSelection();
-      if (!$isRangeSelection(selection)) return;
+  const toggleBlur = () => {
+    withSavedSelection((selection) => {
       if (selection.isCollapsed()) return;
 
-      const currentStyle = selection.style || "";
-      const currentValue = styleProperty === "--gomo-blur"
-        ? currentStyle.includes("--gomo-blur") || /(^|;)\s*(?:-webkit-)?filter\s*:\s*blur\(/i.test(currentStyle)
-        : Boolean($getSelectionStyleValueForProperty(selection, styleProperty, ""));
+      const extractedNodes = selection.extract();
+      const selectedTextNodes = extractedNodes.filter($isTextNode);
 
-      $patchStyleText(selection, currentValue ? offStyles : onStyles);
+      if (selectedTextNodes.length === 0) return;
+
+      const shouldRemoveBlur = selectedTextNodes.every((node) => hasBlurStyle(node.getStyle()));
+
+      selectedTextNodes.forEach((node) => {
+        const nextStyle = shouldRemoveBlur
+          ? removeBlurFromStyleText(node.getStyle())
+          : applyBlurToStyleText(node.getStyle());
+        node.setStyle(nextStyle);
+      });
 
       selection.setStyle("");
+    });
+
+    window.requestAnimationFrame(() => {
+      syncBlurNodesWithDocument(editorContainerRef.current);
     });
   };
 
@@ -295,22 +447,7 @@ const Toolbar = () => {
     let nextSnapshot: RangeSelectionSnapshot | null = null;
 
     editor.getEditorState().read(() => {
-      const selection = $getSelection();
-      if (!$isRangeSelection(selection) || selection.isCollapsed()) {
-        return;
-      }
-
-      const anchorNode = selection.anchor.getNode();
-      const focusNode = selection.focus.getNode();
-
-      nextSnapshot = {
-        anchorKey: anchorNode.getKey(),
-        anchorOffset: selection.anchor.offset,
-        focusKey: focusNode.getKey(),
-        focusOffset: selection.focus.offset,
-        text: selection.getTextContent(),
-        color: $getSelectionStyleValueForProperty(selection, "color", "") || "",
-      };
+      nextSnapshot = createSelectionSnapshot($getSelection());
     });
 
     if (!nextSnapshot) {
@@ -344,31 +481,15 @@ const Toolbar = () => {
     patchStyle({ fontSize: `${size.replace(/[^\d.]/g, "")}px` });
   };
 
-  const setBlur = () => toggleStyle(
-    "--gomo-blur",
-    {
-      "--gomo-blur": "1",
-      filter: "blur(6px)",
-      WebkitFilter: "blur(6px)",
-      transition: "filter 180ms ease",
-      cursor: "pointer",
-      backgroundColor: "hsl(var(--muted) / 0.7)",
-      border: "1px solid hsl(var(--border) / 0.8)",
-      borderRadius: "0.45rem",
-      padding: "0.08rem 0.35rem",
-    } as Record<string, string>,
-    {
-      "--gomo-blur": "",
-      filter: "",
-      WebkitFilter: "",
-      transition: "",
-      cursor: "",
-      backgroundColor: "",
-      border: "",
-      borderRadius: "",
-      padding: "",
-    } as Record<string, string>
-  );
+  React.useEffect(() => {
+    return editor.registerUpdateListener(({ editorState }) => {
+      editorState.read(() => {
+        const snapshot = createSelectionSnapshot($getSelection());
+        if (!snapshot) return;
+        setSelectionSnapshot(snapshot);
+      });
+    });
+  }, [editor]);
 
   return (
     <>
@@ -380,7 +501,7 @@ const Toolbar = () => {
         <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={toggleLink}><Link2 className="h-4 w-4" /></Button>
         <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={openColorDialog}><Palette className="h-4 w-4" /></Button>
         <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={setSize}><Type className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={setBlur}><Eye className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onMouseDown={keepSelection} onClick={toggleBlur}><Eye className="h-4 w-4" /></Button>
       </div>
 
       <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
@@ -414,7 +535,7 @@ const Toolbar = () => {
                 value={colorDraft}
                 onChange={(event) => setColorDraft(event.target.value)}
                 placeholder="#ff5500"
-                className="flex-1 min-w-0"
+                className="min-w-0 flex-[0_1_10rem]"
               />
               <Button
                 type="button"
@@ -507,7 +628,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       }}
     >
       <div className="space-y-2">
-        <Toolbar />
+        <Toolbar editorContainerRef={editorContainerRef} />
         <div
           ref={editorContainerRef}
           className="relative border border-border/70 bg-background p-3"
@@ -518,43 +639,19 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
             }
           }}
           onKeyUpCapture={() => {
-            syncActiveBlurNode(editorContainerRef.current);
+            syncBlurNodesWithDocument(editorContainerRef.current);
           }}
           onMouseUpCapture={() => {
-            syncActiveBlurNode(editorContainerRef.current);
+            syncBlurNodesWithDocument(editorContainerRef.current);
           }}
           onFocusCapture={() => {
-            syncActiveBlurNode(editorContainerRef.current);
+            syncBlurNodesWithDocument(editorContainerRef.current);
           }}
           onBlurCapture={() => {
             window.setTimeout(() => {
+              syncBlurNodesWithDocument(editorContainerRef.current);
               concealAllBlurNodes(editorContainerRef.current);
             }, 0);
-          }}
-          onClickCapture={(event) => {
-            const target = event.target as HTMLElement | null;
-            const blurNode = target?.closest("span[style*='--gomo-blur']") as HTMLSpanElement | null;
-
-            if (!blurNode) return;
-
-            const savedFilter = blurNode.dataset.gomoBlurFilter || blurNode.style.filter || "blur(6px)";
-            const savedWebkitFilter = blurNode.dataset.gomoBlurWebkitFilter || blurNode.style.webkitFilter || "blur(6px)";
-
-            blurNode.dataset.gomoBlurFilter = savedFilter;
-            blurNode.dataset.gomoBlurWebkitFilter = savedWebkitFilter;
-
-            if (blurNode.dataset.gomoBlurTimer) {
-              window.clearTimeout(Number(blurNode.dataset.gomoBlurTimer));
-            }
-
-            blurNode.style.filter = "blur(0px)";
-            blurNode.style.webkitFilter = "blur(0px)";
-
-            const timeoutId = window.setTimeout(() => {
-              concealBlurNode(blurNode);
-            }, 2200);
-
-            blurNode.dataset.gomoBlurTimer = String(timeoutId);
           }}
         >
           <RichTextPlugin
