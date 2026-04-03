@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
+import { storageUrl } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -748,13 +749,9 @@ const Profile = () => {
         return;
       }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('post-images')
-        .getPublicUrl(fileName);
-
       const { error } = await supabase
         .from("profiles")
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: fileName })
         .eq("id", userId);
 
       if (error) {
@@ -763,7 +760,7 @@ const Profile = () => {
         return;
       }
 
-      setAvatarUrl(publicUrl);
+      setAvatarUrl(fileName);
       setCropImage(null);
       toast.success("Аватар обновлен");
     } catch (error) {
@@ -890,7 +887,7 @@ const Profile = () => {
                 <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden">
                   {avatarUrl ? (
                     <img
-                      src={avatarUrl}
+                      src={storageUrl("post-images", avatarUrl) || avatarUrl}
                       alt="Avatar"
                       className="w-full h-full object-cover"
                     />

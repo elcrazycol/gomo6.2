@@ -1,5 +1,5 @@
 // Simple API Client for Go Backend
-import { apiClient } from './client';
+import { apiClient, API_BASE_URL, API_KEY } from './client';
 
 // Direct Supabase replacement - simplified version
 export const supabase = {
@@ -172,7 +172,77 @@ export const supabase = {
           params.set('select', queryState.select);
         }
         url += params.toString() ? `?${params}` : '';
-      } 
+      }
+      // boards update by id (Go handler, not PostgREST query string)
+      else if (table === 'boards' && method === 'PUT' && idFilterIndex !== -1) {
+        const boardId = queryState.filters[idFilterIndex].value;
+        queryState.filters.splice(idFilterIndex, 1);
+        url = `/rest/v1/boards/${encodeURIComponent(String(boardId))}`;
+        const params = new URLSearchParams();
+        queryState.filters.forEach((filter: any) => {
+          if (filter.type === 'eq') params.append(filter.column, `eq.${encodeValue(filter.value)}`);
+          if (filter.type === 'neq') params.append(filter.column, `neq.${encodeValue(filter.value)}`);
+          if (filter.type === 'is') params.append(filter.column, `is.${encodeValue(filter.value)}`);
+          if (filter.type === 'in') {
+            const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+            params.append(filter.column, `in.(${values.map(encodeValue).join(',')})`);
+          }
+          if (filter.type === 'not') params.append(filter.column, `not.${filter.operator}.${encodeValue(filter.value)}`);
+        });
+        if (queryState.orConditions.length > 0) {
+          params.append('or', queryState.orConditions.join(','));
+        }
+        if (queryState.select !== '*') {
+          params.set('select', queryState.select);
+        }
+        url += params.toString() ? `?${params}` : '';
+      }
+      else if (table === 'threads' && method === 'PUT' && idFilterIndex !== -1) {
+        const threadId = queryState.filters[idFilterIndex].value;
+        queryState.filters.splice(idFilterIndex, 1);
+        url = `/rest/v1/threads/${encodeURIComponent(String(threadId))}`;
+        const params = new URLSearchParams();
+        queryState.filters.forEach((filter: any) => {
+          if (filter.type === 'eq') params.append(filter.column, `eq.${encodeValue(filter.value)}`);
+          if (filter.type === 'neq') params.append(filter.column, `neq.${encodeValue(filter.value)}`);
+          if (filter.type === 'is') params.append(filter.column, `is.${encodeValue(filter.value)}`);
+          if (filter.type === 'in') {
+            const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+            params.append(filter.column, `in.(${values.map(encodeValue).join(',')})`);
+          }
+          if (filter.type === 'not') params.append(filter.column, `not.${filter.operator}.${encodeValue(filter.value)}`);
+        });
+        if (queryState.orConditions.length > 0) {
+          params.append('or', queryState.orConditions.join(','));
+        }
+        if (queryState.select !== '*') {
+          params.set('select', queryState.select);
+        }
+        url += params.toString() ? `?${params}` : '';
+      }
+      else if (table === 'posts' && method === 'PUT' && idFilterIndex !== -1) {
+        const postId = queryState.filters[idFilterIndex].value;
+        queryState.filters.splice(idFilterIndex, 1);
+        url = `/rest/v1/posts/${encodeURIComponent(String(postId))}`;
+        const params = new URLSearchParams();
+        queryState.filters.forEach((filter: any) => {
+          if (filter.type === 'eq') params.append(filter.column, `eq.${encodeValue(filter.value)}`);
+          if (filter.type === 'neq') params.append(filter.column, `neq.${encodeValue(filter.value)}`);
+          if (filter.type === 'is') params.append(filter.column, `is.${encodeValue(filter.value)}`);
+          if (filter.type === 'in') {
+            const values = Array.isArray(filter.value) ? filter.value : [filter.value];
+            params.append(filter.column, `in.(${values.map(encodeValue).join(',')})`);
+          }
+          if (filter.type === 'not') params.append(filter.column, `not.${filter.operator}.${encodeValue(filter.value)}`);
+        });
+        if (queryState.orConditions.length > 0) {
+          params.append('or', queryState.orConditions.join(','));
+        }
+        if (queryState.select !== '*') {
+          params.set('select', queryState.select);
+        }
+        url += params.toString() ? `?${params}` : '';
+      }
       // Special handling for posts INSERT requests
       else if (table === 'posts' && method === 'POST') {
         url = `/rest/v1/posts`;
@@ -450,16 +520,60 @@ export const supabase = {
     };
   },
 
-  // Storage (placeholder)
+  // Storage
   storage: {
     from: (bucket: string) => ({
-      upload: (path: string, file: File) => {
-        console.error("Storage not implemented yet");
-        return Promise.reject(new Error("Storage not implemented"));
+      upload: async (path: string, file: File) => {
+        const safeBucket = bucket;
+        const safeKey = path.replace(/^\/+/, "");
+        const presignRes = await fetch(`${API_BASE_URL}/storage/v1/presign-upload`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: API_KEY,
+          },
+          body: JSON.stringify({
+            bucket: safeBucket,
+            key: safeKey,
+            content_type: file.type || "application/octet-stream",
+            expires_seconds: 3600,
+          }),
+        });
+
+        if (!presignRes.ok) {
+          return { data: null, error: { message: `Presign failed: ${presignRes.status}` } };
+        }
+
+        const presign = await presignRes.json();
+        if (!presign?.success || !presign?.upload_url) {
+          return { data: null, error: { message: presign?.error || "Presign failed" } };
+        }
+
+        const putRes = await fetch(presign.upload_url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+
+        if (!putRes.ok) {
+          return { data: null, error: { message: `PUT failed: ${putRes.status}` } };
+        }
+
+        return { data: { path: safeKey }, error: null };
       },
       getPublicUrl: (path: string) => {
-        console.error("Storage not implemented yet");
-        return { data: { publicUrl: '' } };
+        const safePath = path.replace(/^\/+/, "");
+        const encodedKey = safePath
+          .split("/")
+          .map((seg) => encodeURIComponent(seg))
+          .join("/");
+        return {
+          data: {
+            publicUrl: `${API_BASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedKey}`,
+          },
+        };
       }
     })
   }
