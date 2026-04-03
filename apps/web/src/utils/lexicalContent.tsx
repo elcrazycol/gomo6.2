@@ -27,7 +27,8 @@ const EMPTY_PARAGRAPH_NODE: LexicalJsonNode = {
     {
       type: "text",
       version: 1,
-      text: "",
+      // Zero-width space so Lexical 0.42+ does not treat the editor state as empty
+      text: "\u200b",
       format: 0,
       style: "",
     },
@@ -234,6 +235,14 @@ const ensureNonEmptyEditorState = (state: LexicalEditorStateJson): LexicalEditor
 };
 
 export const normalizeLexicalContent = (contentJson: unknown, legacyContent?: string | null): LexicalEditorStateJson => {
+  // Handle null/undefined contentJson
+  if (contentJson === null || contentJson === undefined) {
+    if (legacyContent && legacyContent.trim().length > 0) {
+      return legacyContentToLexicalJson(legacyContent);
+    }
+    return EMPTY_EDITOR_STATE;
+  }
+
   const normalizedInput = coerceLexicalContentJson(contentJson);
 
   if (isLexicalEditorStateJson(normalizedInput)) {

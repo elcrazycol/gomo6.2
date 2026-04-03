@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -143,12 +143,12 @@ const Board = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const sessionUser = session?.user ?? null;
-      setUser(sessionUser);
-      setAuthResolved(true);
-      
-      if (sessionUser) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const sessionUser = session?.user ?? null;
+        setUser(sessionUser);
+
+        if (sessionUser) {
         const { data: roles } = await supabase
           .from("user_roles")
           .select("role")
@@ -193,6 +193,9 @@ const Board = () => {
           }
         }
       }
+    } finally {
+      setAuthResolved(true);
+    }
     };
     checkAuth();
 

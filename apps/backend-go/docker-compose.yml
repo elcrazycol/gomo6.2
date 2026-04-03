@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: gomo6
+      POSTGRES_USER: gomo6
+      POSTGRES_PASSWORD: gomo6password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-in-production
+      SERVER_DOMAIN: localhost:8080
+      FEDERATION_KEY: your-federation-key-change-in-production
+      ENVIRONMENT: development
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    command: go run cmd/server/main.go
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -5,7 +5,7 @@ import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRich
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AttachmentMeta } from "@/types/forum";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { ImageIcon, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";

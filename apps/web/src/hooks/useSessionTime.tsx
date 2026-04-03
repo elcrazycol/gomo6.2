@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 
 export function useSessionTime(userId: string | null) {
   const accumulatedSeconds = useRef(0);
@@ -20,20 +20,24 @@ export function useSessionTime(userId: string | null) {
     }
 
     const registerDailyVisit = async () => {
-      const { error } = await supabase
-        .from("user_daily_visits")
-        .upsert(
-          {
-            user_id: userId,
-            visit_date: new Date().toISOString().split("T")[0],
-          },
-          {
-            onConflict: "user_id,visit_date",
-          }
-        );
+      try {
+        const { error } = await supabase
+          .from("user_daily_visits")
+          .upsert(
+            {
+              user_id: userId,
+              visit_date: new Date().toISOString().split("T")[0],
+            },
+            {
+              onConflict: "user_id,visit_date",
+            }
+          );
 
-      if (error) {
-        console.error("[Session] Error registering daily visit:", error.message);
+        if (error) {
+          console.error("[Session] Error registering daily visit:", error.message);
+        }
+      } catch (error) {
+        console.error("[Session] Daily visit endpoint unavailable:", error);
       }
     };
 
@@ -68,8 +72,10 @@ export function useSessionTime(userId: string | null) {
 
       const { data: sessionData, error: fetchError } = await supabase
         .from("user_session_time")
-        .select("total_minutes")
+        .select("id, total_minutes")
         .eq("user_id", userId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (fetchError) {
@@ -80,21 +86,25 @@ export function useSessionTime(userId: string | null) {
       const currentTotal = sessionData?.total_minutes || 0;
       const newTotal = currentTotal + wholeMinutes;
 
-      const { error } = await supabase
-        .from("user_session_time")
-        .upsert(
-          {
-            user_id: userId,
-            total_minutes: newTotal,
-            last_updated: new Date().toISOString(),
-          },
-          {
-            onConflict: "user_id",
-          }
-        );
+      const updatePayload = {
+        total_minutes: newTotal,
+        updated_at: new Date().toISOString(),
+      };
 
-      if (error) {
-        console.error("[Session] Error updating session time:", error);
+      const sessionRowId = sessionData?.id;
+      const { error: upsertError } = sessionRowId
+        ? await supabase
+            .from("user_session_time")
+            .update(updatePayload)
+            .eq("id", sessionRowId)
+        : await supabase.from("user_session_time").insert({
+            user_id: userId,
+            ...updatePayload,
+            session_date: new Date().toISOString().split("T")[0],
+          });
+
+      if (upsertError) {
+        console.error("[Session] Error updating session time:", upsertError);
         return;
       }
 
