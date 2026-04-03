@@ -236,7 +236,7 @@ const GomoSubs = () => {
         <div className="flex gap-2 w-full sm:w-auto">
           <Button
             onClick={() => navigate("/g/create")}
-            disabled={!canCreate}
+            //disabled={!canCreate}
             size="sm"
             className="w-full sm:w-auto rounded-full h-9 px-3 shadow-sm"
             title="Создать g-саб"

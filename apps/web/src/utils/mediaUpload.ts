@@ -268,10 +268,8 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       throw new Error(uploadError.message || "Ошибка загрузки файла");
     }
 
-    const { data: { publicUrl } } = supabase.storage.from("content").getPublicUrl(key);
-
     results.push({
-      url: publicUrl,
+      url: key,
       type,
       mime: file.type,
       name: file.name,

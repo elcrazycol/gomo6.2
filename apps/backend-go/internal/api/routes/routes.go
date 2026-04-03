@@ -2,11 +2,16 @@ package routes
 
 import (
 	"database/sql"
+	"log"
+	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
+	stor "github.com/gomo6/backend/internal/storage"
+	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,6 +32,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub inte
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	rpcHandler := handlers.NewRPCHandler(db)
 	universalHandler := handlers.NewUniversalHandler(db)
+	var storageHandler *storageHandlers.StorageHandler
+	storageClient, err := stor.NewStorageClient()
+	if err != nil {
+		log.Printf("Warning: failed to initialize storage client: %v", err)
+		storageHandler = nil
+	} else {
+		storageHandler = storageHandlers.NewStorageHandler(storageClient)
+	}
+
 	// WebSocket handler disabled for now
 	// wsHandler := handlers.NewWebSocketHandler(wsHub)
 
@@ -108,6 +122,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub inte
 		rest.Any("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
 		rest.Any("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 
+		rest.Any("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
+		rest.Any("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
+
 		// Protected endpoints
 		protected := rest.Group("")
 		protected.Use(middleware.SupabaseAuthMiddleware(authService))
@@ -117,8 +134,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub inte
 			})
 			protected.PUT("/profiles/:id", profilesHandler.UpdateProfile)
 			protected.POST("/boards", boardsHandler.CreateBoard)
+			protected.PUT("/boards/:id", boardsHandler.UpdateBoard)
 			protected.POST("/threads", threadsHandler.CreateThread)
+			protected.PUT("/threads/:id", threadsHandler.UpdateThread)
 			protected.POST("/posts", postsHandler.CreatePost)
+			protected.PUT("/posts/:id", postsHandler.UpdatePost)
 			protected.DELETE("/threads", threadsHandler.DeleteThread)
 			protected.DELETE("/posts", postsHandler.DeletePost)
 
@@ -176,6 +196,41 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub inte
 		federation.GET("/servers", func(c *gin.Context) {
 			c.JSON(501, gin.H{"error": "Not implemented yet"})
 		})
+	}
+
+	// Storage routes - simple stub for frontend
+	storage := router.Group("/storage/v1")
+	{
+		storagePublic := storage.Group("")
+		{
+			storagePublic.GET("/object/:bucket/*key", func(c *gin.Context) {
+				if storageHandler == nil {
+					bucket := c.Param("bucket")
+					key := c.Param("key")
+					if bucket == "post-images" && strings.Contains(key, "avatar") {
+						c.Header("Content-Type", "image/svg+xml")
+						c.Header("Cache-Control", "public, max-age=3600")
+						c.String(http.StatusOK, stor.AvatarPlaceholderSVG)
+						return
+					}
+					c.JSON(http.StatusNotImplemented, gin.H{"success": false, "error": "Storage not available"})
+					return
+				}
+				storageHandler.ServeObject(c)
+			})
+		}
+
+		storageProtected := storage.Group("")
+		storageProtected.Use(middleware.SupabaseAuthMiddleware(authService))
+		{
+			storageProtected.POST("/presign-upload", func(c *gin.Context) {
+				if storageHandler == nil {
+					c.JSON(http.StatusNotImplemented, gin.H{"success": false, "error": "Storage not available"})
+					return
+				}
+				storageHandler.PresignUpload(c)
+			})
+		}
 	}
 
 	// WebSocket endpoint disabled for now

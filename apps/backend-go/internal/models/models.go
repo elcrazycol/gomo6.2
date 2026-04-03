@@ -83,25 +83,27 @@ type Thread struct {
 	ID           string    `json:"id" db:"id"`
 	BoardID      string    `json:"board_id" db:"board_id"`
 	UserID       *string   `json:"user_id" db:"user_id"`
-	Title        string    `json:"title" db:"title"`
-	Content      string    `json:"content" db:"content"`
-	ImageURL     *string   `json:"image_url" db:"image_url"`
-	ImageURLs    JSONB     `json:"image_urls" db:"image_urls"`
-	PostCount    int       `json:"post_count" db:"post_count"`
-	ServerDomain string    `json:"server_domain" db:"server_domain"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
-	IsRemote     bool      `json:"is_remote" db:"is_remote"`
+	Title         string          `json:"title" db:"title"`
+	Content       string          `json:"content" db:"content"`
+	ContentJSON   json.RawMessage `json:"content_json,omitempty" db:"content_json"`
+	ImageURL      *string         `json:"image_url" db:"image_url"`
+	ImageURLs     JSONB           `json:"image_urls" db:"image_urls"`
+	PostCount     int             `json:"post_count" db:"post_count"`
+	ServerDomain  string          `json:"server_domain" db:"server_domain"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at" db:"updated_at"`
+	IsRemote      bool            `json:"is_remote" db:"is_remote"`
 }
 
 // ThreadWithBoards extends Thread with board information for frontend compatibility
 type ThreadWithBoards struct {
-	ID           string    `json:"id" db:"id"`
-	BoardID      string    `json:"board_id" db:"board_id"`
-	UserID       *string   `json:"user_id" db:"user_id"`
-	Title        string    `json:"title" db:"title"`
-	Content      string    `json:"content" db:"content"`
-	ImageURL     *string   `json:"image_url" db:"image_url"`
+	ID           string          `json:"id" db:"id"`
+	BoardID      string          `json:"board_id" db:"board_id"`
+	UserID       *string         `json:"user_id" db:"user_id"`
+	Title        string          `json:"title" db:"title"`
+	Content      string          `json:"content" db:"content"`
+	ContentJSON  json.RawMessage `json:"content_json,omitempty" db:"content_json"`
+	ImageURL     *string         `json:"image_url" db:"image_url"`
 	ImageURLs    JSONB     `json:"image_urls" db:"image_urls"`
 	PostCount    int       `json:"post_count" db:"post_count"`
 	ServerDomain string    `json:"server_domain" db:"server_domain"`
@@ -124,9 +126,10 @@ type BoardInfo struct {
 type Post struct {
 	ID                 string    `json:"id" db:"id"`
 	ThreadID           string    `json:"thread_id" db:"thread_id"`
-	UserID             *string   `json:"user_id" db:"user_id"`
-	Content            string    `json:"content" db:"content"`
-	ImageURL           *string   `json:"image_url" db:"image_url"`
+	UserID             *string         `json:"user_id" db:"user_id"`
+	Content            string          `json:"content" db:"content"`
+	ContentJSON        json.RawMessage `json:"content_json,omitempty" db:"content_json"`
+	ImageURL           *string         `json:"image_url" db:"image_url"`
 	ImageURLs          JSONB     `json:"image_urls" db:"image_urls"`
 	ReplyTo            *string   `json:"reply_to" db:"reply_to"`
 	IsPrivate          bool      `json:"is_private" db:"is_private"`
@@ -209,19 +212,21 @@ type SupabaseResponse struct {
 
 // Request types for API
 type CreateThreadRequest struct {
-	BoardID           string   `json:"board_id"`
-	Title             string   `json:"title"`
-	Content           string   `json:"content"`
-	ImageURLs         []string `json:"image_urls"`
-	BoardServerDomain string   `json:"board_server_domain,omitempty"`
+	BoardID           string          `json:"board_id"`
+	Title             string          `json:"title"`
+	Content           string          `json:"content"`
+	ContentJSON       json.RawMessage `json:"content_json,omitempty"`
+	ImageURLs         []string        `json:"image_urls"`
+	BoardServerDomain string          `json:"board_server_domain,omitempty"`
 }
 
 type CreatePostRequest struct {
-	ThreadID           string   `json:"thread_id"`
-	Content            string   `json:"content"`
-	ImageURLs          []string `json:"image_urls"`
-	ReplyTo            *string  `json:"reply_to,omitempty"`
-	ThreadServerDomain string   `json:"thread_server_domain,omitempty"`
+	ThreadID           string          `json:"thread_id"`
+	Content            string          `json:"content"`
+	ContentJSON        json.RawMessage `json:"content_json,omitempty"`
+	ImageURLs          []string        `json:"image_urls"`
+	ReplyTo            *string         `json:"reply_to,omitempty"`
+	ThreadServerDomain string          `json:"thread_server_domain,omitempty"`
 }
 
 type RegisterRequest struct {

@@ -17,6 +17,7 @@ import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { User, X, Copy, Trash2, Plus } from "lucide-react";
 import { parseCssToStyle, clearCustomizationCache } from "@/utils/profileCustomization";
+import { storageUrl } from "@/utils/storage";
 
 interface TextShadow {
   id: string;
@@ -91,7 +92,7 @@ const CustomProfile = () => {
 
         if (profile) {
           setCurrentUserUsername(profile.username);
-          setAvatarUrl(profile.avatar_url);
+          setAvatarUrl(storageUrl("post-images", profile.avatar_url));
         }
 
 

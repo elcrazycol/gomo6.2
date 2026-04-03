@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
+import { storageUrl } from "@/utils/storage";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -264,7 +265,7 @@ const Placeholders = () => {
             <div className="bg-post-header p-4 border border-border">
               <div className="flex items-start gap-3">
                 <img
-                  src={profile.avatar_url || '/placeholder.svg'}
+                  src={storageUrl("post-images", profile.avatar_url) || '/placeholder.svg'}
                   alt="Avatar"
                   className="w-12 h-12 rounded-full object-cover border border-border"
                 />

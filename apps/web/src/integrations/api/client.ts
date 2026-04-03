@@ -585,3 +585,4 @@ export const supabase = {
 };
 
 export default apiClient;
+export { API_BASE_URL, API_KEY };

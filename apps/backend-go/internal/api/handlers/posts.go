@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,7 +23,7 @@ func NewPostsHandler(db *sql.DB) *PostsHandler {
 
 func (h *PostsHandler) GetPosts(c *gin.Context) {
 	query := `
-		SELECT p.id, p.thread_id, p.user_id, p.content, p.image_url, p.image_urls,
+		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
 		       u.username, u.avatar_url
 		FROM posts p
@@ -142,9 +143,10 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	for rows.Next() {
 		var post models.Post
 		var username, avatarURL sql.NullString
+		var contentJSON []byte
 
 		err := rows.Scan(
-			&post.ID, &post.ThreadID, &post.UserID, &post.Content,
+			&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 			&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
 			&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 			&username, &avatarURL,
@@ -154,6 +156,9 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 				Error: stringPtr(err.Error()),
 			})
 			return
+		}
+		if len(contentJSON) > 0 {
+			post.ContentJSON = json.RawMessage(contentJSON)
 		}
 		posts = append(posts, post)
 	}
@@ -169,7 +174,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	id := c.Param("id")
 
 	query := `
-		SELECT p.id, p.thread_id, p.user_id, p.content, p.image_url, p.image_urls,
+		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
 		       u.username, u.avatar_url
 		FROM posts p
@@ -179,9 +184,10 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 
 	var post models.Post
 	var username, avatarURL sql.NullString
+	var contentJSON []byte
 
 	err := h.db.QueryRow(query, id).Scan(
-		&post.ID, &post.ThreadID, &post.UserID, &post.Content,
+		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 		&username, &avatarURL,
@@ -198,6 +204,9 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 			Error: stringPtr(err.Error()),
 		})
 		return
+	}
+	if len(contentJSON) > 0 {
+		post.ContentJSON = json.RawMessage(contentJSON)
 	}
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{
@@ -316,18 +325,24 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 		imageURL = &req.ImageURLs[0]
 	}
 
+	var insertContentJSON interface{}
+	if len(req.ContentJSON) > 0 {
+		insertContentJSON = []byte(req.ContentJSON)
+	}
+
 	query := `
-		INSERT INTO posts (thread_id, user_id, content, image_url, image_urls, reply_to, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, thread_id, user_id, content, image_url, image_urls, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
+		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls, reply_to, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
 	`
 
 	var post models.Post
+	var retContentJSON []byte
 	err = h.db.QueryRow(query,
-		req.ThreadID, userClaims.UserID, req.Content, imageURL,
+		req.ThreadID, userClaims.UserID, req.Content, insertContentJSON, imageURL,
 		imageURLs, req.ReplyTo, "localhost:8080",
 	).Scan(
-		&post.ID, &post.ThreadID, &post.UserID, &post.Content,
+		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retContentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 	)
@@ -337,6 +352,9 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 			Error: stringPtr(err.Error()),
 		})
 		return
+	}
+	if len(retContentJSON) > 0 {
+		post.ContentJSON = json.RawMessage(retContentJSON)
 	}
 
 	// Update thread post count and updated_at
@@ -354,6 +372,90 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	RecomputeUserProfileStats(h.db, userClaims.UserID)
 
 	c.JSON(http.StatusCreated, models.SupabaseResponse{
+		Data: post,
+	})
+}
+
+// UpdatePost updates reply body; only the author may edit.
+func (h *PostsHandler) UpdatePost(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid post ID format"),
+		})
+		return
+	}
+
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Not authenticated"),
+		})
+		return
+	}
+	userClaims := claims.(*auth.Claims)
+
+	var authorID sql.NullString
+	err = h.db.QueryRow(`SELECT user_id FROM posts WHERE id = $1`, id.String()).Scan(&authorID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.SupabaseResponse{
+			Error: stringPtr("Post not found"),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	if !authorID.Valid || authorID.String != userClaims.UserID {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Only the author can edit this post"),
+		})
+		return
+	}
+
+	var req struct {
+		Content     string           `json:"content"`
+		ContentJSON *json.RawMessage `json:"content_json"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	var cj interface{}
+	if req.ContentJSON != nil && len(*req.ContentJSON) > 0 {
+		cj = []byte(*req.ContentJSON)
+	}
+
+	q := `
+		UPDATE posts SET content = $1, content_json = $2
+		WHERE id = $3
+		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
+	`
+	var post models.Post
+	var retJSON []byte
+	err = h.db.QueryRow(q, req.Content, cj, id.String()).Scan(
+		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retJSON,
+		&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
+		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	if len(retJSON) > 0 {
+		post.ContentJSON = json.RawMessage(retJSON)
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: post,
 	})
 }

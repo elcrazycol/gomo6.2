@@ -13,6 +13,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
+import { storageUrl } from "@/utils/storage";
 
 interface Report {
   id: string;
@@ -384,7 +385,7 @@ const Moderation = () => {
                                 </p>
                                 {content.thread.image_url && (
                                   <img 
-                                    src={content.thread.image_url} 
+                                    src={storageUrl("content", content.thread.image_url) || content.thread.image_url} 
                                     alt="Thread" 
                                     className="mt-2 max-w-full sm:max-w-xs max-h-48 border border-border"
                                   />
@@ -398,7 +399,7 @@ const Moderation = () => {
                                 </p>
                                 {content.post.image_url && (
                                   <img 
-                                    src={content.post.image_url} 
+                                    src={storageUrl("content", content.post.image_url) || content.post.image_url} 
                                     alt="Post" 
                                     className="mt-2 max-w-full sm:max-w-xs max-h-48 border border-border"
                                   />

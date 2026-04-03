@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Menu, User, Settings, Hammer, LogOut, Grid3X3, Search, Users } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
+import { storageUrl } from "@/utils/storage";
 
 interface MobileMenuProps {
   user: any;
@@ -46,7 +47,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
           setUsername(data.username);
           setIsAnonymous(data.is_anonymous);
           setAccountNumber(data.account_number);
-          setAvatarUrl(data.avatar_url);
+          setAvatarUrl(storageUrl("post-images", data.avatar_url));
         }
       };
       loadProfile();

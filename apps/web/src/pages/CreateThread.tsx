@@ -11,6 +11,7 @@ import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-reac
 import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
 import { AttachmentMeta } from "@/types/forum";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { storageUrl } from "@/utils/storage";
 
 interface Board {
   id: string;
@@ -446,16 +447,12 @@ const CreateThread = () => {
                     if (file) {
                       try {
                         const { data, error } = await supabase.storage
-                          .from('post-images')
+                          .from('content')
                           .upload(`threads/${Date.now()}-${file.name}`, file);
 
                         if (error) throw error;
 
-                        const { data: { publicUrl } } = supabase.storage
-                          .from('post-images')
-                          .getPublicUrl(data.path);
-
-                        setThreadImageUrl(publicUrl);
+                        setThreadImageUrl(data.path);
                       } catch (error) {
                         console.error('Error uploading thread image:', error);
                         toast.error('Ошибка загрузки изображения');
@@ -489,7 +486,7 @@ const CreateThread = () => {
               {threadImageUrl && (
                 <div className="mt-3 p-3 border rounded-lg bg-muted/20">
                   <p className="text-xs text-muted-foreground mb-2">Предпросмотр основного изображения:</p>
-                  <img src={threadImageUrl} alt="Thread image" className="max-h-48 w-full object-cover rounded border" />
+                    <img src={storageUrl("content", threadImageUrl) || threadImageUrl} alt="Thread image" className="max-h-48 w-full object-cover rounded border" />
                 </div>
               )}
             </div>

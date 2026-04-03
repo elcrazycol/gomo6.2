@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { storageUrl } from "@/utils/storage";
 
 // Tag constants (duplicated from CreateThread.tsx for filtering)
 const CONTENT_TAGS = [
@@ -593,7 +594,7 @@ const Board = () => {
                 <div className="h-40 sm:h-52">
                   {board.cover_image_url ? (
                     <img
-                      src={board.cover_image_url}
+                      src={storageUrl("post-images", board.cover_image_url) || board.cover_image_url}
                       alt={`Обложка /${board.slug}/`}
                       className="h-full w-full object-cover"
                     />
@@ -606,7 +607,7 @@ const Board = () => {
                     <div className="flex items-end gap-3 min-w-0">
                       <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg border-2 border-background bg-muted overflow-hidden flex items-center justify-center text-2xl font-bold text-muted-foreground shrink-0">
                         {board.gomosub_avatar_url ? (
-                          <img src={board.gomosub_avatar_url} alt={board.name} className="w-full h-full object-cover" />
+                          <img src={storageUrl("post-images", board.gomosub_avatar_url) || board.gomosub_avatar_url} alt={board.name} className="w-full h-full object-cover" />
                         ) : (
                           <span>{(board.name?.[0] || "g").toUpperCase()}</span>
                         )}
@@ -1125,7 +1126,7 @@ const Board = () => {
                       {thread.image_url && (
                         <Link to={`${pathPrefix}/${slug}/thread/${thread.id}`} className="block pt-1">
                           <img
-                            src={thread.image_url}
+                            src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
                             className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
                           />
@@ -1212,7 +1213,7 @@ const Board = () => {
                       {thread.image_url && (
                         <div className="w-full">
                           <img
-                            src={thread.image_url}
+                            src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
                             className="w-full h-48 object-cover border border-border rounded-lg"
                           />
@@ -1237,7 +1238,7 @@ const Board = () => {
                       <div className="flex-shrink-0">
                         {thread.image_url ? (
                           <img
-                            src={thread.image_url}
+                            src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
                             className="w-24 h-24 object-cover border border-border rounded-lg"
                           />

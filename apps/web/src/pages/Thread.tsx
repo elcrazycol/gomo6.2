@@ -18,6 +18,7 @@ import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { Poll } from "@/components/Poll";
+import { storageUrl } from "@/utils/storage";
 
 // Tag label helper functions
 const getContentTagLabel = (value: string) => {
@@ -101,7 +102,9 @@ const renderAttachments = (
   playlistKey?: string
 ) => {
   if (!attachments || attachments.length === 0) return null;
-  const imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
+  const imageUrls = attachments
+    .filter((att) => att.type === "image")
+    .map((att) => storageUrl("content", att.url) || att.url);
   const hasManyImages = imageUrls.length > 1;
 
   return (
@@ -128,7 +131,7 @@ const renderAttachments = (
           return (
             <figure key={idx} className="w-full">
               <img
-                src={att.url}
+                src={storageUrl("content", att.url) || att.url}
                 alt={att.name || `img-${idx}`}
                 className="w-full max-h-[70vh] object-contain rounded-lg border border-border bg-muted/30 cursor-pointer"
                 onClick={() => onImageClick?.(imageUrls, imageIndex)}
@@ -409,7 +412,9 @@ const Thread = () => {
 
   // Keep legacy imageUrls state in sync with attachments (used by existing preview/gallery code)
   useEffect(() => {
-    const imgs = attachments.filter(att => att.type === "image").map(att => att.url);
+    const imgs = attachments
+      .filter((att) => att.type === "image")
+      .map((att) => storageUrl("content", att.url) || att.url);
     setImageUrls(imgs);
   }, [attachments]);
 
@@ -1014,11 +1019,17 @@ const Thread = () => {
   const handleEditPost = async () => {
     if (!editContent.trim() || !editingPostId) return;
 
-    const { error } = await supabase
-      .from("posts")
-      .update({ content: editContent.trim(), content_json: editContentJson })
-      .eq("id", editingPostId);
-    
+    const isOpeningPost = thread && editingPostId === thread.id;
+    const { error } = isOpeningPost
+      ? await supabase
+          .from("threads")
+          .update({ content: editContent.trim(), content_json: editContentJson })
+          .eq("id", editingPostId)
+      : await supabase
+          .from("posts")
+          .update({ content: editContent.trim(), content_json: editContentJson })
+          .eq("id", editingPostId);
+
     if (error) {
       toast.error("Ошибка изменения поста");
     } else {
@@ -1026,7 +1037,11 @@ const Thread = () => {
       setEditingPostId(null);
       setEditContent("");
       setEditContentJson(null);
-      loadPosts();
+      if (isOpeningPost) {
+        loadThread();
+      } else {
+        loadPosts();
+      }
     }
   };
 
@@ -1240,7 +1255,7 @@ const Thread = () => {
               {senderDisplayType === 'modern' ? (
                 <div className="flex items-start gap-2">
                   <img
-                    src={thread.profiles?.avatar_url || '/placeholder.svg'}
+                    src={storageUrl("post-images", thread.profiles?.avatar_url) || '/placeholder.svg'}
                     alt="Avatar"
                     className="w-12 h-12 rounded-full object-cover border border-border"
                   />
@@ -1315,7 +1330,7 @@ const Thread = () => {
                 </div>
               </div>
             ) : (
-              <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+              <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
                 <ProcessedContent
                   content={thread.content}
                   contentJson={(thread as any).content_json}
@@ -1326,7 +1341,7 @@ const Thread = () => {
                   postAuthorId={thread.user_id}
                   authorUsername={thread.profiles?.username}
                 />
-              </p>
+              </div>
             )}
 
             {/* Thread tags */}
@@ -1433,7 +1448,7 @@ const Thread = () => {
                   {senderDisplayType === 'modern' ? (
                     <div className="flex items-start gap-2">
                       <img
-                        src={post.profiles?.avatar_url || '/placeholder.svg'}
+                        src={storageUrl("post-images", post.profiles?.avatar_url) || '/placeholder.svg'}
                         alt="Avatar"
                         className="w-12 h-12 rounded-full object-cover border border-border"
                       />
@@ -1579,7 +1594,7 @@ const Thread = () => {
                   </div>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+                <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
                   {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
                     <span className="text-muted-foreground italic">Скрытый контент</span>
                   ) : (
@@ -1594,7 +1609,7 @@ const Thread = () => {
                       authorUsername={post.profiles?.username}
                     />
                   )}
-                </p>
+                </div>
               )}
 
               {/* Нижний блок с действиями */}
@@ -1687,14 +1702,16 @@ const Thread = () => {
                         key={att.url}
                         className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 overflow-hidden flex items-center justify-center cursor-pointer"
                         onClick={() => {
-                          const imageUrls = attachments.filter((att) => att.type === "image").map((att) => att.url);
+                          const imageUrls = attachments
+                            .filter((att) => att.type === "image")
+                            .map((att) => storageUrl("content", att.url) || att.url);
                           setGalleryEditable(true);
                           setGalleryImages(imageUrls);
                           setGalleryIndex(idx);
                           setShowGallery(true);
                         }}
                       >
-                        <img src={att.url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
+                        <img src={storageUrl("content", att.url) || att.url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
                         <button
                           className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
                           onClick={(e) => {
@@ -1926,11 +1943,13 @@ const Thread = () => {
                         {attachments.filter((att) => att.type === "image").map((att, index) => (
                           <div key={att.url} className="relative rounded-lg border border-border bg-muted/40 aspect-square flex items-center justify-center overflow-hidden">
                             <img
-                              src={att.url}
+                              src={storageUrl("content", att.url) || att.url}
                               alt={`Фото ${index + 1}`}
                               className="max-h-full max-w-full object-contain"
                               onClick={() => {
-                                const imageUrls = attachments.filter((att) => att.type === "image").map((att) => att.url);
+                                const imageUrls = attachments
+                                  .filter((att) => att.type === "image")
+                                  .map((att) => storageUrl("content", att.url) || att.url);
                                 setGalleryEditable(true);
                                 setGalleryImages(imageUrls);
                                 setGalleryIndex(index);
