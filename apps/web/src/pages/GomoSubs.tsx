@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,23 +49,24 @@ const GomoSubs = () => {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      setUserId(session?.user?.id ?? null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUserId(session?.user?.id ?? null);
 
-      if (session?.user) {
-        const { data: profileData } = await supabase
-          .from("profiles")
-          .select("garma, username, created_at")
-          .eq("id", session.user.id)
-          .single();
-        if (profileData) {
-          setProfile({ garma: profileData.garma ?? 0, username: profileData.username, created_at: profileData.created_at });
+        if (session?.user) {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("garma, username, created_at")
+            .eq("id", session.user.id)
+            .single();
+          if (profileData) {
+            setProfile({ garma: profileData.garma ?? 0, username: profileData.username, created_at: profileData.created_at });
+          }
         }
-      }
 
-      const { data } = await supabase
-        .from("boards")
-        .select(`
+        const { data } = await supabase
+          .from("boards")
+          .select(`
           id,
           slug,
           name,
@@ -73,43 +74,44 @@ const GomoSubs = () => {
           cover_image_url,
           created_at
         `)
-        .eq("is_gomosub", true)
-        .order("created_at", { ascending: false });
+          .eq("is_gomosub", true)
+          .order("created_at", { ascending: false });
 
-      const loadedSubs = (data as GomoSub[]) ?? [];
-      setSubs(loadedSubs);
+        const loadedSubs = (data as GomoSub[]) ?? [];
+        setSubs(loadedSubs);
 
-      if (loadedSubs.length > 0) {
-        const countResults = await Promise.all(
-          loadedSubs.map(async (sub) => {
-            const { count } = await supabase
-              .from("gomosub_memberships")
-              .select("*", { count: "exact", head: true })
-              .eq("board_id", sub.id);
-            return { boardId: sub.id, count: count ?? 0 };
-          })
-        );
+        if (loadedSubs.length > 0) {
+          const countResults = await Promise.all(
+            loadedSubs.map(async (sub) => {
+              const { count } = await supabase
+                .from("gomosub_memberships")
+                .select("*", { count: "exact", head: true })
+                .eq("board_id", sub.id);
+              return { boardId: sub.id, count: count ?? 0 };
+            })
+          );
 
-        const nextCounts: Record<string, number> = {};
-        countResults.forEach((item) => {
-          nextCounts[item.boardId] = item.count;
-        });
-        setMembersBySub(nextCounts);
+          const nextCounts: Record<string, number> = {};
+          countResults.forEach((item) => {
+            nextCounts[item.boardId] = item.count;
+          });
+          setMembersBySub(nextCounts);
+        }
+
+        if (session?.user && loadedSubs.length > 0) {
+          const { data: memberships } = await supabase
+            .from("gomosub_memberships")
+            .select("board_id")
+            .eq("user_id", session.user.id)
+            .in("board_id", loadedSubs.map((sub) => sub.id));
+
+          setJoinedSubIds(new Set((memberships ?? []).map((m) => m.board_id)));
+        } else {
+          setJoinedSubIds(new Set());
+        }
+      } finally {
+        setLoading(false);
       }
-
-      if (session?.user && loadedSubs.length > 0) {
-        const { data: memberships } = await supabase
-          .from("gomosub_memberships")
-          .select("board_id")
-          .eq("user_id", session.user.id)
-          .in("board_id", loadedSubs.map((sub) => sub.id));
-
-        setJoinedSubIds(new Set((memberships ?? []).map((m) => m.board_id)));
-      } else {
-        setJoinedSubIds(new Set());
-      }
-
-      setLoading(false);
     };
 
     load();

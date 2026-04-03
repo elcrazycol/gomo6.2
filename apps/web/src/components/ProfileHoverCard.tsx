@@ -1,5 +1,5 @@
 import { useState, useEffect, cloneElement } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { User } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -46,10 +46,10 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
 
         if (data) {
           setProfile(data);
-          setAvatarUrl(data.avatar_url);
+          setAvatarUrl((data as any).avatar_url);
 
           // Load achievements for color
-          const { data: achievements } = await supabase
+          const achievementsResult = await supabase
             .from("user_achievements")
             .select(`
               achievement_id,
@@ -59,6 +59,8 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
               )
             `)
             .eq("user_id", userId);
+
+          const achievements = achievementsResult.data;
 
           if (achievements) {
             const colorRewards = achievements
@@ -168,7 +170,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                 <AdminBadge userId={userId} />
               </div>
               <div className="text-sm text-muted-foreground">
-                ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
+                ID: {profile?.id?.slice(0, 8) || 'N/A'} {profile?.account_number && `(${profile.account_number})`}
               </div>
               {(() => {
                 // Use custom placeholders if set, otherwise use default

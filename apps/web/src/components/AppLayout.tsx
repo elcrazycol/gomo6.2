@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -30,7 +30,6 @@ type NowPlayingState = {
 };
 
 export const AppLayout = ({ children }: AppLayoutProps) => {
-  const APP_VERSION = "v1.4";
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState<{ id: string } | null>(null);
@@ -76,9 +75,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
   const { scrollY } = useScroll();
 
-  useEffect(() => {
-    console.info(`[gomo6] App version: ${APP_VERSION}`);
-  }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hidden = localStorage.getItem("nowPlayingHidden") === "true";

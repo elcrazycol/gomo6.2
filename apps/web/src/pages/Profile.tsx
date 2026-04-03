@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -31,6 +31,7 @@ interface Profile {
   id: string;
   username: string;
   bio: string | null;
+  bio_json?: unknown;
   is_anonymous: boolean;
   thread_count: number;
   post_count: number;
@@ -259,11 +260,11 @@ const Profile = () => {
     if (userId) {
       const loadAll = async () => {
         setPageLoading(true);
-        await Promise.all([
-          loadProfile(),
-          loadAchievements(),
-        ]);
-        setPageLoading(false);
+        try {
+          await Promise.all([loadProfile(), loadAchievements()]);
+        } finally {
+          setPageLoading(false);
+        }
       };
       loadAll();
     }
@@ -312,6 +313,7 @@ const Profile = () => {
 
       setProfile({
         ...data,
+        bio_json: (data as any).bio_json ?? undefined,
         garma: data.garma ?? 0,
         thread_likes_received_count: threadLikesData || 0
       });
@@ -491,9 +493,9 @@ const Profile = () => {
     if (data) {
       // Process achievements without grouping by type (show all levels separately)
       const processedAchievements = data.map((ua: any) => {
-        const achievement = ua.achievements;
-        let displayName = achievement.name;
-        let displayDescription = achievement.description;
+        const achievement = ua.achievements ?? {};
+        let displayName = achievement.name ?? "—";
+        let displayDescription = achievement.description ?? "";
 
         // Achievement processing based on achievement ID and level
 
@@ -773,8 +775,10 @@ const Profile = () => {
 
   const handleSaveAndExit = async () => {
     try {
-      // Save bio changes
-      if (userId && bio !== profile.bio) {
+      const prevBioJson = profile.bio_json ?? null;
+      const bioJsonChanged =
+        JSON.stringify(bioJson ?? null) !== JSON.stringify(prevBioJson);
+      if (userId && (bio !== profile.bio || bioJsonChanged)) {
         const { error: bioError } = await supabase
           .from("profiles")
           .update({ bio, bio_json: bioJson })
@@ -821,7 +825,7 @@ const Profile = () => {
   const startEditing = () => {
     setNewUsername(profile.username);
     setBio(profile.bio || "");
-    setBioJson(null);
+    setBioJson(profile.bio_json ?? null);
     setBioEditorResetKey((prev) => prev + 1);
     setIsAnonymous(profile.is_anonymous);
     setIsEditing(true);

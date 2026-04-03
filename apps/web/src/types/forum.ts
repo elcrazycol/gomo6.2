@@ -29,6 +29,7 @@ export interface Thread {
     slug: string;
     name: string;
     is_rules_board: boolean;
+    is_gomosub?: boolean;
   };
   profiles: UserProfileLite | null;
 }

@@ -1,0 +1,380 @@
+package handlers
+
+import (
+	"database/sql"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/models"
+	"github.com/google/uuid"
+)
+
+type ThreadsHandler struct {
+	db *sql.DB
+}
+
+func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
+	return &ThreadsHandler{db: db}
+}
+
+func (h *ThreadsHandler) GetThreads(c *gin.Context) {
+	query := `
+		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.image_url, t.image_urls,
+		       t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
+		       u.username, u.avatar_url,
+		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
+		FROM threads t
+		LEFT JOIN users u ON t.user_id = u.id
+		LEFT JOIN boards b ON t.board_id = b.id
+	`
+
+	var args []interface{}
+	var conditions []string
+
+	// Handle board_id filter (eq.uuid or in.(uuid,...))
+	if boardID := c.Query("board_id"); boardID != "" {
+		if strings.HasPrefix(boardID, "eq.") {
+			bid := strings.TrimPrefix(boardID, "eq.")
+			conditions = append(conditions, "t.board_id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, bid)
+		} else if strings.HasPrefix(boardID, "in.(") && strings.HasSuffix(boardID, ")") {
+			raw := strings.TrimSuffix(strings.TrimPrefix(boardID, "in.("), ")")
+			ids := strings.Split(raw, ",")
+			placeholders := make([]string, 0, len(ids))
+			for _, candidate := range ids {
+				candidate = strings.TrimSpace(candidate)
+				if candidate == "" {
+					continue
+				}
+				placeholders = append(placeholders, "$"+strconv.Itoa(len(args)+1))
+				args = append(args, candidate)
+			}
+			if len(placeholders) > 0 {
+				conditions = append(conditions, "t.board_id IN ("+strings.Join(placeholders, ",")+")")
+			}
+		} else {
+			conditions = append(conditions, "t.board_id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, boardID)
+		}
+	}
+
+	// Handle id filter
+	if id := c.Query("id"); id != "" {
+		if strings.HasPrefix(id, "eq.") {
+			id = strings.TrimPrefix(id, "eq.")
+			conditions = append(conditions, "t.id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, id)
+		} else if strings.HasPrefix(id, "in.(") && strings.HasSuffix(id, ")") {
+			raw := strings.TrimSuffix(strings.TrimPrefix(id, "in.("), ")")
+			ids := strings.Split(raw, ",")
+			placeholders := make([]string, 0, len(ids))
+			for _, candidate := range ids {
+				placeholders = append(placeholders, "$"+strconv.Itoa(len(args)+1))
+				args = append(args, strings.TrimSpace(candidate))
+			}
+			if len(placeholders) > 0 {
+				conditions = append(conditions, "t.id IN ("+strings.Join(placeholders, ",")+")")
+			}
+		} else {
+			conditions = append(conditions, "t.id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, id)
+		}
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			query += " AND " + conditions[i]
+		}
+	}
+
+	// Handle ordering (Supabase format: column.asc/column.desc)
+	if order := c.Query("order"); order != "" {
+		column := "t.updated_at"
+		direction := "DESC"
+		parts := strings.Split(order, ".")
+		if len(parts) >= 2 {
+			switch parts[0] {
+			case "updated_at":
+				column = "t.updated_at"
+			case "created_at":
+				column = "t.created_at"
+			case "id":
+				column = "t.id"
+			}
+			if strings.EqualFold(parts[1], "asc") {
+				direction = "ASC"
+			}
+		}
+		query += " ORDER BY " + column + " " + direction
+	} else {
+		query += " ORDER BY t.updated_at DESC"
+	}
+
+	// Handle pagination
+	limit := 50
+	offset := 0
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var threads []models.ThreadWithBoards
+	for rows.Next() {
+		var thread models.ThreadWithBoards
+		var avatarURL sql.NullString
+		var boardSlug, boardName string
+		var boardIsGomosub, boardIsRulesBoard bool
+
+		err := rows.Scan(
+			&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content,
+			&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
+			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+		if avatarURL.Valid {
+			thread.AvatarURL = &avatarURL.String
+		}
+		thread.Boards = models.BoardInfo{
+			Slug:         boardSlug,
+			Name:         boardName,
+			IsGomosub:    boardIsGomosub,
+			IsRulesBoard: boardIsRulesBoard,
+		}
+		threads = append(threads, thread)
+	}
+
+	threadCount := len(threads)
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data:  threads,
+		Count: &threadCount,
+	})
+}
+
+func (h *ThreadsHandler) GetThread(c *gin.Context) {
+	idStr := c.Param("id")
+
+	// Parse and validate UUID
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid thread ID format"),
+		})
+		return
+	}
+
+	query := `
+		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.image_url, t.image_urls,
+		       t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
+		       u.username, u.avatar_url,
+		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
+		FROM threads t
+		LEFT JOIN users u ON t.user_id = u.id
+		LEFT JOIN boards b ON t.board_id = b.id
+		WHERE t.id = $1
+	`
+
+	var thread models.ThreadWithBoards
+	var avatarURL sql.NullString
+	var boardSlug, boardName string
+	var boardIsGomosub, boardIsRulesBoard bool
+
+	err = h.db.QueryRow(query, id.String()).Scan(
+		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content,
+		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
+		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.SupabaseResponse{
+				Error: stringPtr("Thread not found"),
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if avatarURL.Valid {
+		thread.AvatarURL = &avatarURL.String
+	}
+	thread.Boards = models.BoardInfo{
+		Slug:         boardSlug,
+		Name:         boardName,
+		IsGomosub:    boardIsGomosub,
+		IsRulesBoard: boardIsRulesBoard,
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: thread,
+	})
+}
+
+func (h *ThreadsHandler) CreateThread(c *gin.Context) {
+	var req models.CreateThreadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Get user ID from context
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Not authenticated"),
+		})
+		return
+	}
+
+	userClaims := claims.(*auth.Claims)
+
+	// Validate board_id UUID
+	_, err := uuid.Parse(req.BoardID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid board ID format"),
+		})
+		return
+	}
+
+	// Check if board exists
+	var boardExists bool
+	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1)", req.BoardID).Scan(&boardExists)
+	if err != nil || !boardExists {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Board not found"),
+		})
+		return
+	}
+
+	// Convert image URLs to JSONB
+	var imageURLs models.JSONB
+	if len(req.ImageURLs) > 0 {
+		imageURLs = make(models.JSONB, len(req.ImageURLs))
+		for i, url := range req.ImageURLs {
+			imageURLs[i] = url
+		}
+	}
+
+	var imageURL *string
+	if len(req.ImageURLs) > 0 {
+		imageURL = &req.ImageURLs[0]
+	}
+
+	query := `
+		INSERT INTO threads (board_id, user_id, title, content, image_url, image_urls, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, board_id, user_id, title, content, image_url, image_urls, post_count, server_domain, created_at, updated_at, is_remote
+	`
+
+	var thread models.Thread
+	err = h.db.QueryRow(query,
+		req.BoardID, userClaims.UserID, req.Title, req.Content,
+		imageURL, imageURLs, "localhost:8080",
+	).Scan(
+		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content,
+		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	RecomputeUserProfileStats(h.db, userClaims.UserID)
+
+	c.JSON(http.StatusCreated, models.SupabaseResponse{
+		Data: thread,
+	})
+}
+
+func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		id = c.Query("id")
+		if strings.HasPrefix(id, "eq.") {
+			id = strings.TrimPrefix(id, "eq.")
+		}
+	}
+	if id == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Thread id is required"),
+		})
+		return
+	}
+
+	var ownerID string
+	err := h.db.QueryRow(`SELECT user_id FROM threads WHERE id = $1`, id).Scan(&ownerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, models.SupabaseResponse{
+				Error: stringPtr("Thread not found"),
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	result, err := h.db.Exec("DELETE FROM threads WHERE id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, models.SupabaseResponse{
+			Error: stringPtr("Thread not found"),
+		})
+		return
+	}
+
+	RecomputeUserProfileStats(h.db, ownerID)
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: gin.H{"deleted": true},
+	})
+}

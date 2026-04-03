@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -218,6 +218,8 @@ const Thread = () => {
   const [editContent, setEditContent] = useState("");
   const [editContentJson, setEditContentJson] = useState<unknown>(null);
   const [banUserId, setBanUserId] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
+  const [isClearing, setIsClearing] = useState(false);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
@@ -559,7 +561,7 @@ const Thread = () => {
     if (threadData) {
       const { data: board } = await supabase
         .from("boards")
-        .select("slug, name, is_rules_board")
+        .select("slug, name, is_rules_board, is_gomosub")
         .eq("id", threadData.board_id)
         .single();
 
@@ -576,7 +578,12 @@ const Thread = () => {
 
       setThread({
         ...threadData,
-        boards: board!,
+        boards: board ?? {
+          slug: slug ?? "",
+          name: "",
+          is_rules_board: false,
+          is_gomosub: false,
+        },
         profiles: profile,
         attachments,
         image_urls: threadData.image_urls || imageUrlsFromAttachments,
@@ -614,16 +621,20 @@ const Thread = () => {
 
       // Track thread visit for achievements
       if (user) {
-        const hasCustomMessage = threadData.custom_message && threadData.custom_message.trim().length > 0;
-        await supabase
-          .from('thread_custom_message_visits')
-          .upsert({
-            user_id: user.id,
-            thread_id: threadData.id,
-            has_custom_message: hasCustomMessage
-          }, {
-            onConflict: 'user_id,thread_id'
-          });
+        try {
+          const hasCustomMessage = threadData.custom_message && threadData.custom_message.trim().length > 0;
+          await supabase
+            .from('thread_custom_message_visits')
+            .upsert({
+              user_id: user.id,
+              thread_id: threadData.id,
+              has_custom_message: hasCustomMessage
+            }, {
+              onConflict: 'user_id,thread_id'
+            });
+        } catch (error) {
+          console.error("Thread visit tracking unavailable:", error);
+        }
       }
     }
   }, [navigate, slug, threadId, user]);
@@ -661,13 +672,19 @@ const Thread = () => {
   }, []);
 
   const fetchPostWithProfile = useCallback(async (postId: string) => {
-    const { data: postData, error } = await supabase
-      .from("posts")
-      .select("*")
-      .eq("id", postId)
-      .single();
-    if (error || !postData) return null;
-    return normalizePost(postData);
+    try {
+      const result = await supabase
+        .from("posts")
+        .select("*")
+        .eq("id", postId)
+        .single();
+      
+      if (result.error || !result.data) return null;
+      return normalizePost(result.data);
+    } catch (err) {
+      console.error("fetchPostWithProfile error:", err);
+      return null;
+    }
   }, [normalizePost]);
 
   const mergePostIntoList = useCallback((list: PostModel[], post: PostModel) => {
@@ -696,6 +713,8 @@ const Thread = () => {
       });
 
       // Call AI edge function
+      // DISABLED: Go backend doesn't support Supabase Edge Functions
+      /*
       const { error } = await supabase.functions.invoke('ai-reply', {
         body: {
           threadId: threadId,
@@ -710,6 +729,7 @@ const Thread = () => {
       } else {
         toast.success("✅ AI ответил");
       }
+      */
     } catch (error) {
       console.error('[AI] Error in handleAIReply:', error);
       toast.error("❌ Ошибка AI");
@@ -759,6 +779,8 @@ const Thread = () => {
   }, [posts, isNearBottom, scrollToBottomSmooth]);
 
   // Realtime subscription for posts changes (single channel, local merge)
+  // DISABLED: Go backend doesn't support Supabase real-time yet
+  /*
   useEffect(() => {
     if (!threadId) return;
 
@@ -799,6 +821,7 @@ const Thread = () => {
       supabase.removeChannel(channel);
     };
   }, [fetchPostWithProfile, isNearBottom, mergePostIntoList, scrollToBottomSmooth, threadId]);
+  */
 
   const handleSubmitPost = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -815,7 +838,7 @@ const Thread = () => {
     }
 
     // Check if only admin can post (rules board)
-    if (thread?.boards.is_rules_board && !isAdmin) {
+    if (thread?.boards?.is_rules_board && !isAdmin) {
       toast.error("Только администраторы могут писать на этой доске");
       return;
     }
@@ -830,7 +853,7 @@ const Thread = () => {
       const imageUrlForDb = imageUrlsFromAttachments[0] || null;
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
 
-      const { error } = await supabase.from("posts").insert({
+      const { error, data } = await supabase.from("posts").insert({
         thread_id: threadId,
         user_id: user.id,
         content: content.trim(),
@@ -848,13 +871,52 @@ const Thread = () => {
         return;
       }
 
-      setContent("");
+      // Add new post to local state
+      if (data) {
+        setPosts((currentPosts) => {
+          const newPost = {
+            ...data,
+            profiles: {
+              id: user.id,
+              username: user.username,
+              avatar_url: user.avatar_url
+            }
+          };
+          
+          if (replyingTo) {
+            // Insert after the post we're replying to
+            const replyIndex = currentPosts.findIndex(p => p.id === replyingTo);
+            if (replyIndex !== -1) {
+              const newPosts = [...currentPosts];
+              newPosts.splice(replyIndex + 1, 0, newPost);
+              return newPosts;
+            }
+          }
+          
+          // Add to end
+          return [...currentPosts, newPost];
+        });
+      }
+
+      // Start clearing mode
+      setIsClearing(true);
+      
+      // Force clear GomoRichEditor by changing resetKey
+      setResetKey(prev => prev + 1);
+      
+      // Clear states
       setContentJson(null);
+      setContent("");
       setImageUrls([]);
       setAttachments([]);
       setReplyingTo(null);
       setIsPrivateMessage(false);
       setPrivateRecipientId(null);
+      
+      // End clearing mode after a short delay
+      setTimeout(() => {
+        setIsClearing(false);
+      }, 100);
     } catch (err) {
       console.error("handleSubmitPost failed:", err);
       toast.error("Ошибка отправки");
@@ -1081,7 +1143,7 @@ const Thread = () => {
     );
   }
 
-  const canPost = user && (!thread.boards.is_rules_board || isAdmin);
+  const canPost = user && (!thread.boards?.is_rules_board || isAdmin);
 
   return (
     <>
@@ -1094,7 +1156,7 @@ const Thread = () => {
         )}
             <div className="mb-4 flex justify-between items-center">
           <Link to={`${pathPrefix}/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
-            {thread.boards.is_gomosub ? thread.boards.name : "← Назад к доске"}
+            {thread.boards?.is_gomosub ? thread.boards?.name : "← Назад к доске"}
           </Link>
           {user && (
             <Button
@@ -1226,12 +1288,15 @@ const Thread = () => {
             {editingPostId === thread.id ? (
               <div className="space-y-2">
                 <GomoRichEditor
+                  key={resetKey}
                   contentJson={(thread as any).content_json}
                   legacyContent={thread.content}
                   onChange={({ json, text }) => {
                     setEditContentJson(json);
                     setEditContent(text);
                   }}
+                  onSubmit={() => handleEditPost()}
+                  placeholder="Напишите сообщение…"
                   minHeightClassName="min-h-[120px]"
                 />
                 <div className="flex gap-2">
@@ -1487,12 +1552,15 @@ const Thread = () => {
               {editingPostId === post.id ? (
                 <div className="space-y-2">
                   <GomoRichEditor
+                    key={resetKey}
                     contentJson={(post as any).content_json}
                     legacyContent={post.content}
                     onChange={({ json, text }) => {
                       setEditContentJson(json);
                       setEditContent(text);
                     }}
+                    onSubmit={() => handleEditPost()}
+                    placeholder="Напишите сообщение…"
                     minHeightClassName="min-h-[120px]"
                   />
                   <div className="flex gap-2">
@@ -1769,12 +1837,13 @@ const Thread = () => {
                   >
                     <GomoRichEditor
                       ref={editorRef}
+                      key={resetKey}
                       contentJson={contentJson}
                       legacyContent={content}
                       onChange={({ json, text }) => {
-                        setContentJson(json);
-                        setContent(text);
-                      }}
+        setContentJson(json);
+        setContent(text);
+      }}
                       onSubmit={() => handleSubmitPost()}
                       placeholder="Напишите сообщение…"
                       minHeightClassName={isExpandedView ? 'min-h-[200px] sm:min-h-[300px]' : 'min-h-[60px] sm:min-h-[80px]'}

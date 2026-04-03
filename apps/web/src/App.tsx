@@ -94,8 +94,8 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <SpeedInsights />
-        <BrowserRouter>
+        {import.meta.env.PROD ? <SpeedInsights /> : null}
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             {/* Special pages without layout */}
             <Route path="/auth" element={<LazyPage component={Auth} />} />

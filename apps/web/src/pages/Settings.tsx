@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -199,7 +199,6 @@ const Settings = () => {
 
       // If no data in database (new user), create default settings
       if (error && error.code === 'PGRST116') {
-        console.log('Creating default privacy settings for user');
         const defaultSettings = {
           ...defaultPrivacySettings,
           user_id: user.id,
@@ -234,7 +233,6 @@ const Settings = () => {
           ...defaultPrivacySettings,
           ...parsedSettings,
         });
-        console.log('Loaded privacy settings from localStorage');
         return;
       } catch (error) {
         console.error('Error parsing saved privacy settings:', error);
@@ -243,7 +241,6 @@ const Settings = () => {
 
     // Last resort: use hardcoded defaults
     setPrivacySettings(defaultPrivacySettings);
-    console.log('Using default privacy settings');
   };
 
   const updatePrivacySetting = async (key: string, value: boolean | Record<string, boolean>) => {
@@ -283,7 +280,6 @@ const Settings = () => {
           .eq('user_id', user.id);
 
         if (updateError) {
-          console.log('Update failed, trying upsert:', updateError);
           // If update failed, try upsert (insert or update)
           const { error: upsertError } = await (supabase as any)
             .from('privacy_settings')
@@ -306,7 +302,6 @@ const Settings = () => {
         localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
       }
 
-      console.log('Privacy setting updated:', key, value);
     } catch (error) {
       console.error('Error updating privacy settings:', error);
       setPrivacySettings(privacySettings);
@@ -461,7 +456,6 @@ const Settings = () => {
             filter: `user_id=eq.${user.id}`,
           },
           (payload: any) => {
-            console.log('Privacy settings updated from another device:', payload);
             // Update local state and localStorage
             const updatedSettings = payload.new;
             setPrivacySettings(updatedSettings);
