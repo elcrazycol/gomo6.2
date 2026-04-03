@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/api/client_simple";
 import { Link } from "react-router-dom";
 import { User } from "lucide-react";
+import { storageUrl } from "@/utils/storage";
 
 interface MentionLinkProps {
   username: string;
@@ -37,7 +38,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
       setUserExists(cached.exists);
       setUserData(cached.data);
       setColor(cached.color || "");
-      setAvatarUrl(cached.avatarUrl || null);
+      setAvatarUrl(storageUrl("post-images", cached.avatarUrl ?? null));
       return;
     }
 
@@ -55,7 +56,8 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
         } else {
           setUserExists(true);
           setUserData(data);
-          setAvatarUrl(data.avatar_url);
+          const resolvedAvatar = storageUrl("post-images", data.avatar_url);
+          setAvatarUrl(resolvedAvatar);
 
           // Load color from achievements
           const { data: achievements } = await supabase
@@ -85,7 +87,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           }
 
           setColor(userColor);
-          userCache.set(username, { exists: true, data, color: userColor, avatarUrl: data.avatar_url });
+          userCache.set(username, { exists: true, data, color: userColor, avatarUrl: resolvedAvatar });
         }
       } catch (error) {
         setUserExists(false);

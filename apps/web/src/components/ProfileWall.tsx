@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { AttachmentMeta } from "@/types/forum";
+import { storageUrl } from "@/utils/storage";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
 import { lexicalJsonToPlainText, normalizeLexicalContent } from "@/utils/lexicalContent";
 import {
@@ -254,7 +255,9 @@ const WallAttachments = ({
   onImageClick: (images: string[], index: number) => void;
   galleryKey: string;
 }) => {
-  const imageUrls = attachments.filter((attachment) => attachment.type === "image").map((attachment) => attachment.url);
+  const imageUrls = attachments
+    .filter((attachment) => attachment.type === "image")
+    .map((attachment) => storageUrl("content", attachment.url) || attachment.url);
 
   return (
     <div className="space-y-3">
@@ -284,7 +287,11 @@ const WallAttachments = ({
               className="block overflow-hidden border border-border/60 bg-muted/30"
               onClick={() => onImageClick(imageUrls, 0)}
             >
-              <img src={attachment.url} alt={attachment.name || "attachment"} className="max-h-[32rem] w-full object-cover" />
+              <img
+                src={storageUrl("content", attachment.url) || attachment.url}
+                alt={attachment.name || "attachment"}
+                className="max-h-[32rem] w-full object-cover"
+              />
             </button>
           );
         }
@@ -295,7 +302,7 @@ const WallAttachments = ({
               key={`${galleryKey}-${index}`}
               kind="video"
               poster={attachment.poster}
-              sources={[{ src: attachment.url, type: attachment.mime || "video/webm" }]}
+              sources={[{ src: storageUrl("content", attachment.url) || attachment.url, type: attachment.mime || "video/webm" }]}
               className="max-w-3xl"
             />
           );
@@ -306,7 +313,7 @@ const WallAttachments = ({
             <MediaPlayer
               key={`${galleryKey}-${index}`}
               kind="audio"
-              sources={[{ src: attachment.url, type: attachment.mime || "audio/ogg" }]}
+              sources={[{ src: storageUrl("content", attachment.url) || attachment.url, type: attachment.mime || "audio/ogg" }]}
               className="max-w-xl"
               playerId={`wall-audio-${galleryKey}-${index}`}
               title={attachment.name || "Аудио"}
@@ -319,7 +326,7 @@ const WallAttachments = ({
         return (
           <a
             key={`${galleryKey}-${index}`}
-            href={attachment.url}
+            href={storageUrl("content", attachment.url) || attachment.url}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 border border-border/60 bg-background px-3 py-2 text-sm text-primary"

@@ -4,6 +4,7 @@ import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { supabase } from "@/integrations/api/client_simple";
+import { storageUrl } from "@/utils/storage";
 import {
   createClientMessageId,
   decryptMessengerText,
@@ -1006,7 +1007,10 @@ export const MessengerView = () => {
                 >
                   <div className="avatar">
                     {conversation.otherUser.avatar_url ? (
-                      <img src={conversation.otherUser.avatar_url} alt={conversation.otherUser.username} />
+                      <img
+                        src={storageUrl("post-images", conversation.otherUser.avatar_url) || undefined}
+                        alt={conversation.otherUser.username}
+                      />
                     ) : (
                       <span>{getInitials(conversation.otherUser.username)}</span>
                     )}
@@ -1056,7 +1060,7 @@ export const MessengerView = () => {
                   <div className="avatar small">
                     {selectedConversation.otherUser.avatar_url ? (
                       <img
-                        src={selectedConversation.otherUser.avatar_url}
+                        src={storageUrl("post-images", selectedConversation.otherUser.avatar_url) || undefined}
                         alt={selectedConversation.otherUser.username}
                       />
                     ) : (

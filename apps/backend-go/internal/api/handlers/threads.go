@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,7 +23,7 @@ func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	query := `
-		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.image_url, t.image_urls,
+		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
@@ -148,9 +149,10 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		var avatarURL sql.NullString
 		var boardSlug, boardName string
 		var boardIsGomosub, boardIsRulesBoard bool
+		var contentJSON []byte
 
 		err := rows.Scan(
-			&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content,
+			&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 			&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
 			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
@@ -163,6 +165,9 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		}
 		if avatarURL.Valid {
 			thread.AvatarURL = &avatarURL.String
+		}
+		if len(contentJSON) > 0 {
+			thread.ContentJSON = json.RawMessage(contentJSON)
 		}
 		thread.Boards = models.BoardInfo{
 			Slug:         boardSlug,
@@ -193,7 +198,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	}
 
 	query := `
-		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.image_url, t.image_urls,
+		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
@@ -207,9 +212,10 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	var avatarURL sql.NullString
 	var boardSlug, boardName string
 	var boardIsGomosub, boardIsRulesBoard bool
+	var contentJSON []byte
 
 	err = h.db.QueryRow(query, id.String()).Scan(
-		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content,
+		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
@@ -230,6 +236,9 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	if avatarURL.Valid {
 		thread.AvatarURL = &avatarURL.String
+	}
+	if len(contentJSON) > 0 {
+		thread.ContentJSON = json.RawMessage(contentJSON)
 	}
 	thread.Boards = models.BoardInfo{
 		Slug:         boardSlug,
@@ -296,27 +305,35 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 		imageURL = &req.ImageURLs[0]
 	}
 
+	var insertContentJSON interface{}
+	if len(req.ContentJSON) > 0 {
+		insertContentJSON = []byte(req.ContentJSON)
+	}
+
 	query := `
-		INSERT INTO threads (board_id, user_id, title, content, image_url, image_urls, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, board_id, user_id, title, content, image_url, image_urls, post_count, server_domain, created_at, updated_at, is_remote
+		INSERT INTO threads (board_id, user_id, title, content, content_json, image_url, image_urls, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls, post_count, server_domain, created_at, updated_at, is_remote
 	`
 
 	var thread models.Thread
+	var retContentJSON []byte
 	err = h.db.QueryRow(query,
-		req.BoardID, userClaims.UserID, req.Title, req.Content,
+		req.BoardID, userClaims.UserID, req.Title, req.Content, insertContentJSON,
 		imageURL, imageURLs, "localhost:8080",
 	).Scan(
-		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content,
+		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
-
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
 			Error: stringPtr(err.Error()),
 		})
 		return
+	}
+	if len(retContentJSON) > 0 {
+		thread.ContentJSON = json.RawMessage(retContentJSON)
 	}
 
 	RecomputeUserProfileStats(h.db, userClaims.UserID)
@@ -376,5 +393,89 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: gin.H{"deleted": true},
+	})
+}
+
+// UpdateThread updates thread body (OP text); only the author may edit.
+func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid thread ID format"),
+		})
+		return
+	}
+
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Not authenticated"),
+		})
+		return
+	}
+	userClaims := claims.(*auth.Claims)
+
+	var ownerID sql.NullString
+	err = h.db.QueryRow(`SELECT user_id FROM threads WHERE id = $1`, id.String()).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.SupabaseResponse{
+			Error: stringPtr("Thread not found"),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	if !ownerID.Valid || ownerID.String != userClaims.UserID {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Only the author can edit this thread"),
+		})
+		return
+	}
+
+	var req struct {
+		Content     string           `json:"content"`
+		ContentJSON *json.RawMessage `json:"content_json"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	var cj interface{}
+	if req.ContentJSON != nil && len(*req.ContentJSON) > 0 {
+		cj = []byte(*req.ContentJSON)
+	}
+
+	q := `
+		UPDATE threads SET content = $1, content_json = $2, updated_at = NOW()
+		WHERE id = $3
+		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls, post_count, server_domain, created_at, updated_at, is_remote
+	`
+	var thread models.Thread
+	var retJSON []byte
+	err = h.db.QueryRow(q, req.Content, cj, id.String()).Scan(
+		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retJSON,
+		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
+	)
+	if len(retJSON) > 0 {
+		thread.ContentJSON = json.RawMessage(retJSON)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: thread,
 	})
 }

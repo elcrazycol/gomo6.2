@@ -56,6 +56,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"profile_wall_post_comments":   true,
 		"profile_wall_post_likes":      true,
 		"profile_wall_post_reposts":    true,
+		"gomosub_rules_acceptance":     true,
 	}
 
 	if !allowedTables[tableName] {
@@ -229,6 +230,22 @@ ON CONFLICT (user_id, thread_id) DO UPDATE SET
   updated_at = NOW()
 RETURNING *`
 		return q, []interface{}{uid, tid, hcm}, true
+	case "gomosub_rules_acceptance":
+		uid, hasUID := data["user_id"]
+		bid, hasBID := data["board_id"]
+		if !hasUID || !hasBID {
+			return "", nil, false
+		}
+		acceptedAt := data["accepted_at"]
+		if acceptedAt == nil || acceptedAt == "" {
+			acceptedAt = time.Now().UTC().Format(time.RFC3339)
+		}
+		q := `INSERT INTO gomosub_rules_acceptance (user_id, board_id, accepted_at) VALUES ($1, $2, $3)
+ON CONFLICT (user_id, board_id) DO UPDATE SET
+  accepted_at = EXCLUDED.accepted_at,
+  updated_at = NOW()
+RETURNING *`
+		return q, []interface{}{uid, bid, acceptedAt}, true
 	default:
 		return "", nil, false
 	}

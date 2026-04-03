@@ -6,6 +6,7 @@ import { ru } from "date-fns/locale";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { processProfileBio } from "@/utils/profileBio";
+import { storageUrl } from "@/utils/storage";
 
 interface ProfileHoverCardProps {
   userId: string;
@@ -46,7 +47,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
 
         if (data) {
           setProfile(data);
-          setAvatarUrl((data as any).avatar_url);
+          setAvatarUrl(storageUrl("post-images", (data as any).avatar_url));
 
           // Load achievements for color
           const achievementsResult = await supabase

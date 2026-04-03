@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -208,6 +211,139 @@ func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, models.SupabaseResponse{
+		Data: board,
+	})
+}
+
+// UpdateBoard updates a board; only the owner may change it (gomosub settings, etc.).
+func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
+	id := c.Param("id")
+
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Not authenticated"),
+		})
+		return
+	}
+	userClaims := claims.(*auth.Claims)
+
+	var ownerID sql.NullString
+	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, id).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.SupabaseResponse{
+			Error: stringPtr("Board not found"),
+		})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	if !ownerID.Valid || ownerID.String != userClaims.UserID {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Only the board owner can update settings"),
+		})
+		return
+	}
+
+	var updates struct {
+		Name             *string          `json:"name"`
+		Description      *string          `json:"description"`
+		RulesMarkdown    *string          `json:"rules_markdown"`
+		GomosubAvatarURL *string          `json:"gomosub_avatar_url"`
+		CoverImageURL    *string          `json:"cover_image_url"`
+		GomosubTags      *json.RawMessage `json:"gomosub_tags"`
+	}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	var sets []string
+	var args []interface{}
+	n := 1
+
+	if updates.Name != nil {
+		sets = append(sets, fmt.Sprintf("name = $%d", n))
+		args = append(args, *updates.Name)
+		n++
+	}
+	if updates.Description != nil {
+		sets = append(sets, fmt.Sprintf("description = $%d", n))
+		args = append(args, *updates.Description)
+		n++
+	}
+	if updates.RulesMarkdown != nil {
+		sets = append(sets, fmt.Sprintf("rules_markdown = $%d", n))
+		args = append(args, *updates.RulesMarkdown)
+		n++
+		sets = append(sets, fmt.Sprintf("rules_updated_at = $%d", n))
+		args = append(args, time.Now().UTC())
+		n++
+	}
+	if updates.GomosubAvatarURL != nil {
+		sets = append(sets, fmt.Sprintf("gomosub_avatar_url = $%d", n))
+		args = append(args, *updates.GomosubAvatarURL)
+		n++
+	}
+	if updates.CoverImageURL != nil {
+		sets = append(sets, fmt.Sprintf("cover_image_url = $%d", n))
+		args = append(args, *updates.CoverImageURL)
+		n++
+	}
+	if updates.GomosubTags != nil {
+		raw := []byte(*updates.GomosubTags)
+		if len(raw) == 0 || string(raw) == "null" {
+			sets = append(sets, "gomosub_tags = '[]'::jsonb")
+		} else {
+			sets = append(sets, fmt.Sprintf("gomosub_tags = $%d::jsonb", n))
+			args = append(args, raw)
+			n++
+		}
+	}
+
+	if len(sets) == 0 {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("no fields to update"),
+		})
+		return
+	}
+
+	query := "UPDATE boards SET " + strings.Join(sets, ", ") + fmt.Sprintf(" WHERE id = $%d", n)
+	args = append(args, id)
+
+	_, err = h.db.Exec(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	var board models.Board
+	err = h.db.QueryRow(`
+		SELECT id, slug, name, description, is_gomosub, is_rules_board, owner_id,
+		       gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown, rules_updated_at, created_at
+		FROM boards WHERE id = $1
+	`, id).Scan(
+		&board.ID, &board.Slug, &board.Name, &board.Description,
+		&board.IsGomosub, &board.IsRulesBoard, &board.OwnerID,
+		&board.GomosubAvatarURL, &board.CoverImageURL, &board.GomosubTags,
+		&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: board,
 	})
 }

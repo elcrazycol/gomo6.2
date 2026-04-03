@@ -12,6 +12,7 @@ import { X, Plus, Eye, EyeOff, ImagePlus, Minimize2, Maximize2 } from "lucide-re
 import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { renderPreviewContent } from "@/utils/emojiUtils";
 import { ImageUpload } from "@/components/ImageUpload";
+import { storageUrl } from "@/utils/storage";
 
 interface Board {
   id: string;
@@ -201,16 +202,11 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
 
                     try {
                       const { data, error } = await supabase.storage
-                        .from('post-images')
+                        .from('content')
                         .upload(`threads/${Date.now()}-${file.name}`, file);
 
                       if (error) throw error;
-
-                      const { data: { publicUrl } } = supabase.storage
-                        .from('post-images')
-                        .getPublicUrl(data.path);
-
-                      setThreadImageUrl(publicUrl);
+                      setThreadImageUrl(data.path);
                     } catch (error) {
                       console.error('Error uploading thread image:', error);
                       toast.error('Ошибка загрузки изображения');
@@ -238,7 +234,11 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
             </div>
             {threadImageUrl && (
               <div className="mt-2">
-                <img src={threadImageUrl} alt="Thread image" className="max-h-32 rounded border" />
+                <img
+                  src={storageUrl("content", threadImageUrl) || threadImageUrl}
+                  alt="Thread image"
+                  className="max-h-32 rounded border"
+                />
               </div>
             )}
           </div>

@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/api/client_simple";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { UserBadge } from "@/components/UserBadge";
+import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { LikeButton } from "@/components/LikeButton";
 import { Heart, MessageCircle, Eye } from "lucide-react";
@@ -338,7 +339,7 @@ const ThreadCard = ({
           <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
             {thread.profiles?.avatar_url ? (
               <img
-                src={thread.profiles.avatar_url}
+                src={storageUrl("post-images", thread.profiles.avatar_url) || undefined}
                 alt={thread.profiles.username || "Пользователь"}
                 className="w-full h-full object-cover"
               />
