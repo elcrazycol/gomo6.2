@@ -43,6 +43,7 @@ export interface Thread {
   user_id: string;
   title: string;
   content: string;
+  content_json?: any;
   image_url?: string | null;
   image_urls?: string[] | null;
   post_count: number;
@@ -57,6 +58,7 @@ export interface Post {
   thread_id: string;
   user_id: string;
   content: string;
+  content_json?: any;
   image_url?: string | null;
   image_urls?: string[] | null;
   reply_to?: string | null;
@@ -125,7 +127,7 @@ class ApiClient {
     localStorage.removeItem('auth_token');
   }
 
-  protected async request<T>(
+  public async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {

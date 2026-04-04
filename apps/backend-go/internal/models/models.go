@@ -31,19 +31,19 @@ func (j *JSONB) Scan(value interface{}) error {
 
 // User with federation support
 type User struct {
-	ID          string    `json:"id" db:"id"`
-	Username    string    `json:"username" db:"username"`
-	Email       string    `json:"email" db:"email"`
-	Domain      string    `json:"domain" db:"domain"`
-	AvatarURL   *string          `json:"avatar_url" db:"avatar_url"`
-	Bio         *string          `json:"bio" db:"bio"`
-	BioJSON     json.RawMessage  `json:"bio_json,omitempty" db:"bio_json"`
-	Garma       *int      `json:"garma" db:"garma"`
-	PostCount   *int      `json:"post_count" db:"post_count"`
-	ThreadCount *int      `json:"thread_count" db:"thread_count"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	IsRemote    bool      `json:"is_remote" db:"is_remote"`
-	IsAnonymous bool      `json:"is_anonymous" db:"is_anonymous"`
+	ID          string          `json:"id" db:"id"`
+	Username    string          `json:"username" db:"username"`
+	Email       string          `json:"email" db:"email"`
+	Domain      string          `json:"domain" db:"domain"`
+	AvatarURL   *string         `json:"avatar_url" db:"avatar_url"`
+	Bio         *string         `json:"bio" db:"bio"`
+	BioJSON     json.RawMessage `json:"bio_json,omitempty" db:"bio_json"`
+	Garma       *int            `json:"garma" db:"garma"`
+	PostCount   *int            `json:"post_count" db:"post_count"`
+	ThreadCount *int            `json:"thread_count" db:"thread_count"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
+	IsRemote    bool            `json:"is_remote" db:"is_remote"`
+	IsAnonymous bool            `json:"is_anonymous" db:"is_anonymous"`
 }
 
 // Board (local boards)
@@ -80,19 +80,19 @@ type GomoSub struct {
 
 // Thread with federation support
 type Thread struct {
-	ID           string    `json:"id" db:"id"`
-	BoardID      string    `json:"board_id" db:"board_id"`
-	UserID       *string   `json:"user_id" db:"user_id"`
-	Title         string          `json:"title" db:"title"`
-	Content       string          `json:"content" db:"content"`
-	ContentJSON   json.RawMessage `json:"content_json,omitempty" db:"content_json"`
-	ImageURL      *string         `json:"image_url" db:"image_url"`
-	ImageURLs     JSONB           `json:"image_urls" db:"image_urls"`
-	PostCount     int             `json:"post_count" db:"post_count"`
-	ServerDomain  string          `json:"server_domain" db:"server_domain"`
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time       `json:"updated_at" db:"updated_at"`
-	IsRemote      bool            `json:"is_remote" db:"is_remote"`
+	ID           string          `json:"id" db:"id"`
+	BoardID      string          `json:"board_id" db:"board_id"`
+	UserID       *string         `json:"user_id" db:"user_id"`
+	Title        string          `json:"title" db:"title"`
+	Content      string          `json:"content" db:"content"`
+	ContentJSON  json.RawMessage `json:"content_json" db:"content_json"`
+	ImageURL     *string         `json:"image_url" db:"image_url"`
+	ImageURLs    JSONB           `json:"image_urls" db:"image_urls"`
+	PostCount    int             `json:"post_count" db:"post_count"`
+	ServerDomain string          `json:"server_domain" db:"server_domain"`
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at" db:"updated_at"`
+	IsRemote     bool            `json:"is_remote" db:"is_remote"`
 }
 
 // ThreadWithBoards extends Thread with board information for frontend compatibility
@@ -102,17 +102,17 @@ type ThreadWithBoards struct {
 	UserID       *string         `json:"user_id" db:"user_id"`
 	Title        string          `json:"title" db:"title"`
 	Content      string          `json:"content" db:"content"`
-	ContentJSON  json.RawMessage `json:"content_json,omitempty" db:"content_json"`
+	ContentJSON  json.RawMessage `json:"content_json" db:"content_json"`
 	ImageURL     *string         `json:"image_url" db:"image_url"`
-	ImageURLs    JSONB     `json:"image_urls" db:"image_urls"`
-	PostCount    int       `json:"post_count" db:"post_count"`
-	ServerDomain string    `json:"server_domain" db:"server_domain"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
-	IsRemote     bool      `json:"is_remote" db:"is_remote"`
-	Username     string    `json:"username"`
-	AvatarURL    *string   `json:"avatar_url"`
-	Boards       BoardInfo `json:"boards"`
+	ImageURLs    JSONB           `json:"image_urls" db:"image_urls"`
+	PostCount    int             `json:"post_count" db:"post_count"`
+	ServerDomain string          `json:"server_domain" db:"server_domain"`
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at" db:"updated_at"`
+	IsRemote     bool            `json:"is_remote" db:"is_remote"`
+	Username     string          `json:"username"`
+	AvatarURL    *string         `json:"avatar_url"`
+	Boards       BoardInfo       `json:"boards"`
 }
 
 type BoardInfo struct {
@@ -124,19 +124,20 @@ type BoardInfo struct {
 
 // Post with federation support
 type Post struct {
-	ID                 string    `json:"id" db:"id"`
-	ThreadID           string    `json:"thread_id" db:"thread_id"`
+	ID                 string          `json:"id" db:"id"`
+	ThreadID           string          `json:"thread_id" db:"thread_id"`
 	UserID             *string         `json:"user_id" db:"user_id"`
 	Content            string          `json:"content" db:"content"`
-	ContentJSON        json.RawMessage `json:"content_json,omitempty" db:"content_json"`
+	ContentJSON        json.RawMessage `json:"content_json" db:"content_json"`
 	ImageURL           *string         `json:"image_url" db:"image_url"`
-	ImageURLs          JSONB     `json:"image_urls" db:"image_urls"`
-	ReplyTo            *string   `json:"reply_to" db:"reply_to"`
-	IsPrivate          bool      `json:"is_private" db:"is_private"`
-	PrivateRecipientID *string   `json:"private_recipient_id" db:"private_recipient_id"`
-	ServerDomain       string    `json:"server_domain" db:"server_domain"`
-	CreatedAt          time.Time `json:"created_at" db:"created_at"`
-	IsRemote           bool      `json:"is_remote" db:"is_remote"`
+	ImageURLs          JSONB           `json:"image_urls" db:"image_urls"`
+	Attachments        JSONB           `json:"attachments" db:"attachments"`
+	ReplyTo            *string         `json:"reply_to" db:"reply_to"`
+	IsPrivate          bool            `json:"is_private" db:"is_private"`
+	PrivateRecipientID *string         `json:"private_recipient_id" db:"private_recipient_id"`
+	ServerDomain       string          `json:"server_domain" db:"server_domain"`
+	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
+	IsRemote           bool            `json:"is_remote" db:"is_remote"`
 }
 
 // PostLike
@@ -225,6 +226,7 @@ type CreatePostRequest struct {
 	Content            string          `json:"content"`
 	ContentJSON        json.RawMessage `json:"content_json,omitempty"`
 	ImageURLs          []string        `json:"image_urls"`
+	Attachments        JSONB           `json:"attachments,omitempty"`
 	ReplyTo            *string         `json:"reply_to,omitempty"`
 	ThreadServerDomain string          `json:"thread_server_domain,omitempty"`
 }

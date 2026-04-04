@@ -167,7 +167,12 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			thread.AvatarURL = &avatarURL.String
 		}
 		if len(contentJSON) > 0 {
-			thread.ContentJSON = json.RawMessage(contentJSON)
+			var decoded interface{}
+			if err := json.Unmarshal(contentJSON, &decoded); err == nil {
+				thread.ContentJSON = json.RawMessage(contentJSON)
+			} else {
+				thread.ContentJSON = nil
+			}
 		}
 		thread.Boards = models.BoardInfo{
 			Slug:         boardSlug,
@@ -238,7 +243,12 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		thread.AvatarURL = &avatarURL.String
 	}
 	if len(contentJSON) > 0 {
-		thread.ContentJSON = json.RawMessage(contentJSON)
+		var decoded interface{}
+		if err := json.Unmarshal(contentJSON, &decoded); err == nil {
+			thread.ContentJSON = json.RawMessage(contentJSON)
+		} else {
+			thread.ContentJSON = nil
+		}
 	}
 	thread.Boards = models.BoardInfo{
 		Slug:         boardSlug,

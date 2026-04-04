@@ -256,16 +256,39 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const ext = file.name.split(".").pop() || "bin";
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("content")
-      .upload(key, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
+    // Get presigned URL from backend
+    const presignResponse = await fetch('http://localhost:8080/storage/v1/presign-upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      },
+      body: JSON.stringify({
+        bucket: 'content',
+        key: key,
+        content_type: file.type,
+        expires_seconds: 3600,
+      }),
+    });
 
-    if (uploadError) {
-      console.error("Upload error", uploadError);
-      throw new Error(uploadError.message || "Ошибка загрузки файла");
+    if (!presignResponse.ok) {
+      const errorData = await presignResponse.json();
+      throw new Error(errorData.error || 'Presign failed');
+    }
+
+    const { upload_url } = await presignResponse.json();
+
+    // Upload file directly to Garage using presigned URL
+    const uploadResponse = await fetch(upload_url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type,
+      },
+      body: file,
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error('Upload failed');
     }
 
     results.push({
