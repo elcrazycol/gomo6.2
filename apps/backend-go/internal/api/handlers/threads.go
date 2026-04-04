@@ -24,7 +24,7 @@ func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	query := `
 		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
-		       t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
+		       t.attachments, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
 		FROM threads t
@@ -153,7 +153,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 		err := rows.Scan(
 			&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
-			&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
 			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		)
@@ -204,7 +204,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	query := `
 		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
-		       t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
+		       t.attachments, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
 		FROM threads t
@@ -221,7 +221,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	err = h.db.QueryRow(query, id.String()).Scan(
 		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
-		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 	)
@@ -321,19 +321,19 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 	}
 
 	query := `
-		INSERT INTO threads (board_id, user_id, title, content, content_json, image_url, image_urls, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls, post_count, server_domain, created_at, updated_at, is_remote
+		INSERT INTO threads (board_id, user_id, title, content, content_json, image_url, image_urls, attachments, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls, attachments, post_count, server_domain, created_at, updated_at, is_remote
 	`
 
 	var thread models.Thread
 	var retContentJSON []byte
 	err = h.db.QueryRow(query,
 		req.BoardID, userClaims.UserID, req.Title, req.Content, insertContentJSON,
-		imageURL, imageURLs, "localhost:8080",
+		imageURL, imageURLs, req.Attachments, "localhost:8080",
 	).Scan(
 		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
-		&thread.ImageURL, &thread.ImageURLs, &thread.PostCount, &thread.ServerDomain,
+		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
 	if err != nil {

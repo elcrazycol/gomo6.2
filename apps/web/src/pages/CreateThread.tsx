@@ -259,27 +259,19 @@ const CreateThread = () => {
         .filter(att => att.type === 'image')
         .map(att => att.url);
 
-      const threadData: any = {
+      // Use backend API instead of direct Supabase insertion
+      const threadPayload: any = {
         board_id: board.id,
-        user_id: user.id,
         title: title.trim(),
         content: content.trim(),
         content_json: contentJson,
-        image_url: threadImageUrl || imageUrlsFromAttachments[0] || null,
-        tags: tags,
+        image_urls: imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : (imageUrls.length > 0 ? imageUrls : []),
         attachments: attachments.length > 0 ? attachments : null,
       };
 
-      // Explicitly set image_urls field
-      if (imageUrlsFromAttachments.length > 0) {
-        threadData.image_urls = imageUrlsFromAttachments;
-      } else if (imageUrls.length > 0) {
-        threadData.image_urls = imageUrls;
-      }
-
       // Add poll if enabled
       if (showPoll && poll.question.trim()) {
-        threadData.poll = {
+        threadPayload.poll = {
           question: poll.question.trim(),
           options: poll.options.filter(option => option.text.trim()).map(option => ({
             id: option.id,
@@ -291,26 +283,34 @@ const CreateThread = () => {
         };
       }
 
-      // Add ephemeral settings if applicable
-      if (tags.flag === 'ephemeral') {
-        threadData.ephemeral_type = ephemeralSettings.type;
-        threadData.ephemeral_value = ephemeralSettings.value;
+      const response = await fetch('http://localhost:8080/rest/v1/threads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify(threadPayload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Ошибка создания треда');
       }
 
-      const { data, error } = await supabase
-        .from('threads')
-        .insert(threadData)
-        .select()
-        .single();
+      const responseData = await response.json();
+      // Backend returns { data: thread } wrapped in SupabaseResponse
+      const threadData = responseData.data || responseData;
 
-      if (error) throw error;
+      if (!threadData || !threadData.id) {
+        throw new Error('Не удалось получить ID созданного треда');
+      }
 
-      // Auto-subscribe to thread notifications
+      // Auto-subscribe to thread notifications (still use Supabase for this)
       const { error: subscriptionError } = await supabase
         .from('thread_subscriptions')
         .insert({
           user_id: user.id,
-          thread_id: data.id
+          thread_id: threadData.id
         });
 
       if (subscriptionError && subscriptionError.code !== '23505') { // Ignore duplicate key error
@@ -321,7 +321,7 @@ const CreateThread = () => {
       // Process ephemeral thread after creation
       if (tags.flag === 'ephemeral') {
         const { error: ephemeralError } = await supabase.rpc('process_ephemeral_thread', {
-          p_thread_id: data.id,
+          p_thread_id: threadData.id,
           p_ephemeral_type: ephemeralSettings.type,
           p_ephemeral_value: ephemeralSettings.value
         });
@@ -334,7 +334,7 @@ const CreateThread = () => {
 
       toast.success('Тред создан!');
       const prefix = board?.is_gomosub ? "/g" : "";
-      navigate(`${prefix}/${board.slug}/thread/${data.id}`);
+      navigate(`${prefix}/${board.slug}/thread/${threadData.id}`);
       setAttachments([]);
       setImageUrls([]);
     } catch (error) {
