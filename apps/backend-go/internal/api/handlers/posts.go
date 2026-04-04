@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ func NewPostsHandler(db *sql.DB) *PostsHandler {
 
 func (h *PostsHandler) GetPosts(c *gin.Context) {
 	query := `
-		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls,
+		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
 		       u.username, u.avatar_url
 		FROM posts p
@@ -147,7 +148,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 
 		err := rows.Scan(
 			&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
-			&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
+			&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 			&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 			&username, &avatarURL,
 		)
@@ -158,7 +159,12 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			return
 		}
 		if len(contentJSON) > 0 {
-			post.ContentJSON = json.RawMessage(contentJSON)
+			var decoded interface{}
+			if err := json.Unmarshal(contentJSON, &decoded); err == nil {
+				post.ContentJSON = json.RawMessage(contentJSON)
+			} else {
+				post.ContentJSON = nil
+			}
 		}
 		posts = append(posts, post)
 	}
@@ -174,7 +180,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	id := c.Param("id")
 
 	query := `
-		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls,
+		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
 		       u.username, u.avatar_url
 		FROM posts p
@@ -188,7 +194,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 
 	err := h.db.QueryRow(query, id).Scan(
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
-		&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
+		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 		&username, &avatarURL,
 	)
@@ -206,7 +212,14 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		return
 	}
 	if len(contentJSON) > 0 {
-		post.ContentJSON = json.RawMessage(contentJSON)
+		var decoded interface{}
+		if err := json.Unmarshal(contentJSON, &decoded); err == nil {
+			post.ContentJSON = json.RawMessage(contentJSON)
+			fmt.Printf("DEBUG: Post contentJSON decoded successfully: %s\n", string(contentJSON))
+		} else {
+			post.ContentJSON = nil
+			fmt.Printf("DEBUG: Failed to decode contentJSON: %v\n", err)
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{
@@ -281,6 +294,16 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 		return
 	}
 
+	// Validate that content is not empty
+	fmt.Printf("DEBUG: CreatePost received %d attachments\n", len(req.Attachments))
+	fmt.Printf("DEBUG: Attachments data: %+v\n", req.Attachments)
+	if req.Content == "" && len(req.Attachments) == 0 {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Пост не может быть пустым"),
+		})
+		return
+	}
+
 	// Get user ID from context
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -328,22 +351,27 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	var insertContentJSON interface{}
 	if len(req.ContentJSON) > 0 {
 		insertContentJSON = []byte(req.ContentJSON)
+		fmt.Printf("DEBUG: req.ContentJSON length: %d\n", len(req.ContentJSON))
+		fmt.Printf("DEBUG: req.ContentJSON content: %s\n", string(req.ContentJSON))
+	} else {
+		fmt.Printf("DEBUG: req.ContentJSON is empty or nil\n")
 	}
 
 	query := `
-		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls, reply_to, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
+		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
 	`
 
 	var post models.Post
 	var retContentJSON []byte
+	fmt.Printf("DEBUG: Storing attachments in DB: %+v\n", req.Attachments)
 	err = h.db.QueryRow(query,
 		req.ThreadID, userClaims.UserID, req.Content, insertContentJSON, imageURL,
-		imageURLs, req.ReplyTo, "localhost:8080",
+		imageURLs, req.Attachments, req.ReplyTo, "localhost:8080",
 	).Scan(
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retContentJSON,
-		&post.ImageURL, &post.ImageURLs, &post.ReplyTo, &post.IsPrivate,
+		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 	)
 
@@ -355,6 +383,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	}
 	if len(retContentJSON) > 0 {
 		post.ContentJSON = json.RawMessage(retContentJSON)
+		fmt.Printf("DEBUG: CreatePost contentJSON: %s\n", string(retContentJSON))
 	}
 
 	// Update thread post count and updated_at

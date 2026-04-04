@@ -857,30 +857,40 @@ const Thread = () => {
         .map(att => att.url);
       const imageUrlForDb = imageUrlsFromAttachments[0] || null;
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
-
-      const { error, data } = await supabase.from("posts").insert({
-        thread_id: threadId,
-        user_id: user.id,
-        content: content.trim(),
-        content_json: contentJson,
-        image_url: imageUrlForDb, // Keep for backward compatibility
-        image_urls: imageUrlsJson, // New field for multiple images
-        attachments: attachments.length > 0 ? attachments : null,
-        reply_to: replyingTo,
-        is_private: isPrivateMessage,
-        private_recipient_id: isPrivateMessage ? privateRecipientId : null,
+      
+      // Use backend API instead of direct Supabase insertion
+      const response = await fetch('http://localhost:8080/rest/v1/posts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({
+          thread_id: threadId,
+          content: content.trim(),
+          content_json: contentJson,
+          image_urls: imageUrlsJson, // Backend expects image_urls instead of image_url
+          attachments: attachments.length > 0 ? attachments : null,
+          reply_to: replyingTo,
+          is_private: isPrivateMessage,
+          private_recipient_id: isPrivateMessage ? privateRecipientId : null,
+        }),
       });
 
-      if (error) {
-        toast.error("Ошибка отправки");
-        return;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Ошибка отправки');
       }
 
+      const data = await response.json();
+
       // Add new post to local state
-      if (data) {
+      // Backend returns { data: post } wrapped in SupabaseResponse
+      const postData = data.data || data;
+      if (postData) {
         setPosts((currentPosts) => {
           const newPost = {
-            ...data,
+            ...postData,
             profiles: {
               id: user.id,
               username: user.username,
@@ -1460,10 +1470,10 @@ const Thread = () => {
                           showOutline={false}
                         />
                         <div className="text-muted-foreground">
-                          {formatDistanceToNow(new Date(post.created_at), {
+                          {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
                             locale: ru,
                             addSuffix: true,
-                          })}
+                          }) : 'только что'}
                         </div>
                         <div className="font-mono text-primary text-[10px]">#{post.id.slice(0, 8)}</div>
                       </div>
@@ -1479,10 +1489,10 @@ const Thread = () => {
                         showOutline={false}
                       />
                       {" · "}
-                      {formatDistanceToNow(new Date(post.created_at), {
+                      {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
                         locale: ru,
                         addSuffix: true,
-                      })}
+                      }) : 'только что'}
                     </>
                   )}
                 </div>
@@ -1598,16 +1608,18 @@ const Thread = () => {
                   {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
                     <span className="text-muted-foreground italic">Скрытый контент</span>
                   ) : (
-                    <ProcessedContent
-                      content={post.content}
-                      contentJson={(post as any).content_json}
-                      currentUserId={user?.id || null}
-                      isAdmin={isAdmin}
-                      currentUsername={currentUserUsername}
-                      currentUserColor={currentUserColor}
-                      postAuthorId={post.user_id}
-                      authorUsername={post.profiles?.username}
-                    />
+                    <>
+                      <ProcessedContent
+                        content={post.content}
+                        contentJson={(post as any).content_json}
+                        currentUserId={user?.id || null}
+                        isAdmin={isAdmin}
+                        currentUsername={currentUserUsername}
+                        currentUserColor={currentUserColor}
+                        postAuthorId={post.user_id}
+                        authorUsername={post.profiles?.username}
+                      />
+                    </>
                   )}
                 </div>
               )}
