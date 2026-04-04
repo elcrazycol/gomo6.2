@@ -88,6 +88,7 @@ type Thread struct {
 	ContentJSON  json.RawMessage `json:"content_json" db:"content_json"`
 	ImageURL     *string         `json:"image_url" db:"image_url"`
 	ImageURLs    JSONB           `json:"image_urls" db:"image_urls"`
+	Attachments  JSONB           `json:"attachments" db:"attachments"` // Added for full attachment support
 	PostCount    int             `json:"post_count" db:"post_count"`
 	ServerDomain string          `json:"server_domain" db:"server_domain"`
 	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
@@ -105,6 +106,7 @@ type ThreadWithBoards struct {
 	ContentJSON  json.RawMessage `json:"content_json" db:"content_json"`
 	ImageURL     *string         `json:"image_url" db:"image_url"`
 	ImageURLs    JSONB           `json:"image_urls" db:"image_urls"`
+	Attachments  JSONB           `json:"attachments" db:"attachments"` // Added for full attachment support
 	PostCount    int             `json:"post_count" db:"post_count"`
 	ServerDomain string          `json:"server_domain" db:"server_domain"`
 	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
@@ -218,6 +220,7 @@ type CreateThreadRequest struct {
 	Content           string          `json:"content"`
 	ContentJSON       json.RawMessage `json:"content_json,omitempty"`
 	ImageURLs         []string        `json:"image_urls"`
+	Attachments       JSONB           `json:"attachments,omitempty"` // Added for full attachment support
 	BoardServerDomain string          `json:"board_server_domain,omitempty"`
 }
 
