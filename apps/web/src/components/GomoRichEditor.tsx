@@ -525,7 +525,7 @@ const Toolbar = ({
     }
 
     setSelectionSnapshot(nextSnapshot);
-    setColorDraft(nextSnapshot.color || "#ff5500");
+    setColorDraft(nextSnapshot.color || randomHexColor());
     setIsColorDialogOpen(true);
   };
 
@@ -604,7 +604,7 @@ const Toolbar = ({
               <Input
                 value={colorDraft}
                 onChange={(event) => setColorDraft(event.target.value)}
-                placeholder="#ff5500"
+                placeholder={randomHexColor()}
                 className="min-w-0 flex-[0_1_10rem]"
               />
               <Button
