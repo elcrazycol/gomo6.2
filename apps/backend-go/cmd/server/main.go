@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/routes"
+	"github.com/gomo6/backend/internal/bots"
 	"github.com/gomo6/backend/internal/database"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/websocket"
@@ -32,6 +33,15 @@ func main() {
 	wsHub := websocket.NewHub(redisClient)
 	go wsHub.Run()
 
+	// Initialize Bot Manager
+	botManager := bots.NewBotManager(db, redisClient, wsHub)
+	if err := botManager.Start(); err != nil {
+		log.Printf("Warning: Failed to start bot manager: %v", err)
+	} else {
+		log.Println("Bot manager started successfully")
+	}
+	defer botManager.Stop()
+
 	// Initialize Gin router
 	router := gin.Default()
 
@@ -40,8 +50,8 @@ func main() {
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
 
-	// Setup routes with WebSocket Hub
-	routes.SetupRoutes(router, db, redisClient, wsHub)
+	// Setup routes with WebSocket Hub and BotManager
+	routes.SetupRoutes(router, db, redisClient, wsHub, botManager)
 
 	// Get port from environment
 	port := os.Getenv("SERVER_PORT")

@@ -16,8 +16,9 @@ import (
 )
 
 type PostsHandler struct {
-	db    *sql.DB
-	wsHub interface{}
+	db               *sql.DB
+	wsHub            interface{}
+	botEventPublisher *BotEventPublisher
 }
 
 // NewPostsHandler creates a new PostsHandler with optional WebSocket Hub
@@ -27,6 +28,11 @@ func NewPostsHandler(db *sql.DB, wsHub ...interface{}) *PostsHandler {
 		h.wsHub = wsHub[0]
 	}
 	return h
+}
+
+// SetBotEventPublisher sets the bot event publisher
+func (h *PostsHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
+	h.botEventPublisher = publisher
 }
 
 func (h *PostsHandler) GetPosts(c *gin.Context) {
@@ -437,6 +443,17 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 		}
 	} else {
 		fmt.Printf("[WebSocket DEBUG] wsHub is nil, cannot publish\n")
+	}
+
+	// Publish event to bots
+	if h.botEventPublisher != nil {
+		h.botEventPublisher.PublishThreadPost(map[string]interface{}{
+			"id":         post.ID,
+			"thread_id":  post.ThreadID,
+			"user_id":    post.UserID,
+			"content":    post.Content,
+			"created_at": post.CreatedAt,
+		})
 	}
 
 	c.JSON(http.StatusCreated, models.SupabaseResponse{

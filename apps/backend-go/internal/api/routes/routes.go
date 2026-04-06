@@ -16,7 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub) {
+func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub, botManager interface{}) {
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
@@ -27,6 +27,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Initialize auth service
 	authService := auth.NewAuthService()
 
+	// Initialize BotEventPublisher
+	botEventPublisher := handlers.NewBotEventPublisher(redis)
+
 	// Initialize WebSocket handler if hub is provided
 	var wsHandler *websocket.Handler
 	if wsHub != nil {
@@ -34,13 +37,18 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 	boardsHandler := handlers.NewBoardsHandler(db)
 	threadsHandler := handlers.NewThreadsHandler(db)
+	threadsHandler.SetBotEventPublisher(botEventPublisher)
 	postsHandler := handlers.NewPostsHandler(db, wsHub)
+	postsHandler.SetBotEventPublisher(botEventPublisher)
 	profilesHandler := handlers.NewProfilesHandler(db)
 	likesHandler := handlers.NewLikesHandler(db)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	rpcHandler := handlers.NewRPCHandler(db)
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)
+	universalHandler.SetBotEventPublisher(botEventPublisher)
 	audioHandler := handlers.NewAudioHandler()
+	botHandler := handlers.NewBotHandler(db)
+	botHandler.SetBotManager(botManager)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -59,13 +67,35 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Audio metadata endpoint
 		api.POST("/audio/metadata", audioHandler.ExtractAudioMetadata)
 
-		// Auth routes
-		auth := api.Group("/auth")
+		// Test endpoint to verify AuthMiddleware works
+		api.GET("/test-auth", middleware.AuthMiddleware(authService), func(c *gin.Context) {
+			claimsInterface, _ := c.Get("claims")
+			claims := claimsInterface.(*auth.Claims)
+			c.JSON(200, gin.H{"user_id": claims.UserID, "message": "Auth works!"})
+		})
+
+		// Bot routes (protected)
+		bots := api.Group("/bots")
+		bots.Use(middleware.AuthMiddleware(authService))
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.POST("/login", authHandler.Login)
-			auth.GET("/me", middleware.AuthMiddleware(authService), authHandler.GetMe)
-			auth.POST("/password", middleware.AuthMiddleware(authService), authHandler.UpdatePassword)
+			bots.POST("", botHandler.CreateBot)
+			bots.GET("", botHandler.GetBots)
+			bots.GET("/:id", botHandler.GetBot)
+			bots.PUT("/:id", botHandler.UpdateBot)
+			bots.DELETE("/:id", botHandler.DeleteBot)
+			bots.POST("/:id/toggle", botHandler.ToggleBot)
+			bots.GET("/:id/logs", botHandler.GetBotLogs)
+			bots.GET("/:id/stats", botHandler.GetBotStats)
+			bots.DELETE("/:id/logs", botHandler.ClearBotLogs)
+		}
+
+		// Auth routes
+		authGroup := api.Group("/auth")
+		{
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.POST("/login", authHandler.Login)
+			authGroup.GET("/me", middleware.AuthMiddleware(authService), authHandler.GetMe)
+			authGroup.POST("/password", middleware.AuthMiddleware(authService), authHandler.UpdatePassword)
 		}
 	}
 

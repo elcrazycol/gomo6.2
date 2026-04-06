@@ -14,11 +14,17 @@ import (
 )
 
 type ThreadsHandler struct {
-	db *sql.DB
+	db                *sql.DB
+	botEventPublisher *BotEventPublisher
 }
 
 func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 	return &ThreadsHandler{db: db}
+}
+
+// SetBotEventPublisher sets the bot event publisher
+func (h *ThreadsHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
+	h.botEventPublisher = publisher
 }
 
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
@@ -347,6 +353,18 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 	}
 
 	RecomputeUserProfileStats(h.db, userClaims.UserID)
+
+	// Publish event to bots
+	if h.botEventPublisher != nil {
+		h.botEventPublisher.PublishThread(map[string]interface{}{
+			"id":         thread.ID,
+			"board_id":   thread.BoardID,
+			"user_id":    thread.UserID,
+			"title":      thread.Title,
+			"content":    thread.Content,
+			"created_at": thread.CreatedAt,
+		})
+	}
 
 	c.JSON(http.StatusCreated, models.SupabaseResponse{
 		Data: thread,
