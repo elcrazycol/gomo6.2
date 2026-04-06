@@ -14,12 +14,18 @@ import (
 
 // UniversalHandler handles generic CRUD operations for any table
 type UniversalHandler struct {
-	db  *sql.DB
-	hub *websocket.Hub
+	db                *sql.DB
+	hub               *websocket.Hub
+	botEventPublisher *BotEventPublisher
 }
 
 func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
 	return &UniversalHandler{db: db, hub: hub}
+}
+
+// SetBotEventPublisher sets the bot event publisher
+func (h *UniversalHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
+	h.botEventPublisher = publisher
 }
 
 // HandleTableRequest handles requests to any table
@@ -352,6 +358,17 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			} else {
 				fmt.Printf("[WebSocket] Published wall post event for post %s\n", result["id"])
 			}
+		}
+		// Publish event to bots
+		if h.botEventPublisher != nil {
+			h.botEventPublisher.PublishWallPost(result)
+		}
+	}
+
+	if tableName == "profile_wall_post_comments" {
+		// Publish event to bots
+		if h.botEventPublisher != nil {
+			h.botEventPublisher.PublishWallComment(result)
 		}
 	}
 
