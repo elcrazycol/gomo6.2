@@ -12,26 +12,34 @@ import (
 	"github.com/gomo6/backend/internal/middleware"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
 
-func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub interface{}) {
+func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub) {
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
 	})
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db)
+	// Initialize auth service
 	authService := auth.NewAuthService()
+
+	// Initialize WebSocket handler if hub is provided
+	var wsHandler *websocket.Handler
+	if wsHub != nil {
+		wsHandler = websocket.NewHandler(wsHub, authService)
+	}
 	boardsHandler := handlers.NewBoardsHandler(db)
 	threadsHandler := handlers.NewThreadsHandler(db)
-	postsHandler := handlers.NewPostsHandler(db)
+	postsHandler := handlers.NewPostsHandler(db, wsHub)
 	profilesHandler := handlers.NewProfilesHandler(db)
 	likesHandler := handlers.NewLikesHandler(db)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	rpcHandler := handlers.NewRPCHandler(db)
-	universalHandler := handlers.NewUniversalHandler(db)
+	universalHandler := handlers.NewUniversalHandler(db, wsHub)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -233,6 +241,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub inte
 		}
 	}
 
-	// WebSocket endpoint disabled for now
-	// router.GET("/ws", wsHandler.HandleWebSocket)
+	// WebSocket endpoint
+	if wsHandler != nil {
+		ws := router.Group("/ws")
+		ws.Use(middleware.SupabaseAuthMiddleware(authService))
+		{
+			ws.GET("", wsHandler.HandleWebSocket)
+		}
+
+		// Debug endpoint for online users count (protected, admin only in production)
+		router.GET("/ws/stats", middleware.SupabaseAuthMiddleware(authService), wsHandler.GetOnlineUsers)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/gomo6/backend/internal/api/routes"
 	"github.com/gomo6/backend/internal/database"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/joho/godotenv"
 )
 
@@ -27,6 +28,10 @@ func main() {
 	// Initialize Redis
 	redisClient := database.InitRedis()
 
+	// Initialize WebSocket Hub with Redis Pub/Sub
+	wsHub := websocket.NewHub(redisClient)
+	go wsHub.Run()
+
 	// Initialize Gin router
 	router := gin.Default()
 
@@ -35,8 +40,8 @@ func main() {
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
 
-	// Setup routes (without WebSocket for now)
-	routes.SetupRoutes(router, db, redisClient, nil)
+	// Setup routes with WebSocket Hub
+	routes.SetupRoutes(router, db, redisClient, wsHub)
 
 	// Get port from environment
 	port := os.Getenv("SERVER_PORT")

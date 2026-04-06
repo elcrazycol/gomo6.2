@@ -19,6 +19,7 @@ import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { Poll } from "@/components/Poll";
 import { storageUrl } from "@/utils/storage";
+import { wsService } from "@/services/websocket";
 
 // Tag label helper functions
 const getContentTagLabel = (value: string) => {
@@ -223,6 +224,7 @@ const Thread = () => {
   const [banUserId, setBanUserId] = useState<string | null>(null);
   const [resetKey, setResetKey] = useState(0);
   const [isClearing, setIsClearing] = useState(false);
+  const [pendingPostId, setPendingPostId] = useState<string | null>(null);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
@@ -236,6 +238,7 @@ const Thread = () => {
   });
   const [pollData, setPollData] = useState<any>(null);
   const shouldStickBottomRef = useRef(false);
+  const postsRef = useRef<PostModel[]>([]);
   const SCROLL_STICKY_THRESHOLD = 240;
 
   // Simple BBCode renderer for preview
@@ -481,15 +484,71 @@ const Thread = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Track mobile/desktop mode
+  // Keep postsRef in sync with posts state
   useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
+    postsRef.current = posts;
+  }, [posts]);
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // WebSocket realtime subscription for new posts
+  useEffect(() => {
+    if (!threadId) return;
+
+    // Connect to WebSocket if not already connected
+    if (!wsService.connected && user) {
+      wsService.connect();
+    }
+
+    // Subscribe to thread room
+    wsService.subscribe(threadId);
+
+    // Listen for new posts
+    const unsubscribe = wsService.on('new_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id || !postData.thread_id) return;
+          
+          // Only add if it's for this thread
+          if (postData.thread_id !== threadId) return;
+          
+          // Check against current state for deduplication
+          const postId = String(postData.id);
+          setPosts(prevPosts => {
+            if (prevPosts.some(p => String(p.id) === postId)) {
+              return prevPosts; // Post already exists, don't duplicate
+            }
+            
+            // Add new post with profile data
+            const newPost = {
+              ...postData,
+              profiles: {
+                id: postData.user_id,
+                username: postData.username || 'Аноним',
+                avatar_url: postData.avatar_url
+              }
+            };
+            
+            return [...prevPosts, newPost];
+          });
+          
+          // Clear pending post ID if this was our own post
+          if (pendingPostId === postId) {
+            setPendingPostId(null);
+          }
+        } catch (e) {
+          // Silent error
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [threadId, user, pendingPostId]);
 
   const checkSubscription = useCallback(async () => {
     if (!user || !threadId) return;
@@ -533,6 +592,9 @@ const Thread = () => {
     }
   };
 
+  // DISABLED: Using WebSocket for realtime updates instead
+  // Supabase realtime subscription removed to prevent duplicate posts
+  /*
   useEffect(() => {
     // Set up realtime subscription for new posts
     const channel = supabase
@@ -555,6 +617,7 @@ const Thread = () => {
       supabase.removeChannel(channel);
     };
   }, [threadId]);
+  */
 
   const loadThread = useCallback(async () => {
     const { data: threadData } = await supabase
@@ -884,11 +947,21 @@ const Thread = () => {
 
       const data = await response.json();
 
-      // Add new post to local state
+      // Add new post to local state ONLY if not already added by WebSocket
       // Backend returns { data: post } wrapped in SupabaseResponse
       const postData = data.data || data;
       if (postData) {
+        const postId = String(postData.id);
+        
+        // Mark this post as pending to avoid WebSocket duplicates
+        setPendingPostId(postId);
+        
         setPosts((currentPosts) => {
+          // Check if post already exists (might be added by WebSocket)
+          if (currentPosts.some(p => String(p.id) === postId)) {
+            return currentPosts; // Don't duplicate
+          }
+          
           const newPost = {
             ...postData,
             profiles: {
@@ -911,6 +984,11 @@ const Thread = () => {
           // Add to end
           return [...currentPosts, newPost];
         });
+        
+        // Clear pending post ID after a short delay to handle WebSocket race conditions
+        setTimeout(() => {
+          setPendingPostId(null);
+        }, 2000);
       }
 
       // Start clearing mode
@@ -1447,7 +1525,7 @@ const Thread = () => {
 
           {posts.map((post) => (
             <div
-              key={post.id}
+              key={`${post.id}-${post.created_at}`}
               id={`post-${post.id}`}
               className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
                 pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
