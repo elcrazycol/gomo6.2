@@ -50,8 +50,11 @@ func (h *AudioHandler) ExtractAudioMetadata(c *gin.Context) {
 		return
 	}
 
+	// Seek back to beginning of temp file for reading
+	tempFile.Seek(0, 0)
+
 	// Extract metadata using tag library
-	metadata, err := tag.ReadFrom(tempFile.Name())
+	metadata, err := tag.ReadFrom(tempFile)
 	if err != nil {
 		fmt.Printf("Failed to extract audio metadata: %v\n", err)
 		// Return basic info even if metadata extraction fails
@@ -65,14 +68,9 @@ func (h *AudioHandler) ExtractAudioMetadata(c *gin.Context) {
 		return
 	}
 
-	// Get duration (basic estimation - for real duration you'd need ffmpeg)
+	// Get duration - tag library doesn't provide duration, so we'll return 0 for now
+	// For real duration extraction, you'd need ffmpeg integration
 	duration := float64(0)
-	if metadata.Format() != nil {
-		// This is a rough estimation - for accurate duration you'd need ffmpeg integration
-		if metadata.Format().Duration() > 0 {
-			duration = float64(metadata.Format().Duration().Seconds())
-		}
-	}
 
 	// Extract cover art
 	var coverArtURL string
