@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/api/client_simple";
 import { compressImageWithMetadataRemoval } from "@/lib/imageProcessing";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toast } from "sonner";
+import * as mm from 'music-metadata';
 
 export type AttachmentType = "image" | "video" | "audio" | "file";
 
@@ -12,6 +13,11 @@ export interface AttachmentMeta {
   name: string;
   size: number;
   poster?: string; // preview for videos
+  title?: string; // audio track title
+  artist?: string; // audio artist name
+  album?: string; // audio album name
+  duration?: number; // audio duration in seconds
+  coverArt?: string; // audio cover art URL
 }
 
 // Оптимизированные настройки
@@ -153,10 +159,150 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
   }
 };
 
-const transcodeAudio = async (file: File): Promise<File> => {
+const extractAudioMetadata = async (file: File): Promise<{
+  title?: string;
+  artist?: string;
+  album?: string;
+  duration?: number;
+  coverArt?: string;
+}> => {
+  try {
+    console.log('Extracting metadata from:', file.name, file.type, file.size);
+    
+    // Сначала пробуем извлечь через music-metadata
+    let metadata: any = null;
+    let coverArt: string | undefined;
+    
+    try {
+      // Проверяем поддерживаемые форматы
+      const supportedTypes = [
+        'audio/mpeg', 'audio/mp3', 'audio/mpg',
+        'audio/flac', 'audio/ogg', 'audio/wav', 
+        'audio/x-wav', 'audio/aac', 'audio/mp4',
+        'audio/m4a', 'audio/x-m4a'
+      ];
+      
+      if (supportedTypes.includes(file.type) || file.name.match(/\.(mp3|flac|ogg|wav|m4a|aac)$/i)) {
+        metadata = await mm.parseBlob(file, {
+          duration: true,
+          skipCovers: false,
+          includeChapters: false,
+        });
+        
+        console.log('Music-metadata parsed successfully');
+        console.log('Parsed metadata:', {
+          title: metadata.common.title,
+          artist: metadata.common.artist,
+          album: metadata.common.album,
+          duration: metadata.format.duration,
+          hasPicture: metadata.common.picture?.length > 0,
+          genre: metadata.common.genre,
+          year: metadata.common.year
+        });
+        
+        // Извлекаем обложку
+        if (metadata.common.picture && metadata.common.picture.length > 0) {
+          const picture = metadata.common.picture[0];
+          console.log('Picture data:', {
+            format: picture.format,
+            type: picture.type,
+            size: picture.data.length
+          });
+          
+          try {
+            const blob = new Blob([new Uint8Array(picture.data)], { type: picture.format });
+            coverArt = URL.createObjectURL(blob);
+            console.log('Extracted cover art:', picture.format);
+          } catch (e) {
+            console.warn('Failed to create blob for cover art:', e);
+          }
+        }
+      }
+    } catch (mmError) {
+      console.warn('Music-metadata failed:', mmError);
+    }
+    
+    // Если music-metadata не сработал, пробуем серверное извлечение
+    if (!metadata || !metadata.common.title) {
+      try {
+        console.log('Trying server-side metadata extraction...');
+        const formData = new FormData();
+        formData.append('audio', file);
+        
+        const response = await fetch('http://localhost:8080/api/v1/audio/metadata', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (response.ok) {
+          const serverMetadata = await response.json();
+          console.log('Server metadata extraction successful:', serverMetadata);
+          
+          return {
+            title: serverMetadata.title || undefined,
+            artist: serverMetadata.artist || undefined,
+            album: serverMetadata.album || undefined,
+            duration: serverMetadata.duration || undefined,
+            coverArt: serverMetadata.coverArt || undefined,
+          };
+        }
+      } catch (serverError) {
+        console.warn('Server-side metadata extraction failed:', serverError);
+      }
+    }
+    
+    // Если ничего не сработало, пробуем получить длительность через HTML5 Audio
+    let duration = metadata?.format.duration;
+    if (!duration) {
+      try {
+        duration = await new Promise<number>((resolve) => {
+          const audio = new Audio();
+          audio.addEventListener('loadedmetadata', () => {
+            resolve(audio.duration);
+            URL.revokeObjectURL(audio.src);
+          });
+          audio.addEventListener('error', () => {
+            resolve(0);
+            URL.revokeObjectURL(audio.src);
+          });
+          audio.src = URL.createObjectURL(file);
+        });
+        console.log('Duration from HTML5 Audio:', duration);
+      } catch (audioError) {
+        console.warn('HTML5 Audio duration extraction failed:', audioError);
+        duration = undefined;
+      }
+    }
+
+    const result = {
+      title: metadata?.common.title || undefined,
+      artist: metadata?.common.artist || undefined,
+      album: metadata?.common.album || undefined,
+      duration: duration || undefined,
+      coverArt,
+    };
+    
+    console.log('Final metadata result:', result);
+    return result;
+  } catch (error) {
+    console.warn('Failed to extract audio metadata:', error);
+    console.warn('File details:', {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    });
+    return {};
+  }
+};
+
+const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: any }> => {
+  // Извлекаем метаданные ПЕРЕД transcoding
+  const metadata = await extractAudioMetadata(file);
+  console.log('Extracted metadata before transcoding:', metadata);
+
   // Проверяем кэш
   const cached = getCachedFile(file);
-  if (cached) return cached.file;
+  if (cached) return { file: cached.file, metadata };
 
   if (file.size > MAX_FILE_SIZE) {
     throw new Error("Аудио больше 25MB — сожмите перед загрузкой");
@@ -187,7 +333,7 @@ const transcodeAudio = async (file: File): Promise<File> => {
     const outFile = new File([arrayBuffer], file.name.replace(/\.[^.]+$/, "") + ".ogg", { type: "audio/ogg" });
     
     setCachedFile(file, { file: outFile });
-    return outFile;
+    return { file: outFile, metadata };
   } finally {
     try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
     try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
@@ -211,6 +357,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const type = inferType(original);
     let file: File = original;
     let poster: string | undefined;
+    let audioMetadata: any;
 
     // Показываем прогресс для больших файлов
     // const showProgress = original.size > 5 * 1024 * 1024; // > 5MB
@@ -226,7 +373,17 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
         file = transcoded.file;
         poster = transcoded.poster;
       } else if (type === "audio") {
-        file = await transcodeAudio(original);
+        // Для MP3 файлов не делаем transcoding, чтобы сохранить метаданные
+        if (file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')) {
+          console.log('Skipping transcoding for MP3 file to preserve metadata');
+          file = original;
+          // Все равно извлекаем метаданные для MP3
+          audioMetadata = await extractAudioMetadata(original);
+        } else {
+          const audioResult = await transcodeAudio(original);
+          file = audioResult.file;
+          audioMetadata = audioResult.metadata;
+        }
       } else if (file.size > MAX_FILE_SIZE) {
         throw new Error("Файл больше 25MB — прикрепите меньший");
       }
@@ -298,6 +455,13 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       name: file.name,
       size: file.size,
       poster,
+      ...(audioMetadata && {
+        title: audioMetadata.title,
+        artist: audioMetadata.artist,
+        album: audioMetadata.album,
+        duration: audioMetadata.duration,
+        coverArt: audioMetadata.coverArt,
+      }),
     });
   }
 

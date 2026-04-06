@@ -513,6 +513,8 @@ export const supabase = {
             return apiClient.getUserThreadLikesReceivedTimestamps(params?.user_uuid).then(callback);
           case 'get_user_thread_reply_timestamps':
             return apiClient.getUserThreadReplyTimestamps(params?.user_uuid).then(callback);
+          case 'toggle_wall_post_pin':
+            return apiClient.toggleWallPostPin(params?._post_id, params?._user_id).then(callback);
           default:
             return Promise.resolve({ data: null, error: 'Unknown RPC function' });
         }

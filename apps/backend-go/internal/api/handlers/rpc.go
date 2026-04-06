@@ -635,3 +635,84 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
 }
+
+// ToggleWallPostPin toggles the pin status of a wall post
+func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
+	postID := c.Query("_post_id")
+	userID := c.Query("_user_id")
+
+	if postID == "" || userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("_post_id and _user_id parameters required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	_, err := uuid.Parse(postID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid post ID format"),
+		})
+		return
+	}
+
+	_, err = uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	// Get the post owner and current pin status
+	var postOwner string
+	var currentPinned bool
+	err = h.db.QueryRow("SELECT user_id, is_pinned FROM profile_wall_posts WHERE id = $1", postID).Scan(&postOwner, &currentPinned)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Only the wall owner can pin posts
+	if postOwner != userID {
+		c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+		return
+	}
+
+	// Toggle the pin status
+	newPinned := !currentPinned
+
+	if newPinned {
+		// Get the highest pinned_order for this user
+		var maxOrder sql.NullInt32
+		err = h.db.QueryRow("SELECT MAX(pinned_order) FROM profile_wall_posts WHERE user_id = $1 AND is_pinned = TRUE", userID).Scan(&maxOrder)
+		if err != nil {
+			maxOrder = sql.NullInt32{Valid: false}
+		}
+
+		newOrder := 1
+		if maxOrder.Valid {
+			newOrder = int(maxOrder.Int32) + 1
+		}
+
+		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = TRUE, pinned_order = $1, updated_at = NOW() WHERE id = $2", newOrder, postID)
+	} else {
+		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = FALSE, pinned_order = NULL, updated_at = NOW() WHERE id = $1", postID)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
+}

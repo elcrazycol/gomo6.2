@@ -8,6 +8,7 @@ import { CreateWallPost, type WallPost } from "@/components/CreateWallPost";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ImageGallery } from "@/components/ImageGallery";
 import { MediaPlayer } from "@/components/MediaPlayer";
+import { AudioAttachment } from "@/components/AudioAttachment";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { UserBadge } from "@/components/UserBadge";
 import { useNavigate } from "react-router-dom";
@@ -322,13 +323,10 @@ const WallAttachments = ({
 
         if (attachment.type === "audio") {
           return (
-            <MediaPlayer
+            <AudioAttachment
               key={`${galleryKey}-${index}`}
-              kind="audio"
-              sources={[{ src: storageUrl("content", attachment.url) || attachment.url, type: attachment.mime || "audio/ogg" }]}
+              attachment={attachment}
               className="max-w-xl"
-              playerId={`wall-audio-${galleryKey}-${index}`}
-              title={attachment.name || "Аудио"}
               playlistId={`wall-${galleryKey}`}
               playlistIndex={index}
             />
@@ -882,7 +880,10 @@ const WallPostCard = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => onTogglePin(post.id)}
+                  onClick={() => {
+                    console.log("[PinButton] clicked, post.id:", post.id, "onTogglePin:", onTogglePin);
+                    onTogglePin(post.id);
+                  }}
                   className="h-8 w-8"
                   title={post.is_pinned ? "Открепить пост" : "Закрепить пост"}
                 >
@@ -1565,15 +1566,24 @@ export const ProfileWall = ({
   };
 
   const handleTogglePin = async (postId: string) => {
-    if (!currentUserId) return;
+    console.log("[handleTogglePin] called with postId:", postId, "currentUserId:", currentUserId);
+    if (!currentUserId) {
+      toast.error("Не авторизован");
+      return;
+    }
 
     try {
+      console.log("[handleTogglePin] calling supabase.rpc...");
       const { data, error } = await supabase.rpc("toggle_wall_post_pin", {
         _post_id: postId,
         _user_id: currentUserId,
       });
+      console.log("[handleTogglePin] RPC result:", { data, error });
 
-      if (error) throw error;
+      if (error) {
+        console.error("[handleTogglePin] RPC error:", error);
+        throw error;
+      }
 
       if (!data) {
         toast.error("У вас нет прав на закрепление этого поста");

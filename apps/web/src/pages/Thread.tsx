@@ -85,6 +85,7 @@ import { AttachmentMeta } from "@/utils/mediaUpload";
 import type { Thread as ThreadModel, Post as PostModel, UserProfileLite } from "@/types/forum";
 import { FileAudio2, FileVideo2, FileText, Image as ImageIcon, SkipBack, SkipForward, Play, Pause } from "lucide-react";
 import { MediaPlayer } from "@/components/MediaPlayer";
+import { AudioAttachment } from "@/components/AudioAttachment";
 
 const parseAttachments = (raw: unknown): AttachmentMeta[] => {
   if (!raw) return [];
@@ -155,12 +156,9 @@ const renderAttachments = (
         if (att.type === "audio") {
           return (
             <div key={idx} className="flex justify-start pb-3">
-              <MediaPlayer
-                kind="audio"
-                sources={[{ src: att.url, type: att.mime || "audio/ogg" }]}
+              <AudioAttachment
+                attachment={att}
                 className="max-w-md"
-                playerId={`audio-${att.url}`}
-                title={att.name || "Аудио"}
                 playlistId={playlistKey}
                 playlistIndex={idx}
               />
