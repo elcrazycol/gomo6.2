@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { supabase } from "@/integrations/api/client_simple";
@@ -11,6 +11,7 @@ import { MediaPlayer } from "@/components/MediaPlayer";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { UserBadge } from "@/components/UserBadge";
 import { useNavigate } from "react-router-dom";
+import { wsService } from "@/services/websocket";
 import {
   Dialog,
   DialogContent,
@@ -65,27 +66,38 @@ interface WallComment {
   };
 }
 
-const normalizeWallPostAuthor = (author: any) => {
+const normalizeWallPostAuthor = (author: any, fallbackUsername?: string) => {
   const authorSource = Array.isArray(author) ? author[0] : author;
+  
+  // If we have author data, use it. Otherwise, use fallback if provided.
+  if (authorSource && typeof authorSource === 'object' && authorSource.username) {
+    return {
+      username: authorSource.username,
+      is_anonymous: Boolean(authorSource.is_anonymous),
+      avatar_url: authorSource.avatar_url || null,
+    };
+  }
+  
+  // Fallback for WebSocket messages that might not include full author data
   return {
-    username: authorSource?.username || "user",
-    is_anonymous: Boolean(authorSource?.is_anonymous),
-    avatar_url: authorSource?.avatar_url || null,
+    username: fallbackUsername || "user",
+    is_anonymous: false,
+    avatar_url: null,
   };
 };
 
-const normalizeWallPostRecord = (post: any): WallPost => {
+const normalizeWallPostRecord = (post: any, currentUsername?: string): WallPost => {
   const originalPostSource = post?.original_post ?? null;
 
   return {
     ...post,
     repost_of_post_id: post?.repost_of_post_id ?? null,
-    author: normalizeWallPostAuthor(post?.author),
+    author: normalizeWallPostAuthor(post?.author, post?.author?.username || currentUsername),
     original_post: originalPostSource
       ? {
           ...originalPostSource,
           repost_of_post_id: originalPostSource?.repost_of_post_id ?? null,
-          author: normalizeWallPostAuthor(originalPostSource?.author),
+          author: normalizeWallPostAuthor(originalPostSource?.author, originalPostSource?.author?.username || currentUsername),
         }
       : null,
   } as WallPost;
@@ -1255,6 +1267,14 @@ export const ProfileWall = ({
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [galleryImages, setGalleryImages] = useState<string[] | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  
+  // Use refs for tracking pending posts to avoid stale closure issues
+  const pendingPostIdRef = useRef<string | null>(null);
+  const pendingPostTimestampRef = useRef<number | null>(null);
+  const processedPostIdsRef = useRef<Set<string>>(new Set());
+  
+  const [pendingPostId, setPendingPostId] = useState<string | null>(null);
+  const [pendingPostTimestamp, setPendingPostTimestamp] = useState<number | null>(null);
   const activeEditingPost = useMemo(
     () => posts.find((post) => post.id === editingPost),
     [editingPost, posts]
@@ -1265,6 +1285,142 @@ export const ProfileWall = ({
       loadPosts();
     }
   }, [profileUserId, showWall]);
+
+  // WebSocket realtime subscription for wall posts
+  useEffect(() => {
+    if (!profileUserId || !currentUserId) return;
+
+    // Connect to WebSocket if not already connected
+    if (!wsService.connected) {
+      wsService.connect();
+    }
+
+    // Subscribe to profile wall room
+    const wallRoom = `profile_wall_${profileUserId}`;
+    wsService.subscribe(wallRoom);
+
+    // Listen for new wall posts
+    const unsubscribeNewPost = wsService.on('new_wall_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id || !postData.user_id) return;
+          
+          // Only add if it's for this profile wall
+          if (postData.user_id !== profileUserId) {
+            return;
+          }
+          
+          const postId = String(postData.id);
+          const postTimestamp = new Date(postData.created_at).getTime();
+          
+          // Check if we've already processed this post (prevents duplicates from multiple WS messages)
+          if (processedPostIdsRef.current.has(postId)) {
+            return;
+          }
+          
+          // Use refs for current values to avoid stale closure
+          const currentPendingId = pendingPostIdRef.current;
+          const currentPendingTimestamp = pendingPostTimestampRef.current;
+          
+          // Check if this is our own recently created post (within 10 seconds window)
+          const isRecentPost = currentPendingTimestamp && (postTimestamp - currentPendingTimestamp) < 10000;
+          const isPendingPost = currentPendingId && currentPendingId === postId;
+          
+          // Check against current state for deduplication
+          setPosts(prevPosts => {
+            // Check if this post already exists in our state
+            const existingPost = prevPosts.find(p => String(p.id) === postId);
+            
+            if (existingPost) {
+              // Clear pending refs since we found the post
+              pendingPostIdRef.current = null;
+              pendingPostTimestampRef.current = null;
+              setPendingPostId(null);
+              setPendingPostTimestamp(null);
+              return prevPosts;
+            }
+            
+            // If this post was created very recently OR matches pending ID, it's ours
+            if (isRecentPost || isPendingPost) {
+              pendingPostIdRef.current = null;
+              pendingPostTimestampRef.current = null;
+              setPendingPostId(null);
+              setPendingPostTimestamp(null);
+              return prevPosts;
+            }
+            
+            // Mark as processed to prevent future duplicates
+            processedPostIdsRef.current.add(postId);
+            
+            // Add new post at the beginning
+            const newPost = normalizeWallPostRecord(postData, currentUsername);
+            return [newPost, ...prevPosts];
+          });
+          
+        } catch (e) {
+          console.error('[ProfileWall] Error parsing wall post message:', e);
+        }
+      }
+    });
+
+    // Listen for wall post updates
+    const unsubscribeUpdatePost = wsService.on('update_wall_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id) return;
+          
+          setPosts(prevPosts => 
+            prevPosts.map(post => 
+              String(post.id) === String(postData.id) 
+                ? normalizeWallPostRecord(postData, currentUsername)
+                : post
+            )
+          );
+        } catch (e) {
+          // Silent error
+        }
+      }
+    });
+
+    // Listen for wall post deletions
+    const unsubscribeDeletePost = wsService.on('delete_wall_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id) return;
+          
+          const postId = String(postData.id);
+          
+          setPosts(prevPosts => 
+            prevPosts.filter(post => String(post.id) !== postId)
+          );
+          
+        } catch (e) {
+          console.error('[ProfileWall] Error parsing delete wall post message:', e);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribeNewPost();
+      unsubscribeUpdatePost();
+      unsubscribeDeletePost();
+    };
+  }, [profileUserId, currentUserId]);
 
   const loadPosts = async () => {
     try {
@@ -1345,20 +1501,41 @@ export const ProfileWall = ({
 
         originalPostsMap = new Map(
           ((originalPosts || []) as any[]).map((originalPost) => {
-            const normalized = normalizeWallPostRecord(originalPost);
+            const normalized = normalizeWallPostRecord(originalPost, currentUsername);
             return [normalized.id, normalized];
           })
         );
       }
 
-      setPosts(
-        rawPosts.map((post) =>
-          normalizeWallPostRecord({
-            ...post,
-            original_post: post.repost_of_post_id ? originalPostsMap.get(post.repost_of_post_id) || null : null,
-          })
-        )
+      const normalizedPosts = rawPosts.map((post) =>
+        normalizeWallPostRecord({
+          ...post,
+          original_post: post.repost_of_post_id ? originalPostsMap.get(post.repost_of_post_id) || null : null,
+        }, currentUsername)
       );
+
+      // Merge with existing posts to avoid losing WebSocket-added posts
+      setPosts(prevPosts => {
+        const apiPostIds = new Set(normalizedPosts.map(p => p.id));
+        const websocketPosts = prevPosts.filter(post => !apiPostIds.has(post.id));
+        
+        // Combine: API posts and WebSocket posts, then sort
+        const combinedPosts = [...normalizedPosts, ...websocketPosts];
+        
+        // Sort combined posts: pinned first, then by created_at desc
+        combinedPosts.sort((a, b) => {
+          if (a.is_pinned && !b.is_pinned) return -1;
+          if (!a.is_pinned && b.is_pinned) return 1;
+          if (a.is_pinned && b.is_pinned) {
+            if (a.pinned_order !== null && b.pinned_order !== null) {
+              return a.pinned_order - b.pinned_order;
+            }
+          }
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+        
+        return combinedPosts;
+      });
     } catch (error) {
       console.error("Error loading wall posts:", error);
       toast.error("Ошибка загрузки постов стены");
@@ -1412,12 +1589,47 @@ export const ProfileWall = ({
   };
 
   const handlePostCreated = (newPost: WallPost) => {
-    setPosts((prev) => [normalizeWallPostRecord(newPost), ...prev]);
+    // Add a temporary marker to identify locally added posts
+    const markedPost = {
+      ...normalizeWallPostRecord(newPost, currentUsername),
+      _localAdd: true // Temporary marker
+    };
+    
+    setPosts((prev) => [markedPost, ...prev]);
     setShowCreateForm(false);
+    
+    // Clear pending refs after a longer delay to ensure WebSocket message is handled
+    setTimeout(() => {
+      pendingPostTimestampRef.current = null;
+      pendingPostIdRef.current = null;
+      setPendingPostTimestamp(null);
+      setPendingPostId(null);
+    }, 5000);
+  };
+
+  const handlePostCreatedWithTimestamp = (newPost: WallPost) => {
+    // Timestamp already set in onBeforeCreate, just add the post
+    handlePostCreated(newPost);
+  };
+
+  // Called BEFORE API request to set timestamp
+  const handleBeforeCreate = () => {
+    const timestamp = Date.now();
+    const tempId = crypto.randomUUID();
+    
+    // Update refs first for immediate access
+    pendingPostTimestampRef.current = timestamp;
+    pendingPostIdRef.current = tempId;
+    
+    // Also update state for re-renders
+    setPendingPostTimestamp(timestamp);
+    setPendingPostId(tempId);
+    
+    return tempId;
   };
 
   const handlePostUpdated = (updatedPost: WallPost) => {
-    setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? normalizeWallPostRecord(updatedPost) : post)));
+    setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? normalizeWallPostRecord(updatedPost, currentUsername) : post)));
     setEditingPost(null);
   };
 
@@ -1473,7 +1685,8 @@ export const ProfileWall = ({
                       key={showCreateForm ? "wall-create-open" : "wall-create-closed"}
                       profileUserId={profileUserId}
                       currentUserId={currentUserId}
-                      onPostCreated={handlePostCreated}
+                      onPostCreated={handlePostCreatedWithTimestamp}
+                      onBeforeCreate={handleBeforeCreate}
                       onCancel={() => setShowCreateForm(false)}
                     />
                   )}
@@ -1492,9 +1705,9 @@ export const ProfileWall = ({
           </div>
         ) : (
           <div className="space-y-4">
-            {posts.map((post) => (
+            {posts.map((post, index) => (
               <WallPostCard
-                key={post.id}
+                key={`${post.id}-${post.created_at}-${index}`}
                 post={post}
                 profileUserId={profileUserId}
                 currentUserId={currentUserId}

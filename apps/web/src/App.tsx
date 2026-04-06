@@ -8,6 +8,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LazyPage } from "@/components/LazyPage";
 import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
+import { wsService } from "./services/websocket";
 
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
@@ -53,6 +54,23 @@ const App = () => {
   useEffect(() => {
     // Prefetch critical routes for instant navigation
     prefetchRoutes();
+  }, []);
+
+  useEffect(() => {
+    // Connect to WebSocket for real-time updates
+    wsService.connect();
+    
+    // Wait for connection then subscribe to feed
+    const checkAndSubscribe = () => {
+      if (wsService.connected) {
+        wsService.subscribeToFeed();
+      } else {
+        setTimeout(checkAndSubscribe, 500);
+      }
+    };
+    checkAndSubscribe();
+    
+    // Note: We don't disconnect on unmount to keep connection alive across navigation
   }, []);
 
   useEffect(() => {

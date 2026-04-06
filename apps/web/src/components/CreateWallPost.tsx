@@ -39,6 +39,7 @@ interface CreateWallPostProps {
   onPostCreated?: (post: WallPost) => void;
   onPostUpdated?: (post: WallPost) => void;
   onCancel: () => void;
+  onBeforeCreate?: () => string; // Returns temp ID for deduplication
 }
 
 const deriveTitle = (content: string) => {
@@ -75,6 +76,7 @@ export const CreateWallPost = ({
   onPostCreated,
   onPostUpdated,
   onCancel,
+  onBeforeCreate,
 }: CreateWallPostProps) => {
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
@@ -112,6 +114,9 @@ export const CreateWallPost = ({
     }
 
     setIsSubmitting(true);
+
+    // Generate temp ID for deduplication BEFORE API call
+    onBeforeCreate?.();
 
     try {
       const contentValue = content.trim() || null;

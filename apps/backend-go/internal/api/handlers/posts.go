@@ -11,15 +11,22 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 )
 
 type PostsHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	wsHub interface{}
 }
 
-func NewPostsHandler(db *sql.DB) *PostsHandler {
-	return &PostsHandler{db: db}
+// NewPostsHandler creates a new PostsHandler with optional WebSocket Hub
+func NewPostsHandler(db *sql.DB, wsHub ...interface{}) *PostsHandler {
+	h := &PostsHandler{db: db}
+	if len(wsHub) > 0 {
+		h.wsHub = wsHub[0]
+	}
+	return h
 }
 
 func (h *PostsHandler) GetPosts(c *gin.Context) {
@@ -399,6 +406,38 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	}
 
 	RecomputeUserProfileStats(h.db, userClaims.UserID)
+
+	// Publish realtime event to WebSocket Hub
+	fmt.Printf("[WebSocket DEBUG] wsHub is nil: %v\n", h.wsHub == nil)
+	if h.wsHub != nil {
+		if hub, ok := h.wsHub.(*websocket.Hub); ok {
+			// Fetch author info for the post
+			var username, avatarURL string
+			h.db.QueryRow("SELECT username, COALESCE(avatar_url, '') FROM users WHERE id = $1", userClaims.UserID).Scan(&username, &avatarURL)
+
+			// Create enriched post data with author info
+			postData := struct {
+				models.Post
+				Username  string `json:"username"`
+				AvatarURL string `json:"avatar_url"`
+			}{
+				Post:      post,
+				Username:  username,
+				AvatarURL: avatarURL,
+			}
+
+			fmt.Printf("[WebSocket DEBUG] Publishing post event for %s by %s\n", post.ID, username)
+			if err := hub.PublishNewPost(postData); err != nil {
+				fmt.Printf("[WebSocket] Error publishing new post event: %v\n", err)
+			} else {
+				fmt.Printf("[WebSocket] Published new post event for post %s\n", post.ID)
+			}
+		} else {
+			fmt.Printf("[WebSocket DEBUG] wsHub is not *websocket.Hub, type: %T\n", h.wsHub)
+		}
+	} else {
+		fmt.Printf("[WebSocket DEBUG] wsHub is nil, cannot publish\n")
+	}
 
 	c.JSON(http.StatusCreated, models.SupabaseResponse{
 		Data: post,

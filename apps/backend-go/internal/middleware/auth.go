@@ -64,6 +64,17 @@ func SupabaseAuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
 			}
 		}
 
+		// Try token from query parameter (for WebSocket connections)
+		token := c.Query("token")
+		if token != "" {
+			claims, err := authService.ValidateToken(token)
+			if err == nil {
+				c.Set("claims", claims)
+				c.Next()
+				return
+			}
+		}
+
 		// Try apikey header (Supabase compatibility)
 		apiKey := c.GetHeader("apikey")
 		if apiKey != "" && apiKey == getEnvFromOS("SUPABASE_ANON_KEY", "your-anon-key") {
