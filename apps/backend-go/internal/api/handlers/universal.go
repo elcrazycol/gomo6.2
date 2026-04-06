@@ -2,21 +2,24 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/websocket"
 )
 
 // UniversalHandler handles generic CRUD operations for any table
 type UniversalHandler struct {
-	db *sql.DB
+	db  *sql.DB
+	hub *websocket.Hub
 }
 
-func NewUniversalHandler(db *sql.DB) *UniversalHandler {
-	return &UniversalHandler{db: db}
+func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
+	return &UniversalHandler{db: db, hub: hub}
 }
 
 // HandleTableRequest handles requests to any table
@@ -341,9 +344,21 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		return
 	}
 
+	if tableName == "profile_wall_posts" {
+		if h.hub != nil {
+			fmt.Printf("[WebSocket DEBUG] Publishing wall post event for %s\n", result["id"])
+			if err := h.hub.PublishNewWallPost(result); err != nil {
+				fmt.Printf("[WebSocket] Error publishing wall post event: %v\n", err)
+			} else {
+				fmt.Printf("[WebSocket] Published wall post event for post %s\n", result["id"])
+			}
+		}
+	}
+
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
 		return
 	}
+
 	if tableName == "user_session_time" {
 		if uid := rowUserID(result["user_id"]); uid != "" {
 			RecomputeUserProfileStats(h.db, uid)
@@ -432,9 +447,22 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		}
 	}
 
+	// Publish WebSocket events for profile wall posts updates BEFORE enrichment
+	if tableName == "profile_wall_posts" {
+		if h.hub != nil {
+			fmt.Printf("[WebSocket DEBUG] Publishing wall post update event for %s\n", result["id"])
+			if err := h.hub.PublishUpdateWallPost(result); err != nil {
+				fmt.Printf("[WebSocket] Error publishing wall post update event: %v\n", err)
+			} else {
+				fmt.Printf("[WebSocket] Published wall post update event for post %s\n", result["id"])
+			}
+		}
+	}
+
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
 		return
 	}
+
 	if tableName == "user_session_time" {
 		if uid := rowUserID(result["user_id"]); uid != "" {
 			RecomputeUserProfileStats(h.db, uid)
@@ -500,6 +528,18 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 			result[col] = string(b)
 		} else {
 			result[col] = val
+		}
+	}
+
+	// Publish WebSocket events for profile wall posts deletion
+	if tableName == "profile_wall_posts" {
+		if h.hub != nil {
+			fmt.Printf("[WebSocket DEBUG] Publishing wall post delete event for %s\n", result["id"])
+			if err := h.hub.PublishDeleteWallPost(result); err != nil {
+				fmt.Printf("[WebSocket] Error publishing wall post delete event: %v\n", err)
+			} else {
+				fmt.Printf("[WebSocket] Published wall post delete event for post %s\n", result["id"])
+			}
 		}
 	}
 
