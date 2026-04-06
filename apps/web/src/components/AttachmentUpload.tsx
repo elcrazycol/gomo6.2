@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
+import { AudioAttachment } from "@/components/AudioAttachment";
 
 interface AttachmentUploadProps {
   value: AttachmentMeta[];
@@ -190,26 +191,55 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
       
       {/* Загруженные файлы */}
       {value.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="space-y-2">
           {value.map((att, idx) => (
             <div key={att.url} className="relative group">
-              <div className="aspect-square border rounded-md overflow-hidden bg-muted/40 flex items-center justify-center">
-                {att.type === 'image' ? (
+              {att.type === 'image' ? (
+                <div className="aspect-video border rounded-md overflow-hidden bg-muted/40 max-w-xs">
                   <img 
                     src={att.url} 
                     alt={att.name || ''}
                     className="w-full h-full object-cover"
                   />
-                ) : (
-                  <div className="text-center p-2">
-                    {iconFor(att.type)}
-                    <p className="text-xs truncate mt-1">{att.name || ''}</p>
+                </div>
+              ) : att.type === 'audio' ? (
+                <AudioAttachment 
+                  attachment={att}
+                  showPlayer={false}
+                  className="max-w-xs"
+                />
+              ) : att.type === 'video' ? (
+                <div className="aspect-video border rounded-md overflow-hidden bg-muted/40 max-w-xs">
+                  {att.poster ? (
+                    <img 
+                      src={att.poster} 
+                      alt={att.name || ''}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <FileVideo2 className="w-8 h-8 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="border border-border bg-card rounded-lg p-3 max-w-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-muted rounded-md flex items-center justify-center flex-shrink-0">
+                      {iconFor(att.type)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm truncate">{att.name || ''}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {att.size ? `${(att.size / 1024 / 1024).toFixed(1)} MB` : ''}
+                      </p>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
               <button
                 onClick={() => handleRemove(idx)}
-                className="absolute -top-1 -right-1 bg-destructive text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-2 -right-2 bg-destructive text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="w-3 h-3" />
               </button>

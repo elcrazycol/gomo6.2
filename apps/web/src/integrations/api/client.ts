@@ -421,6 +421,10 @@ class ApiClient {
     return this.request(`/rpc/v1/get_user_thread_reply_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
   }
 
+  async toggleWallPostPin(postId: string, userId: string): Promise<ApiResponse<boolean>> {
+    return this.request(`/rpc/v1/toggle_wall_post_pin?_post_id=${encodeURIComponent(postId)}&_user_id=${encodeURIComponent(userId)}`);
+  }
+
   // Notifications
   async getNotifications(params?: {
     limit?: number;
@@ -564,11 +568,14 @@ export const supabase = {
       });
     }
     
-    return {
-      then: (callback: any) => {
-        return apiClient.request<any>(`${url}${searchParams.toString() ? `?${searchParams}` : ''}`).then(callback);
-      }
-    };
+    const fullUrl = `${url}${searchParams.toString() ? `?${searchParams}` : ''}`;
+    
+    // Return a proper Promise that can be awaited
+    return apiClient.request<any>(fullUrl).then(response => {
+      return { data: response.data, error: response.error || null };
+    }).catch(error => {
+      return { data: null, error: { message: (error as Error).message } };
+    });
   },
 
   // Storage (placeholder - not implemented in Go backend yet)

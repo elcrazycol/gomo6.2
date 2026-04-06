@@ -48,3 +48,58 @@ CREATE INDEX IF NOT EXISTS idx_profile_wall_posts_author_id ON profile_wall_post
 CREATE INDEX IF NOT EXISTS idx_profile_wall_post_likes_post_id ON profile_wall_post_likes(post_id);
 CREATE INDEX IF NOT EXISTS idx_profile_wall_post_comments_post_id ON profile_wall_post_comments(post_id);
 CREATE INDEX IF NOT EXISTS idx_profile_wall_post_reposts_post_id ON profile_wall_post_reposts(post_id);
+
+-- Function to toggle pin status of a wall post
+CREATE OR REPLACE FUNCTION toggle_wall_post_pin(_post_id UUID, _user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    post_owner UUID;
+    current_pinned BOOLEAN;
+    new_pinned BOOLEAN;
+    max_order INTEGER;
+BEGIN
+    -- Get the post owner and current pin status
+    SELECT user_id, is_pinned INTO post_owner, current_pinned
+    FROM profile_wall_posts
+    WHERE id = _post_id;
+    
+    -- Check if post exists
+    IF post_owner IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Only the wall owner can pin posts
+    IF post_owner != _user_id THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Toggle the pin status
+    new_pinned := NOT current_pinned;
+    
+    IF new_pinned THEN
+        -- Get the highest pinned_order for this user
+        SELECT COALESCE(MAX(pinned_order), 0) INTO max_order
+        FROM profile_wall_posts
+        WHERE user_id = _user_id AND is_pinned = TRUE;
+        
+        -- Update the post with new pin status and order
+        UPDATE profile_wall_posts
+        SET is_pinned = TRUE,
+            pinned_order = max_order + 1,
+            updated_at = NOW()
+        WHERE id = _post_id;
+    ELSE
+        -- Unpin the post
+        UPDATE profile_wall_posts
+        SET is_pinned = FALSE,
+            pinned_order = NULL,
+            updated_at = NOW()
+        WHERE id = _post_id;
+    END IF;
+    
+    RETURN TRUE;
+END;
+$$;

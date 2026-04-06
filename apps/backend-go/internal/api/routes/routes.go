@@ -40,6 +40,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	rpcHandler := handlers.NewRPCHandler(db)
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)
+	audioHandler := handlers.NewAudioHandler()
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -55,6 +56,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// API routes
 	api := router.Group("/api/v1")
 	{
+		// Audio metadata endpoint
+		api.POST("/audio/metadata", audioHandler.ExtractAudioMetadata)
+
 		// Auth routes
 		auth := api.Group("/auth")
 		{
@@ -188,6 +192,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/get_user_post_likes_received_timestamps", rpcHandler.GetUserPostLikesReceivedTimestamps)
 			protected.GET("/get_user_thread_likes_received_timestamps", rpcHandler.GetUserThreadLikesReceivedTimestamps)
 			protected.GET("/get_user_thread_reply_timestamps", rpcHandler.GetUserThreadReplyTimestamps)
+			protected.GET("/toggle_wall_post_pin", rpcHandler.ToggleWallPostPin)
 		}
 	}
 
