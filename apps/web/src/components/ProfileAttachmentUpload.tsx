@@ -3,6 +3,7 @@ import { Upload, Loader2, FileAudio2, FileVideo2, FileText, Image as ImageIcon, 
 import { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
+import { AudioAttachment } from "@/components/AudioAttachment";
 
 interface ProfileAttachmentUploadProps {
   value: AttachmentMeta[];
@@ -171,19 +172,29 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6 }: Profi
       {value.length > 0 && (
         <div className="space-y-2">
           {value.map((attachment, index) => (
-            <div key={index} className="flex items-center gap-2 p-2 bg-muted/10 rounded-lg border border-border/30">
-              <div className="flex-shrink-0">
-                {iconFor(attachment.type)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{attachment.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {attachment.type} • {(attachment.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
+            <div key={index} className="relative">
+              {attachment.type === 'audio' ? (
+                <AudioAttachment 
+                  attachment={attachment}
+                  showPlayer={false}
+                  className="max-w-xs"
+                />
+              ) : (
+                <div className="flex items-center gap-2 p-2 bg-muted/10 rounded-lg border border-border/30">
+                  <div className="flex-shrink-0">
+                    {iconFor(attachment.type)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{attachment.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {attachment.type} • {(attachment.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                </div>
+              )}
               <button
                 onClick={() => handleRemove(index)}
-                className="flex-shrink-0 p-1 hover:bg-muted rounded transition-colors"
+                className="absolute -top-2 -right-2 flex-shrink-0 p-1 hover:bg-muted rounded transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
