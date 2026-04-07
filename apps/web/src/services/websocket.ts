@@ -130,7 +130,6 @@ class WebSocketService {
   private handleMessage(event: MessageEvent): void {
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
-      console.log('[WebSocket] Received message:', message);
       this.emit(message.type, message);
     } catch (error) {
       console.error('[WebSocket] Error parsing message:', error);

@@ -28,7 +28,12 @@ export const AudioAttachment = ({
   const displayName = attachment.title || (attachment.name ? attachment.name.replace(/\.[^/.]+$/, "") : "Аудиофайл");
   const displayArtist = attachment.artist || (attachment.name ? "Неизвестный исполнитель" : null);
   const displayAlbum = attachment.album;
-  const coverUrl = attachment.coverArt;
+  // Используем storageUrl для обложки, если это не blob URL
+  const coverUrl = attachment.coverArt
+    ? (attachment.coverArt.startsWith('blob:') || attachment.coverArt.startsWith('http')
+        ? attachment.coverArt
+        : storageUrl("content", attachment.coverArt))
+    : null;
 
   // Компактная версия для превью (без плеера)
   if (!showPlayer) {

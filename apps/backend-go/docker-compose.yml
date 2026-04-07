@@ -97,12 +97,13 @@ services:
       ENVIRONMENT: development
       SUPABASE_ANON_KEY: your-anon-key
       # Garage S3 (replaces MinIO)
-      GARAGE_S3_ENDPOINT: http://garage-proxy:3900
+      # Backend connects directly to Garage for S3 API (with AWS Signature)
+      GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
       GARAGE_S3_ACCESS_KEY: GK3515373e4c851ebaad366558
       GARAGE_S3_SECRET_KEY: 7d37d093435a41f2aab8f13c19ba067d9776c90215f56614adad6ece597dbb34
       GARAGE_S3_USE_SSL: false
-      # Hostname the browser uses for presigned PUT/GET to Garage (must match what you open in the browser).
+      # Browser uses garage-proxy for CORS-enabled access
       GARAGE_S3_PUBLIC_ENDPOINT: http://localhost:3900
     depends_on:
       - postgres

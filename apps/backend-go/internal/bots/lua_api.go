@@ -47,13 +47,27 @@ func (br *BotRuntime) luaSendWallComment(L *lua.LState) int {
 		INSERT INTO profile_wall_post_comments (post_id, user_id, content)
 		VALUES ($1, $2, $3)
 		RETURNING id
-	`, postID, br.Bot.OwnerID, content).Scan(&commentID)
+	`, postID, br.Bot.ID, content).Scan(&commentID)
 
 	if err != nil {
 		br.logError(fmt.Sprintf("Failed to send wall comment: %v", err))
 		L.Push(lua.LBool(false))
 		L.Push(lua.LString(err.Error()))
 		return 2
+	}
+
+	// Publish wall comment event to WebSocket
+	if br.WSHub != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "new_wall_comment",
+			"data": map[string]interface{}{
+				"id":      commentID,
+				"post_id": postID,
+				"user_id": br.Bot.ID,
+				"content": content,
+			},
+		})
+		br.WSHub.BroadcastToRoom("profile_wall_"+postID, eventData)
 	}
 
 	// Update stats
@@ -92,7 +106,7 @@ func (br *BotRuntime) luaSendThreadPost(L *lua.LState) int {
 		INSERT INTO posts (thread_id, user_id, content, server_domain)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id
-	`, threadID, br.Bot.OwnerID, content, serverDomain).Scan(&postID)
+	`, threadID, br.Bot.ID, content, serverDomain).Scan(&postID)
 
 	if err != nil {
 		br.logError(fmt.Sprintf("Failed to send thread post: %v", err))
@@ -105,6 +119,34 @@ func (br *BotRuntime) luaSendThreadPost(L *lua.LState) int {
 	_, err = br.DB.Exec("UPDATE threads SET post_count = post_count + 1 WHERE id = $1", threadID)
 	if err != nil {
 		br.logError(fmt.Sprintf("Failed to update thread post count: %v", err))
+	}
+
+	// Get bot user info for WebSocket
+	var username, domain, avatarURL string
+	err = br.DB.QueryRow("SELECT username, domain, COALESCE(avatar_url, '') FROM users WHERE id = $1", br.Bot.ID).Scan(&username, &domain, &avatarURL)
+	if err != nil {
+		username = br.Bot.Username
+		domain = "localhost:8080"
+		avatarURL = ""
+	}
+
+	// Publish post event to WebSocket
+	if br.WSHub != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "new_post",
+			"data": map[string]interface{}{
+				"id":         postID,
+				"thread_id":  threadID,
+				"user_id":    br.Bot.ID,
+				"content":    content,
+				"username":   username,
+				"avatar_url": avatarURL,
+				"created_at": time.Now().Format(time.RFC3339),
+			},
+		})
+		br.WSHub.BroadcastToRoom(threadID, eventData)
+		// Also broadcast to feed
+		br.WSHub.BroadcastToRoom("feed", eventData)
 	}
 
 	// Update stats

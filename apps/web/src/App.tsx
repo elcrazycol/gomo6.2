@@ -36,6 +36,7 @@ const GomoSubSettings = lazy(() => import("./pages/GomoSubSettings"));
 const SearchResults = lazy(() => import("./pages/SearchResults"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
+const Bots = lazy(() => import("./pages/Bots"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Prefetch critical routes on app start
@@ -135,6 +136,7 @@ const App = () => {
               <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
               <Route path="settings/:section" element={<LazyPage component={Settings} />} />
               <Route path="settings" element={<LazyPage component={Settings} />} />
+              <Route path="bots" element={<LazyPage component={Bots} />} />
               <Route path="stats" element={<LazyPage component={Stats} />} />
               <Route path="notify" element={<LazyPage component={Notify} />} />
               <Route path="search" element={<LazyPage component={SearchResults} />} />
