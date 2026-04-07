@@ -1,4 +1,5 @@
-import { useState, useEffect, cloneElement } from "react";
+import { useState, cloneElement } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/api/client_simple";
 import { User } from "lucide-react";
 import { format } from "date-fns";
@@ -28,78 +29,70 @@ const getColorClass = (color: string): string => {
   return colorClasses[color] || "text-foreground";
 };
 
+// Fetch profile data with caching
+const fetchProfileData = async (userId: string) => {
+  const [profileResult, achievementsResult, customization, placeholdersResult] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId).single(),
+    supabase.from("user_achievements").select(`
+      achievement_id,
+      achievements (
+        reward_type,
+        reward_value
+      )
+    `).eq("user_id", userId),
+    getProfileCustomization(userId),
+    supabase.from("user_placeholders").select("*").eq("user_id", userId).maybeSingle(),
+  ]);
+
+  const profile = profileResult.data;
+  const achievements = achievementsResult.data;
+  const placeholders = placeholdersResult.data;
+
+  if (!profile) return null;
+
+  // Determine username color
+  let usernameColor = "";
+  if (achievements) {
+    const colorRewards = achievements
+      .filter((a: any) => a.achievements?.reward_type === "username_color")
+      .map((a: any) => a.achievements.reward_value);
+
+    const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+    for (const p of priority) {
+      if (colorRewards.includes(p)) {
+        usernameColor = p;
+        break;
+      }
+    }
+  }
+
+  return {
+    profile,
+    avatarUrl: storageUrl("post-images", profile.avatar_url),
+    usernameColor,
+    customization,
+    placeholders,
+  };
+};
+
 export const ProfileHoverCard = ({ userId, children, disabled = false }: ProfileHoverCardProps) => {
   const [showCard, setShowCard] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [usernameColor, setUsernameColor] = useState<string>("");
-  const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
-  const [placeholders, setPlaceholders] = useState<any>(null);
 
-  useEffect(() => {
-    if (showCard && userId) {
-      const loadProfile = async () => {
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", userId)
-          .single();
-
-        if (data) {
-          setProfile(data);
-          setAvatarUrl(storageUrl("post-images", (data as any).avatar_url));
-
-          // Load achievements for color
-          const achievementsResult = await supabase
-            .from("user_achievements")
-            .select(`
-              achievement_id,
-              achievements (
-                reward_type,
-                reward_value
-              )
-            `)
-            .eq("user_id", userId);
-
-          const achievements = achievementsResult.data;
-
-          if (achievements) {
-            const colorRewards = achievements
-              .filter((a: any) => a.achievements?.reward_type === "username_color")
-              .map((a: any) => a.achievements.reward_value);
-
-            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-            for (const p of priority) {
-              if (colorRewards.includes(p)) {
-                setUsernameColor(p);
-                break;
-              }
-            }
-          }
-
-          // Load customization
-          const custom = await getProfileCustomization(userId);
-          setCustomization(custom);
-
-          // Load placeholders
-          const { data: placeholdersData } = await supabase
-            .from("user_placeholders")
-            .select("*")
-            .eq("user_id", userId)
-            .maybeSingle();
-          setPlaceholders(placeholdersData);
-        }
-      };
-      loadProfile();
-    }
-  }, [showCard, userId]);
+  // Use React Query for caching - only fetch when card is shown
+  const { data } = useQuery({
+    queryKey: ['profile-hover', userId],
+    queryFn: () => fetchProfileData(userId),
+    enabled: showCard && !!userId,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
 
   const childrenWithHover = cloneElement(children as React.ReactElement, disabled ? {} : {
     onMouseEnter: () => setShowCard(true),
     onMouseLeave: () => setShowCard(false),
   });
 
-  if (disabled || !showCard || !profile) {
+  if (disabled || !showCard || !data) {
     return (
       <div className="relative">
         {childrenWithHover}
@@ -107,7 +100,9 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
     );
   }
 
-  const usernameStyle = customization?.username_css 
+  const { profile, avatarUrl, usernameColor, customization, placeholders } = data;
+
+  const usernameStyle = customization?.username_css
     ? parseCssToStyle(customization.username_css)
     : {};
 
