@@ -383,8 +383,8 @@ const renderNode = (node: LexicalJsonNode, key: string): React.ReactNode => {
       return <>{(node.children || []).map((child, index) => renderNode(child, `${key}-${index}`))}</>;
     case "paragraph": {
       const children = node.children || [];
-      if (children.length === 0) return <p key={key}><br /></p>;
-      return <p key={key}>{children.map((child, index) => renderNode(child, `${key}-${index}`))}</p>;
+      if (children.length === 0) return <div key={key} className="mb-2"><br /></div>;
+      return <div key={key} className="mb-2">{children.map((child, index) => renderNode(child, `${key}-${index}`))}</div>;
     }
     case "linebreak":
       return <br key={key} />;

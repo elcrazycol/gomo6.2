@@ -170,21 +170,40 @@ func (bm *BotManager) ReloadBot(botID string) error {
 
 // subscribeToEvents subscribes to Redis pub/sub for bot events
 func (bm *BotManager) subscribeToEvents() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[BotManager] PANIC in subscribeToEvents: %v", r)
+		}
+	}()
+
+	log.Printf("[BotManager] Starting Redis subscription to bot:events channel")
+
+	if bm.Redis == nil {
+		log.Printf("[BotManager] ERROR: Redis client is nil!")
+		return
+	}
+
 	pubsub := bm.Redis.Subscribe(bm.ctx, "bot:events")
 	defer pubsub.Close()
 
+	log.Printf("[BotManager] Successfully subscribed to bot:events channel")
 	ch := pubsub.Channel()
+
+	log.Printf("[BotManager] Entering event loop...")
 	for {
 		select {
 		case <-bm.ctx.Done():
+			log.Printf("[BotManager] Context cancelled, stopping event subscription")
 			return
 		case msg := <-ch:
+			log.Printf("[BotManager] Received message from Redis: %s", msg.Payload)
 			var event BotEvent
 			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 				log.Printf("Failed to unmarshal bot event: %v", err)
 				continue
 			}
 
+			log.Printf("[BotManager] Parsed event: type=%s, data=%+v", event.Type, event.Data)
 			bm.handleEvent(&event)
 		}
 	}
@@ -195,7 +214,9 @@ func (bm *BotManager) handleEvent(event *BotEvent) {
 	bm.mu.RLock()
 	defer bm.mu.RUnlock()
 
-	for _, runtime := range bm.bots {
+	log.Printf("[BotManager] handleEvent called with type=%s, dispatching to %d bots", event.Type, len(bm.bots))
+	for botID, runtime := range bm.bots {
+		log.Printf("[BotManager] Dispatching event to bot %s (%s)", runtime.Bot.Username, botID)
 		go runtime.HandleEvent(event)
 	}
 }
@@ -273,11 +294,14 @@ func (br *BotRuntime) registerBotAPI() {
 // HandleEvent handles an event for this bot
 func (br *BotRuntime) HandleEvent(event *BotEvent) {
 	br.mu.Lock()
-	defer br.mu.Unlock()
-
 	if !br.isRunning {
+		log.Printf("[Bot %s] Skipping event %s - bot is not running", br.Bot.Username, event.Type)
+		br.mu.Unlock()
 		return
 	}
+	br.mu.Unlock()
+
+	log.Printf("[Bot %s] HandleEvent called for type=%s, data=%+v", br.Bot.Username, event.Type, event.Data)
 
 	// Set timeout for execution (5 seconds)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -295,13 +319,19 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 		// Call appropriate Lua function based on event type
 		switch event.Type {
 		case "wall_post":
+			log.Printf("[Bot %s] Calling onWallPost", br.Bot.Username)
 			br.callLuaFunction("onWallPost", event)
 		case "wall_comment":
+			log.Printf("[Bot %s] Calling onWallComment", br.Bot.Username)
 			br.callLuaFunction("onWallComment", event)
 		case "thread":
+			log.Printf("[Bot %s] Calling onThread", br.Bot.Username)
 			br.callLuaFunction("onThread", event)
 		case "thread_post":
+			log.Printf("[Bot %s] Calling onThreadPost", br.Bot.Username)
 			br.callLuaFunction("onThreadPost", event)
+		default:
+			log.Printf("[Bot %s] Unknown event type: %s", br.Bot.Username, event.Type)
 		}
 	}()
 
@@ -317,8 +347,11 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 func (br *BotRuntime) callLuaFunction(funcName string, event *BotEvent) {
 	fn := br.VM.GetGlobal(funcName)
 	if fn.Type() != lua.LTFunction {
+		log.Printf("[Bot %s] Function %s not defined in Lua code", br.Bot.Username, funcName)
 		return // Function not defined
 	}
+
+	log.Printf("[Bot %s] Function %s found, preparing to call with data: %+v", br.Bot.Username, funcName, event.Data)
 
 	// Convert event data to Lua table
 	dataTable := br.VM.NewTable()
@@ -326,12 +359,16 @@ func (br *BotRuntime) callLuaFunction(funcName string, event *BotEvent) {
 		dataTable.RawSetString(k, br.toLuaValue(v))
 	}
 
+	log.Printf("[Bot %s] Calling Lua function %s", br.Bot.Username, funcName)
 	if err := br.VM.CallByParam(lua.P{
 		Fn:      fn,
 		NRet:    0,
 		Protect: true,
 	}, dataTable); err != nil {
 		br.logError(fmt.Sprintf("Error calling %s: %v", funcName, err))
+		log.Printf("[Bot %s] Error calling %s: %v", br.Bot.Username, funcName, err)
+	} else {
+		log.Printf("[Bot %s] Successfully called %s", br.Bot.Username, funcName)
 	}
 }
 

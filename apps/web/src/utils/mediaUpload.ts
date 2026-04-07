@@ -167,7 +167,6 @@ const extractAudioMetadata = async (file: File): Promise<{
   coverArt?: string;
 }> => {
   try {
-    console.log('Extracting metadata from:', file.name, file.type, file.size);
     
     // Сначала пробуем извлечь через music-metadata
     let metadata: any = null;
@@ -188,56 +187,75 @@ const extractAudioMetadata = async (file: File): Promise<{
           skipCovers: false,
           includeChapters: false,
         });
-        
-        console.log('Music-metadata parsed successfully');
-        console.log('Parsed metadata:', {
-          title: metadata.common.title,
-          artist: metadata.common.artist,
-          album: metadata.common.album,
-          duration: metadata.format.duration,
-          hasPicture: metadata.common.picture?.length > 0,
-          genre: metadata.common.genre,
-          year: metadata.common.year
-        });
-        
-        // Извлекаем обложку
+
+        // Извлекаем обложку и загружаем в S3
         if (metadata.common.picture && metadata.common.picture.length > 0) {
           const picture = metadata.common.picture[0];
-          console.log('Picture data:', {
-            format: picture.format,
-            type: picture.type,
-            size: picture.data.length
-          });
-          
+
           try {
+            // Создаем файл из обложки
             const blob = new Blob([new Uint8Array(picture.data)], { type: picture.format });
-            coverArt = URL.createObjectURL(blob);
-            console.log('Extracted cover art:', picture.format);
+            const ext = picture.format.split('/')[1] || 'jpg';
+            const coverFile = new File([blob], `cover_${Date.now()}.${ext}`, { type: picture.format });
+
+            // Загружаем обложку в S3
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const timestamp = Date.now();
+              const randomStr = Math.random().toString(36).substring(7);
+              const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
+
+              const response = await fetch('http://localhost:8080/storage/v1/presign-upload', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${session.access_token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  bucket: 'content',
+                  key: coverKey,
+                  content_type: picture.format,
+                  expires_seconds: 3600,
+                }),
+              });
+
+              if (response.ok) {
+                const { upload_url } = await response.json();
+
+                const uploadResponse = await fetch(upload_url, {
+                  method: 'PUT',
+                  body: blob,
+                  headers: { 'Content-Type': picture.format },
+                });
+
+                if (uploadResponse.ok) {
+                  coverArt = coverKey;
+                }
+              }
+            }
           } catch (e) {
-            console.warn('Failed to create blob for cover art:', e);
+            console.error('Failed to upload cover art:', e);
           }
         }
       }
     } catch (mmError) {
-      console.warn('Music-metadata failed:', mmError);
+      // Silently fail
     }
-    
+
     // Если music-metadata не сработал, пробуем серверное извлечение
     if (!metadata || !metadata.common.title) {
       try {
-        console.log('Trying server-side metadata extraction...');
         const formData = new FormData();
         formData.append('audio', file);
-        
+
         const response = await fetch('http://localhost:8080/api/v1/audio/metadata', {
           method: 'POST',
           body: formData,
         });
-        
+
         if (response.ok) {
           const serverMetadata = await response.json();
-          console.log('Server metadata extraction successful:', serverMetadata);
-          
+
           return {
             title: serverMetadata.title || undefined,
             artist: serverMetadata.artist || undefined,
@@ -247,7 +265,7 @@ const extractAudioMetadata = async (file: File): Promise<{
           };
         }
       } catch (serverError) {
-        console.warn('Server-side metadata extraction failed:', serverError);
+        // Silently fail
       }
     }
     
@@ -267,30 +285,19 @@ const extractAudioMetadata = async (file: File): Promise<{
           });
           audio.src = URL.createObjectURL(file);
         });
-        console.log('Duration from HTML5 Audio:', duration);
       } catch (audioError) {
-        console.warn('HTML5 Audio duration extraction failed:', audioError);
         duration = undefined;
       }
     }
 
-    const result = {
+    return {
       title: metadata?.common.title || undefined,
       artist: metadata?.common.artist || undefined,
       album: metadata?.common.album || undefined,
       duration: duration || undefined,
       coverArt,
     };
-    
-    console.log('Final metadata result:', result);
-    return result;
   } catch (error) {
-    console.warn('Failed to extract audio metadata:', error);
-    console.warn('File details:', {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
     return {};
   }
 };
@@ -298,7 +305,6 @@ const extractAudioMetadata = async (file: File): Promise<{
 const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: any }> => {
   // Извлекаем метаданные ПЕРЕД transcoding
   const metadata = await extractAudioMetadata(file);
-  console.log('Extracted metadata before transcoding:', metadata);
 
   // Проверяем кэш
   const cached = getCachedFile(file);
@@ -307,8 +313,6 @@ const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: any 
   if (file.size > MAX_FILE_SIZE) {
     throw new Error("Аудио больше 25MB — сожмите перед загрузкой");
   }
-
-  console.log('Transcoding audio:', file.name);
 
   const ffmpeg = await loadFFmpeg();
   const inputName = `input.${file.name.split(".").pop() || "wav"}`;
@@ -375,7 +379,6 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       } else if (type === "audio") {
         // Для MP3 файлов не делаем transcoding, чтобы сохранить метаданные
         if (file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')) {
-          console.log('Skipping transcoding for MP3 file to preserve metadata');
           file = original;
           // Все равно извлекаем метаданные для MP3
           audioMetadata = await extractAudioMetadata(original);

@@ -87,9 +87,15 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 		return
 	}
 
+	// Automatically add .bot suffix to username
+	botUsername := req.Username
+	if !strings.HasSuffix(botUsername, ".bot") {
+		botUsername = botUsername + ".bot"
+	}
+
 	// Check if username is already taken
 	var exists bool
-	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE username = $1)", req.Username).Scan(&exists)
+	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE username = $1)", botUsername).Scan(&exists)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check username"})
 		return
@@ -118,13 +124,23 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 		INSERT INTO bots (owner_id, username, display_name, avatar_url, description, lua_code, token)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, owner_id, username, display_name, avatar_url, description, lua_code, token, is_active, created_at, updated_at
-	`, userID, req.Username, req.DisplayName, req.AvatarURL, req.Description, req.LuaCode, token).Scan(
+	`, userID, botUsername, req.DisplayName, req.AvatarURL, req.Description, req.LuaCode, token).Scan(
 		&bot.ID, &bot.OwnerID, &bot.Username, &bot.DisplayName, &bot.AvatarURL,
 		&bot.Description, &bot.LuaCode, &bot.Token, &bot.IsActive, &bot.CreatedAt, &bot.UpdatedAt,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create bot"})
 		return
+	}
+
+	// Create user record for bot
+	_, err = h.DB.Exec(`
+		INSERT INTO users (id, username, domain, email, password_hash, created_at, updated_at)
+		VALUES ($1, $2, 'localhost:8080', $3, '', NOW(), NOW())
+		ON CONFLICT (id) DO NOTHING
+	`, bot.ID, bot.Username, "bot_"+bot.Username+"@localhost")
+	if err != nil {
+		log.Printf("Warning: Failed to create user record for bot: %v", err)
 	}
 
 	// Load bot into BotManager if available
