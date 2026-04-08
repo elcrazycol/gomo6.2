@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/routes"
 	"github.com/gomo6/backend/internal/bots"
+	"github.com/gomo6/backend/internal/config"
 	"github.com/gomo6/backend/internal/database"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/websocket"
@@ -19,6 +20,9 @@ func main() {
 		log.Println("No .env file found")
 	}
 
+	// Load configuration
+	cfg := config.LoadConfig()
+
 	// Initialize database
 	db, err := database.InitDB()
 	if err != nil {
@@ -29,9 +33,10 @@ func main() {
 	// Initialize Redis
 	redisClient := database.InitRedis()
 
-	// Initialize WebSocket Hub with Redis Pub/Sub
-	wsHub := websocket.NewHub(redisClient)
+	// Initialize WebSocket Hub with Redis Pub/Sub and allowed origins
+	wsHub := websocket.NewHub(redisClient, cfg.AllowedOrigins)
 	go wsHub.Run()
+	log.Printf("WebSocket Hub initialized with allowed origins: %v", cfg.AllowedOrigins)
 
 	// Initialize Bot Manager
 	botManager := bots.NewBotManager(db, redisClient, wsHub)

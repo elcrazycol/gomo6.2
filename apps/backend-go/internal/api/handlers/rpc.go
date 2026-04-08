@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -716,3 +717,363 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
 }
+
+// Messenger RPC functions
+
+// GetOrCreateDirectChat creates or retrieves a direct chat conversation
+func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization required"),
+		})
+		return
+	}
+
+	var req struct {
+		TargetUserID string `json:"target_user_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid request body"),
+		})
+		return
+	}
+
+	if req.TargetUserID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("target_user_id is required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	if _, err := uuid.Parse(req.TargetUserID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid target_user_id format"),
+		})
+		return
+	}
+
+	// Cannot create conversation with yourself
+	if claims.UserID == req.TargetUserID {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Cannot create conversation with yourself"),
+		})
+		return
+	}
+
+	// Try to find existing conversation
+	var conversationID string
+	err := h.db.QueryRow(`
+		SELECT cm1.conversation_id
+		FROM chat_conversation_members cm1
+		INNER JOIN chat_conversation_members cm2
+			ON cm1.conversation_id = cm2.conversation_id
+		WHERE cm1.user_id = $1
+			AND cm2.user_id = $2
+			AND cm1.archived_at IS NULL
+			AND cm2.archived_at IS NULL
+		LIMIT 1
+	`, claims.UserID, req.TargetUserID).Scan(&conversationID)
+
+	if err == nil {
+		// Conversation exists
+		c.JSON(http.StatusOK, conversationID)
+		return
+	}
+
+	if err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Create new conversation
+	conversationID = uuid.New().String()
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO chat_conversations (id, created_at, updated_at)
+		VALUES ($1, NOW(), NOW())
+	`, conversationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO chat_conversation_members (conversation_id, user_id, joined_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW()), ($1, $3, NOW(), NOW())
+	`, conversationID, claims.UserID, req.TargetUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, conversationID)
+}
+
+// ChatMarkDelivered marks messages as delivered
+func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization required"),
+		})
+		return
+	}
+
+	var req struct {
+		TargetConversationID string `json:"target_conversation_id"`
+		TargetMessageID      string `json:"target_message_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid request body"),
+		})
+		return
+	}
+
+	if req.TargetConversationID == "" || req.TargetMessageID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("target_conversation_id and target_message_id are required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid conversation_id format"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid message_id format"),
+		})
+		return
+	}
+
+	// Check if user is a member of this conversation
+	var isMember bool
+	err := h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_conversation_members
+			WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+		)
+	`, req.TargetConversationID, claims.UserID).Scan(&isMember)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if !isMember {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Access denied: not a member of this conversation"),
+		})
+		return
+	}
+
+	// Get message sent_at timestamp
+	var sentAt time.Time
+	err = h.db.QueryRow(`
+		SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2
+	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Mark all messages up to this one as delivered
+	_, err = h.db.Exec(`
+		INSERT INTO chat_receipts (message_id, user_id, delivered_at)
+		SELECT m.id, $1, NOW()
+		FROM chat_messages m
+		WHERE m.conversation_id = $2
+			AND m.sender_user_id != $1
+			AND m.sent_at <= $3
+		ON CONFLICT (message_id, user_id)
+		DO UPDATE SET delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
+	`, claims.UserID, req.TargetConversationID, sentAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, nil)
+}
+
+// ChatMarkRead marks messages as read
+func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization required"),
+		})
+		return
+	}
+
+	var req struct {
+		TargetConversationID string `json:"target_conversation_id"`
+		TargetMessageID      string `json:"target_message_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ChatMarkRead: Error binding JSON: %v", err)
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid request body"),
+		})
+		return
+	}
+
+	log.Printf("ChatMarkRead: user=%s, conversation=%s, message=%s", claims.UserID, req.TargetConversationID, req.TargetMessageID)
+
+	if req.TargetConversationID == "" || req.TargetMessageID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("target_conversation_id and target_message_id are required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid conversation_id format"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid message_id format"),
+		})
+		return
+	}
+
+	// Check if user is a member of this conversation
+	var isMember bool
+	err := h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_conversation_members
+			WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+		)
+	`, req.TargetConversationID, claims.UserID).Scan(&isMember)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if !isMember {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Access denied: not a member of this conversation"),
+		})
+		return
+	}
+
+	// Get message sent_at timestamp
+	var sentAt time.Time
+	err = h.db.QueryRow(`
+		SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2
+	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer tx.Rollback()
+
+	// Mark all messages up to this one as read and delivered
+	_, err = tx.Exec(`
+		INSERT INTO chat_receipts (message_id, user_id, delivered_at, read_at)
+		SELECT m.id, $1, NOW(), NOW()
+		FROM chat_messages m
+		WHERE m.conversation_id = $2
+			AND m.sender_user_id != $1
+			AND m.sent_at <= $3
+		ON CONFLICT (message_id, user_id)
+		DO UPDATE SET
+			delivered_at = COALESCE(chat_receipts.delivered_at, NOW()),
+			read_at = NOW()
+	`, claims.UserID, req.TargetConversationID, sentAt)
+
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Update last_read_at and reset unread count
+	_, err = tx.Exec(`
+		UPDATE chat_conversation_members
+		SET
+			last_read_at = $3,
+			unread_count_cache = 0,
+			updated_at = NOW()
+		WHERE conversation_id = $1
+			AND user_id = $2
+	`, req.TargetConversationID, claims.UserID, sentAt)
+
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, nil)
+}
+

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
@@ -83,8 +84,11 @@ func (br *BotRuntime) luaSendThreadPost(L *lua.LState) int {
 	threadID := L.CheckString(1)
 	content := L.CheckString(2)
 
+	log.Printf("[Bot %s] luaSendThreadPost called: threadID=%s, content=%s", br.Bot.Username, threadID, content)
+
 	// Check rate limit
 	if !br.checkRateLimit() {
+		log.Printf("[Bot %s] Rate limit exceeded", br.Bot.Username)
 		L.Push(lua.LBool(false))
 		L.Push(lua.LString("Rate limit exceeded"))
 		return 2
@@ -109,11 +113,14 @@ func (br *BotRuntime) luaSendThreadPost(L *lua.LState) int {
 	`, threadID, br.Bot.ID, content, serverDomain).Scan(&postID)
 
 	if err != nil {
+		log.Printf("[Bot %s] Failed to insert post: %v", br.Bot.Username, err)
 		br.logError(fmt.Sprintf("Failed to send thread post: %v", err))
 		L.Push(lua.LBool(false))
 		L.Push(lua.LString(err.Error()))
 		return 2
 	}
+
+	log.Printf("[Bot %s] Post created successfully: %s", br.Bot.Username, postID)
 
 	// Update thread post count
 	_, err = br.DB.Exec("UPDATE threads SET post_count = post_count + 1 WHERE id = $1", threadID)
@@ -132,6 +139,7 @@ func (br *BotRuntime) luaSendThreadPost(L *lua.LState) int {
 
 	// Publish post event to WebSocket
 	if br.WSHub != nil {
+		log.Printf("[Bot %s] Broadcasting post %s to WebSocket", br.Bot.Username, postID)
 		eventData, _ := json.Marshal(map[string]interface{}{
 			"type": "new_post",
 			"data": map[string]interface{}{
@@ -147,6 +155,9 @@ func (br *BotRuntime) luaSendThreadPost(L *lua.LState) int {
 		br.WSHub.BroadcastToRoom(threadID, eventData)
 		// Also broadcast to feed
 		br.WSHub.BroadcastToRoom("feed", eventData)
+		log.Printf("[Bot %s] Broadcasted post to room %s and feed", br.Bot.Username, threadID)
+	} else {
+		log.Printf("[Bot %s] WARNING: WSHub is nil, cannot broadcast post", br.Bot.Username)
 	}
 
 	// Update stats
@@ -203,6 +214,314 @@ func (br *BotRuntime) luaSleep(L *lua.LState) int {
 
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 	return 0
+}
+
+// luaReplyToThreadPost implements bot.replyToThreadPost(threadId, postId, content)
+func (br *BotRuntime) luaReplyToThreadPost(L *lua.LState) int {
+	threadID := L.CheckString(1)
+	replyToPostID := L.CheckString(2)
+	content := L.CheckString(3)
+
+	// Check rate limit
+	if !br.checkRateLimit() {
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Rate limit exceeded"))
+		return 2
+	}
+
+	// Get server domain for the thread
+	var serverDomain string
+	err := br.DB.QueryRow("SELECT server_domain FROM threads WHERE id = $1", threadID).Scan(&serverDomain)
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to get thread: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Insert post with reply_to
+	var postID string
+	err = br.DB.QueryRow(`
+		INSERT INTO posts (thread_id, user_id, content, server_domain, reply_to)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
+	`, threadID, br.Bot.ID, content, serverDomain, replyToPostID).Scan(&postID)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to send thread post reply: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Update thread post count
+	_, err = br.DB.Exec("UPDATE threads SET post_count = post_count + 1 WHERE id = $1", threadID)
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to update thread post count: %v", err))
+	}
+
+	// Get bot user info for WebSocket
+	var username, domain, avatarURL string
+	err = br.DB.QueryRow("SELECT username, domain, COALESCE(avatar_url, '') FROM users WHERE id = $1", br.Bot.ID).Scan(&username, &domain, &avatarURL)
+	if err != nil {
+		username = br.Bot.Username
+		domain = "localhost:8080"
+		avatarURL = ""
+	}
+
+	// Publish post event to WebSocket
+	if br.WSHub != nil {
+		log.Printf("[Bot %s] Broadcasting reply post %s to WebSocket", br.Bot.Username, postID)
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "new_post",
+			"data": map[string]interface{}{
+				"id":         postID,
+				"thread_id":  threadID,
+				"user_id":    br.Bot.ID,
+				"content":    content,
+				"reply_to":   replyToPostID,
+				"username":   username,
+				"avatar_url": avatarURL,
+				"created_at": time.Now().Format(time.RFC3339),
+			},
+		})
+		br.WSHub.BroadcastToRoom(threadID, eventData)
+		br.WSHub.BroadcastToRoom("feed", eventData)
+		log.Printf("[Bot %s] Broadcasted reply to room %s and feed", br.Bot.Username, threadID)
+	} else {
+		log.Printf("[Bot %s] WARNING: WSHub is nil, cannot broadcast reply", br.Bot.Username)
+	}
+
+	// Update stats
+	br.incrementStat("messages_sent")
+
+	L.Push(lua.LBool(true))
+	L.Push(lua.LString(postID))
+	return 2
+}
+
+// luaReplyToWallComment implements bot.replyToWallComment(wallOwnerId, postId, commentId, content)
+func (br *BotRuntime) luaReplyToWallComment(L *lua.LState) int {
+	_ = L.CheckString(1) // wallOwnerID - not used but kept for API consistency
+	postID := L.CheckString(2)
+	replyToCommentID := L.CheckString(3)
+	content := L.CheckString(4)
+
+	// Check rate limit
+	if !br.checkRateLimit() {
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Rate limit exceeded"))
+		return 2
+	}
+
+	// Insert comment with reply_to
+	var commentID string
+	err := br.DB.QueryRow(`
+		INSERT INTO profile_wall_post_comments (post_id, user_id, content, reply_to)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, postID, br.Bot.ID, content, replyToCommentID).Scan(&commentID)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to send wall comment reply: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Publish wall comment event to WebSocket
+	if br.WSHub != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "new_wall_comment",
+			"data": map[string]interface{}{
+				"id":       commentID,
+				"post_id":  postID,
+				"user_id":  br.Bot.ID,
+				"content":  content,
+				"reply_to": replyToCommentID,
+			},
+		})
+		br.WSHub.BroadcastToRoom("profile_wall_"+postID, eventData)
+	}
+
+	// Update stats
+	br.incrementStat("messages_sent")
+
+	L.Push(lua.LBool(true))
+	L.Push(lua.LString(commentID))
+	return 2
+}
+
+// luaSendChatMessage implements bot.sendChatMessage(conversationId, content)
+func (br *BotRuntime) luaSendChatMessage(L *lua.LState) int {
+	conversationID := L.CheckString(1)
+	content := L.CheckString(2)
+
+	// Check rate limit
+	if !br.checkRateLimit() {
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Rate limit exceeded"))
+		return 2
+	}
+
+	// Check if bot is a member of this conversation
+	var isMember bool
+	err := br.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_conversation_members
+			WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+		)
+	`, conversationID, br.Bot.ID).Scan(&isMember)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to check conversation membership: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	if !isMember {
+		br.logError("Bot is not a member of this conversation")
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Bot is not a member of this conversation"))
+		return 2
+	}
+
+	// Get bot's public key for encryption
+	var senderPublicKey string
+	err = br.DB.QueryRow(`
+		SELECT public_key FROM chat_user_keys WHERE user_id = $1
+	`, br.Bot.ID).Scan(&senderPublicKey)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Bot does not have encryption keys set up: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Bot does not have encryption keys set up"))
+		return 2
+	}
+
+	// Get recipient's public key (the other member of the conversation)
+	var recipientPublicKey string
+	err = br.DB.QueryRow(`
+		SELECT k.public_key
+		FROM chat_conversation_members cm
+		INNER JOIN chat_user_keys k ON cm.user_id = k.user_id
+		WHERE cm.conversation_id = $1 AND cm.user_id != $2 AND cm.archived_at IS NULL
+		LIMIT 1
+	`, conversationID, br.Bot.ID).Scan(&recipientPublicKey)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to get recipient public key: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Failed to get recipient public key"))
+		return 2
+	}
+
+	// For bot messages, we'll store plaintext in a special format
+	// Real implementation would encrypt, but bots need to read messages
+	// So we use a marker format that frontend can detect
+	ciphertext := "BOT_PLAINTEXT:" + content
+	nonce := "bot_nonce_placeholder_12345678901234567890123="
+	clientMessageID := fmt.Sprintf("bot_%s_%d", br.Bot.ID, time.Now().UnixNano())
+
+	// Insert message
+	var messageID string
+	err = br.DB.QueryRow(`
+		INSERT INTO chat_messages (
+			conversation_id, sender_user_id, ciphertext, nonce,
+			sender_public_key, recipient_public_key, client_message_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id
+	`, conversationID, br.Bot.ID, ciphertext, nonce, senderPublicKey, recipientPublicKey, clientMessageID).Scan(&messageID)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to send chat message: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	// Publish to WebSocket
+	if br.WSHub != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "new_chat_message",
+			"data": map[string]interface{}{
+				"id":              messageID,
+				"conversation_id": conversationID,
+				"sender_user_id":  br.Bot.ID,
+				"created_at":      time.Now().Format(time.RFC3339),
+			},
+		})
+		br.WSHub.BroadcastToRoom("chat:"+conversationID, eventData)
+	}
+
+	// Update stats
+	br.incrementStat("messages_sent")
+
+	L.Push(lua.LBool(true))
+	L.Push(lua.LString(messageID))
+	return 2
+}
+
+// luaGetChatConversation implements bot.getChatConversation(conversationId)
+func (br *BotRuntime) luaGetChatConversation(L *lua.LState) int {
+	conversationID := L.CheckString(1)
+
+	// Check if bot is a member
+	var isMember bool
+	err := br.DB.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_conversation_members
+			WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+		)
+	`, conversationID, br.Bot.ID).Scan(&isMember)
+
+	if err != nil || !isMember {
+		L.Push(lua.LNil)
+		return 1
+	}
+
+	// Get conversation info
+	var createdAt time.Time
+	err = br.DB.QueryRow(`
+		SELECT created_at FROM chat_conversations WHERE id = $1
+	`, conversationID).Scan(&createdAt)
+
+	if err != nil {
+		L.Push(lua.LNil)
+		return 1
+	}
+
+	// Get members
+	rows, err := br.DB.Query(`
+		SELECT user_id FROM chat_conversation_members
+		WHERE conversation_id = $1 AND archived_at IS NULL
+	`, conversationID)
+	if err != nil {
+		L.Push(lua.LNil)
+		return 1
+	}
+	defer rows.Close()
+
+	members := L.NewTable()
+	i := 1
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			continue
+		}
+		members.RawSetInt(i, lua.LString(userID))
+		i++
+	}
+
+	convTable := L.NewTable()
+	convTable.RawSetString("id", lua.LString(conversationID))
+	convTable.RawSetString("created_at", lua.LString(createdAt.Format(time.RFC3339)))
+	convTable.RawSetString("members", members)
+
+	L.Push(convTable)
+	return 1
 }
 
 // checkRateLimit checks if bot has exceeded rate limits

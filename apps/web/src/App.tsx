@@ -9,6 +9,9 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LazyPage } from "@/components/LazyPage";
 import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { wsService } from "./services/websocket";
+import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
+import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
+import { WebSocketProvider } from "@/contexts/WebSocketContext";
 
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
@@ -110,55 +113,61 @@ const App = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        {import.meta.env.PROD ? <SpeedInsights /> : null}
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <Routes>
-            {/* Special pages without layout */}
-            <Route path="/auth" element={<LazyPage component={Auth} />} />
+      <ProfileCacheProvider>
+        <LikesCacheProvider>
+          <WebSocketProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              {import.meta.env.PROD ? <SpeedInsights /> : null}
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <Routes>
+                  {/* Special pages without layout */}
+                  <Route path="/auth" element={<LazyPage component={Auth} />} />
 
-            {/* Pages with layout */}
-            <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
-              <Route index element={<LazyPage component={Index} />} />
-              <Route path="boards" element={<LazyPage component={BoardsView} />} />
-              <Route path="messages" element={<LazyPage component={Messages} />} />
-              <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
-              <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
-              <Route path="moderation" element={<LazyPage component={Moderation} />} />
-              <Route path="moderation/posts" element={<LazyPage component={ModerationPosts} />} />
-              <Route path="moderation/emojis" element={<LazyPage component={EmojiModeration} />} />
-              <Route path="moderation/emojis/create" element={<LazyPage component={EmojiCreate} />} />
-              <Route path="moderation/emojis/edit" element={<LazyPage component={EmojiEdit} />} />
-              <Route path="moderation/emojis/edit/:emojiId" element={<LazyPage component={EmojiEditForm} />} />
-              <Route path="settings/custom" element={<LazyPage component={CustomProfile} />} />
-              <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
-              <Route path="settings/:section" element={<LazyPage component={Settings} />} />
-              <Route path="settings" element={<LazyPage component={Settings} />} />
-              <Route path="bots" element={<LazyPage component={Bots} />} />
-              <Route path="stats" element={<LazyPage component={Stats} />} />
-              <Route path="notify" element={<LazyPage component={Notify} />} />
-              <Route path="search" element={<LazyPage component={SearchResults} />} />
-              <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
-              <Route path="g" element={<LazyPage component={GomoSubs} />} />
-              <Route path="g/create" element={<LazyPage component={GomoSubCreate} />} />
-              <Route path="g/:slug/create" element={<LazyPage component={CreateGomoThread} />} />
-              <Route path="g/:slug/settings" element={<LazyPage component={GomoSubSettings} />} />
-              <Route path="create" element={<LazyPage component={CreateThread} />} />
-              <Route path="g/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
-              <Route path="g/:slug" element={<LazyPage component={Board} />} />
-              <Route path=":slug" element={<LazyPage component={Board} />} />
-              <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />
-            </Route>
+                  {/* Pages with layout */}
+                  <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
+                    <Route index element={<LazyPage component={Index} />} />
+                    <Route path="boards" element={<LazyPage component={BoardsView} />} />
+                    <Route path="messages" element={<LazyPage component={Messages} />} />
+                    <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
+                    <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
+                    <Route path="moderation" element={<LazyPage component={Moderation} />} />
+                    <Route path="moderation/posts" element={<LazyPage component={ModerationPosts} />} />
+                    <Route path="moderation/emojis" element={<LazyPage component={EmojiModeration} />} />
+                    <Route path="moderation/emojis/create" element={<LazyPage component={EmojiCreate} />} />
+                    <Route path="moderation/emojis/edit" element={<LazyPage component={EmojiEdit} />} />
+                    <Route path="moderation/emojis/edit/:emojiId" element={<LazyPage component={EmojiEditForm} />} />
+                    <Route path="settings/custom" element={<LazyPage component={CustomProfile} />} />
+                    <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
+                    <Route path="settings/:section" element={<LazyPage component={Settings} />} />
+                    <Route path="settings" element={<LazyPage component={Settings} />} />
+                    <Route path="bots" element={<LazyPage component={Bots} />} />
+                    <Route path="stats" element={<LazyPage component={Stats} />} />
+                    <Route path="notify" element={<LazyPage component={Notify} />} />
+                    <Route path="search" element={<LazyPage component={SearchResults} />} />
+                  <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
+                  <Route path="g" element={<LazyPage component={GomoSubs} />} />
+                  <Route path="g/create" element={<LazyPage component={GomoSubCreate} />} />
+                  <Route path="g/:slug/create" element={<LazyPage component={CreateGomoThread} />} />
+                  <Route path="g/:slug/settings" element={<LazyPage component={GomoSubSettings} />} />
+                  <Route path="create" element={<LazyPage component={CreateThread} />} />
+                  <Route path="g/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
+                  <Route path="g/:slug" element={<LazyPage component={Board} />} />
+                  <Route path=":slug" element={<LazyPage component={Board} />} />
+                  <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />
+                </Route>
 
-            {/* Catch-all */}
-            <Route path="*" element={<AppLayout><LazyPage component={NotFound} /></AppLayout>} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
-  );
+                {/* Catch-all */}
+                <Route path="*" element={<AppLayout><LazyPage component={NotFound} /></AppLayout>} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </WebSocketProvider>
+      </LikesCacheProvider>
+    </ProfileCacheProvider>
+  </QueryClientProvider>
+);
 };
 
 export default App;

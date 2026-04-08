@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/websocket"
 )
 
@@ -66,6 +67,12 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"profile_wall_post_likes":      true,
 		"profile_wall_post_reposts":    true,
 		"gomosub_rules_acceptance":     true,
+		// Messenger tables
+		"chat_user_keys":            true,
+		"chat_conversations":        true,
+		"chat_conversation_members": true,
+		"chat_messages":             true,
+		"chat_receipts":             true,
 	}
 
 	if !allowedTables[tableName] {
@@ -98,6 +105,12 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 	}
 	if tableName == "profile_wall_post_comments" {
 		h.handleProfileWallPostCommentsGet(c)
+		return
+	}
+
+	// Messenger tables require authentication and access control
+	if isMessengerTable(tableName) {
+		h.handleMessengerTableGet(c, tableName)
 		return
 	}
 
@@ -293,6 +306,12 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	}
 	if err := normalizeJSONValuesForDB(data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Messenger tables require authentication and access control
+	if isMessengerTable(tableName) {
+		h.handleMessengerTablePost(c, tableName, data)
 		return
 	}
 
@@ -657,4 +676,313 @@ func splitCSV(input string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+// isMessengerTable checks if table is a messenger table requiring access control
+func isMessengerTable(tableName string) bool {
+	messengerTables := map[string]bool{
+		"chat_conversations":        true,
+		"chat_conversation_members": true,
+		"chat_messages":             true,
+		"chat_receipts":             true,
+	}
+	return messengerTables[tableName]
+}
+
+// handleMessengerTableGet handles GET requests for messenger tables with access control
+func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName string) {
+	// Get authenticated user
+	claimsInterface, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	claims, ok := claimsInterface.(*auth.Claims)
+	if !ok || claims == nil || claims.UserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication"})
+		return
+	}
+
+	// Build query with access control
+	var query string
+	var args []interface{}
+	argIndex := 1
+
+	switch tableName {
+	case "chat_conversations":
+		// Only return conversations where user is a member
+		query = `
+			SELECT c.* FROM chat_conversations c
+			INNER JOIN chat_conversation_members cm ON c.id = cm.conversation_id
+			WHERE cm.user_id = $1 AND cm.archived_at IS NULL
+		`
+		args = append(args, claims.UserID)
+		argIndex++
+
+	case "chat_conversation_members":
+		// Only return members of conversations where user is also a member
+		query = `
+			SELECT cm.* FROM chat_conversation_members cm
+			WHERE cm.conversation_id IN (
+				SELECT conversation_id FROM chat_conversation_members
+				WHERE user_id = $1 AND archived_at IS NULL
+			)
+		`
+		args = append(args, claims.UserID)
+		argIndex++
+
+	case "chat_messages":
+		// Only return messages from conversations where user is a member
+		query = `
+			SELECT m.* FROM chat_messages m
+			WHERE m.conversation_id IN (
+				SELECT conversation_id FROM chat_conversation_members
+				WHERE user_id = $1 AND archived_at IS NULL
+			)
+		`
+		args = append(args, claims.UserID)
+		argIndex++
+
+	case "chat_receipts":
+		// Only return receipts for messages in user's conversations
+		query = `
+			SELECT r.* FROM chat_receipts r
+			INNER JOIN chat_messages m ON r.message_id = m.id
+			WHERE m.conversation_id IN (
+				SELECT conversation_id FROM chat_conversation_members
+				WHERE user_id = $1 AND archived_at IS NULL
+			)
+		`
+		args = append(args, claims.UserID)
+		argIndex++
+
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Add additional filters from query parameters
+	var clauses []string
+	for key, values := range c.Request.URL.Query() {
+		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
+			continue
+		}
+
+		for _, rawValue := range values {
+			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
+			if clause != "" {
+				clauses = append(clauses, clause)
+				args = append(args, nextArgs...)
+				argIndex = nextIndex
+			}
+		}
+	}
+
+	if len(clauses) > 0 {
+		query += " AND " + strings.Join(clauses, " AND ")
+	}
+
+	// Handle ORDER BY
+	if order := c.Query("order"); order != "" {
+		if s, ok := parseSupabaseOrderClause(order, ""); ok {
+			query += " ORDER BY " + s
+		}
+	}
+
+	// Handle LIMIT and OFFSET
+	if limit := c.Query("limit"); limit != "" {
+		if n, err := strconv.Atoi(limit); err == nil && n >= 0 && n <= 10000 {
+			query += " LIMIT " + strconv.Itoa(n)
+		}
+	}
+	if offset := c.Query("offset"); offset != "" {
+		if n, err := strconv.Atoi(offset); err == nil && n >= 0 && n <= 1000000 {
+			query += " OFFSET " + strconv.Itoa(n)
+		}
+	}
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var results []map[string]interface{}
+	columns, _ := rows.Columns()
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			b, ok := val.([]byte)
+			if ok {
+				row[col] = string(b)
+			} else {
+				row[col] = val
+			}
+		}
+		results = append(results, row)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
+// handleMessengerTablePost handles POST requests for messenger tables with access control
+func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName string, data map[string]interface{}) {
+	// Get authenticated user
+	claimsInterface, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		return
+	}
+
+	claims, ok := claimsInterface.(*auth.Claims)
+	if !ok || claims == nil || claims.UserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication"})
+		return
+	}
+
+	// Create validator
+	validator := NewMessengerValidator()
+
+	// Validate access based on table
+	switch tableName {
+	case "chat_messages":
+		// Validate message data
+		if err := validator.ValidateMessageData(data); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Check if user is a member of the conversation
+		conversationID, _ := data["conversation_id"].(string)
+
+		var isMember bool
+		err := h.db.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM chat_conversation_members
+				WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+			)
+		`, conversationID, claims.UserID).Scan(&isMember)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: not a member of this conversation"})
+			return
+		}
+
+		// Ensure sender_user_id matches authenticated user
+		data["sender_user_id"] = claims.UserID
+
+	case "chat_receipts":
+		// Check if user is a member of the conversation containing this message
+		messageID, ok := data["message_id"].(string)
+		if !ok || messageID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "message_id is required"})
+			return
+		}
+
+		var isMember bool
+		err := h.db.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM chat_messages m
+				INNER JOIN chat_conversation_members cm ON m.conversation_id = cm.conversation_id
+				WHERE m.id = $1 AND cm.user_id = $2 AND cm.archived_at IS NULL
+			)
+		`, messageID, claims.UserID).Scan(&isMember)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if !isMember {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: not a member of this conversation"})
+			return
+		}
+
+		// Ensure user_id matches authenticated user
+		data["user_id"] = claims.UserID
+
+	case "chat_conversations", "chat_conversation_members":
+		// These should be created via RPC functions only
+		c.JSON(http.StatusForbidden, gin.H{"error": "Use RPC function get_or_create_direct_chat to create conversations"})
+		return
+
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Build INSERT query
+	query := "INSERT INTO " + tableName + " ("
+	var columns []string
+	var placeholders []string
+	var args []interface{}
+	argIndex := 1
+
+	for column, value := range data {
+		columns = append(columns, column)
+		placeholders = append(placeholders, "$"+strconv.Itoa(argIndex))
+		args = append(args, value)
+		argIndex++
+	}
+
+	query += joinStrings(columns, ", ") + ") VALUES (" + joinStrings(placeholders, ", ") + ") RETURNING *"
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No rows returned"})
+		return
+	}
+
+	result, err := scanRowToMap(rows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Publish WebSocket events for new chat messages
+	if tableName == "chat_messages" {
+		if h.hub != nil {
+			conversationID := rowUserID(result["conversation_id"])
+			if conversationID != "" {
+				fmt.Printf("[WebSocket DEBUG] Publishing new chat message event for conversation %s\n", conversationID)
+				if err := h.hub.PublishNewChatMessage(result); err != nil {
+					fmt.Printf("[WebSocket] Error publishing chat message event: %v\n", err)
+				} else {
+					fmt.Printf("[WebSocket] Published chat message event for conversation %s\n", conversationID)
+				}
+			}
+		}
+
+		// Publish to bot events
+		if h.botEventPublisher != nil {
+			h.botEventPublisher.PublishChatMessage(result)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": result})
 }

@@ -96,6 +96,8 @@ services:
       FEDERATION_KEY: your-federation-key-change-in-production
       ENVIRONMENT: development
       SUPABASE_ANON_KEY: your-anon-key
+      # WebSocket security - allowed origins for CORS
+      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8080,http://localhost:3000,http://localhost:8081
       # Garage S3 (replaces MinIO)
       # Backend connects directly to Garage for S3 API (with AWS Signature)
       GARAGE_S3_ENDPOINT: http://garage:3900

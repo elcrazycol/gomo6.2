@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { Heart } from "lucide-react";
 import { supabase } from "@/integrations/api/client_simple";
 import {
@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MentionLink } from "./MentionLink";
 import { UserBadge } from "./UserBadge";
+import { useLikesCache } from "@/contexts/LikesCacheContext";
 
 interface LikeButtonProps {
   postId: string;
@@ -19,7 +20,8 @@ interface LikeButtonProps {
   isThread?: boolean; // New prop to distinguish between posts and threads
 }
 
-export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange, isThread = false }: LikeButtonProps) => {
+export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeChange, isThread = false }: LikeButtonProps) => {
+  const { getLikeData, loadLikeData, updateLikeData } = useLikesCache();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [recentLikers, setRecentLikers] = useState<{ username: string; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]>([]);
@@ -28,31 +30,23 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange, 
 
   // Load initial like status and count
   useEffect(() => {
-    const loadLikeData = async () => {
-      if (!currentUserId) return;
-
-      try {
-        // Check if user liked this post/thread
-        const hasLikedFunction = isThread ? 'has_user_liked_thread' : 'has_user_liked_post';
-        const { data: hasLiked } = await supabase.rpc(hasLikedFunction, {
-          [isThread ? 'thread_uuid' : 'post_uuid']: postId,
-          user_uuid: currentUserId
-        });
-        setIsLiked(hasLiked);
-
-        // Get likes count
-        const countFunction = isThread ? 'get_thread_likes_count' : 'get_post_likes_count';
-        const { data: count } = await supabase.rpc(countFunction, {
-          [isThread ? 'thread_uuid' : 'post_uuid']: postId
-        });
-        setLikesCount(count || 0);
-      } catch (error) {
-        console.error('Error loading like data:', error);
+    const loadData = async () => {
+      // Check cache first
+      const cached = getLikeData(postId, isThread);
+      if (cached) {
+        setIsLiked(cached.isLiked);
+        setLikesCount(cached.count);
+        return;
       }
+
+      // Load from API
+      const data = await loadLikeData(postId, currentUserId, isThread);
+      setIsLiked(data.isLiked);
+      setLikesCount(data.count);
     };
 
-    loadLikeData();
-  }, [postId, currentUserId, isThread]);
+    loadData();
+  }, [postId, currentUserId, isThread, getLikeData, loadLikeData]);
 
   // Load recent likers when tooltip opens
   useEffect(() => {
@@ -130,8 +124,10 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange, 
 
         if (!error) {
           setIsLiked(false);
-          setLikesCount(prev => Math.max(0, prev - 1));
-          onLikeChange?.(false, Math.max(0, likesCount - 1));
+          const newCount = Math.max(0, likesCount - 1);
+          setLikesCount(newCount);
+          updateLikeData(postId, isThread, false, newCount);
+          onLikeChange?.(false, newCount);
 
           // Re-check achievements after removing like
           await checkAchievements(currentUserId, 'likes_given');
@@ -150,8 +146,10 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange, 
 
         if (!error) {
           setIsLiked(true);
-          setLikesCount(prev => prev + 1);
-          onLikeChange?.(true, likesCount + 1);
+          const newCount = likesCount + 1;
+          setLikesCount(newCount);
+          updateLikeData(postId, isThread, true, newCount);
+          onLikeChange?.(true, newCount);
 
           // Check achievements after adding like
           await checkAchievements(currentUserId, 'likes_given');
@@ -260,4 +258,6 @@ export const LikeButton = ({ postId, currentUserId, postAuthorId, onLikeChange, 
       </Tooltip>
     </TooltipProvider>
   );
-};
+});
+
+LikeButton.displayName = 'LikeButton';

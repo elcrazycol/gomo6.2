@@ -74,6 +74,20 @@ func (p *BotEventPublisher) PublishThreadPost(post map[string]interface{}) {
 	p.publish(event)
 }
 
+// PublishChatMessage publishes a chat message event to bots
+func (p *BotEventPublisher) PublishChatMessage(message map[string]interface{}) {
+	if p.redis == nil {
+		return
+	}
+
+	event := map[string]interface{}{
+		"type": "chat_message",
+		"data": message,
+	}
+
+	p.publish(event)
+}
+
 // publish sends an event to the bot:events Redis channel
 func (p *BotEventPublisher) publish(event map[string]interface{}) {
 	data, err := json.Marshal(event)

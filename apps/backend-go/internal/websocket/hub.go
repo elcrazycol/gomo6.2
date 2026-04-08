@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -26,12 +27,14 @@ const (
 	MessageTypeNewWallPost    = "new_wall_post"
 	MessageTypeUpdateWallPost = "update_wall_post"
 	MessageTypeDeleteWallPost = "delete_wall_post"
+	MessageTypeNewChatMessage = "new_chat_message"
 
 	// Redis channels
 	RedisChannelPosts   = "realtime:posts"
 	RedisChannelThreads = "realtime:threads"
 	RedisChannelLikes   = "realtime:likes"
 	RedisChannelWall    = "realtime:wall"
+	RedisChannelChat    = "realtime:chat"
 )
 
 // Message represents a WebSocket message
@@ -52,31 +55,38 @@ type RealtimeEvent struct {
 
 // Hub maintains the set of active clients and broadcasts messages
 type Hub struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	rooms      map[string]map[*Client]bool
-	presence   map[string]*Client
-	mu         sync.RWMutex
-	redis      *redis.Client
-	ctx        context.Context
-	cancel     context.CancelFunc
+	clients        map[*Client]bool
+	broadcast      chan []byte
+	register       chan *Client
+	unregister     chan *Client
+	rooms          map[string]map[*Client]bool
+	presence       map[string]*Client
+	mu             sync.RWMutex
+	redis          *redis.Client
+	ctx            context.Context
+	cancel         context.CancelFunc
+	allowedOrigins []string
+	rateLimiter    *RateLimiter
 }
 
 // NewHub creates a new Hub with Redis integration
-func NewHub(redisClient *redis.Client) *Hub {
+func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
+	if allowedOrigins == nil {
+		allowedOrigins = []string{"http://localhost:5173", "http://localhost:8080"}
+	}
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		broadcast:  make(chan []byte),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		rooms:      make(map[string]map[*Client]bool),
-		presence:   make(map[string]*Client),
-		redis:      redisClient,
-		ctx:        ctx,
-		cancel:     cancel,
+		clients:        make(map[*Client]bool),
+		broadcast:      make(chan []byte),
+		register:       make(chan *Client),
+		unregister:     make(chan *Client),
+		rooms:          make(map[string]map[*Client]bool),
+		presence:       make(map[string]*Client),
+		redis:          redisClient,
+		ctx:            ctx,
+		cancel:         cancel,
+		allowedOrigins: allowedOrigins,
+		rateLimiter:    NewRateLimiter(60, time.Minute), // 60 messages per minute
 	}
 }
 
@@ -151,10 +161,10 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat)
 	defer pubsub.Close()
 
-	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall)
+	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat)
 
 	ch := pubsub.Channel()
 
@@ -225,6 +235,13 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
 			wallRoom := fmt.Sprintf("profile_wall_%s", userID)
 			h.BroadcastToRoom(wallRoom, messageBytes)
+		}
+
+	case MessageTypeNewChatMessage:
+		// Extract conversation_id from payload for chat broadcasting
+		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
+			chatRoom := fmt.Sprintf("chat_%s", conversationID)
+			h.BroadcastToRoom(chatRoom, messageBytes)
 		}
 
 	default:
@@ -355,6 +372,15 @@ func (h *Hub) PublishDeleteWallPost(post interface{}) error {
 	return h.PublishToRedis(RedisChannelWall, event)
 }
 
+// PublishNewChatMessage publishes a new chat message event to Redis
+func (h *Hub) PublishNewChatMessage(message interface{}) error {
+	event := RealtimeEvent{
+		Type:    MessageTypeNewChatMessage,
+		Payload: message,
+	}
+	return h.PublishToRedis(RedisChannelChat, event)
+}
+
 // GetOnlineUsers returns a list of online user IDs
 func (h *Hub) GetOnlineUsers() []string {
 	h.mu.RLock()
@@ -372,4 +398,23 @@ func (h *Hub) GetClientByUserID(userID string) *Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.presence[userID]
+}
+
+// CheckOrigin validates WebSocket origin against allowed origins
+func (h *Hub) CheckOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Allow requests without Origin header (e.g., non-browser clients)
+		return true
+	}
+
+	// Check if origin is in allowed list
+	for _, allowed := range h.allowedOrigins {
+		if origin == allowed {
+			return true
+		}
+	}
+
+	log.Printf("[WebSocket] Rejected connection from unauthorized origin: %s", origin)
+	return false
 }

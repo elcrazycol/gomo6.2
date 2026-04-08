@@ -276,7 +276,31 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 		return
 	}
 
-	out, err := h.client.GetObject(c.Request.Context(), bucket, key)
+	// Parse Range header for partial content support
+	rangeHeader := c.GetHeader("Range")
+	var rangeStart, rangeEnd *int64
+
+	if rangeHeader != "" {
+		// Parse "bytes=start-end" format
+		if strings.HasPrefix(rangeHeader, "bytes=") {
+			rangeSpec := strings.TrimPrefix(rangeHeader, "bytes=")
+			parts := strings.Split(rangeSpec, "-")
+			if len(parts) == 2 {
+				if parts[0] != "" {
+					if start, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+						rangeStart = &start
+					}
+				}
+				if parts[1] != "" {
+					if end, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+						rangeEnd = &end
+					}
+				}
+			}
+		}
+	}
+
+	out, err := h.client.GetObjectRange(c.Request.Context(), bucket, key, rangeStart, rangeEnd)
 	if err != nil {
 		if storage.IsNotFound(err) {
 			if bucket == "post-images" && strings.Contains(key, "avatar") {
@@ -296,18 +320,34 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 	}
 	defer out.Body.Close()
 
+	// Set common headers
 	if out.ContentType != nil && aws.ToString(out.ContentType) != "" {
 		c.Header("Content-Type", aws.ToString(out.ContentType))
-	}
-	if out.ContentLength != nil && *out.ContentLength > 0 {
-		c.Header("Content-Length", fmt.Sprintf("%d", *out.ContentLength))
 	}
 	if out.ETag != nil {
 		c.Header("ETag", aws.ToString(out.ETag))
 	}
+	c.Header("Accept-Ranges", "bytes")
 	c.Header("Cache-Control", "public, max-age=3600")
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	c.Header("Access-Control-Allow-Headers", "Content-Type, Range")
+	c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Content-Type, Accept-Ranges")
 
-	c.Status(http.StatusOK)
+	// Handle range response
+	if out.ContentRange != nil && aws.ToString(out.ContentRange) != "" {
+		c.Header("Content-Range", aws.ToString(out.ContentRange))
+		if out.ContentLength != nil && *out.ContentLength > 0 {
+			c.Header("Content-Length", fmt.Sprintf("%d", *out.ContentLength))
+		}
+		c.Status(http.StatusPartialContent)
+	} else {
+		if out.ContentLength != nil && *out.ContentLength > 0 {
+			c.Header("Content-Length", fmt.Sprintf("%d", *out.ContentLength))
+		}
+		c.Status(http.StatusOK)
+	}
+
 	if _, err := io.Copy(c.Writer, out.Body); err != nil {
 		return
 	}
