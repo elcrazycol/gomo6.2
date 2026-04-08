@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -273,20 +274,45 @@ func (br *BotRuntime) setupSandbox() {
 func (br *BotRuntime) registerBotAPI() {
 	botTable := br.VM.NewTable()
 
-	// bot.log(level, message)
+	// Logging & Utility
 	botTable.RawSetString("log", br.VM.NewFunction(br.luaLog))
+	botTable.RawSetString("sleep", br.VM.NewFunction(br.luaSleep))
 
-	// bot.sendWallComment(postId, content)
-	botTable.RawSetString("sendWallComment", br.VM.NewFunction(br.luaSendWallComment))
-
-	// bot.sendThreadPost(threadId, content)
+	// Messages & Comments
 	botTable.RawSetString("sendThreadPost", br.VM.NewFunction(br.luaSendThreadPost))
+	botTable.RawSetString("replyToThreadPost", br.VM.NewFunction(br.luaReplyToThreadPost))
+	botTable.RawSetString("sendWallComment", br.VM.NewFunction(br.luaSendWallComment))
+	botTable.RawSetString("replyToWallComment", br.VM.NewFunction(br.luaReplyToWallComment))
+	botTable.RawSetString("sendChatMessage", br.VM.NewFunction(br.luaSendChatMessage))
 
-	// bot.getUser(userId)
+	// Users
 	botTable.RawSetString("getUser", br.VM.NewFunction(br.luaGetUser))
 
-	// bot.sleep(milliseconds)
-	botTable.RawSetString("sleep", br.VM.NewFunction(br.luaSleep))
+	// Threads & Posts
+	botTable.RawSetString("getThread", br.VM.NewFunction(br.luaGetThread))
+	botTable.RawSetString("getPost", br.VM.NewFunction(br.luaGetPost))
+	botTable.RawSetString("getThreadPosts", br.VM.NewFunction(br.luaGetThreadPosts))
+	botTable.RawSetString("createThread", br.VM.NewFunction(br.luaCreateThread))
+
+	// Likes & Reactions
+	botTable.RawSetString("likePost", br.VM.NewFunction(br.luaLikePost))
+	botTable.RawSetString("unlikePost", br.VM.NewFunction(br.luaUnlikePost))
+
+	// Chat
+	botTable.RawSetString("getChatConversation", br.VM.NewFunction(br.luaGetChatConversation))
+
+	// Data Storage (persistent key-value store)
+	botTable.RawSetString("setData", br.VM.NewFunction(br.luaSetData))
+	botTable.RawSetString("getData", br.VM.NewFunction(br.luaGetData))
+	botTable.RawSetString("deleteData", br.VM.NewFunction(br.luaDeleteData))
+
+	// HTTP Requests
+	botTable.RawSetString("httpGet", br.VM.NewFunction(br.luaHttpGet))
+	botTable.RawSetString("httpPost", br.VM.NewFunction(br.luaHttpPost))
+
+	// Bot Info
+	botTable.RawSetString("id", lua.LString(br.Bot.ID))
+	botTable.RawSetString("username", lua.LString(br.Bot.Username))
 
 	br.VM.SetGlobal("bot", botTable)
 }
@@ -302,6 +328,12 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 	br.mu.Unlock()
 
 	log.Printf("[Bot %s] HandleEvent called for type=%s, data=%+v", br.Bot.Username, event.Type, event.Data)
+
+	// Check if bot should handle this event
+	if !br.shouldHandleEvent(event) {
+		log.Printf("[Bot %s] Skipping event - bot not mentioned", br.Bot.Username)
+		return
+	}
 
 	// Set timeout for execution (5 seconds)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -330,6 +362,9 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 		case "thread_post":
 			log.Printf("[Bot %s] Calling onThreadPost", br.Bot.Username)
 			br.callLuaFunction("onThreadPost", event)
+		case "chat_message":
+			log.Printf("[Bot %s] Calling onChatMessage", br.Bot.Username)
+			br.callLuaFunction("onChatMessage", event)
 		default:
 			log.Printf("[Bot %s] Unknown event type: %s", br.Bot.Username, event.Type)
 		}
@@ -341,6 +376,92 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 	case <-done:
 		// Completed successfully
 	}
+}
+
+// shouldHandleEvent checks if bot should handle this event
+func (br *BotRuntime) shouldHandleEvent(event *BotEvent) bool {
+	// For chat messages, check if bot is a member of the conversation
+	if event.Type == "chat_message" {
+		log.Printf("[Bot %s] Processing chat_message event, data: %+v", br.Bot.Username, event.Data)
+
+		conversationID, ok := event.Data["conversation_id"].(string)
+		log.Printf("[Bot %s] conversation_id extraction: ok=%v, value=%q", br.Bot.Username, ok, conversationID)
+
+		if !ok || conversationID == "" {
+			log.Printf("[Bot %s] No conversation_id in chat_message event", br.Bot.Username)
+			return false
+		}
+
+		// Check if bot is a member of this conversation
+		var isMember bool
+		err := br.DB.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM chat_conversation_members
+				WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+			)
+		`, conversationID, br.Bot.ID).Scan(&isMember)
+
+		if err != nil {
+			log.Printf("[Bot %s] Error checking conversation membership: %v", br.Bot.Username, err)
+			return false
+		}
+
+		log.Printf("[Bot %s] Membership check result: isMember=%v for conversation %s", br.Bot.Username, isMember, conversationID)
+
+		if isMember {
+			log.Printf("[Bot %s] Bot is a member of conversation %s, handling", br.Bot.Username, conversationID)
+			return true
+		}
+
+		log.Printf("[Bot %s] Bot is not a member of conversation %s, skipping", br.Bot.Username, conversationID)
+		return false
+	}
+
+	// Always handle events on bot's own wall
+	if event.Type == "wall_post" || event.Type == "wall_comment" {
+		// Check wall_owner_id first
+		if wallOwnerID, ok := event.Data["wall_owner_id"].(string); ok {
+			if wallOwnerID == br.Bot.ID {
+				log.Printf("[Bot %s] Event is on bot's wall (wall_owner_id), handling", br.Bot.Username)
+				return true
+			}
+		}
+		// For wall_post, also check user_id (the wall owner)
+		if event.Type == "wall_post" {
+			if userID, ok := event.Data["user_id"].(string); ok {
+				if userID == br.Bot.ID {
+					log.Printf("[Bot %s] Event is on bot's wall (user_id), handling", br.Bot.Username)
+					return true
+				}
+			}
+		}
+	}
+
+	// Check if bot is mentioned in content
+	botMention := "@" + br.Bot.Username
+
+	// Check in different content fields depending on event type
+	var content string
+	if contentVal, ok := event.Data["content"].(string); ok {
+		content = contentVal
+	} else if textVal, ok := event.Data["text"].(string); ok {
+		content = textVal
+	} else if bodyVal, ok := event.Data["body"].(string); ok {
+		content = bodyVal
+	}
+
+	if content != "" {
+		log.Printf("[Bot %s] Checking content for mention. Content: %q, botMention: %q", br.Bot.Username, content, botMention)
+		// Use strings.Contains for more robust mention detection
+		if strings.Contains(content, botMention) {
+			log.Printf("[Bot %s] Bot is mentioned in content, handling", br.Bot.Username)
+			return true
+		}
+		log.Printf("[Bot %s] Bot mention not found in content", br.Bot.Username)
+	}
+
+	log.Printf("[Bot %s] Bot not mentioned and not on bot's wall, skipping", br.Bot.Username)
+	return false
 }
 
 // callLuaFunction calls a Lua function with event data

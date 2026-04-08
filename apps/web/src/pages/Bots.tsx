@@ -1,22 +1,19 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { HeaderUsername } from "@/components/HeaderUsername";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Plus, Code, Activity, Trash2, Edit, Power } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Bot, Plus, Activity, Trash2, Edit, Power, Code, Settings, FileText, ChevronLeft, Save, Terminal, AlertCircle, Info, AlertTriangle, RefreshCw } from "lucide-react";
+import Editor from "@monaco-editor/react";
 
 interface BotData {
   id: string;
@@ -28,16 +25,25 @@ interface BotData {
   created_at: string;
 }
 
+interface BotLog {
+  id: string;
+  bot_id: string;
+  level: "info" | "warn" | "error";
+  message: string;
+  created_at: string;
+}
+
 const Bots = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
   const [bots, setBots] = useState<BotData[]>([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [selectedBot, setSelectedBot] = useState<BotData | null>(null);
+  const [editingBot, setEditingBot] = useState<BotData | null>(null);
+  const [logs, setLogs] = useState<BotLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     username: "",
     display_name: "",
@@ -56,6 +62,20 @@ end`,
     checkAuth();
   }, []);
 
+  useEffect(() => {
+    if (editingBot && showLogs) {
+      loadLogs(editingBot.id);
+      const interval = setInterval(() => loadLogs(editingBot.id), 5000); // Увеличил с 3 до 5 секунд
+      return () => clearInterval(interval);
+    }
+  }, [editingBot, showLogs]);
+
+  useEffect(() => {
+    if (showLogs && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs]);
+
   const checkAuth = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -64,37 +84,6 @@ end`,
     }
 
     setUser(session.user);
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username")
-      .eq("id", session.user.id)
-      .single();
-
-    if (profile) {
-      setCurrentUserUsername(profile.username);
-    }
-
-    const { data: achievements } = await supabase
-      .from("user_achievements")
-      .select(`
-        achievement_id,
-        achievements (
-          reward_type,
-          reward_value
-        )
-      `)
-      .eq("user_id", session.user.id);
-
-    if (achievements) {
-      const colorAchievement = achievements.find(
-        (a: any) => a.achievements?.reward_type === "username_color"
-      );
-      if (colorAchievement) {
-        setCurrentUserColor(colorAchievement.achievements.reward_value);
-      }
-    }
-
     await loadBots(session.user.id);
     setLoading(false);
   };
@@ -153,13 +142,13 @@ end`,
   };
 
   const updateBot = async () => {
-    if (!selectedBot) return;
+    if (!editingBot) return;
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch(`http://localhost:8080/api/v1/bots/${selectedBot.id}`, {
+      const response = await fetch(`http://localhost:8080/api/v1/bots/${editingBot.id}`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
@@ -174,8 +163,7 @@ end`,
 
       if (response.ok) {
         toast.success("Бот обновлён!");
-        setEditDialogOpen(false);
-        setSelectedBot(null);
+        setEditingBot(null);
         await loadBots(session.user.id);
       } else {
         const error = await response.json();
@@ -230,54 +218,419 @@ end`,
     }
   };
 
+  const loadLogs = async (botId: string) => {
+    try {
+      setLogsLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      console.log("[Logs] Fetching logs for bot:", botId);
+      const response = await fetch(`http://localhost:8080/api/v1/bots/${botId}/logs`, {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      });
+
+      console.log("[Logs] Response status:", response.status);
+      const text = await response.text();
+      console.log("[Logs] Raw response text:", text);
+
+      if (response.ok) {
+        const data = text ? JSON.parse(text) : [];
+        console.log("[Logs] Parsed data:", data);
+        console.log("[Logs] Number of logs:", data?.length || 0);
+        setLogs(data || []);
+      } else {
+        console.error("[Logs] Failed to fetch logs:", response.statusText);
+      }
+    } catch (error) {
+      console.error("[Logs] Failed to load logs:", error);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const clearLogs = async (botId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch(`http://localhost:8080/api/v1/bots/${botId}/logs`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        toast.success("Логи очищены");
+        setLogs([]);
+      }
+    } catch (error) {
+      toast.error("Ошибка очистки логов");
+    }
+  };
+
   const openEditDialog = (bot: BotData) => {
-    setSelectedBot(bot);
+    setEditingBot(bot);
     setFormData({
       username: bot.username,
       display_name: bot.display_name,
       description: bot.description,
       lua_code: bot.lua_code,
     });
-    setEditDialogOpen(true);
+    setShowLogs(false);
+    setLogs([]);
+  };
+
+  const getLogIcon = (level: string) => {
+    switch (level) {
+      case "error":
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      case "warn":
+        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
+      default:
+        return <Info className="h-4 w-4 text-blue-500" />;
+    }
+  };
+
+  const getLogColor = (level: string) => {
+    switch (level) {
+      case "error":
+        return "text-red-500";
+      case "warn":
+        return "text-yellow-500";
+      default:
+        return "text-blue-500";
+    }
   };
 
   if (loading) {
     return <PentagramLoader />;
   }
 
-  return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center">
-          <div className="mr-4 flex">
-            <Link to="/" className="mr-6 flex items-center space-x-2">
-              <span className="font-bold">gomo6</span>
-            </Link>
-          </div>
-          <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-            <nav className="flex items-center space-x-2">
-              {user && (
-                <>
-                  <NotificationBell />
-                  <ChatIcon />
-                  <ProfileHoverCard username={currentUserUsername}>
-                    <Link to={`/u/${currentUserUsername}`}>
-                      <HeaderUsername username={currentUserUsername} color={currentUserColor} />
-                    </Link>
-                  </ProfileHoverCard>
-                  <Link to="/settings">
-                    <Button variant="ghost" size="icon">
-                      <Bot className="h-5 w-5" />
-                    </Button>
-                  </Link>
-                </>
-              )}
-              <MobileMenu />
-            </nav>
+  // Режим редактирования бота
+  if (editingBot) {
+    return (
+      <div className="min-h-screen bg-background relative">
+        <div className="border-b">
+          <div className="container flex h-14 items-center gap-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEditingBot(null);
+                setShowLogs(false);
+                setLogs([]);
+              }}
+            >
+              <ChevronLeft className="mr-2 h-4 w-4" />
+              Назад
+            </Button>
+            <div className="flex-1">
+              <h1 className="text-lg font-semibold">{editingBot.display_name}</h1>
+              <p className="text-xs text-muted-foreground">@{editingBot.username}</p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowLogs(!showLogs);
+                if (!showLogs) {
+                  loadLogs(editingBot.id);
+                }
+              }}
+            >
+              <Terminal className="mr-2 h-4 w-4" />
+              {showLogs ? "Скрыть логи" : "Показать логи"}
+            </Button>
+            <Button onClick={updateBot}>
+              <Save className="mr-2 h-4 w-4" />
+              Сохранить
+            </Button>
           </div>
         </div>
-      </header>
 
+        <div className="container py-6">
+          <Tabs defaultValue="code" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="code">
+                    <Code className="mr-2 h-4 w-4" />
+                    Код
+                  </TabsTrigger>
+                  <TabsTrigger value="settings">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Настройки
+                  </TabsTrigger>
+                  <TabsTrigger value="docs">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Документация
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="code" className="mt-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Lua код бота</CardTitle>
+                      <CardDescription>
+                        Редактируйте код с подсветкой синтаксиса и автодополнением
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="border rounded-lg overflow-hidden">
+                        <Editor
+                          height="600px"
+                          defaultLanguage="lua"
+                          value={formData.lua_code}
+                          onChange={(value) => setFormData({ ...formData, lua_code: value || "" })}
+                          theme="vs-dark"
+                          options={{
+                            minimap: { enabled: true },
+                            fontSize: 14,
+                            lineNumbers: "on",
+                            roundedSelection: false,
+                            scrollBeyondLastLine: false,
+                            automaticLayout: true,
+                            tabSize: 2,
+                            wordWrap: "on",
+                          }}
+                          onMount={(editor) => {
+                            // Фикс ошибки Monaco Editor
+                            setTimeout(() => {
+                              editor.layout();
+                            }, 100);
+                          }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+            <TabsContent value="settings" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Настройки бота</CardTitle>
+                  <CardDescription>
+                    Основная информация о боте
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="display_name">Отображаемое имя</Label>
+                    <Input
+                      id="display_name"
+                      value={formData.display_name}
+                      onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="description">Описание</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={4}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <p className="font-medium">Статус бота</p>
+                      <p className="text-sm text-muted-foreground">
+                        {editingBot.is_active ? "Бот активен и обрабатывает события" : "Бот выключен"}
+                      </p>
+                    </div>
+                    <Button
+                      variant={editingBot.is_active ? "destructive" : "default"}
+                      onClick={() => toggleBot(editingBot.id)}
+                    >
+                      <Power className="mr-2 h-4 w-4" />
+                      {editingBot.is_active ? "Выключить" : "Включить"}
+                    </Button>
+                  </div>
+                  <div className="pt-4 border-t">
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        deleteBot(editingBot.id);
+                        setEditingBot(null);
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Удалить бота
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="docs" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>API документация</CardTitle>
+                  <CardDescription>
+                    Доступные функции и события для ботов
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">События</h3>
+                    <div className="space-y-3">
+                      <div className="p-3 border rounded-lg">
+                        <code className="text-sm font-mono">function onThreadPost(post)</code>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Вызывается при создании нового поста в треде
+                        </p>
+                      </div>
+                      <div className="p-3 border rounded-lg">
+                        <code className="text-sm font-mono">function onThreadCreate(thread)</code>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Вызывается при создании нового треда
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Функции бота</h3>
+                    <div className="space-y-3">
+                      <div className="p-3 border rounded-lg">
+                        <code className="text-sm font-mono">bot.sendThreadPost(thread_id, content)</code>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Отправить пост в тред
+                        </p>
+                      </div>
+                      <div className="p-3 border rounded-lg">
+                        <code className="text-sm font-mono">bot.log(level, message)</code>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Записать лог (уровни: "info", "warn", "error")
+                        </p>
+                      </div>
+                      <div className="p-3 border rounded-lg">
+                        <code className="text-sm font-mono">bot.getThread(thread_id)</code>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Получить информацию о треде
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Пример</h3>
+                    <pre className="p-4 bg-muted rounded-lg text-sm overflow-x-auto">
+{`function onThreadPost(post)
+  bot.log("info", "Новый пост: " .. post.id)
+
+  local content = post.content or ""
+
+  -- Ответ на приветствие
+  if content:match("привет") then
+    bot.sendThreadPost(post.thread_id, "Привет! 👋")
+  end
+
+  -- Команда /help
+  if content:match("^/help") then
+    bot.sendThreadPost(post.thread_id,
+      "Доступные команды:\\n/help - эта справка")
+  end
+end`}
+                    </pre>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Выдвижная панель логов */}
+        <div
+          className={`fixed top-0 right-0 h-full w-[500px] bg-background border-l shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${
+            showLogs ? "translate-x-0" : "translate-x-full"
+          }`}
+        >
+          <Card className="h-full flex flex-col rounded-none border-0">
+            <CardHeader className="flex-shrink-0 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Terminal className="h-5 w-5" />
+                    Логи бота
+                  </CardTitle>
+                  <CardDescription>
+                    Обновляется каждые 3 секунды
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadLogs(editingBot.id)}
+                    disabled={logsLoading}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${logsLoading ? "animate-spin" : ""}`} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => clearLogs(editingBot.id)}
+                  >
+                    Очистить
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-hidden p-0">
+              <ScrollArea className="h-full">
+                <div className="p-4 space-y-2 font-mono text-sm">
+                  {logs.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8">
+                      <Terminal className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p>Логов пока нет</p>
+                    </div>
+                  ) : (
+                    logs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="flex gap-2 p-2 rounded hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex-shrink-0 mt-0.5">
+                          {getLogIcon(log.level)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className={`font-semibold uppercase text-xs ${getLogColor(log.level)}`}>
+                              {log.level}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(log.created_at).toLocaleTimeString("ru-RU")}
+                            </span>
+                          </div>
+                          <div className="text-foreground break-words whitespace-pre-wrap">
+                            {log.message}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div ref={logsEndRef} />
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Overlay для закрытия панели */}
+        {showLogs && (
+          <div
+            className="fixed inset-0 bg-black/20 z-40 transition-opacity duration-300"
+            onClick={() => setShowLogs(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Список ботов
+  return (
+    <div className="min-h-screen bg-background">
       <main className="container py-6">
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -291,56 +644,80 @@ end`,
                 Создать бота
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Создать бота</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="username">Username (латиница)</Label>
-                  <Input
-                    id="username"
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    placeholder="mybot"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Будет создан как: {formData.username || "mybot"}.bot
-                  </p>
-                </div>
-                <div>
-                  <Label htmlFor="display_name">Отображаемое имя</Label>
-                  <Input
-                    id="display_name"
-                    value={formData.display_name}
-                    onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                    placeholder="Мой бот"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="description">Описание</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Описание бота"
-                    rows={3}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="lua_code">Lua код</Label>
-                  <Textarea
-                    id="lua_code"
-                    value={formData.lua_code}
-                    onChange={(e) => setFormData({ ...formData, lua_code: e.target.value })}
-                    className="font-mono text-sm"
-                    rows={15}
-                  />
-                </div>
-                <Button onClick={createBot} className="w-full">
-                  Создать
-                </Button>
-              </div>
+              <Tabs defaultValue="basic" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="basic">Основное</TabsTrigger>
+                  <TabsTrigger value="code">Код</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="basic" className="space-y-4 mt-4">
+                  <div>
+                    <Label htmlFor="username">Username (латиница)</Label>
+                    <Input
+                      id="username"
+                      value={formData.username}
+                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                      placeholder="mybot"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Будет создан как: {formData.username || "mybot"}.bot
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="display_name">Отображаемое имя</Label>
+                    <Input
+                      id="display_name"
+                      value={formData.display_name}
+                      onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                      placeholder="Мой бот"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="description">Описание</Label>
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="Описание бота"
+                      rows={4}
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="code" className="mt-4">
+                  <div>
+                    <Label>Lua код</Label>
+                    <div className="mt-2 border rounded-lg overflow-hidden">
+                      <Editor
+                        height="400px"
+                        defaultLanguage="lua"
+                        value={formData.lua_code}
+                        onChange={(value) => setFormData({ ...formData, lua_code: value || "" })}
+                        theme="vs-dark"
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 13,
+                          lineNumbers: "on",
+                          scrollBeyondLastLine: false,
+                          automaticLayout: true,
+                          tabSize: 2,
+                        }}
+                        onMount={(editor) => {
+                          setTimeout(() => editor.layout(), 100);
+                        }}
+                      />
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <Button onClick={createBot} className="w-full mt-4">
+                Создать
+              </Button>
             </DialogContent>
           </Dialog>
         </div>
@@ -359,7 +736,7 @@ end`,
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {bots.map((bot) => (
-              <Card key={bot.id}>
+              <Card key={bot.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => openEditDialog(bot)}>
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -388,21 +765,30 @@ end`,
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => toggleBot(bot.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleBot(bot.id);
+                      }}
                     >
                       <Power className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => openEditDialog(bot)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEditDialog(bot);
+                      }}
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => deleteBot(bot.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteBot(bot.id);
+                      }}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -412,46 +798,6 @@ end`,
             ))}
           </div>
         )}
-
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Редактировать бота</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit_display_name">Отображаемое имя</Label>
-                <Input
-                  id="edit_display_name"
-                  value={formData.display_name}
-                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit_description">Описание</Label>
-                <Textarea
-                  id="edit_description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit_lua_code">Lua код</Label>
-                <Textarea
-                  id="edit_lua_code"
-                  value={formData.lua_code}
-                  onChange={(e) => setFormData({ ...formData, lua_code: e.target.value })}
-                  className="font-mono text-sm"
-                  rows={15}
-                />
-              </div>
-              <Button onClick={updateBot} className="w-full">
-                Сохранить
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </main>
     </div>
   );

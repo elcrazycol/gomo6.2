@@ -27,6 +27,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Initialize auth service
 	authService := auth.NewAuthService()
 
+	// Initialize messenger rate limiter
+	messengerRateLimiter := middleware.NewMessengerRateLimiter()
+
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
 
@@ -171,6 +174,56 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		protected := rest.Group("")
 		protected.Use(middleware.SupabaseAuthMiddleware(authService))
 		{
+			// Messenger tables (protected with rate limiting)
+			messenger := protected.Group("")
+			messenger.Use(middleware.MessengerRateLimitMiddleware(messengerRateLimiter))
+			{
+				messenger.GET("/chat_user_keys", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_user_keys", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_user_keys", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_user_keys", universalHandler.HandleTableRequest)
+				messenger.GET("/chat_user_keys/*path", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_user_keys/*path", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_user_keys/*path", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_user_keys/*path", universalHandler.HandleTableRequest)
+
+				messenger.GET("/chat_conversations", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_conversations", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_conversations", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_conversations", universalHandler.HandleTableRequest)
+				messenger.GET("/chat_conversations/*path", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_conversations/*path", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_conversations/*path", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_conversations/*path", universalHandler.HandleTableRequest)
+
+				messenger.GET("/chat_conversation_members", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_conversation_members", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_conversation_members", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_conversation_members", universalHandler.HandleTableRequest)
+				messenger.GET("/chat_conversation_members/*path", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_conversation_members/*path", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_conversation_members/*path", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_conversation_members/*path", universalHandler.HandleTableRequest)
+
+				messenger.GET("/chat_messages", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_messages", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_messages", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_messages", universalHandler.HandleTableRequest)
+				messenger.GET("/chat_messages/*path", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_messages/*path", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_messages/*path", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_messages/*path", universalHandler.HandleTableRequest)
+
+				messenger.GET("/chat_receipts", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_receipts", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_receipts", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_receipts", universalHandler.HandleTableRequest)
+				messenger.GET("/chat_receipts/*path", universalHandler.HandleTableRequest)
+				messenger.POST("/chat_receipts/*path", universalHandler.HandleTableRequest)
+				messenger.PUT("/chat_receipts/*path", universalHandler.HandleTableRequest)
+				messenger.DELETE("/chat_receipts/*path", universalHandler.HandleTableRequest)
+			}
+
 			protected.POST("/profiles", func(c *gin.Context) {
 				c.JSON(501, gin.H{"error": "Profile creation not implemented"})
 			})
@@ -212,6 +265,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Protected RPC functions
 		protected := rpc.Group("")
 		protected.Use(middleware.SupabaseAuthMiddleware(authService))
+		protected.Use(middleware.MessengerRateLimitMiddleware(messengerRateLimiter))
 		{
 			protected.GET("/has_user_liked_post", rpcHandler.HasUserLikedPost)
 			protected.GET("/has_user_liked_thread", rpcHandler.HasUserLikedThread)
@@ -223,6 +277,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/get_user_thread_likes_received_timestamps", rpcHandler.GetUserThreadLikesReceivedTimestamps)
 			protected.GET("/get_user_thread_reply_timestamps", rpcHandler.GetUserThreadReplyTimestamps)
 			protected.GET("/toggle_wall_post_pin", rpcHandler.ToggleWallPostPin)
+
+			// Messenger RPC functions
+			protected.POST("/get_or_create_direct_chat", rpcHandler.GetOrCreateDirectChat)
+			protected.POST("/chat_mark_delivered", rpcHandler.ChatMarkDelivered)
+			protected.POST("/chat_mark_read", rpcHandler.ChatMarkRead)
 		}
 	}
 
