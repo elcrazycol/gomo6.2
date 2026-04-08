@@ -3,7 +3,9 @@ package handlers
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"golang.org/x/crypto/nacl/box"
 )
 
 type BotHandler struct {
@@ -141,6 +144,27 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 	`, bot.ID, bot.Username, "bot_"+bot.Username+"@localhost")
 	if err != nil {
 		log.Printf("Warning: Failed to create user record for bot: %v", err)
+	}
+
+	// Generate real encryption keys for bot using NaCl/libsodium
+	publicKey, privateKey, err := box.GenerateKey(rand.Reader)
+	if err != nil {
+		log.Printf("Warning: Failed to generate encryption keys for bot: %v", err)
+	} else {
+		// Store only public key (private key is discarded for bots)
+		publicKeyBase64 := base64.StdEncoding.EncodeToString(publicKey[:])
+		_, err = h.DB.Exec(`
+			INSERT INTO chat_user_keys (user_id, public_key, created_at, updated_at)
+			VALUES ($1, $2, NOW(), NOW())
+			ON CONFLICT (user_id) DO UPDATE SET public_key = $2, updated_at = NOW()
+		`, bot.ID, publicKeyBase64)
+		if err != nil {
+			log.Printf("Warning: Failed to store encryption keys for bot: %v", err)
+		} else {
+			log.Printf("Generated encryption keys for bot %s (public key: %s...)", bot.ID, publicKeyBase64[:20])
+		}
+		// Private key is intentionally not stored - bots don't decrypt messages
+		_ = privateKey
 	}
 
 	// Load bot into BotManager if available
@@ -408,24 +432,29 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 	}
 
 	botID := c.Param("id")
+	log.Printf("[GetBotLogs] Fetching logs for bot_id=%s, user_id=%s", botID, userID)
 
 	// Check if bot belongs to user
 	var exists bool
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE id = $1 AND owner_id = $2)", botID, userID).Scan(&exists)
 	if err != nil || !exists {
+		log.Printf("[GetBotLogs] Bot not found or doesn't belong to user: bot_id=%s, user_id=%s, err=%v", botID, userID, err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
 
-	// Get logs (last 100)
+	log.Printf("[GetBotLogs] Bot ownership verified, fetching logs...")
+
+	// Get logs (last 100, oldest first for proper display)
 	rows, err := h.DB.Query(`
 		SELECT id, bot_id, level, message, context, created_at
 		FROM bot_logs
 		WHERE bot_id = $1
-		ORDER BY created_at DESC
+		ORDER BY created_at ASC
 		LIMIT 100
 	`, botID)
 	if err != nil {
+		log.Printf("[GetBotLogs] Query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch logs"})
 		return
 	}
@@ -433,14 +462,25 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 
 	var logs []models.BotLog
 	for rows.Next() {
-		var log models.BotLog
-		err := rows.Scan(&log.ID, &log.BotID, &log.Level, &log.Message, &log.Context, &log.CreatedAt)
+		var logEntry models.BotLog
+		var context sql.NullString
+		err := rows.Scan(&logEntry.ID, &logEntry.BotID, &logEntry.Level, &logEntry.Message, &context, &logEntry.CreatedAt)
 		if err != nil {
+			log.Printf("[GetBotLogs] Scan error: %v", err)
 			continue
 		}
-		logs = append(logs, log)
+		if context.Valid {
+			logEntry.Context = json.RawMessage(context.String)
+		}
+		logs = append(logs, logEntry)
 	}
 
+	// Return empty array instead of null
+	if logs == nil {
+		logs = []models.BotLog{}
+	}
+
+	log.Printf("[GetBotLogs] Returning %d logs", len(logs))
 	c.JSON(http.StatusOK, logs)
 }
 

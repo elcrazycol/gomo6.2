@@ -27,18 +27,26 @@ export const supabase = {
     },
     getUser: async () => {
       try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+          return { data: { user: null }, error: null };
+        }
         const user = await apiClient.getCurrentUser();
         return { data: { user }, error: null };
       } catch (error) {
-        return { data: { user: null }, error: { message: (error as Error).message } };
+        return { data: { user: null }, error: null };
       }
     },
     getSession: async () => {
       try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+          return { data: { session: null }, error: null };
+        }
         const user = await apiClient.getCurrentUser();
-        return { data: { session: user ? { user, access_token: localStorage.getItem('auth_token') } : null }, error: null };
+        return { data: { session: user ? { user, access_token: token } : null }, error: null };
       } catch (error) {
-        return { data: { session: null }, error: { message: (error as Error).message } };
+        return { data: { session: null }, error: null };
       }
     },
     onAuthStateChange: (callback: any) => {
@@ -488,38 +496,51 @@ export const supabase = {
 
   // RPC
   rpc: (functionName: string, params?: any) => {
-    return {
-      then: (callback: any) => {
-        switch (functionName) {
-          case 'get_post_likes_count':
-            return apiClient.getPostLikesCount(params?.post_uuid).then(callback);
-          case 'get_thread_likes_count':
-            return apiClient.getThreadLikesCount(params?.thread_uuid).then(callback);
-          case 'has_user_liked_post':
-            return apiClient.hasUserLikedPost(params?.post_uuid, params?.user_uuid).then(callback);
-          case 'has_user_liked_thread':
-            return apiClient.hasUserLikedThread(params?.thread_uuid, params?.user_uuid).then(callback);
-          case 'get_recent_post_likers':
-            return apiClient.getRecentPostLikers(params?.post_uuid, params?.limit_count).then(callback);
-          case 'get_recent_thread_likers':
-            return apiClient.getRecentThreadLikers(params?.thread_uuid, params?.limit_count).then(callback);
-          case 'get_user_likes_received_count':
-            return apiClient.getUserLikesReceivedCount(params?.user_uuid).then(callback);
-          case 'get_user_thread_likes_received_count':
-            return apiClient.getUserThreadLikesReceivedCount(params?.user_uuid).then(callback);
-          case 'get_user_post_likes_received_timestamps':
-            return apiClient.getUserPostLikesReceivedTimestamps(params?.user_uuid).then(callback);
-          case 'get_user_thread_likes_received_timestamps':
-            return apiClient.getUserThreadLikesReceivedTimestamps(params?.user_uuid).then(callback);
-          case 'get_user_thread_reply_timestamps':
-            return apiClient.getUserThreadReplyTimestamps(params?.user_uuid).then(callback);
-          case 'toggle_wall_post_pin':
-            return apiClient.toggleWallPostPin(params?._post_id, params?._user_id).then(callback);
-          default:
-            return Promise.resolve({ data: null, error: 'Unknown RPC function' });
-        }
+    const executeRpc = async () => {
+      switch (functionName) {
+        case 'get_post_likes_count':
+          return apiClient.getPostLikesCount(params?.post_uuid);
+        case 'get_thread_likes_count':
+          return apiClient.getThreadLikesCount(params?.thread_uuid);
+        case 'has_user_liked_post':
+          return apiClient.hasUserLikedPost(params?.post_uuid, params?.user_uuid);
+        case 'has_user_liked_thread':
+          return apiClient.hasUserLikedThread(params?.thread_uuid, params?.user_uuid);
+        case 'get_recent_post_likers':
+          return apiClient.getRecentPostLikers(params?.post_uuid, params?.limit_count);
+        case 'get_recent_thread_likers':
+          return apiClient.getRecentThreadLikers(params?.thread_uuid, params?.limit_count);
+        case 'get_user_likes_received_count':
+          return apiClient.getUserLikesReceivedCount(params?.user_uuid);
+        case 'get_user_thread_likes_received_count':
+          return apiClient.getUserThreadLikesReceivedCount(params?.user_uuid);
+        case 'get_user_post_likes_received_timestamps':
+          return apiClient.getUserPostLikesReceivedTimestamps(params?.user_uuid);
+        case 'get_user_thread_likes_received_timestamps':
+          return apiClient.getUserThreadLikesReceivedTimestamps(params?.user_uuid);
+        case 'get_user_thread_reply_timestamps':
+          return apiClient.getUserThreadReplyTimestamps(params?.user_uuid);
+        case 'toggle_wall_post_pin':
+          return apiClient.toggleWallPostPin(params?._post_id, params?._user_id);
+        case 'get_or_create_direct_chat':
+        case 'chat_mark_delivered':
+        case 'chat_mark_read':
+          // Messenger RPC functions - use rawRequest with POST
+          try {
+            const response = await apiClient.rawRequest(`/rpc/v1/${functionName}`, {
+              method: 'POST',
+              body: JSON.stringify(params || {}),
+            });
+            return { data: response.data, error: response.error ? { message: response.error } : null };
+          } catch (error) {
+            return { data: null, error: { message: (error as Error).message } };
+          }
+        default:
+          return { data: null, error: { message: 'Unknown RPC function' } };
       }
     };
+
+    return executeRpc();
   },
 
   // Storage

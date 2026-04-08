@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  background-color: #121212;
+  color: #e5e5e5;
+}
+
+code {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  color: #e83e8c;
+}
+
+.dark code {
+  background: #1a1a1a;
+  color: #ff6b9d;
+}
+
+pre {
+  background: #f8f8f8;
+  padding: 1.5rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  border: 1px solid #e5e5e5;
+  line-height: 1.5;
+}
+
+.dark pre {
+  background: #1a1a1a;
+  border-color: #333;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+  color: #1a1a1a;
+}
+
+.dark pre code {
+  color: #e5e5e5;
+}
+
+.prose {
+  max-width: none;
+}
+
+.prose h1 {
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #000;
+  letter-spacing: -0.02em;
+}
+
+.dark .prose h1 {
+  color: #fff;
+}
+
+.prose h2 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin-top: 3rem;
+  margin-bottom: 1rem;
+  color: #000;
+  letter-spacing: -0.01em;
+}
+
+.dark .prose h2 {
+  color: #fff;
+}
+
+.prose h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  color: #333;
+}
+
+.dark .prose h3 {
+  color: #d4d4d4;
+}
+
+.prose p {
+  margin-bottom: 1.25rem;
+  color: #666;
+  line-height: 1.7;
+}
+
+.dark .prose p {
+  color: #a3a3a3;
+}
+
+.prose ul, .prose ol {
+  margin-bottom: 1.25rem;
+  padding-left: 1.5rem;
+  color: #666;
+}
+
+.dark .prose ul, .dark .prose ol {
+  color: #a3a3a3;
+}
+
+.prose li {
+  margin-bottom: 0.5rem;
+}
+
+.prose a {
+  color: #0066cc;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.dark .prose a {
+  color: #3b82f6;
+}
+
+.prose a:hover {
+  color: #0052a3;
+}
+
+.dark .prose a:hover {
+  color: #60a5fa;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2rem 0;
+}
+
+.prose th {
+  background: #f8f8f8;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  border: 1px solid #e5e5e5;
+  font-size: 0.875rem;
+}
+
+.dark .prose th {
+  background: #1a1a1a;
+  border-color: #333;
+}
+
+.prose td {
+  padding: 0.75rem 1rem;
+  border: 1px solid #e5e5e5;
+  font-size: 0.875rem;
+}
+
+.dark .prose td {
+  border-color: #333;
+}
+
+.prose tr:hover {
+  background: #f8f8f8;
+}
+
+.dark .prose tr:hover {
+  background: #1a1a1a;
+}
+

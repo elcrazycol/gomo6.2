@@ -67,6 +67,26 @@ func (c *Client) readPump() {
 			continue
 		}
 
+		// Apply rate limiting (except for ping messages)
+		if message.Type != MessageTypePing {
+			if !c.Hub.rateLimiter.Allow(c.UserID) {
+				log.Printf("[WebSocket] Rate limit exceeded for user %s", c.UserID)
+				// Send rate limit error to client
+				errorMsg := Message{
+					Type:      "error",
+					Data:      mustMarshalJSON(map[string]string{"error": "Rate limit exceeded. Please slow down."}),
+					Timestamp: time.Now().Unix(),
+				}
+				if msgBytes, err := json.Marshal(errorMsg); err == nil {
+					select {
+					case c.Send <- msgBytes:
+					default:
+					}
+				}
+				continue
+			}
+		}
+
 		// Handle different message types
 		switch message.Type {
 		case MessageTypeSubscribe:
@@ -212,18 +232,19 @@ func mustMarshalJSON(v interface{}) json.RawMessage {
 }
 
 // Upgrader configures the WebSocket upgrader
+// Note: CheckOrigin is set per-request in ServeWs to use config
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// Allow all origins in development
-		// In production, configure this properly
-		return true
-	},
 }
 
 // ServeWs handles WebSocket requests from the peer
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userID, username string) {
+	// Set CheckOrigin based on hub's allowed origins
+	upgrader.CheckOrigin = func(req *http.Request) bool {
+		return hub.CheckOrigin(req)
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[WebSocket] Upgrade error: %v", err)

@@ -44,16 +44,21 @@ const ensureSodium = async () => {
 };
 
 const toBase64 = (bytes: Uint8Array) => {
-  let binary = "";
-  for (const value of bytes) {
-    binary += String.fromCharCode(value);
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
-  return window.btoa(binary);
+  return btoa(binary);
 };
 
 const fromBase64 = (value: string) => {
-  const binary = window.atob(value);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 };
 
 const readState = (): LocalCryptoState | null => {
@@ -118,19 +123,47 @@ export const encryptMessengerText = async ({
   recipientPublicKey: string;
   senderPrivateKey: string;
 }) => {
-  const sodium = await ensureSodium();
-  const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
-  const cipherText = sodium.crypto_box_easy(
-    textEncoder.encode(plainText),
-    nonce,
-    fromBase64(recipientPublicKey),
-    fromBase64(senderPrivateKey)
-  );
+  try {
+    const sodium = await ensureSodium();
+    const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
 
-  return {
-    nonce: toBase64(nonce),
-    cipherText: toBase64(cipherText),
-  };
+    console.log('Encrypting message:', {
+      plainTextLength: plainText.length,
+      recipientPublicKey: recipientPublicKey,
+      senderPrivateKey: senderPrivateKey.substring(0, 10) + '...',
+    });
+
+    const recipientPubKeyBytes = fromBase64(recipientPublicKey);
+    const senderPrivKeyBytes = fromBase64(senderPrivateKey);
+
+    console.log('Decoded keys:', {
+      recipientPubKeyBytesLength: recipientPubKeyBytes.length,
+      senderPrivKeyBytesLength: senderPrivKeyBytes.length,
+    });
+
+    const cipherText = sodium.crypto_box_easy(
+      textEncoder.encode(plainText),
+      nonce,
+      recipientPubKeyBytes,
+      senderPrivKeyBytes
+    );
+
+    const nonceBase64 = toBase64(nonce);
+    const cipherTextBase64 = toBase64(cipherText);
+
+    console.log('Encrypted successfully:', {
+      nonceLength: nonceBase64.length,
+      cipherTextLength: cipherTextBase64.length,
+    });
+
+    return {
+      nonce: nonceBase64,
+      cipherText: cipherTextBase64,
+    };
+  } catch (error) {
+    console.error('Encryption error:', error);
+    throw error;
+  }
 };
 
 export const decryptMessengerText = async ({

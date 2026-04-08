@@ -290,6 +290,42 @@ func (s *StorageClient) GetObject(ctx context.Context, bucket, key string) (*s3.
 	return out, nil
 }
 
+// GetObjectRange streams an object with optional byte range support for partial content.
+func (s *StorageClient) GetObjectRange(ctx context.Context, bucket, key string, rangeStart, rangeEnd *int64) (*s3.GetObjectOutput, error) {
+	if !IsAllowedBucket(bucket) {
+		return nil, fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return nil, err
+	}
+
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+
+	// Build Range header if specified
+	if rangeStart != nil || rangeEnd != nil {
+		var rangeStr string
+		if rangeStart != nil && rangeEnd != nil {
+			rangeStr = fmt.Sprintf("bytes=%d-%d", *rangeStart, *rangeEnd)
+		} else if rangeStart != nil {
+			rangeStr = fmt.Sprintf("bytes=%d-", *rangeStart)
+		} else if rangeEnd != nil {
+			rangeStr = fmt.Sprintf("bytes=0-%d", *rangeEnd)
+		}
+		if rangeStr != "" {
+			input.Range = aws.String(rangeStr)
+		}
+	}
+
+	out, err := s.s3.GetObject(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IsNotFound reports whether err is an S3 missing-object error.
 func IsNotFound(err error) bool {
 	if err == nil {
