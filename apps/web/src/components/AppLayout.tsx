@@ -73,6 +73,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [hideMessengerChrome, setHideMessengerChrome] = useState(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastPlayEventRef = useRef<string | null>(null);
+  const isBackgroundResumeRef = useRef(false);
   const { scrollY } = useScroll();
 
   useEffect(() => {
@@ -93,7 +95,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
       // For Plyr instances, check the actual media element
       const media = entry.inst.media || entry.inst;
-      if (media && !media.paused && !media.ended) {
+      const isPlaying = media && !media.paused && !media.ended;
+      
+      if (isPlaying) {
         if (entry.inst.pause) {
           entry.inst.pause();
         } else if (media.pause) {
@@ -132,6 +136,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const playTrackById = useCallback((targetId: string) => {
     setNowPlayingHidden(false);
     if (typeof window !== "undefined") localStorage.removeItem("nowPlayingHidden");
+    
+    // Reset duplicate event protection when explicitly playing a track
+    lastPlayEventRef.current = null;
     let entry = audioMapRef.current.get(targetId);
     let hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
 
@@ -445,13 +452,24 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       if (!detail) return;
 
       const id = detail.playerId || crypto.randomUUID();
-      const title = detail.title || "Аудио";
+      const title = detail.title || "Áóäèî";
       const src = detail.src;
       const playlistId = detail.playlistId as string | undefined;
       const playlistIndex = detail.playlistIndex as number | undefined;
 
-      // Pause other audio instances to avoid overlap
-      pauseOthers(id);
+      // Prevent duplicate events for the same instance
+      if (lastPlayEventRef.current === id) {
+        return;
+      }
+      lastPlayEventRef.current = id;
+
+      // Don't pause others during background resume
+      if ((window as any).isBackgroundResume) {
+        (window as any).isBackgroundResume = false;
+      } else {
+        // Pause other audio instances to avoid overlap
+        pauseOthers(id);
+      }
 
       lastTrackRef.current = { id, title, src };
 
@@ -716,6 +734,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const targetIdx =
       action === "next" ? (idx + 1) % orderedIds.length : (idx - 1 + orderedIds.length) % orderedIds.length;
 
+    // Reset duplicate event protection when switching tracks
+    lastPlayEventRef.current = null;
     playTrackById(orderedIds[targetIdx]);
   }, [getOrderedIds, nowPlaying, playTrackById]);
 
