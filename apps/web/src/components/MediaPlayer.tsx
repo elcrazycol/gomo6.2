@@ -10,7 +10,27 @@ declare global {
 }
 
 let plyrLoader: Promise<any> | null = null;
-const audioPool = new Map<string, { container: HTMLElement; instance: any; wasPlaying: boolean }>();
+const audioPool = new Map<string, { wasPlaying: boolean; currentTime?: number; src?: string }>();
+
+// Global persistent audio host that never gets removed from DOM
+let globalAudioHost: HTMLElement | null = null;
+const ensureGlobalAudioHost = () => {
+  if (!globalAudioHost) {
+    globalAudioHost = document.createElement("div");
+    globalAudioHost.id = "global-audio-host";
+    globalAudioHost.style.position = "fixed";
+    globalAudioHost.style.top = "-9999px";
+    globalAudioHost.style.left = "-9999px";
+    globalAudioHost.style.visibility = "hidden";
+    globalAudioHost.style.pointerEvents = "none";
+    globalAudioHost.style.zIndex = "-9999";
+    globalAudioHost.style.width = "1px";
+    globalAudioHost.style.height = "1px";
+    globalAudioHost.style.overflow = "hidden";
+    document.body.appendChild(globalAudioHost);
+  }
+  return globalAudioHost;
+};
 
 const ensurePoolHost = () => {
   let host = document.getElementById("global-audio-pool");
@@ -28,13 +48,26 @@ const ensurePoolHost = () => {
 };
 
 const moveContainer = (container: HTMLElement, target: HTMLElement) => {
-  if (container.parentElement && container.parentElement !== target) {
-    if (container.parentElement.contains(container)) {
-      container.parentElement.removeChild(container);
+  if (!container) return;
+  
+  const currentParent = container.parentElement;
+  
+  // Only try to remove if we have a different parent
+  if (currentParent && currentParent !== target) {
+    try {
+      currentParent.removeChild(container);
+    } catch (e) {
+      // Container might already be removed, ignore
     }
   }
+  
+  // Only append if container is not already in target
   if (container.parentElement !== target) {
-    target.appendChild(container);
+    try {
+      target.appendChild(container);
+    } catch (e) {
+      // Container might already be in target, ignore
+    }
   }
 };
 
@@ -84,8 +117,10 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
-  const [usingPooled, setUsingPooled] = useState(() => audioPool.has(playerKey));
+  const [usingPooled, setUsingPooled] = useState(false);
   const instanceRef = useRef<any>(null);
+  const containerRef = useRef<HTMLElement | null>(null);
+  const isUnmountingRef = useRef(false);
 
   useEffect(() => {
     let instance: any;
@@ -94,49 +129,35 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
         ? ["play", "progress", "current-time", "duration", "mute"]
         : ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
 
-    // Reattach pooled audio instance if it exists
+    // Check if we have saved state to restore
     if (kind === "audio" && audioPool.has(playerKey) && mountRef.current) {
       const pooled = audioPool.get(playerKey)!;
-      const host = mountRef.current;
-      host.innerHTML = "";
-      moveContainer(pooled.container, host);
-      instance = pooled.instance;
-      instanceRef.current = instance;
-      setUsingPooled(true);
-      onReady?.(instance);
-
-      // Force resume if was playing - use requestAnimationFrame for better timing
-      if (pooled.wasPlaying) {
-        requestAnimationFrame(() => {
-          if (!instance || !instance.media) return;
-          const media = instance.media;
-          if (!media.paused && !media.ended) {
-            // Already playing
-            return;
-          }
-          // Force play
-          instance.play().catch((err: any) => {
-            console.warn("Failed to resume playback:", err);
-          });
-        });
-      }
-
-      return () => {
-        if (!instance) return;
-        const poolHost = ensurePoolHost();
-        const container = instance.elements?.container;
-        if (container) {
-          moveContainer(container, poolHost);
+      
+      // We'll create a new instance but restore the state
+      const restoreState = () => {
+        if (pooled.wasPlaying && pooled.currentTime) {
+          setTimeout(() => {
+            if (instance && instance.media) {
+              // Stop any other playing instances first
+              window.dispatchEvent(
+                new CustomEvent("global-audio-play", {
+                  detail: { playerId: playerKey, src: sources?.[0]?.src },
+                })
+              );
+              
+              // Then restore this instance
+              instance.media.currentTime = pooled.currentTime || 0;
+              instance.play().catch(() => {});
+            }
+          }, 100);
         }
-        // Get actual media element state
-        const media = instance.media;
-        const isPlaying = media && !media.paused && !media.ended;
-        audioPool.set(playerKey, {
-          container: container || pooled.container,
-          instance,
-          wasPlaying: isPlaying
-        });
       };
+
+      // Continue with normal instance creation, but mark for state restoration
+      setTimeout(restoreState, 200);
+      
+      // Clear the pool entry after using it to prevent duplicates
+      audioPool.delete(playerKey);
     }
 
     ensurePlyrAssets()
@@ -151,6 +172,9 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           previewThumbnails: { enabled: false },
         });
         instanceRef.current = instance;
+        // DISABLED: Container movement causes DOM errors
+        // Let React handle the DOM naturally
+        containerRef.current = mountRef.current?.firstElementChild as HTMLElement || null;
         onReady?.(instance);
 
         if (kind === "audio" && playlistId !== undefined && playlistIndex !== undefined) {
@@ -172,7 +196,11 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           }
         });
 
-        instance.on("pause", () => onPause?.(instance));
+        instance.on("pause", () => {
+          if (!isUnmountingRef.current) {
+            onPause?.(instance);
+          }
+        });
 
         instance.on("error", (event: any) => {
           console.error("Media playback error:", event);
@@ -187,34 +215,41 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
       })
       .catch((e) => console.error(e));
 
+    // Cleanup for new instances (not from pool)
     return () => {
-      if (!instance) return;
-      if (kind === "audio") {
-        const container = instance.elements?.container as HTMLElement | undefined;
-        if (container) {
-          // Get actual media element state, not Plyr's paused property
-          const media = instance.media;
-          const isPlaying = media && !media.paused && !media.ended;
+        isUnmountingRef.current = true;
+        
+        if (!instance) return;
+        if (kind === "audio") {
+          const container = containerRef.current || instance.elements?.container as HTMLElement | undefined;
+          if (container) {
+            // Get actual media element state, not Plyr's paused property
+            const media = instance.media;
+            const isPlaying = media && !media.paused && !media.ended;
 
-          audioPool.set(playerKey, { container, instance, wasPlaying: isPlaying });
-          const poolHost = ensurePoolHost();
-          moveContainer(container, poolHost);
-
-          // Keep playing in background - force it
-          if (isPlaying) {
-            requestAnimationFrame(() => {
-              if (instance && instance.media && !instance.media.paused) {
-                // Already playing, good
-                return;
-              }
-              instance.play().catch(() => {});
+            // NEW STRATEGY: Save only playback state
+            const mediaElement = instance.media;
+            const currentTime = mediaElement?.currentTime || 0;
+            audioPool.set(playerKey, { 
+              wasPlaying: isPlaying,
+              currentTime,
+              src: sources?.[0]?.src
             });
+            
+            // Force resume if it was playing - DOM movement might have paused it
+            if (isPlaying) {
+              requestAnimationFrame(() => {
+                if (instance && instance.media && instance.media.paused && !instance.media.ended) {
+                  (window as any).isBackgroundResume = true;
+                  instance.play().catch(() => {});
+                }
+              });
+            }
           }
+        } else {
+          instance.destroy?.();
         }
-      } else {
-        instance.destroy?.();
-      }
-    };
+      };
   }, []);
 
   const Element = kind === "video" ? "video" : "audio";
