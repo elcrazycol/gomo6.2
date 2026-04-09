@@ -522,10 +522,13 @@ export const supabase = {
           return apiClient.getUserThreadReplyTimestamps(params?.user_uuid);
         case 'toggle_wall_post_pin':
           return apiClient.toggleWallPostPin(params?._post_id, params?._user_id);
+        case 'get_avatar_history':
+        case 'delete_avatar_from_history':
+        case 'toggle_achievement_pin':
         case 'get_or_create_direct_chat':
         case 'chat_mark_delivered':
         case 'chat_mark_read':
-          // Messenger RPC functions - use rawRequest with POST
+          // RPC functions - use rawRequest with POST
           try {
             const response = await apiClient.rawRequest(`/rpc/v1/${functionName}`, {
               method: 'POST',
