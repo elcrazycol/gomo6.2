@@ -12,6 +12,7 @@ import {
   ensureLocalMessengerState,
 } from "@/lib/messengerCrypto";
 import { useWebSocket } from "@/contexts/WebSocketContext";
+import { OnlineStatus } from "@/components/OnlineStatus";
 
 type ProfileSummary = {
   id: string;
@@ -977,7 +978,11 @@ export const MessengerView = () => {
                     <div className="conversation-meta">
                       <span>{formatDate(conversation.lastMessageAt)}</span>
                       <span>#{conversation.otherUser.account_number ?? "?"}</span>
-                      <span>{formatPresence(conversation.otherUser.is_online, conversation.otherUser.last_seen_at)}</span>
+                      <OnlineStatus
+                        isOnline={conversation.otherUser.is_online}
+                        lastSeen={conversation.otherUser.last_seen_at}
+                        showText={false}
+                      />
                       {conversation.unreadCount > 0 ? <span className="count-badge">{conversation.unreadCount}</span> : null}
                     </div>
                   </div>

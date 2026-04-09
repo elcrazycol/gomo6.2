@@ -24,7 +24,7 @@ func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
 		SELECT id, username, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, created_at, is_remote, is_anonymous
+		       thread_count, is_online, last_seen, created_at, is_remote, is_anonymous
 		FROM users
 	`
 
@@ -131,7 +131,8 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		err := rows.Scan(
 			&profile.ID, &profile.Username, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
-			&profile.ThreadCount, &profile.CreatedAt, &profile.IsRemote, &profile.IsAnonymous,
+			&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
+			&profile.IsRemote, &profile.IsAnonymous,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
@@ -160,8 +161,8 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 
 	query := `
 		SELECT id, username, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, created_at, is_remote, is_anonymous
-		FROM users 
+		       thread_count, is_online, last_seen, created_at, is_remote, is_anonymous
+		FROM users
 		WHERE id = $1
 	`
 
@@ -170,7 +171,8 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	err := h.db.QueryRow(query, id).Scan(
 		&profile.ID, &profile.Username, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
-		&profile.ThreadCount, &profile.CreatedAt, &profile.IsRemote, &profile.IsAnonymous,
+		&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
+		&profile.IsRemote, &profile.IsAnonymous,
 	)
 
 	if err != nil {
