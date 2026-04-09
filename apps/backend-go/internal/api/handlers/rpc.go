@@ -1244,6 +1244,15 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 
 	// If this was the current avatar, update user profile to use previous avatar
 	if isCurrent {
+		// Mark all as not current first
+		_, err = tx.Exec("UPDATE avatar_history SET is_current = FALSE WHERE user_id = $1", avatarUserID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+
 		var prevAvatarURL sql.NullString
 		err = tx.QueryRow(`
 			SELECT avatar_url
@@ -1254,20 +1263,6 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		`, avatarUserID).Scan(&prevAvatarURL)
 
 		if err != nil && err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
-			return
-		}
-
-		// Update user profile
-		if prevAvatarURL.Valid {
-			_, err = tx.Exec("UPDATE users SET avatar_url = $1 WHERE id = $2", prevAvatarURL.String, avatarUserID)
-		} else {
-			_, err = tx.Exec("UPDATE users SET avatar_url = NULL WHERE id = $1", avatarUserID)
-		}
-
-		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
 				Error: stringPtr(err.Error()),
 			})
@@ -1288,6 +1283,38 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 				})
 				return
 			}
+		}
+
+		// Disable trigger temporarily to prevent duplicate
+		_, err = tx.Exec("SET session_replication_role = replica")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+
+		// Update user profile
+		if prevAvatarURL.Valid {
+			_, err = tx.Exec("UPDATE users SET avatar_url = $1 WHERE id = $2", prevAvatarURL.String, avatarUserID)
+		} else {
+			_, err = tx.Exec("UPDATE users SET avatar_url = NULL WHERE id = $1", avatarUserID)
+		}
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+
+		// Re-enable trigger
+		_, err = tx.Exec("SET session_replication_role = DEFAULT")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
 		}
 	}
 
