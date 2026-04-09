@@ -16,7 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -28,6 +28,7 @@ import { AvatarCropper } from "@/components/AvatarCropper";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { OnlineStatus } from "@/components/OnlineStatus";
+import { AvatarGallery } from "@/components/AvatarGallery";
 
 interface Profile {
   id: string;
@@ -197,6 +198,9 @@ const Profile = () => {
   });
   const [userThreads, setUserThreads] = useState<any[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
+  const [avatarHistory, setAvatarHistory] = useState<any[]>([]);
+  const [showAvatarGallery, setShowAvatarGallery] = useState(false);
+  const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -265,7 +269,7 @@ const Profile = () => {
       const loadAll = async () => {
         setPageLoading(true);
         try {
-          await Promise.all([loadProfile(), loadAchievements()]);
+          await Promise.all([loadProfile(), loadAchievements(), loadAvatarHistory()]);
         } finally {
           setPageLoading(false);
         }
@@ -377,6 +381,22 @@ const Profile = () => {
       setActiveTab('achievements');
     }
   }, [showProfileWall]);
+
+  const loadAvatarHistory = async () => {
+    if (!userId) return;
+
+    try {
+      const { data, error } = await supabase.rpc('get_avatar_history', {
+        user_uuid: userId
+      });
+
+      if (error) throw error;
+
+      setAvatarHistory(data || []);
+    } catch (error) {
+      console.error('Error loading avatar history:', error);
+    }
+  };
 
   const loadUserThreads = async () => {
     if (!userId) return;
@@ -766,9 +786,43 @@ const Profile = () => {
       setAvatarUrl(fileName);
       setCropImage(null);
       toast.success("Аватар обновлен");
+
+      // Reload avatar history
+      await loadAvatarHistory();
     } catch (error) {
       toast.error("Ошибка обработки изображения");
       console.error(error);
+    }
+  };
+
+  const handleDeleteAvatar = async (avatarId: string) => {
+    if (!currentUser || currentUser.id !== userId) return;
+
+    try {
+      const { data, error } = await supabase.rpc('delete_avatar_from_history', {
+        avatar_id: avatarId,
+        requesting_user_id: currentUser.id
+      });
+
+      if (error) throw error;
+
+      if (data) {
+        toast.success("Аватар удален");
+        await loadAvatarHistory();
+        await loadProfile();
+      } else {
+        toast.error("Не удалось удалить аватар");
+      }
+    } catch (error) {
+      console.error('Error deleting avatar:', error);
+      toast.error("Ошибка удаления аватара");
+    }
+  };
+
+  const handleAvatarClick = () => {
+    if (avatarHistory.length > 0) {
+      setAvatarGalleryIndex(0);
+      setShowAvatarGallery(true);
     }
   };
 
@@ -887,7 +941,10 @@ const Profile = () => {
             <div className="flex items-center gap-4">
               {/* Avatar */}
               <div className="relative">
-                <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+                <div
+                  className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={handleAvatarClick}
+                >
                   {avatarUrl ? (
                     <img
                       src={storageUrl("post-images", avatarUrl) || avatarUrl}
@@ -1224,6 +1281,21 @@ const Profile = () => {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Avatar Gallery */}
+          {showAvatarGallery && avatarHistory.length > 0 && (
+            <AvatarGallery
+              avatars={avatarHistory.map(ah => ({
+                id: ah.id,
+                url: storageUrl("post-images", ah.avatar_url) || ah.avatar_url,
+                is_current: ah.is_current
+              }))}
+              initialIndex={avatarGalleryIndex}
+              onClose={() => setShowAvatarGallery(false)}
+              onDelete={isOwnProfile ? handleDeleteAvatar : undefined}
+              canDelete={isOwnProfile}
+            />
           )}
         </div>
         )}
