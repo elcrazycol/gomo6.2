@@ -170,6 +170,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                 ID: {profile?.id?.slice(0, 8) || 'N/A'} {profile?.account_number && `(${profile.account_number})`}
               </div>
               <OnlineStatus
+                userId={userId}
                 isOnline={profile.is_online}
                 lastSeen={profile.last_seen}
                 className="mt-1"

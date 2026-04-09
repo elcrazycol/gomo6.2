@@ -13,6 +13,7 @@ import { CookieBanner } from "@/components/CookieBanner";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
+import { useAuth } from "@/hooks/useAuth";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -32,7 +33,7 @@ type NowPlayingState = {
 export const AppLayout = ({ children }: AppLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<{ id: string } | null>(null);
+  const { user } = useAuth(); // Use cached auth hook instead of local state
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -763,68 +764,63 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [handleNowPlayingControl]);
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+    // Load user profile data when user changes
+    const loadUserProfile = async () => {
+      if (!user?.id) {
+        setIsModerator(false);
+        setCurrentUserUsername("");
+        setCurrentUserColor("");
+        return;
+      }
 
-      if (user) {
-        // Load user role
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id);
+      // Load user role
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id);
 
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+      setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", user.id)
-          .single();
+      // Load current user profile and color
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", user.id)
+        .single();
 
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-        }
+      if (profile) {
+        setCurrentUserUsername(profile.username);
+      }
 
-        // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", user.id);
+      // Load current user color
+      const { data: achievements } = await supabase
+        .from("user_achievements")
+        .select(`
+          achievement_id,
+          achievements (
+            reward_type,
+            reward_value
+          )
+        `)
+        .eq("user_id", user.id);
 
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a) => a.achievements?.reward_type === "username_color")
-            .map((a) => a.achievements!.reward_value);
+      if (achievements) {
+        const colorRewards = achievements
+          .filter((a) => a.achievements?.reward_type === "username_color")
+          .map((a) => a.achievements!.reward_value);
 
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
+        const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+        for (const p of priority) {
+          if (colorRewards.includes(p)) {
+            setCurrentUserColor(p);
+            break;
           }
         }
       }
     };
 
-    getUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
+    loadUserProfile();
+  }, [user?.id]);
 
   useEffect(() => {
     const term = searchQuery.trim();

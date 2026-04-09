@@ -979,6 +979,7 @@ export const MessengerView = () => {
                       <span>{formatDate(conversation.lastMessageAt)}</span>
                       <span>#{conversation.otherUser.account_number ?? "?"}</span>
                       <OnlineStatus
+                        userId={conversation.otherUser.id}
                         isOnline={conversation.otherUser.is_online}
                         lastSeen={conversation.otherUser.last_seen_at}
                         showText={false}
