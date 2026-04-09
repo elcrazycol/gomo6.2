@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -9,14 +11,19 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type LikesHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	redis *redis.Client
 }
 
-func NewLikesHandler(db *sql.DB) *LikesHandler {
-	return &LikesHandler{db: db}
+func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
+	return &LikesHandler{
+		db:    db,
+		redis: redis,
+	}
 }
 
 func (h *LikesHandler) LikeThread(c *gin.Context) {
@@ -93,6 +100,19 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
 	RecomputeUserProfileStats(h.db, threadOwner)
 
+	// Publish bot event
+	if h.redis != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "thread_like",
+			"data": map[string]interface{}{
+				"thread_id": threadID,
+				"user_id":   userClaims.UserID,
+				"like_id":   like.ID,
+			},
+		})
+		h.redis.Publish(context.Background(), "bot:events", eventData)
+	}
+
 	c.JSON(http.StatusCreated, models.SupabaseResponse{
 		Data: like,
 	})
@@ -142,6 +162,18 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
 	RecomputeUserProfileStats(h.db, threadOwner)
+
+	// Publish bot event
+	if h.redis != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "thread_unlike",
+			"data": map[string]interface{}{
+				"thread_id": threadID,
+				"user_id":   userClaims.UserID,
+			},
+		})
+		h.redis.Publish(context.Background(), "bot:events", eventData)
+	}
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: gin.H{"deleted": true},
@@ -222,6 +254,19 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	_ = h.db.QueryRow("SELECT user_id FROM posts WHERE id = $1", postID).Scan(&postAuthor)
 	RecomputeUserProfileStats(h.db, postAuthor)
 
+	// Publish bot event
+	if h.redis != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "post_like",
+			"data": map[string]interface{}{
+				"post_id": postID,
+				"user_id": userClaims.UserID,
+				"like_id": like.ID,
+			},
+		})
+		h.redis.Publish(context.Background(), "bot:events", eventData)
+	}
+
 	c.JSON(http.StatusCreated, models.SupabaseResponse{
 		Data: like,
 	})
@@ -271,6 +316,18 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 	var postAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM posts WHERE id = $1", postID).Scan(&postAuthor)
 	RecomputeUserProfileStats(h.db, postAuthor)
+
+	// Publish bot event
+	if h.redis != nil {
+		eventData, _ := json.Marshal(map[string]interface{}{
+			"type": "post_unlike",
+			"data": map[string]interface{}{
+				"post_id": postID,
+				"user_id": userClaims.UserID,
+			},
+		})
+		h.redis.Publish(context.Background(), "bot:events", eventData)
+	}
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: gin.H{"deleted": true},

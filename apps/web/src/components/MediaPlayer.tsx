@@ -129,10 +129,30 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
         ? ["play", "progress", "current-time", "duration", "mute"]
         : ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
 
+    // For audio, check if this player is already registered and playing
+    if (kind === "audio") {
+      // Ask if this player already exists
+      const checkExisting = new CustomEvent("global-audio-check", {
+        detail: { playerId: playerKey },
+      });
+      window.dispatchEvent(checkExisting);
+
+      // If it exists and is playing, don't create a new instance
+      const existingCheck = (window as any).__audioExists?.[playerKey];
+      if (existingCheck) {
+        // Player already exists, skip initialization
+        setUsingPooled(true);
+        return;
+      }
+    }
+
     // Check if we have saved state to restore
     if (kind === "audio" && audioPool.has(playerKey) && mountRef.current) {
       const pooled = audioPool.get(playerKey)!;
-      
+
+      // Clear the pool entry immediately to prevent duplicates
+      audioPool.delete(playerKey);
+
       // We'll create a new instance but restore the state
       const restoreState = () => {
         if (pooled.wasPlaying && pooled.currentTime) {
@@ -144,7 +164,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
                   detail: { playerId: playerKey, src: sources?.[0]?.src },
                 })
               );
-              
+
               // Then restore this instance
               instance.media.currentTime = pooled.currentTime || 0;
               instance.play().catch(() => {});
@@ -155,9 +175,6 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
 
       // Continue with normal instance creation, but mark for state restoration
       setTimeout(restoreState, 200);
-      
-      // Clear the pool entry after using it to prevent duplicates
-      audioPool.delete(playerKey);
     }
 
     ensurePlyrAssets()

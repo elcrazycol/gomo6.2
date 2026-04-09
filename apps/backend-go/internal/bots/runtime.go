@@ -297,6 +297,8 @@ func (br *BotRuntime) registerBotAPI() {
 	// Likes & Reactions
 	botTable.RawSetString("likePost", br.VM.NewFunction(br.luaLikePost))
 	botTable.RawSetString("unlikePost", br.VM.NewFunction(br.luaUnlikePost))
+	botTable.RawSetString("likeThread", br.VM.NewFunction(br.luaLikeThread))
+	botTable.RawSetString("unlikeThread", br.VM.NewFunction(br.luaUnlikeThread))
 
 	// Chat
 	botTable.RawSetString("getChatConversation", br.VM.NewFunction(br.luaGetChatConversation))
@@ -365,6 +367,18 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 		case "chat_message":
 			log.Printf("[Bot %s] Calling onChatMessage", br.Bot.Username)
 			br.callLuaFunction("onChatMessage", event)
+		case "post_like":
+			log.Printf("[Bot %s] Calling onPostLike", br.Bot.Username)
+			br.callLuaFunction("onPostLike", event)
+		case "thread_like":
+			log.Printf("[Bot %s] Calling onThreadLike", br.Bot.Username)
+			br.callLuaFunction("onThreadLike", event)
+		case "post_unlike":
+			log.Printf("[Bot %s] Calling onPostUnlike", br.Bot.Username)
+			br.callLuaFunction("onPostUnlike", event)
+		case "thread_unlike":
+			log.Printf("[Bot %s] Calling onThreadUnlike", br.Bot.Username)
+			br.callLuaFunction("onThreadUnlike", event)
 		default:
 			log.Printf("[Bot %s] Unknown event type: %s", br.Bot.Username, event.Type)
 		}
@@ -380,6 +394,33 @@ func (br *BotRuntime) HandleEvent(event *BotEvent) {
 
 // shouldHandleEvent checks if bot should handle this event
 func (br *BotRuntime) shouldHandleEvent(event *BotEvent) bool {
+	// For like/unlike events, check if the content belongs to the bot
+	if event.Type == "post_like" || event.Type == "post_unlike" {
+		// Check if the post author is the bot
+		if postID, ok := event.Data["post_id"].(string); ok {
+			var authorID string
+			err := br.DB.QueryRow("SELECT user_id FROM posts WHERE id = $1", postID).Scan(&authorID)
+			if err == nil && authorID == br.Bot.ID {
+				log.Printf("[Bot %s] Like event is for bot's post, handling", br.Bot.Username)
+				return true
+			}
+		}
+		return false
+	}
+
+	if event.Type == "thread_like" || event.Type == "thread_unlike" {
+		// Check if the thread author is the bot
+		if threadID, ok := event.Data["thread_id"].(string); ok {
+			var authorID string
+			err := br.DB.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&authorID)
+			if err == nil && authorID == br.Bot.ID {
+				log.Printf("[Bot %s] Like event is for bot's thread, handling", br.Bot.Username)
+				return true
+			}
+		}
+		return false
+	}
+
 	// For chat messages, check if bot is a member of the conversation
 	if event.Type == "chat_message" {
 		log.Printf("[Bot %s] Processing chat_message event, data: %+v", br.Bot.Username, event.Data)

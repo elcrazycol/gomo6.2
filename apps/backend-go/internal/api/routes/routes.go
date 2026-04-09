@@ -44,7 +44,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	postsHandler := handlers.NewPostsHandler(db, wsHub)
 	postsHandler.SetBotEventPublisher(botEventPublisher)
 	profilesHandler := handlers.NewProfilesHandler(db)
-	likesHandler := handlers.NewLikesHandler(db)
+	likesHandler := handlers.NewLikesHandler(db, redis)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	rpcHandler := handlers.NewRPCHandler(db)
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)

@@ -184,55 +184,6 @@ func (br *BotRuntime) luaCreateThread(L *lua.LState) int {
 	return 2
 }
 
-// luaLikePost implements bot.likePost(postId)
-func (br *BotRuntime) luaLikePost(L *lua.LState) int {
-	postID := L.CheckString(1)
-
-	// Check rate limit
-	if !br.checkRateLimit() {
-		L.Push(lua.LBool(false))
-		L.Push(lua.LString("Rate limit exceeded"))
-		return 2
-	}
-
-	// Insert like
-	_, err := br.DB.Exec(`
-		INSERT INTO post_likes (post_id, user_id)
-		VALUES ($1, $2)
-		ON CONFLICT (post_id, user_id) DO NOTHING
-	`, postID, br.Bot.ID)
-
-	if err != nil {
-		br.logError(fmt.Sprintf("Failed to like post: %v", err))
-		L.Push(lua.LBool(false))
-		L.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	L.Push(lua.LBool(true))
-	return 1
-}
-
-// luaUnlikePost implements bot.unlikePost(postId)
-func (br *BotRuntime) luaUnlikePost(L *lua.LState) int {
-	postID := L.CheckString(1)
-
-	_, err := br.DB.Exec(`
-		DELETE FROM post_likes
-		WHERE post_id = $1 AND user_id = $2
-	`, postID, br.Bot.ID)
-
-	if err != nil {
-		br.logError(fmt.Sprintf("Failed to unlike post: %v", err))
-		L.Push(lua.LBool(false))
-		L.Push(lua.LString(err.Error()))
-		return 2
-	}
-
-	L.Push(lua.LBool(true))
-	return 1
-}
-
 // luaSetData implements bot.setData(key, value)
 func (br *BotRuntime) luaSetData(L *lua.LState) int {
 	key := L.CheckString(1)

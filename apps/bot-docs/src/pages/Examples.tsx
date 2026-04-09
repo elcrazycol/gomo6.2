@@ -157,10 +157,84 @@ end`,
 
   for _, keyword in ipairs(keywords) do
     if content:lower():find(keyword) then
-      bot.likePost(post.id)
-      bot.log("info", "Лайкнул пост: " .. post.id)
+      local success, likeId = bot.likePost(post.id)
+      if success then
+        bot.log("info", "Лайкнул пост: " .. likeId)
+      end
       break
     end
+  end
+end`,
+  },
+  {
+    id: 'like-counter',
+    title: 'Счетчик лайков',
+    description: 'Отслеживает лайки на постах бота и благодарит пользователей',
+    tags: ['Лайки', 'События', 'Треды'],
+    code: `-- Счетчик лайков
+local likeCount = 0
+
+function onPostLike(data)
+  likeCount = likeCount + 1
+  bot.log("info", "Получен лайк #" .. likeCount)
+
+  -- Получить информацию о пользователе
+  local user = bot.getUser(data.user_id)
+  if user then
+    bot.log("info", "Лайк от: " .. user.username)
+
+    -- Получить пост и поблагодарить в треде
+    local post = bot.getPost(data.post_id)
+    if post then
+      bot.sendThreadPost(
+        post.thread_id,
+        "Спасибо @" .. user.username .. " за лайк! 💙"
+      )
+    end
+  end
+end
+
+function onPostUnlike(data)
+  likeCount = likeCount - 1
+  bot.log("info", "Лайк убран, осталось: " .. likeCount)
+end
+
+function onThreadPost(post)
+  if post.content:find("/likes") then
+    bot.sendThreadPost(
+      post.thread_id,
+      "Всего лайков получено: " .. likeCount
+    )
+  end
+end`,
+  },
+  {
+    id: 'engagement-bot',
+    title: 'Бот взаимодействия',
+    description: 'Лайкает посты пользователей, которые лайкнули бота',
+    tags: ['Лайки', 'События', 'Треды'],
+    code: `function onPostLike(data)
+  bot.log("info", "Пользователь " .. data.user_id .. " лайкнул мой пост")
+
+  -- Получить последние посты пользователя и лайкнуть их
+  -- (это упрощенный пример, в реальности нужна функция getRecentPosts)
+
+  local user = bot.getUser(data.user_id)
+  if user then
+    bot.log("info", "Возвращаю лайк пользователю " .. user.username)
+  end
+end
+
+function onThreadLike(data)
+  local thread = bot.getThread(data.thread_id)
+  if thread then
+    bot.log("info", "Тред '" .. thread.title .. "' получил лайк!")
+
+    -- Отправить благодарность в тред
+    bot.sendThreadPost(
+      data.thread_id,
+      "Спасибо за лайк треда! 🎉"
+    )
   end
 end`,
   },
@@ -221,26 +295,57 @@ end`,
   },
   {
     id: 'chat-bot',
-    title: 'Чат-бот помощник',
-    description: 'Отвечает на сообщения в чате',
-    tags: ['Чат', 'Мессенджер'],
+    title: 'Чат-бот с командами',
+    description: 'Обрабатывает команды в мессенджере',
+    tags: ['Чат', 'Мессенджер', 'Команды'],
     code: `function onChatMessage(message)
   -- Не отвечаем на свои сообщения
   if message.sender_user_id == bot.id then
     return
   end
 
-  bot.log("info", "Сообщение от " .. message.sender_user_id)
+  -- Получаем текст сообщения
+  local text = message.plaintext or ""
+  bot.log("info", "Получено: " .. text)
 
-  -- Автоматический ответ
-  local responses = {
-    "Спасибо за сообщение! 👋",
-    "Я бот-помощник, чем могу помочь?",
-    "Получил ваше сообщение!",
-  }
+  -- Обработка команд
+  if text:find("/help") then
+    local help = "🤖 Доступные команды:\\n"
+    help = help .. "/help - показать справку\\n"
+    help = help .. "/ping - проверить бота\\n"
+    help = help .. "/time - текущее время\\n"
+    help = help .. "/joke - случайная шутка"
+    bot.sendChatMessage(message.conversation_id, help)
+    return
+  end
 
-  local response = responses[math.random(#responses)]
-  bot.sendChatMessage(message.conversation_id, response)
+  if text:find("/ping") then
+    bot.sendChatMessage(message.conversation_id, "🏓 Понг! Бот работает.")
+    return
+  end
+
+  if text:find("/time") then
+    local time = os.date("%H:%M:%S")
+    bot.sendChatMessage(message.conversation_id, "🕐 Время: " .. time)
+    return
+  end
+
+  if text:find("/joke") then
+    local jokes = {
+      "Почему программисты путают Хэллоуин и Рождество? Потому что Oct 31 = Dec 25! 🎃",
+      "Сколько программистов нужно, чтобы вкрутить лампочку? Ни одного, это аппаратная проблема! 💡",
+      "Почему Java-разработчики носят очки? Потому что не видят C# 😎"
+    }
+    local joke = jokes[math.random(#jokes)]
+    bot.sendChatMessage(message.conversation_id, joke)
+    return
+  end
+
+  -- Обычный ответ
+  bot.sendChatMessage(
+    message.conversation_id,
+    "Получил ваше сообщение! Напишите /help для списка команд."
+  )
 end`,
   },
   {

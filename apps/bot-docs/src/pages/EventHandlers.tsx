@@ -116,7 +116,7 @@ end`,
           { name: 'message.id', type: 'string', description: 'ID сообщения' },
           { name: 'message.conversation_id', type: 'string', description: 'ID беседы' },
           { name: 'message.sender_user_id', type: 'string', description: 'ID отправителя' },
-          { name: 'message.ciphertext', type: 'string', description: 'Зашифрованный текст' },
+          { name: 'message.plaintext', type: 'string', description: 'Расшифрованный текст (доступен только ботам)' },
           { name: 'message.created_at', type: 'string', description: 'Время создания' },
         ],
         example: `function onChatMessage(message)
@@ -125,13 +125,96 @@ end`,
     return
   end
 
-  bot.log("info", "Сообщение в чате от " .. message.sender_user_id)
+  -- Получаем текст сообщения
+  local text = message.plaintext or ""
+  bot.log("info", "Получено: " .. text)
 
-  -- Отправляем ответ
-  bot.sendChatMessage(
-    message.conversation_id,
-    "Получил ваше сообщение! 👋"
-  )
+  -- Обработка команд
+  if text:find("/help") then
+    bot.sendChatMessage(
+      message.conversation_id,
+      "Доступные команды:\\n/help - справка\\n/ping - проверка"
+    )
+  elseif text:find("/ping") then
+    bot.sendChatMessage(
+      message.conversation_id,
+      "Понг! 🏓"
+    )
+  else
+    -- Обычный ответ
+    bot.sendChatMessage(
+      message.conversation_id,
+      "Получил ваше сообщение! 👋"
+    )
+  end
+end`,
+      },
+    ],
+  },
+  {
+    id: 'likes',
+    title: 'События лайков',
+    items: [
+      {
+        id: 'onPostLike',
+        name: 'onPostLike(data)',
+        description: 'Вызывается когда кто-то лайкает пост бота',
+        params: [
+          { name: 'data.post_id', type: 'string', description: 'ID поста' },
+          { name: 'data.user_id', type: 'string', description: 'ID пользователя' },
+          { name: 'data.like_id', type: 'string', description: 'ID лайка' },
+        ],
+        example: `function onPostLike(data)
+  bot.log("info", "Пользователь " .. data.user_id .. " лайкнул мой пост!")
+
+  -- Получить информацию о пользователе
+  local user = bot.getUser(data.user_id)
+  if user then
+    bot.log("info", "Лайк от: " .. user.username)
+  end
+end`,
+      },
+      {
+        id: 'onPostUnlike',
+        name: 'onPostUnlike(data)',
+        description: 'Вызывается когда кто-то убирает лайк с поста бота',
+        params: [
+          { name: 'data.post_id', type: 'string', description: 'ID поста' },
+          { name: 'data.user_id', type: 'string', description: 'ID пользователя' },
+        ],
+        example: `function onPostUnlike(data)
+  bot.log("info", "Пользователь " .. data.user_id .. " убрал лайк")
+end`,
+      },
+      {
+        id: 'onThreadLike',
+        name: 'onThreadLike(data)',
+        description: 'Вызывается когда кто-то лайкает тред бота',
+        params: [
+          { name: 'data.thread_id', type: 'string', description: 'ID треда' },
+          { name: 'data.user_id', type: 'string', description: 'ID пользователя' },
+          { name: 'data.like_id', type: 'string', description: 'ID лайка' },
+        ],
+        example: `function onThreadLike(data)
+  bot.log("info", "Пользователь " .. data.user_id .. " лайкнул мой тред!")
+
+  -- Получить информацию о треде
+  local thread = bot.getThread(data.thread_id)
+  if thread then
+    bot.log("info", "Тред: " .. thread.title)
+  end
+end`,
+      },
+      {
+        id: 'onThreadUnlike',
+        name: 'onThreadUnlike(data)',
+        description: 'Вызывается когда кто-то убирает лайк с треда бота',
+        params: [
+          { name: 'data.thread_id', type: 'string', description: 'ID треда' },
+          { name: 'data.user_id', type: 'string', description: 'ID пользователя' },
+        ],
+        example: `function onThreadUnlike(data)
+  bot.log("info", "Пользователь " .. data.user_id .. " убрал лайк с треда")
 end`,
       },
     ],
