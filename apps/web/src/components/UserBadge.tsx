@@ -5,6 +5,13 @@ import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
 interface UserBadgeProps {
   userId: string | null;
   username: string;
@@ -13,6 +20,7 @@ interface UserBadgeProps {
   disableLink?: boolean;
   disableHoverCard?: boolean;
   stopPropagationOnClick?: boolean;
+  isThreadOpener?: boolean;
 }
 
 export const UserBadge = ({
@@ -23,6 +31,7 @@ export const UserBadge = ({
   disableLink = false,
   disableHoverCard = false,
   stopPropagationOnClick = false,
+  isThreadOpener,
 }: UserBadgeProps) => {
   const [color, setColor] = useState<string>("");
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
@@ -124,6 +133,21 @@ export const UserBadge = ({
         </span>
       )}
       {userId && <AdminBadge userId={userId} />}
+      {/* Thread Opener Badge */}
+      {isThreadOpener && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-primary text-primary-foreground rounded cursor-help">
+                TO
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>тредооткрыватель:D</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </span>
   );
 
