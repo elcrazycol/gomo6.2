@@ -177,11 +177,13 @@ end`,
         params: [
           { name: 'postId', type: 'string', description: 'ID поста' },
         ],
-        returns: 'success: boolean',
-        example: `local success = bot.likePost(post.id)
+        returns: '(success: boolean, likeId: string)',
+        example: `local success, likeId = bot.likePost(post.id)
 
 if success then
-  bot.log("info", "Лайк поставлен!")
+  bot.log("info", "Лайк поставлен: " .. likeId)
+else
+  bot.log("error", "Ошибка: " .. likeId)
 end`,
       },
       {
@@ -191,11 +193,43 @@ end`,
         params: [
           { name: 'postId', type: 'string', description: 'ID поста' },
         ],
-        returns: 'success: boolean',
-        example: `local success = bot.unlikePost(post.id)
+        returns: '(success: boolean, error?: string)',
+        example: `local success, error = bot.unlikePost(post.id)
 
 if success then
   bot.log("info", "Лайк убран")
+else
+  bot.log("error", "Ошибка: " .. error)
+end`,
+      },
+      {
+        id: 'likeThread',
+        name: 'bot.likeThread(threadId)',
+        description: 'Ставит лайк треду',
+        params: [
+          { name: 'threadId', type: 'string', description: 'ID треда' },
+        ],
+        returns: '(success: boolean, likeId: string)',
+        example: `local success, likeId = bot.likeThread(thread.id)
+
+if success then
+  bot.log("info", "Тред лайкнут: " .. likeId)
+else
+  bot.log("error", "Ошибка: " .. likeId)
+end`,
+      },
+      {
+        id: 'unlikeThread',
+        name: 'bot.unlikeThread(threadId)',
+        description: 'Убирает лайк с треда',
+        params: [
+          { name: 'threadId', type: 'string', description: 'ID треда' },
+        ],
+        returns: '(success: boolean, error?: string)',
+        example: `local success, error = bot.unlikeThread(thread.id)
+
+if success then
+  bot.log("info", "Лайк с треда убран")
 end`,
       },
     ],

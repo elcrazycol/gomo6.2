@@ -447,13 +447,18 @@ func (br *BotRuntime) luaSendChatMessage(L *lua.LState) int {
 		eventData, _ := json.Marshal(map[string]interface{}{
 			"type": "new_chat_message",
 			"data": map[string]interface{}{
-				"id":              messageID,
-				"conversation_id": conversationID,
-				"sender_user_id":  br.Bot.ID,
-				"created_at":      time.Now().Format(time.RFC3339),
+				"id":                   messageID,
+				"conversation_id":      conversationID,
+				"sender_user_id":       br.Bot.ID,
+				"ciphertext":           ciphertext,
+				"nonce":                nonce,
+				"sender_public_key":    senderPublicKey,
+				"recipient_public_key": recipientPublicKey,
+				"client_message_id":    clientMessageID,
+				"sent_at":              time.Now().Format(time.RFC3339),
 			},
 		})
-		br.WSHub.BroadcastToRoom("chat:"+conversationID, eventData)
+		br.WSHub.BroadcastToRoom("chat_"+conversationID, eventData)
 	}
 
 	// Update stats
@@ -464,7 +469,125 @@ func (br *BotRuntime) luaSendChatMessage(L *lua.LState) int {
 	return 2
 }
 
-// luaGetChatConversation implements bot.getChatConversation(conversationId)
+// luaLikePost implements bot.likePost(postId)
+func (br *BotRuntime) luaLikePost(L *lua.LState) int {
+	postID := L.CheckString(1)
+
+	// Check if already liked
+	var exists bool
+	err := br.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)", postID, br.Bot.ID).Scan(&exists)
+	if err != nil || exists {
+		L.Push(lua.LBool(false))
+		if exists {
+			L.Push(lua.LString("Already liked"))
+		} else {
+			L.Push(lua.LString(err.Error()))
+		}
+		return 2
+	}
+
+	// Create like
+	var likeID string
+	err = br.DB.QueryRow(`
+		INSERT INTO post_likes (post_id, user_id)
+		VALUES ($1, $2)
+		RETURNING id
+	`, postID, br.Bot.ID).Scan(&likeID)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to like post: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	L.Push(lua.LBool(true))
+	L.Push(lua.LString(likeID))
+	return 2
+}
+
+// luaUnlikePost implements bot.unlikePost(postId)
+func (br *BotRuntime) luaUnlikePost(L *lua.LState) int {
+	postID := L.CheckString(1)
+
+	result, err := br.DB.Exec("DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2", postID, br.Bot.ID)
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to unlike post: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Like not found"))
+		return 2
+	}
+
+	L.Push(lua.LBool(true))
+	return 1
+}
+
+// luaLikeThread implements bot.likeThread(threadId)
+func (br *BotRuntime) luaLikeThread(L *lua.LState) int {
+	threadID := L.CheckString(1)
+
+	// Check if already liked
+	var exists bool
+	err := br.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)", threadID, br.Bot.ID).Scan(&exists)
+	if err != nil || exists {
+		L.Push(lua.LBool(false))
+		if exists {
+			L.Push(lua.LString("Already liked"))
+		} else {
+			L.Push(lua.LString(err.Error()))
+		}
+		return 2
+	}
+
+	// Create like
+	var likeID string
+	err = br.DB.QueryRow(`
+		INSERT INTO thread_likes (thread_id, user_id)
+		VALUES ($1, $2)
+		RETURNING id
+	`, threadID, br.Bot.ID).Scan(&likeID)
+
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to like thread: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	L.Push(lua.LBool(true))
+	L.Push(lua.LString(likeID))
+	return 2
+}
+
+// luaUnlikeThread implements bot.unlikeThread(threadId)
+func (br *BotRuntime) luaUnlikeThread(L *lua.LState) int {
+	threadID := L.CheckString(1)
+
+	result, err := br.DB.Exec("DELETE FROM thread_likes WHERE thread_id = $1 AND user_id = $2", threadID, br.Bot.ID)
+	if err != nil {
+		br.logError(fmt.Sprintf("Failed to unlike thread: %v", err))
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString(err.Error()))
+		return 2
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		L.Push(lua.LBool(false))
+		L.Push(lua.LString("Like not found"))
+		return 2
+	}
+
+	L.Push(lua.LBool(true))
+	return 1
+}
 func (br *BotRuntime) luaGetChatConversation(L *lua.LState) int {
 	conversationID := L.CheckString(1)
 
