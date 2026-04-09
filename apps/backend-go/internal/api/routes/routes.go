@@ -295,6 +295,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/get_user_thread_likes_received_timestamps", rpcHandler.GetUserThreadLikesReceivedTimestamps)
 			protected.GET("/get_user_thread_reply_timestamps", rpcHandler.GetUserThreadReplyTimestamps)
 			protected.GET("/toggle_wall_post_pin", rpcHandler.ToggleWallPostPin)
+			protected.POST("/get_avatar_history", rpcHandler.GetAvatarHistory)
+			protected.POST("/delete_avatar_from_history", rpcHandler.DeleteAvatarFromHistory)
+			protected.POST("/toggle_achievement_pin", rpcHandler.ToggleAchievementPin)
 
 			// Messenger RPC functions
 			protected.POST("/get_or_create_direct_chat", rpcHandler.GetOrCreateDirectChat)
