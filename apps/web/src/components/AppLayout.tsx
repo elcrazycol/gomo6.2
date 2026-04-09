@@ -586,34 +586,6 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [volume, nowPlayingHidden]);
 
   useEffect(() => {
-    const handleAudioCheck = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (!detail?.playerId) return;
-
-      const id = detail.playerId;
-      const entry = audioMapRef.current.get(id);
-
-      // Set a flag on window to indicate if this player exists
-      if (!((window as any).__audioExists)) {
-        (window as any).__audioExists = {};
-      }
-
-      if (entry?.inst) {
-        const media = entry.inst.media || entry.inst;
-        const isPlaying = media && !media.paused && !media.ended;
-        (window as any).__audioExists[id] = isPlaying;
-      } else {
-        (window as any).__audioExists[id] = false;
-      }
-    };
-
-    window.addEventListener("global-audio-check", handleAudioCheck as EventListener);
-    return () => {
-      window.removeEventListener("global-audio-check", handleAudioCheck as EventListener);
-    };
-  }, []);
-
-  useEffect(() => {
     const handleAudioRegister = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
