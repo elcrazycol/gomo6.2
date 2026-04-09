@@ -142,12 +142,6 @@ class WebSocketService {
   private handleMessage(event: MessageEvent): void {
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
-
-      // Debug logging for user status events
-      if (message.type === 'user_online' || message.type === 'user_offline') {
-        console.log('[WebSocket] Received status event:', message.type, message);
-      }
-
       this.emit(message.type, message);
     } catch (error) {
       console.error('[WebSocket] Error parsing message:', error);
