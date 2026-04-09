@@ -383,7 +383,7 @@ const Profile = () => {
   }, [showProfileWall]);
 
   const loadAvatarHistory = async () => {
-    if (!userId) return;
+    if (!userId) return [];
 
     try {
       const { data, error } = await supabase.rpc('get_avatar_history', {
@@ -393,8 +393,10 @@ const Profile = () => {
       if (error) throw error;
 
       setAvatarHistory(data || []);
+      return data || [];
     } catch (error) {
       console.error('Error loading avatar history:', error);
+      return [];
     }
   };
 
@@ -808,8 +810,33 @@ const Profile = () => {
 
       if (data) {
         toast.success("Аватар удален");
-        await loadAvatarHistory();
-        await loadProfile();
+
+        // Reload history
+        const historyResult = await loadAvatarHistory();
+
+        // Update avatar URL from history - find the current one
+        if (historyResult && historyResult.length > 0) {
+          const currentAvatar = historyResult.find((a: any) => a.is_current);
+          if (currentAvatar) {
+            setAvatarUrl(currentAvatar.avatar_url);
+          } else if (historyResult.length > 0) {
+            // If no current avatar marked, use the most recent one
+            setAvatarUrl(historyResult[0].avatar_url);
+          } else {
+            setAvatarUrl(null);
+          }
+        } else {
+          setAvatarUrl(null);
+        }
+
+        // Close gallery if no more avatars
+        const { data: historyData } = await supabase.rpc('get_avatar_history', {
+          user_uuid: userId
+        });
+
+        if (!historyData || historyData.length === 0) {
+          setShowAvatarGallery(false);
+        }
       } else {
         toast.error("Не удалось удалить аватар");
       }
@@ -947,7 +974,7 @@ const Profile = () => {
                 >
                   {avatarUrl ? (
                     <img
-                      src={storageUrl("post-images", avatarUrl) || avatarUrl}
+                      src={`${storageUrl("post-images", avatarUrl) || avatarUrl}?t=${Date.now()}`}
                       alt="Avatar"
                       className="w-full h-full object-cover"
                     />
