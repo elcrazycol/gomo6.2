@@ -144,15 +144,70 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           });
           instanceRef.current = instance;
 
+          // Intercept Plyr's play event BEFORE it actually plays
+          let isHandlingPlay = false;
+
+          instance.on("play", async (event: any) => {
+            if (isHandlingPlay) return;
+            isHandlingPlay = true;
+
+            // Pause local immediately
+            if (instance.media && !instance.media.paused) {
+              instance.media.pause();
+            }
+
+            // Handle global audio
+            if (globalAudioCurrentSrc !== trackSrc) {
+              globalAudio.src = trackSrc;
+              globalAudioCurrentSrc = trackSrc;
+
+              // Wait for metadata
+              if (globalAudio.readyState < 2) {
+                await new Promise((resolve) => {
+                  const onLoadedMetadata = () => {
+                    globalAudio.removeEventListener('loadedmetadata', onLoadedMetadata);
+                    resolve(null);
+                  };
+                  globalAudio.addEventListener('loadedmetadata', onLoadedMetadata);
+                });
+              }
+            }
+
+            globalAudio.currentTime = mediaRef.current?.currentTime || 0;
+
+            try {
+              await globalAudio.play();
+              // Sync UI to show playing state
+              if (instance.media && instance.media.paused) {
+                await instance.media.play();
+              }
+            } catch (err) {
+              console.error("Failed to play:", err);
+            }
+
+            // Notify AppLayout
+            window.dispatchEvent(
+              new CustomEvent("global-audio-play", {
+                detail: { instance: globalAudio, title, playerId: playerKey, src: trackSrc, playlistId, playlistIndex },
+              })
+            );
+
+            onPlay?.(instance);
+            isHandlingPlay = false;
+          });
+
           // Check if this track is currently playing
           const isCurrentTrack = globalAudioCurrentSrc === trackSrc;
 
           if (isCurrentTrack) {
-            // Sync UI with global audio
+            // Sync UI with global audio immediately and smoothly
             if (mediaRef.current) {
               mediaRef.current.currentTime = globalAudio.currentTime;
               if (!globalAudio.paused && !globalAudio.ended) {
-                instance.play().catch(() => {});
+                // Use requestAnimationFrame for smooth sync
+                requestAnimationFrame(() => {
+                  instance.play().catch(() => {});
+                });
               }
             }
           }
@@ -161,7 +216,8 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           const syncTime = () => {
             if (globalAudioCurrentSrc === trackSrc && mediaRef.current) {
               const timeDiff = Math.abs(mediaRef.current.currentTime - globalAudio.currentTime);
-              if (timeDiff > 0.5) {
+              // Only sync if difference is significant (reduces lag)
+              if (timeDiff > 1) {
                 mediaRef.current.currentTime = globalAudio.currentTime;
               }
             }
@@ -169,40 +225,24 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
 
           const syncPlay = () => {
             if (globalAudioCurrentSrc === trackSrc && instance?.media?.paused) {
-              instance.play().catch(() => {});
+              requestAnimationFrame(() => {
+                instance.play().catch(() => {});
+              });
             }
           };
 
           const syncPause = () => {
             if (globalAudioCurrentSrc === trackSrc && instance?.media && !instance.media.paused) {
-              instance.pause();
+              requestAnimationFrame(() => {
+                instance.pause();
+              });
             }
           };
 
-          globalAudio.addEventListener('timeupdate', syncTime);
-          globalAudio.addEventListener('play', syncPlay);
-          globalAudio.addEventListener('pause', syncPause);
-
-          // When user interacts with local controls, control global audio
-          instance.on("play", () => {
-            onPlay?.(instance);
-
-            // Switch global audio to this track
-            if (globalAudioCurrentSrc !== trackSrc) {
-              globalAudio.src = trackSrc;
-              globalAudioCurrentSrc = trackSrc;
-            }
-
-            globalAudio.currentTime = mediaRef.current?.currentTime || 0;
-            globalAudio.play().catch(() => {});
-
-            // Notify AppLayout
-            window.dispatchEvent(
-              new CustomEvent("global-audio-play", {
-                detail: { instance: globalAudio, title, playerId: playerKey, src: trackSrc, playlistId, playlistIndex },
-              })
-            );
-          });
+          // Use passive listeners for better performance
+          globalAudio.addEventListener('timeupdate', syncTime, { passive: true });
+          globalAudio.addEventListener('play', syncPlay, { passive: true });
+          globalAudio.addEventListener('pause', syncPause, { passive: true });
 
           instance.on("pause", () => {
             if (!isUnmountingRef.current) {
