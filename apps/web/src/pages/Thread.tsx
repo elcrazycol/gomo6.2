@@ -1364,6 +1364,7 @@ const Thread = () => {
                           username={post.username || "Аноним"}
                           isAnonymous={false}
                           showOutline={false}
+                          isThreadOpener={post.user_id === thread?.user_id}
                         />
                         <div className="text-muted-foreground">
                           {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
