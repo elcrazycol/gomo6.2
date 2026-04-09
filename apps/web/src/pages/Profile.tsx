@@ -961,6 +961,7 @@ const Profile = () => {
                   </p>
                   {showOnlineStatus && (
                     <OnlineStatus
+                      userId={profile.id}
                       isOnline={profile.is_online}
                       lastSeen={profile.last_seen}
                     />

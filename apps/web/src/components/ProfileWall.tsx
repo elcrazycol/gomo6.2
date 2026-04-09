@@ -1291,10 +1291,8 @@ export const ProfileWall = ({
   useEffect(() => {
     if (!profileUserId || !currentUserId) return;
 
-    // Connect to WebSocket if not already connected
-    if (!wsService.connected) {
-      wsService.connect();
-    }
+    // REMOVED: wsService.connect() - already handled in App.tsx and WebSocketContext
+    // No need to call connect() here, it causes duplicate connections
 
     // Subscribe to profile wall room
     const wallRoom = `profile_wall_${profileUserId}`;

@@ -146,12 +146,13 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 
 	userClaims := claims.(*auth.Claims)
 
-	RecomputeUserProfileStats(h.db, userClaims.UserID)
+	// REMOVED: RecomputeUserProfileStats - too expensive for every auth check
+	// Stats should be updated only when actual changes occur (new post, like, etc.)
 
 	// Get user from database
 	query := `
 		SELECT id, username, email, domain, avatar_url, bio, garma, post_count, thread_count, created_at, is_remote
-		FROM users 
+		FROM users
 		WHERE id = $1
 	`
 

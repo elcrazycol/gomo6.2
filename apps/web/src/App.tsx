@@ -52,7 +52,17 @@ const prefetchRoutes = () => {
   }, 2000);
 };
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh
+      gcTime: 10 * 60 * 1000, // 10 minutes - cache retention
+      refetchOnWindowFocus: false, // Don't refetch on window focus
+      refetchOnMount: false, // Don't refetch on component mount if data is fresh
+      retry: 1, // Only retry once on failure
+    },
+  },
+});
 
 const App = () => {
   useEffect(() => {
