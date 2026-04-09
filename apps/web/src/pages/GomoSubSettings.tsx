@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
+import { storageUrl } from "@/utils/storage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -233,11 +234,10 @@ const GomoSubSettings = () => {
       });
       if (error) throw error;
 
-      const { data: { publicUrl } } = supabase.storage.from("post-images").getPublicUrl(fileName);
       if (kind === "avatar") {
-        setForm((prev) => ({ ...prev, gomosub_avatar_url: publicUrl }));
+        setForm((prev) => ({ ...prev, gomosub_avatar_url: fileName }));
       } else {
-        setForm((prev) => ({ ...prev, cover_image_url: publicUrl }));
+        setForm((prev) => ({ ...prev, cover_image_url: fileName }));
       }
       toast.success(kind === "avatar" ? "Аватар обновлен" : "Фон обновлен");
     } catch (e: any) {
@@ -309,7 +309,11 @@ const GomoSubSettings = () => {
             className="group relative w-full h-full text-left"
           >
             {form.cover_image_url ? (
-              <img src={form.cover_image_url} alt="cover" className="w-full h-full object-cover" />
+              <img
+                src={storageUrl("post-images", form.cover_image_url) || form.cover_image_url}
+                alt="cover"
+                className="w-full h-full object-cover"
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
                 {uploadingCover ? "Загрузка..." : "Нажми сюда, чтобы обновить фон"}
@@ -336,7 +340,7 @@ const GomoSubSettings = () => {
               className="group relative w-full h-full"
             >
               {form.gomosub_avatar_url ? (
-                <img src={form.gomosub_avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                <img src={storageUrl("post-images", form.gomosub_avatar_url) || form.gomosub_avatar_url} alt="avatar" className="w-full h-full object-cover" />
               ) : (
                 <span>{uploadingAvatar ? "..." : (form.name.trim()[0] || "g").toUpperCase()}</span>
               )}

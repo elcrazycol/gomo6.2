@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client_simple';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -196,33 +196,11 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
     try {
       setLoading(true);
 
-      // Load groups
-      const { data: groupsData, error: groupsError } = await supabase
-        .from('emoji_groups')
-        .select('id, name')
-        .order('name');
-
-      if (groupsError) throw groupsError;
-
-      // Load emojis with groups
-      const { data: emojisData, error: emojisError } = await supabase
-        .from('emojis')
-        .select(`
-          id,
-          name,
-          code,
-          image_url,
-          group_id,
-          emoji_groups (
-            name
-          )
-        `)
-        .order('name');
-
-      if (emojisError) throw emojisError;
-
-      setGroups(groupsData || []);
-      setEmojis(emojisData || []);
+      // TODO: Implement emoji system when tables are created
+      // For now, just set empty arrays to prevent errors
+      setGroups([]);
+      setEmojis([]);
+      setGroupedEmojis({});
     } catch (error) {
       console.error('Error loading emojis:', error);
     } finally {

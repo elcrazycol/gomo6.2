@@ -1,7 +1,0 @@
-project_id = "wolspxnxhypmelfuvfkc"
-
-[functions.ai-reply]
-verify_jwt = false
-
-[functions.delete-expired-threads]
-verify_jwt = false

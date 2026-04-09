@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
+import { useWebSocketSync } from "@/hooks/useWebSocketSync";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ImageGallery } from "@/components/ImageGallery";
@@ -18,6 +20,8 @@ import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { Poll } from "@/components/Poll";
+import { storageUrl } from "@/utils/storage";
+import { wsService } from "@/services/websocket";
 
 // Tag label helper functions
 const getContentTagLabel = (value: string) => {
@@ -83,6 +87,7 @@ import { AttachmentMeta } from "@/utils/mediaUpload";
 import type { Thread as ThreadModel, Post as PostModel, UserProfileLite } from "@/types/forum";
 import { FileAudio2, FileVideo2, FileText, Image as ImageIcon, SkipBack, SkipForward, Play, Pause } from "lucide-react";
 import { MediaPlayer } from "@/components/MediaPlayer";
+import { AudioAttachment } from "@/components/AudioAttachment";
 
 const parseAttachments = (raw: unknown): AttachmentMeta[] => {
   if (!raw) return [];
@@ -101,7 +106,9 @@ const renderAttachments = (
   playlistKey?: string
 ) => {
   if (!attachments || attachments.length === 0) return null;
-  const imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
+  const imageUrls = attachments
+    .filter((att) => att.type === "image")
+    .map((att) => storageUrl("content", att.url) || att.url);
   const hasManyImages = imageUrls.length > 1;
 
   return (
@@ -128,7 +135,7 @@ const renderAttachments = (
           return (
             <figure key={idx} className="w-full">
               <img
-                src={att.url}
+                src={storageUrl("content", att.url) || att.url}
                 alt={att.name || `img-${idx}`}
                 className="w-full max-h-[70vh] object-contain rounded-lg border border-border bg-muted/30 cursor-pointer"
                 onClick={() => onImageClick?.(imageUrls, imageIndex)}
@@ -151,12 +158,9 @@ const renderAttachments = (
         if (att.type === "audio") {
           return (
             <div key={idx} className="flex justify-start pb-3">
-              <MediaPlayer
-                kind="audio"
-                sources={[{ src: att.url, type: att.mime || "audio/ogg" }]}
+              <AudioAttachment
+                attachment={att}
                 className="max-w-md"
-                playerId={`audio-${att.url}`}
-                title={att.name || "Аудио"}
                 playlistId={playlistKey}
                 playlistIndex={idx}
               />
@@ -187,8 +191,12 @@ const Thread = () => {
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
   const navigate = useNavigate();
-  const [thread, setThread] = useState<ThreadModel | null>(null);
-  const [posts, setPosts] = useState<PostModel[]>([]);
+
+  // Use React Query hooks instead of manual state management
+  useWebSocketSync(); // Sync WebSocket events with React Query cache
+  const { data: thread, isLoading: threadLoading } = useThread(threadId);
+  const { data: posts = [], isLoading: postsLoading } = usePosts(threadId);
+
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
@@ -213,18 +221,23 @@ const Thread = () => {
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  // Use React Query hook for subscription status
+  const { data: isSubscribed = false } = useThreadSubscription(threadId, user?.id);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editContentJson, setEditContentJson] = useState<unknown>(null);
   const [banUserId, setBanUserId] = useState<string | null>(null);
+  const [resetKey, setResetKey] = useState(0);
+  const [isClearing, setIsClearing] = useState(false);
+  const [pendingPostId, setPendingPostId] = useState<string | null>(null);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
   const [galleryEditable, setGalleryEditable] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false); // Changed from true - React Query handles loading
   const [removeMetadata, setRemoveMetadata] = useState(true);
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
@@ -407,7 +420,9 @@ const Thread = () => {
 
   // Keep legacy imageUrls state in sync with attachments (used by existing preview/gallery code)
   useEffect(() => {
-    const imgs = attachments.filter(att => att.type === "image").map(att => att.url);
+    const imgs = attachments
+      .filter((att) => att.type === "image")
+      .map((att) => storageUrl("content", att.url) || att.url);
     setImageUrls(imgs);
   }, [attachments]);
 
@@ -474,28 +489,13 @@ const Thread = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Track mobile/desktop mode
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
+  // Keep postsRef in sync with posts state
+  // REMOVED: No longer needed with React Query
 
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // WebSocket realtime subscription for new posts
+  // REMOVED: Handled by useWebSocketSync hook
 
-  const checkSubscription = useCallback(async () => {
-    if (!user || !threadId) return;
-    
-    const { data } = await supabase
-      .from("thread_subscriptions")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("thread_id", threadId)
-      .maybeSingle();
-    
-    setIsSubscribed(!!data);
-  }, [threadId, user]);
+  // REMOVED: checkSubscription - handled by useThreadSubscription hook
 
   const toggleSubscription = async () => {
     if (!user) {
@@ -509,23 +509,24 @@ const Thread = () => {
         .delete()
         .eq("user_id", user.id)
         .eq("thread_id", threadId);
-      
+
       if (!error) {
-        setIsSubscribed(false);
         toast.success("Отписались от уведомлений");
       }
     } else {
       const { error } = await supabase
         .from("thread_subscriptions")
         .insert({ user_id: user.id, thread_id: threadId });
-      
+
       if (!error) {
-        setIsSubscribed(true);
         toast.success("Подписались на уведомления");
       }
     }
   };
 
+  // DISABLED: Using WebSocket for realtime updates instead
+  // Supabase realtime subscription removed to prevent duplicate posts
+  /*
   useEffect(() => {
     // Set up realtime subscription for new posts
     const channel = supabase
@@ -548,6 +549,7 @@ const Thread = () => {
       supabase.removeChannel(channel);
     };
   }, [threadId]);
+  */
 
   const loadThread = useCallback(async () => {
     const { data: threadData } = await supabase
@@ -559,7 +561,7 @@ const Thread = () => {
     if (threadData) {
       const { data: board } = await supabase
         .from("boards")
-        .select("slug, name, is_rules_board")
+        .select("slug, name, is_rules_board, is_gomosub")
         .eq("id", threadData.board_id)
         .single();
 
@@ -576,7 +578,12 @@ const Thread = () => {
 
       setThread({
         ...threadData,
-        boards: board!,
+        boards: board ?? {
+          slug: slug ?? "",
+          name: "",
+          is_rules_board: false,
+          is_gomosub: false,
+        },
         profiles: profile,
         attachments,
         image_urls: threadData.image_urls || imageUrlsFromAttachments,
@@ -614,140 +621,75 @@ const Thread = () => {
 
       // Track thread visit for achievements
       if (user) {
-        const hasCustomMessage = threadData.custom_message && threadData.custom_message.trim().length > 0;
-        await supabase
-          .from('thread_custom_message_visits')
-          .upsert({
-            user_id: user.id,
-            thread_id: threadData.id,
-            has_custom_message: hasCustomMessage
-          }, {
-            onConflict: 'user_id,thread_id'
-          });
+        try {
+          const hasCustomMessage = threadData.custom_message && threadData.custom_message.trim().length > 0;
+          await supabase
+            .from('thread_custom_message_visits')
+            .upsert({
+              user_id: user.id,
+              thread_id: threadData.id,
+              has_custom_message: hasCustomMessage
+            }, {
+              onConflict: 'user_id,thread_id'
+            });
+        } catch (error) {
+          console.error("Thread visit tracking unavailable:", error);
+        }
       }
     }
   }, [navigate, slug, threadId, user]);
 
-  const normalizePost = useCallback(async (post: any): Promise<PostModel> => {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username, is_anonymous, avatar_url, id")
-      .eq("id", post.user_id!)
-      .maybeSingle();
+  // REMOVED: loadThread and loadPosts - handled by React Query hooks
+  // REMOVED: normalizePost, fetchPostWithProfile, mergePostIntoList - no longer needed
 
-    const attachments = parseAttachments(post.attachments);
-
-    let imageUrls: string[] = [];
-    if (Array.isArray(post.image_urls)) {
-      imageUrls = post.image_urls;
-    } else if (typeof post.image_urls === "string") {
-      try {
-        imageUrls = JSON.parse(post.image_urls);
-      } catch {
-        imageUrls = [];
-      }
-    } else if (attachments.length > 0) {
-      imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
-    } else if (post.image_url) {
-      imageUrls = [post.image_url];
-    }
-
-    return {
-      ...post,
-      profiles: profile as UserProfileLite | null,
-      imageUrls,
-      attachments,
-    } as PostModel;
-  }, []);
-
-  const fetchPostWithProfile = useCallback(async (postId: string) => {
-    const { data: postData, error } = await supabase
-      .from("posts")
-      .select("*")
-      .eq("id", postId)
-      .single();
-    if (error || !postData) return null;
-    return normalizePost(postData);
-  }, [normalizePost]);
-
-  const mergePostIntoList = useCallback((list: PostModel[], post: PostModel) => {
-    const idx = list.findIndex(p => p.id === post.id);
-    const next = idx >= 0 ? [...list.slice(0, idx), post, ...list.slice(idx + 1)] : [...list, post];
-    next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    return next;
-  }, []);
-
-  const handleAIReply = useCallback(async (triggerPost: any) => {
-    try {
-      // Get the post that was replied to (this is the prompt)
-      const { data: promptPost } = await supabase
-        .from("posts")
-        .select("content")
-        .eq("id", triggerPost.reply_to)
-        .single();
-
-      if (!promptPost) return;
-
-      console.log('[AI] Triggering AI reply to:', promptPost.content);
-      
-      // Show notification that AI is processing
-      toast.info("🤖 AI генерирует ответ...", {
-        duration: 3000,
-      });
-
-      // Call AI edge function
-      const { error } = await supabase.functions.invoke('ai-reply', {
-        body: {
-          threadId: threadId,
-          replyToId: triggerPost.reply_to,
-          promptContent: promptPost.content
-        }
-      });
-
-      if (error) {
-        console.error('[AI] Error calling AI function:', error);
-        toast.error("❌ Ошибка AI");
-      } else {
-        toast.success("✅ AI ответил");
-      }
-    } catch (error) {
-      console.error('[AI] Error in handleAIReply:', error);
-      toast.error("❌ Ошибка AI");
-    }
-  }, [threadId]);
-
-  const loadPosts = useCallback(async () => {
-    const { data: postsData } = await supabase
-      .from("posts")
-      .select("*")
-      .eq("thread_id", threadId)
-      .order("created_at", { ascending: true });
-
-    if (postsData) {
-      const postsWithProfiles = await Promise.all(postsData.map(normalizePost));
-      setPosts(postsWithProfiles);
-
-      if (postsData.length > 0) {
-        const latestPost = postsData[postsData.length - 1];
-        if (latestPost.content.includes('@AI') && latestPost.reply_to) {
-          await handleAIReply(latestPost);
-        }
-      }
-    }
-  }, [handleAIReply, normalizePost, threadId]);
-
+  // Load poll data when thread is loaded
   useEffect(() => {
-    const loadAll = async () => {
-      setPageLoading(true);
-      await Promise.all([
-        loadThread(),
-        loadPosts(),
-        checkSubscription(),
-      ]);
-      setPageLoading(false);
+    if (!thread?.id || !threadId) return;
+
+    const loadPollData = async () => {
+      const { data: poll } = await supabase
+        .from('polls')
+        .select('*')
+        .eq('thread_id', threadId)
+        .maybeSingle();
+
+      if (poll) {
+        let userVotes: string[] = [];
+        if (user?.id) {
+          const { data: userVote } = await supabase
+            .from('poll_votes')
+            .select('option_ids')
+            .eq('poll_id', poll.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          userVotes = userVote?.option_ids || [];
+        }
+
+        setPollData({ ...poll, user_votes: userVotes });
+      }
+
+      // Track thread visit for achievements
+      if (user && thread) {
+        try {
+          const hasCustomMessage = thread.custom_message && thread.custom_message.trim().length > 0;
+          await supabase
+            .from('thread_custom_message_visits')
+            .upsert({
+              user_id: user.id,
+              thread_id: thread.id,
+              has_custom_message: hasCustomMessage
+            }, {
+              onConflict: 'user_id,thread_id'
+            });
+        } catch (error) {
+          console.error("Thread visit tracking unavailable:", error);
+        }
+      }
     };
-    loadAll();
-  }, [threadId, user, loadPosts, loadThread, checkSubscription]);
+
+    loadPollData();
+  }, [thread, threadId, user]);
 
   // Keep view anchored when мы уже у низа или запланировали при отправке своего поста
   useEffect(() => {
@@ -759,6 +701,8 @@ const Thread = () => {
   }, [posts, isNearBottom, scrollToBottomSmooth]);
 
   // Realtime subscription for posts changes (single channel, local merge)
+  // DISABLED: Go backend doesn't support Supabase real-time yet
+  /*
   useEffect(() => {
     if (!threadId) return;
 
@@ -799,6 +743,7 @@ const Thread = () => {
       supabase.removeChannel(channel);
     };
   }, [fetchPostWithProfile, isNearBottom, mergePostIntoList, scrollToBottomSmooth, threadId]);
+  */
 
   const handleSubmitPost = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -815,7 +760,7 @@ const Thread = () => {
     }
 
     // Check if only admin can post (rules board)
-    if (thread?.boards.is_rules_board && !isAdmin) {
+    if (thread?.boards?.is_rules_board && !isAdmin) {
       toast.error("Только администраторы могут писать на этой доске");
       return;
     }
@@ -829,32 +774,55 @@ const Thread = () => {
         .map(att => att.url);
       const imageUrlForDb = imageUrlsFromAttachments[0] || null;
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
-
-      const { error } = await supabase.from("posts").insert({
-        thread_id: threadId,
-        user_id: user.id,
-        content: content.trim(),
-        content_json: contentJson,
-        image_url: imageUrlForDb, // Keep for backward compatibility
-        image_urls: imageUrlsJson, // New field for multiple images
-        attachments: attachments.length > 0 ? attachments : null,
-        reply_to: replyingTo,
-        is_private: isPrivateMessage,
-        private_recipient_id: isPrivateMessage ? privateRecipientId : null,
+      
+      // Use backend API instead of direct Supabase insertion
+      const response = await fetch('http://localhost:8080/rest/v1/posts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({
+          thread_id: threadId,
+          content: content.trim(),
+          content_json: contentJson,
+          image_urls: imageUrlsJson, // Backend expects image_urls instead of image_url
+          attachments: attachments.length > 0 ? attachments : null,
+          reply_to: replyingTo,
+          is_private: isPrivateMessage,
+          private_recipient_id: isPrivateMessage ? privateRecipientId : null,
+        }),
       });
 
-      if (error) {
-        toast.error("Ошибка отправки");
-        return;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Ошибка отправки');
       }
 
-      setContent("");
+      const data = await response.json();
+
+      // React Query will automatically update via WebSocket + cache invalidation
+      // No need to manually update posts state
+
+      // Start clearing mode
+      setIsClearing(true);
+      
+      // Force clear GomoRichEditor by changing resetKey
+      setResetKey(prev => prev + 1);
+      
+      // Clear states
       setContentJson(null);
+      setContent("");
       setImageUrls([]);
       setAttachments([]);
       setReplyingTo(null);
       setIsPrivateMessage(false);
       setPrivateRecipientId(null);
+      
+      // End clearing mode after a short delay
+      setTimeout(() => {
+        setIsClearing(false);
+      }, 100);
     } catch (err) {
       console.error("handleSubmitPost failed:", err);
       toast.error("Ошибка отправки");
@@ -926,12 +894,12 @@ const Thread = () => {
       .from("posts")
       .delete()
       .eq("id", postId);
-    
+
     if (error) {
       toast.error("Ошибка удаления поста");
     } else {
       toast.success("Пост удален");
-      loadPosts();
+      // React Query will auto-refetch via cache invalidation
     }
   };
 
@@ -952,11 +920,17 @@ const Thread = () => {
   const handleEditPost = async () => {
     if (!editContent.trim() || !editingPostId) return;
 
-    const { error } = await supabase
-      .from("posts")
-      .update({ content: editContent.trim(), content_json: editContentJson })
-      .eq("id", editingPostId);
-    
+    const isOpeningPost = thread && editingPostId === thread.id;
+    const { error } = isOpeningPost
+      ? await supabase
+          .from("threads")
+          .update({ content: editContent.trim(), content_json: editContentJson })
+          .eq("id", editingPostId)
+      : await supabase
+          .from("posts")
+          .update({ content: editContent.trim(), content_json: editContentJson })
+          .eq("id", editingPostId);
+
     if (error) {
       toast.error("Ошибка изменения поста");
     } else {
@@ -964,7 +938,7 @@ const Thread = () => {
       setEditingPostId(null);
       setEditContent("");
       setEditContentJson(null);
-      loadPosts();
+      // React Query will auto-refetch via cache invalidation
     }
   };
 
@@ -1072,7 +1046,15 @@ const Thread = () => {
     toast.success("Вышли");
   };
 
-  // Don't show fullscreen loader for pageLoading - let content loader handle it
+  // Don't show fullscreen loader for pageLoading - React Query handles loading states
+  if (threadLoading || postsLoading) {
+    return (
+      <div className="bg-background flex items-center justify-center min-h-screen">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
+
   if (!thread) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
@@ -1081,7 +1063,7 @@ const Thread = () => {
     );
   }
 
-  const canPost = user && (!thread.boards.is_rules_board || isAdmin);
+  const canPost = user && (!thread.boards?.is_rules_board || isAdmin);
 
   return (
     <>
@@ -1094,7 +1076,7 @@ const Thread = () => {
         )}
             <div className="mb-4 flex justify-between items-center">
           <Link to={`${pathPrefix}/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
-            {thread.boards.is_gomosub ? thread.boards.name : "← Назад к доске"}
+            {thread.boards?.is_gomosub ? thread.boards?.name : "← Назад к доске"}
           </Link>
           {user && (
             <Button
@@ -1178,7 +1160,7 @@ const Thread = () => {
               {senderDisplayType === 'modern' ? (
                 <div className="flex items-start gap-2">
                   <img
-                    src={thread.profiles?.avatar_url || '/placeholder.svg'}
+                    src={storageUrl("post-images", thread.profiles?.avatar_url) || '/placeholder.svg'}
                     alt="Avatar"
                     className="w-12 h-12 rounded-full object-cover border border-border"
                   />
@@ -1226,12 +1208,15 @@ const Thread = () => {
             {editingPostId === thread.id ? (
               <div className="space-y-2">
                 <GomoRichEditor
+                  key={resetKey}
                   contentJson={(thread as any).content_json}
                   legacyContent={thread.content}
                   onChange={({ json, text }) => {
                     setEditContentJson(json);
                     setEditContent(text);
                   }}
+                  onSubmit={() => handleEditPost()}
+                  placeholder="Напишите сообщение…"
                   minHeightClassName="min-h-[120px]"
                 />
                 <div className="flex gap-2">
@@ -1250,7 +1235,7 @@ const Thread = () => {
                 </div>
               </div>
             ) : (
-              <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+              <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
                 <ProcessedContent
                   content={thread.content}
                   contentJson={(thread as any).content_json}
@@ -1261,7 +1246,7 @@ const Thread = () => {
                   postAuthorId={thread.user_id}
                   authorUsername={thread.profiles?.username}
                 />
-              </p>
+              </div>
             )}
 
             {/* Thread tags */}
@@ -1357,7 +1342,7 @@ const Thread = () => {
 
           {posts.map((post) => (
             <div
-              key={post.id}
+              key={`${post.id}-${post.created_at}`}
               id={`post-${post.id}`}
               className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
                 pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
@@ -1368,7 +1353,7 @@ const Thread = () => {
                   {senderDisplayType === 'modern' ? (
                     <div className="flex items-start gap-2">
                       <img
-                        src={post.profiles?.avatar_url || '/placeholder.svg'}
+                        src={storageUrl("post-images", post.profiles?.avatar_url) || '/placeholder.svg'}
                         alt="Avatar"
                         className="w-12 h-12 rounded-full object-cover border border-border"
                       />
@@ -1380,10 +1365,10 @@ const Thread = () => {
                           showOutline={false}
                         />
                         <div className="text-muted-foreground">
-                          {formatDistanceToNow(new Date(post.created_at), {
+                          {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
                             locale: ru,
                             addSuffix: true,
-                          })}
+                          }) : 'только что'}
                         </div>
                         <div className="font-mono text-primary text-[10px]">#{post.id.slice(0, 8)}</div>
                       </div>
@@ -1399,10 +1384,10 @@ const Thread = () => {
                         showOutline={false}
                       />
                       {" · "}
-                      {formatDistanceToNow(new Date(post.created_at), {
+                      {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
                         locale: ru,
                         addSuffix: true,
-                      })}
+                      }) : 'только что'}
                     </>
                   )}
                 </div>
@@ -1487,12 +1472,15 @@ const Thread = () => {
               {editingPostId === post.id ? (
                 <div className="space-y-2">
                   <GomoRichEditor
+                    key={resetKey}
                     contentJson={(post as any).content_json}
                     legacyContent={post.content}
                     onChange={({ json, text }) => {
                       setEditContentJson(json);
                       setEditContent(text);
                     }}
+                    onSubmit={() => handleEditPost()}
+                    placeholder="Напишите сообщение…"
                     minHeightClassName="min-h-[120px]"
                   />
                   <div className="flex gap-2">
@@ -1511,22 +1499,24 @@ const Thread = () => {
                   </div>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap text-sm sm:text-base break-words">
+                <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
                   {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
                     <span className="text-muted-foreground italic">Скрытый контент</span>
                   ) : (
-                    <ProcessedContent
-                      content={post.content}
-                      contentJson={(post as any).content_json}
-                      currentUserId={user?.id || null}
-                      isAdmin={isAdmin}
-                      currentUsername={currentUserUsername}
-                      currentUserColor={currentUserColor}
-                      postAuthorId={post.user_id}
-                      authorUsername={post.profiles?.username}
-                    />
+                    <>
+                      <ProcessedContent
+                        content={post.content}
+                        contentJson={(post as any).content_json}
+                        currentUserId={user?.id || null}
+                        isAdmin={isAdmin}
+                        currentUsername={currentUserUsername}
+                        currentUserColor={currentUserColor}
+                        postAuthorId={post.user_id}
+                        authorUsername={post.profiles?.username}
+                      />
+                    </>
                   )}
-                </p>
+                </div>
               )}
 
               {/* Нижний блок с действиями */}
@@ -1619,14 +1609,16 @@ const Thread = () => {
                         key={att.url}
                         className="group relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-border bg-muted/60 overflow-hidden flex items-center justify-center cursor-pointer"
                         onClick={() => {
-                          const imageUrls = attachments.filter((att) => att.type === "image").map((att) => att.url);
+                          const imageUrls = attachments
+                            .filter((att) => att.type === "image")
+                            .map((att) => storageUrl("content", att.url) || att.url);
                           setGalleryEditable(true);
                           setGalleryImages(imageUrls);
                           setGalleryIndex(idx);
                           setShowGallery(true);
                         }}
                       >
-                        <img src={att.url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
+                        <img src={storageUrl("content", att.url) || att.url} alt={`preview-${idx}`} className="max-h-full max-w-full object-cover" />
                         <button
                           className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-[10px] opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition"
                           onClick={(e) => {
@@ -1769,12 +1761,13 @@ const Thread = () => {
                   >
                     <GomoRichEditor
                       ref={editorRef}
+                      key={resetKey}
                       contentJson={contentJson}
                       legacyContent={content}
                       onChange={({ json, text }) => {
-                        setContentJson(json);
-                        setContent(text);
-                      }}
+        setContentJson(json);
+        setContent(text);
+      }}
                       onSubmit={() => handleSubmitPost()}
                       placeholder="Напишите сообщение…"
                       minHeightClassName={isExpandedView ? 'min-h-[200px] sm:min-h-[300px]' : 'min-h-[60px] sm:min-h-[80px]'}
@@ -1857,11 +1850,13 @@ const Thread = () => {
                         {attachments.filter((att) => att.type === "image").map((att, index) => (
                           <div key={att.url} className="relative rounded-lg border border-border bg-muted/40 aspect-square flex items-center justify-center overflow-hidden">
                             <img
-                              src={att.url}
+                              src={storageUrl("content", att.url) || att.url}
                               alt={`Фото ${index + 1}`}
                               className="max-h-full max-w-full object-contain"
                               onClick={() => {
-                                const imageUrls = attachments.filter((att) => att.type === "image").map((att) => att.url);
+                                const imageUrls = attachments
+                                  .filter((att) => att.type === "image")
+                                  .map((att) => storageUrl("content", att.url) || att.url);
                                 setGalleryEditable(true);
                                 setGalleryImages(imageUrls);
                                 setGalleryIndex(index);

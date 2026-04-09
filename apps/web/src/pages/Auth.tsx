@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { TermsOfService } from "@/components/TermsOfService";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { useQueryClient } from "@tanstack/react-query";
 
 const authSchema = z.object({
   username: z.string().trim().min(3, "Юзернейм минимум 3 символа").max(20, "Юзернейм максимум 20 символов"),
@@ -23,6 +24,7 @@ const Auth = () => {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const checkSession = async () => {
@@ -68,6 +70,14 @@ const Auth = () => {
           return;
         }
 
+        // Invalidate auth cache to force refetch
+        queryClient.invalidateQueries({ queryKey: ['auth'] });
+
+        // Reconnect WebSocket with new token
+        const { wsService } = await import("@/services/websocket");
+        await wsService.disconnect();
+        await wsService.connect();
+
         toast.success("Вход выполнен");
         navigate("/");
       } else {
@@ -100,7 +110,12 @@ const Auth = () => {
               user_id: newSession.session.user.id,
             });
         }
-        
+
+        // Reconnect WebSocket with new token
+        const { wsService } = await import("@/services/websocket");
+        await wsService.disconnect();
+        await wsService.connect();
+
         toast.success("Регистрация успешна! Можете войти.");
         setIsLogin(true);
       }

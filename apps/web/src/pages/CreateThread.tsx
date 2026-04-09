@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-reac
 import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
 import { AttachmentMeta } from "@/types/forum";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import { storageUrl } from "@/utils/storage";
 
 interface Board {
   id: string;
@@ -258,27 +259,19 @@ const CreateThread = () => {
         .filter(att => att.type === 'image')
         .map(att => att.url);
 
-      const threadData: any = {
+      // Use backend API instead of direct Supabase insertion
+      const threadPayload: any = {
         board_id: board.id,
-        user_id: user.id,
         title: title.trim(),
         content: content.trim(),
         content_json: contentJson,
-        image_url: threadImageUrl || imageUrlsFromAttachments[0] || null,
-        tags: tags,
+        image_urls: imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : (imageUrls.length > 0 ? imageUrls : []),
         attachments: attachments.length > 0 ? attachments : null,
       };
 
-      // Explicitly set image_urls field
-      if (imageUrlsFromAttachments.length > 0) {
-        threadData.image_urls = imageUrlsFromAttachments;
-      } else if (imageUrls.length > 0) {
-        threadData.image_urls = imageUrls;
-      }
-
       // Add poll if enabled
       if (showPoll && poll.question.trim()) {
-        threadData.poll = {
+        threadPayload.poll = {
           question: poll.question.trim(),
           options: poll.options.filter(option => option.text.trim()).map(option => ({
             id: option.id,
@@ -290,26 +283,34 @@ const CreateThread = () => {
         };
       }
 
-      // Add ephemeral settings if applicable
-      if (tags.flag === 'ephemeral') {
-        threadData.ephemeral_type = ephemeralSettings.type;
-        threadData.ephemeral_value = ephemeralSettings.value;
+      const response = await fetch('http://localhost:8080/rest/v1/threads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify(threadPayload),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Ошибка создания треда');
       }
 
-      const { data, error } = await supabase
-        .from('threads')
-        .insert(threadData)
-        .select()
-        .single();
+      const responseData = await response.json();
+      // Backend returns { data: thread } wrapped in SupabaseResponse
+      const threadData = responseData.data || responseData;
 
-      if (error) throw error;
+      if (!threadData || !threadData.id) {
+        throw new Error('Не удалось получить ID созданного треда');
+      }
 
-      // Auto-subscribe to thread notifications
+      // Auto-subscribe to thread notifications (still use Supabase for this)
       const { error: subscriptionError } = await supabase
         .from('thread_subscriptions')
         .insert({
           user_id: user.id,
-          thread_id: data.id
+          thread_id: threadData.id
         });
 
       if (subscriptionError && subscriptionError.code !== '23505') { // Ignore duplicate key error
@@ -320,7 +321,7 @@ const CreateThread = () => {
       // Process ephemeral thread after creation
       if (tags.flag === 'ephemeral') {
         const { error: ephemeralError } = await supabase.rpc('process_ephemeral_thread', {
-          p_thread_id: data.id,
+          p_thread_id: threadData.id,
           p_ephemeral_type: ephemeralSettings.type,
           p_ephemeral_value: ephemeralSettings.value
         });
@@ -333,7 +334,7 @@ const CreateThread = () => {
 
       toast.success('Тред создан!');
       const prefix = board?.is_gomosub ? "/g" : "";
-      navigate(`${prefix}/${board.slug}/thread/${data.id}`);
+      navigate(`${prefix}/${board.slug}/thread/${threadData.id}`);
       setAttachments([]);
       setImageUrls([]);
     } catch (error) {
@@ -446,16 +447,12 @@ const CreateThread = () => {
                     if (file) {
                       try {
                         const { data, error } = await supabase.storage
-                          .from('post-images')
+                          .from('content')
                           .upload(`threads/${Date.now()}-${file.name}`, file);
 
                         if (error) throw error;
 
-                        const { data: { publicUrl } } = supabase.storage
-                          .from('post-images')
-                          .getPublicUrl(data.path);
-
-                        setThreadImageUrl(publicUrl);
+                        setThreadImageUrl(data.path);
                       } catch (error) {
                         console.error('Error uploading thread image:', error);
                         toast.error('Ошибка загрузки изображения');
@@ -489,7 +486,7 @@ const CreateThread = () => {
               {threadImageUrl && (
                 <div className="mt-3 p-3 border rounded-lg bg-muted/20">
                   <p className="text-xs text-muted-foreground mb-2">Предпросмотр основного изображения:</p>
-                  <img src={threadImageUrl} alt="Thread image" className="max-h-48 w-full object-cover rounded border" />
+                    <img src={storageUrl("content", threadImageUrl) || threadImageUrl} alt="Thread image" className="max-h-48 w-full object-cover rounded border" />
                 </div>
               )}
             </div>
