@@ -23,6 +23,7 @@ interface PrivacySettingsData {
   allow_wall_posts_from_others?: boolean;
   show_profile_stats?: boolean;
   show_detailed_stats?: boolean;
+  show_online_status?: boolean;
 }
 
 const PrivacySettings = () => {
@@ -49,6 +50,7 @@ const PrivacySettings = () => {
     allow_wall_posts_from_others: true,
     show_profile_stats: false,
     show_detailed_stats: false,
+    show_online_status: true,
   };
 
   useEffect(() => {
@@ -140,6 +142,7 @@ const PrivacySettings = () => {
         allow_wall_posts_from_others: updatedSettings.allow_wall_posts_from_others ?? true,
         show_profile_stats: updatedSettings.show_profile_stats ?? false,
         show_detailed_stats: updatedSettings.show_detailed_stats ?? false,
+        show_online_status: updatedSettings.show_online_status ?? true,
       };
 
       const { error } = await supabase
@@ -317,6 +320,14 @@ const PrivacySettings = () => {
                   <Switch
                     checked={settings.show_detailed_stats ?? false}
                     onCheckedChange={(value) => updateSetting('show_detailed_stats', value)}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Показывать мой онлайн-статус</span>
+                  <Switch
+                    checked={settings.show_online_status ?? true}
+                    onCheckedChange={(value) => updateSetting('show_online_status', value)}
                     disabled={saving}
                   />
                 </div>

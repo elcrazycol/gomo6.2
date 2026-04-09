@@ -27,6 +27,7 @@ import { ThreadCard } from "@/components/ThreadCard";
 import { AvatarCropper } from "@/components/AvatarCropper";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
+import { OnlineStatus } from "@/components/OnlineStatus";
 
 interface Profile {
   id: string;
@@ -41,6 +42,8 @@ interface Profile {
   created_at: string;
   avatar_url?: string | null;
   account_number?: number | null;
+  is_online?: boolean;
+  last_seen?: string | null;
 }
 
 interface Achievement {
@@ -956,13 +959,11 @@ const Profile = () => {
                   <p className="text-sm text-muted-foreground">
                     ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
                   </p>
-                  {showOnlineStatus && isOnline && (
-                    <span className="text-xs text-green-500 font-medium">● В сети</span>
-                  )}
-                  {showLastSeen && !isOnline && lastSeen && (
-                    <span className="text-xs text-muted-foreground">
-                      Был в сети {formatDistanceToNow(new Date(lastSeen), { locale: ru, addSuffix: true })}
-                    </span>
+                  {showOnlineStatus && (
+                    <OnlineStatus
+                      isOnline={profile.is_online}
+                      lastSeen={profile.last_seen}
+                    />
                   )}
                 </div>
               </div>

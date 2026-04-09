@@ -35,6 +35,7 @@ func main() {
 
 	// Initialize WebSocket Hub with Redis Pub/Sub and allowed origins
 	wsHub := websocket.NewHub(redisClient, cfg.AllowedOrigins)
+	wsHub.SetDB(db) // Set database connection for online status updates
 	go wsHub.Run()
 	log.Printf("WebSocket Hub initialized with allowed origins: %v", cfg.AllowedOrigins)
 

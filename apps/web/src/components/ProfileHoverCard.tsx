@@ -8,6 +8,7 @@ import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } f
 import { AdminBadge } from "./AdminBadge";
 import { processProfileBio } from "@/utils/profileBio";
 import { storageUrl } from "@/utils/storage";
+import { OnlineStatus } from "./OnlineStatus";
 
 interface ProfileHoverCardProps {
   userId: string;
@@ -168,6 +169,11 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
               <div className="text-sm text-muted-foreground">
                 ID: {profile?.id?.slice(0, 8) || 'N/A'} {profile?.account_number && `(${profile.account_number})`}
               </div>
+              <OnlineStatus
+                isOnline={profile.is_online}
+                lastSeen={profile.last_seen}
+                className="mt-1"
+              />
               {(() => {
                 // Use custom placeholders if set, otherwise use default
                 if (placeholders?.use_custom && placeholders?.custom_placeholder) {

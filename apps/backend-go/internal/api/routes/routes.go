@@ -52,6 +52,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	audioHandler := handlers.NewAudioHandler()
 	botHandler := handlers.NewBotHandler(db)
 	botHandler.SetBotManager(botManager)
+	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -114,6 +115,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/threads/:id", threadsHandler.GetThread)
 		rest.GET("/posts", postsHandler.GetPosts)
 		rest.GET("/posts/:id", postsHandler.GetPost)
+
+		// User status endpoints
+		rest.GET("/users/online", userStatusHandler.GetOnlineUsers)
+		rest.GET("/users/:id/status", userStatusHandler.GetUserStatus)
+		rest.POST("/users/status/bulk", userStatusHandler.GetBulkUserStatus)
 
 		// Additional tables (frontend compatibility)
 		rest.Any("/user_roles", universalHandler.HandleTableRequest)

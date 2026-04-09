@@ -16,22 +16,24 @@ function getWebSocketUrl(): string {
   return baseUrl;
 }
 
-export type WebSocketMessageType = 
-  | 'new_post' 
-  | 'new_thread' 
-  | 'new_reply' 
-  | 'like' 
-  | 'unlike' 
-  | 'typing' 
-  | 'presence' 
-  | 'connected' 
+export type WebSocketMessageType =
+  | 'new_post'
+  | 'new_thread'
+  | 'new_reply'
+  | 'like'
+  | 'unlike'
+  | 'typing'
+  | 'presence'
+  | 'connected'
   | 'confirmation'
   | 'ping'
   | 'subscribe'
   | 'unsubscribe'
   | 'new_wall_post'
   | 'update_wall_post'
-  | 'delete_wall_post';
+  | 'delete_wall_post'
+  | 'user_online'
+  | 'user_offline';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;
