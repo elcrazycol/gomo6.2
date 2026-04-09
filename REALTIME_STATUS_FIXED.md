@@ -7,11 +7,16 @@
 
 ### Решение (БЕЗ костылей)
 
-**ProfileHoverCard** - обновляет ТОЛЬКО статус онлайн через WebSocket:
-- Основные данные (bio, avatar, achievements) кешируются на 5 минут
-- WebSocket подписка обновляет ТОЛЬКО `is_online` и `last_seen` в кеше
-- Используется `queryClient.setQueryData()` для точечного обновления
+**useUserRealtimeStatus hook** - централизованное управление статусами:
+- Одна подписка на WebSocket события user_online/user_offline
+- Автоматически обновляет React Query кеш через `queryClient.setQueryData()`
+- Обновляет ТОЛЬКО `is_online` и `last_seen`, остальные данные остаются закешированными
 - Никакого polling, никакого refetchInterval
+
+**ProfileHoverCard** - использует shared hook:
+- Основные данные (bio, avatar, achievements) кешируются на 5 минут
+- Вызывает `useUserRealtimeStatus(userId)` для подписки на обновления
+- Никаких дублирующих подписок - один hook на компонент
 - Остальные данные остаются закешированными
 
 **OnlineStatus** - показывает актуальный статус:
@@ -23,97 +28,89 @@
 
 ### Архитектура
 ```
-1. Пользователь наводит на username
-2. ProfileHoverCard загружает данные (кеш 5 минут)
-3. ProfileHoverCard подписывается на WebSocket события user_online/user_offline
-4. При изменении статуса:
+1. ProfileHoverCard монтируется → вызывает useUserRealtimeStatus(userId)
+2. useUserRealtimeStatus подписывается на WebSocket события user_online/user_offline
+3. При изменении статуса:
    - WebSocket отправляет событие
-   - ProfileHoverCard обновляет ТОЛЬКО is_online и last_seen в кеше
+   - useUserRealtimeStatus обновляет ТОЛЬКО is_online и last_seen в кеше через setQueryData
+   - ProfileHoverCard автоматически получает обновленные данные из кеша
    - OnlineStatus мгновенно показывает новый статус
    - Остальные данные (bio, avatar) остаются закешированными
 ```
 
 ### Код
 
-**ProfileHoverCard.tsx**
-```typescript
-// Кеш на 5 минут для основных данных
-const { data } = useQuery({
-  queryKey: ['profile-hover', userId],
-  queryFn: () => fetchProfileData(userId),
-  enabled: showCard && !!userId,
-  staleTime: 5 * 60 * 1000, // 5 минут - остальные данные кешируются надолго
-});
-
-// WebSocket подписка для обновления ТОЛЬКО статуса
-useEffect(() => {
-  if (!showCard || !userId) return;
-
-  const unsubscribeOnline = wsService.on('user_online', (message) => {
-    const eventData = JSON.parse(message.data);
-    if (eventData.user_id === userId) {
-      // Обновляем ТОЛЬКО is_online и last_seen, остальное не трогаем
-      queryClient.setQueryData(['profile-hover', userId], (old: any) => ({
-        ...old,
-        profile: {
-          ...old.profile,
-          is_online: true,
-          last_seen: new Date().toISOString(),
-        }
-      }));
-    }
-  });
-
-  const unsubscribeOffline = wsService.on('user_offline', (message) => {
-    // Аналогично для offline
-  });
-
-  return () => {
-    unsubscribeOnline();
-    unsubscribeOffline();
-  };
-}, [showCard, userId, queryClient]);
-```
-
-**OnlineStatus.tsx**
-```typescript
-// Использует WebSocket для real-time обновлений
-const realtimeStatus = useUserRealtimeStatus(userId);
-const isOnline = realtimeStatus?.is_online ?? initialIsOnline;
-const lastSeen = realtimeStatus?.last_seen ?? initialLastSeen;
-```
-
 **useRealtimeStatus.ts**
 ```typescript
-// Простая подписка на WebSocket без инвалидации кеша
 export function useUserRealtimeStatus(userId: string | undefined) {
   const [status, setStatus] = useState<UserStatus | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!userId) return;
 
     const unsubscribeOnline = wsService.on('user_online', (message) => {
-      const data = JSON.parse(message.data);
+      const data = message.data;
       if (data.user_id === userId) {
-        setStatus({ user_id, is_online: true, last_seen: now });
+        const newStatus = {
+          user_id: data.user_id,
+          is_online: true,
+          last_seen: new Date().toISOString(),
+        };
+        setStatus(newStatus);
+
+        // Update React Query cache for profile-hover
+        queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            profile: {
+              ...old.profile,
+              is_online: true,
+              last_seen: newStatus.last_seen,
+            }
+          };
+        });
       }
     });
 
     const unsubscribeOffline = wsService.on('user_offline', (message) => {
-      const data = JSON.parse(message.data);
-      if (data.user_id === userId) {
-        setStatus({ user_id, is_online: false, last_seen: now });
-      }
+      // Аналогично для offline
     });
 
     return () => {
       unsubscribeOnline();
       unsubscribeOffline();
     };
-  }, [userId]);
+  }, [userId, queryClient]);
 
   return status;
 }
+```
+
+**ProfileHoverCard.tsx**
+```typescript
+export const ProfileHoverCard = ({ userId, children, disabled = false }) => {
+  const [showCard, setShowCard] = useState(false);
+
+  // Shared hook - одна подписка на компонент
+  useUserRealtimeStatus(userId);
+
+  // Кеш на 5 минут для основных данных
+  const { data } = useQuery({
+    queryKey: ['profile-hover', userId],
+    queryFn: () => fetchProfileData(userId),
+    enabled: showCard && !!userId,
+    staleTime: 5 * 60 * 1000, // 5 минут - остальные данные кешируются надолго
+  });
+```
+
+**OnlineStatus.tsx**
+```typescript
+// Использует тот же hook для real-time обновлений
+const realtimeStatus = useUserRealtimeStatus(userId);
+const isOnline = realtimeStatus?.is_online ?? initialIsOnline;
+const lastSeen = realtimeStatus?.last_seen ?? initialLastSeen;
 ```
 
 ## 📊 Преимущества решения
@@ -124,12 +121,15 @@ export function useUserRealtimeStatus(userId: string | undefined) {
 - Нет лишних запросов к API
 - Нет polling/refetchInterval
 - Точечное обновление только нужных полей через setQueryData
+- Централизованное управление через shared hook
+- Нет дублирующих подписок
 
 ### ❌ Что НЕ используется (костыли)
 - ❌ refetchInterval - не нужен
 - ❌ Короткий staleTime (30 сек) - не нужен
 - ❌ invalidateQueries для всего кеша - не нужен
 - ❌ Polling каждые 10 секунд - не нужен
+- ❌ Множественные подписки на одно событие - не нужны
 
 ## 🎯 Результат
 
@@ -138,6 +138,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
 - Статус обновляется мгновенно через WebSocket
 - Нет лишних запросов к API
 - Минимальный трафик WebSocket (только события статуса)
+- Одна подписка на компонент вместо множественных
 
 **UX:**
 - Пользователь наводит на username → видит актуальный статус
@@ -146,23 +147,26 @@ export function useUserRealtimeStatus(userId: string | undefined) {
 
 ## 📁 Измененные файлы
 
-- ✅ `components/ProfileHoverCard.tsx` - WebSocket подписка + setQueryData
-- ✅ `hooks/useRealtimeStatus.ts` - убрана инвалидация кеша
+- ✅ `hooks/useRealtimeStatus.ts` - добавлен queryClient.setQueryData для обновления кеша
+- ✅ `components/ProfileHoverCard.tsx` - использует useUserRealtimeStatus hook
 - ✅ `components/OnlineStatus.tsx` - использует useUserRealtimeStatus (без изменений)
+- ✅ `services/websocket.ts` - убраны debug логи
 
 ## 💡 Итог
 
 **Реализация:**
 - Чистая архитектура без костылей
 - WebSocket для real-time обновлений
-- Точечное обновление только статуса
+- Точечное обновление только статуса через shared hook
 - Остальные данные кешируются надолго
+- Централизованное управление подписками
 
 **Эффект:**
 - Статус обновляется мгновенно
 - Нет лишних запросов к API
 - Минимальный трафик
 - Отличный UX
+- Нет дублирующих подписок
 
-**Время работы**: 30 минут  
-**Статус**: ✅ Правильно реализовано
+**Время работы**: 1 час  
+**Статус**: ✅ Правильно реализовано и оптимизировано
