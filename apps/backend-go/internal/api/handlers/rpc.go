@@ -1,0 +1,1079 @@
+package handlers
+
+import (
+	"database/sql"
+	"log"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/models"
+	"github.com/google/uuid"
+)
+
+func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
+	v, exists := c.Get("claims")
+	if !exists || v == nil {
+		return nil, false
+	}
+	claims, ok := v.(*auth.Claims)
+	if !ok || claims == nil || claims.UserID == "" {
+		return nil, false
+	}
+	return claims, true
+}
+
+type RPCHandler struct {
+	db *sql.DB
+}
+
+func NewRPCHandler(db *sql.DB) *RPCHandler {
+	return &RPCHandler{db: db}
+}
+
+// Supabase-compatible RPC functions
+
+func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
+	postID := c.Query("post_uuid")
+	if postID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("post_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(postID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid post ID format"),
+		})
+		return
+	}
+
+	var count int
+	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE post_id = $1", postID).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: count,
+	})
+}
+
+func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
+	threadID := c.Query("thread_uuid")
+	if threadID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("thread_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(threadID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid thread ID format"),
+		})
+		return
+	}
+
+	var count int
+	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE thread_id = $1", threadID).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: count,
+	})
+}
+
+func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
+	postID := c.Query("post_uuid")
+	userID := c.Query("user_uuid")
+
+	if postID == "" || userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("post_uuid and user_uuid parameters required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	_, err := uuid.Parse(postID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid post ID format"),
+		})
+		return
+	}
+
+	_, err = uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	var exists bool
+	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)",
+		postID, userID).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: exists,
+	})
+}
+
+func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
+	threadID := c.Query("thread_uuid")
+	userID := c.Query("user_uuid")
+
+	if threadID == "" || userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("thread_uuid and user_uuid parameters required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	_, err := uuid.Parse(threadID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid thread ID format"),
+		})
+		return
+	}
+
+	_, err = uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	var exists bool
+	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)",
+		threadID, userID).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: exists,
+	})
+}
+
+func (h *RPCHandler) GetUserLikesGivenCount(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	var count int
+	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE user_id = $1", userID).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: count,
+	})
+}
+
+func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	var count int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*) FROM post_likes pl 
+		JOIN posts p ON pl.post_id = p.id 
+		WHERE p.user_id = $1
+	`, userID).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: count,
+	})
+}
+
+func (h *RPCHandler) GetUserThreadLikesGivenCount(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	var count int
+	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE user_id = $1", userID).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: count,
+	})
+}
+
+func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	var count int
+	err = h.db.QueryRow(`
+		SELECT COUNT(*) FROM thread_likes tl 
+		JOIN threads t ON tl.thread_id = t.id 
+		WHERE t.user_id = $1
+	`, userID).Scan(&count)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: count,
+	})
+}
+
+func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
+	postID := c.Query("post_uuid")
+	limit := 10
+
+	if postID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("post_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(postID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid post ID format"),
+		})
+		return
+	}
+
+	if limitStr := c.Query("limit_count"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+			limit = l
+		}
+	}
+
+	query := `
+		SELECT u.username, u.id, u.avatar_url, u.is_anonymous
+		FROM post_likes pl
+		JOIN users u ON pl.user_id = u.id
+		WHERE pl.post_id = $1
+		ORDER BY pl.created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := h.db.Query(query, postID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var likers []struct {
+		Username    string  `json:"username"`
+		ID          string  `json:"id"`
+		AvatarURL   *string `json:"avatar_url"`
+		IsAnonymous bool    `json:"is_anonymous"`
+	}
+
+	for rows.Next() {
+		var liker struct {
+			Username    string  `json:"username"`
+			ID          string  `json:"id"`
+			AvatarURL   *string `json:"avatar_url"`
+			IsAnonymous bool    `json:"is_anonymous"`
+		}
+		var avatarURL sql.NullString
+
+		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+
+		if avatarURL.Valid {
+			liker.AvatarURL = &avatarURL.String
+		}
+
+		likers = append(likers, liker)
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: likers,
+	})
+}
+
+func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
+	threadID := c.Query("thread_uuid")
+	limit := 10
+
+	if threadID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("thread_uuid parameter required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	_, err := uuid.Parse(threadID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid thread ID format"),
+		})
+		return
+	}
+
+	if limitStr := c.Query("limit_count"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+			limit = l
+		}
+	}
+
+	query := `
+		SELECT u.username, u.id, u.avatar_url, u.is_anonymous
+		FROM thread_likes tl
+		JOIN users u ON tl.user_id = u.id
+		WHERE tl.thread_id = $1
+		ORDER BY tl.created_at DESC
+		LIMIT $2
+	`
+
+	rows, err := h.db.Query(query, threadID, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var likers []struct {
+		Username    string  `json:"username"`
+		ID          string  `json:"id"`
+		AvatarURL   *string `json:"avatar_url"`
+		IsAnonymous bool    `json:"is_anonymous"`
+	}
+
+	for rows.Next() {
+		var liker struct {
+			Username    string  `json:"username"`
+			ID          string  `json:"id"`
+			AvatarURL   *string `json:"avatar_url"`
+			IsAnonymous bool    `json:"is_anonymous"`
+		}
+		var avatarURL sql.NullString
+
+		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+
+		if avatarURL.Valid {
+			liker.AvatarURL = &avatarURL.String
+		}
+
+		likers = append(likers, liker)
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{
+		Data: likers,
+	})
+}
+
+// GetUserPostLikesReceivedTimestamps returns created_at for each like on posts authored by user_uuid (Stats page).
+func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(userID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	if _, ok := bearerClaims(c); !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization Bearer token required"),
+		})
+		return
+	}
+
+	rows, err := h.db.Query(`
+		SELECT pl.created_at
+		FROM post_likes pl
+		INNER JOIN posts p ON p.id = pl.post_id
+		WHERE p.user_id = $1
+		ORDER BY pl.created_at ASC
+	`, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var out []map[string]interface{}
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
+	}
+	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
+}
+
+// GetUserThreadLikesReceivedTimestamps returns created_at for each like on threads authored by user_uuid.
+func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(userID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	if _, ok := bearerClaims(c); !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization Bearer token required"),
+		})
+		return
+	}
+
+	rows, err := h.db.Query(`
+		SELECT tl.created_at
+		FROM thread_likes tl
+		INNER JOIN threads t ON t.id = tl.thread_id
+		WHERE t.user_id = $1
+		ORDER BY tl.created_at ASC
+	`, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var out []map[string]interface{}
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
+	}
+	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
+}
+
+// GetUserThreadReplyTimestamps returns created_at for posts on threads owned by user_uuid written by others.
+func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
+	userID := c.Query("user_uuid")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("user_uuid parameter required"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(userID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	if _, ok := bearerClaims(c); !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization Bearer token required"),
+		})
+		return
+	}
+
+	rows, err := h.db.Query(`
+		SELECT p.created_at
+		FROM posts p
+		INNER JOIN threads t ON t.id = p.thread_id
+		WHERE t.user_id = $1 AND p.user_id <> $1
+		ORDER BY p.created_at ASC
+	`, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer rows.Close()
+
+	var out []map[string]interface{}
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err != nil {
+			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+				Error: stringPtr(err.Error()),
+			})
+			return
+		}
+		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
+	}
+	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
+}
+
+// ToggleWallPostPin toggles the pin status of a wall post
+func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
+	postID := c.Query("_post_id")
+	userID := c.Query("_user_id")
+
+	if postID == "" || userID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("_post_id and _user_id parameters required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	_, err := uuid.Parse(postID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid post ID format"),
+		})
+		return
+	}
+
+	_, err = uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid user ID format"),
+		})
+		return
+	}
+
+	// Get the post owner and current pin status
+	var postOwner string
+	var currentPinned bool
+	err = h.db.QueryRow("SELECT user_id, is_pinned FROM profile_wall_posts WHERE id = $1", postID).Scan(&postOwner, &currentPinned)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Only the wall owner can pin posts
+	if postOwner != userID {
+		c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+		return
+	}
+
+	// Toggle the pin status
+	newPinned := !currentPinned
+
+	if newPinned {
+		// Get the highest pinned_order for this user
+		var maxOrder sql.NullInt32
+		err = h.db.QueryRow("SELECT MAX(pinned_order) FROM profile_wall_posts WHERE user_id = $1 AND is_pinned = TRUE", userID).Scan(&maxOrder)
+		if err != nil {
+			maxOrder = sql.NullInt32{Valid: false}
+		}
+
+		newOrder := 1
+		if maxOrder.Valid {
+			newOrder = int(maxOrder.Int32) + 1
+		}
+
+		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = TRUE, pinned_order = $1, updated_at = NOW() WHERE id = $2", newOrder, postID)
+	} else {
+		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = FALSE, pinned_order = NULL, updated_at = NOW() WHERE id = $1", postID)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
+}
+
+// Messenger RPC functions
+
+// GetOrCreateDirectChat creates or retrieves a direct chat conversation
+func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization required"),
+		})
+		return
+	}
+
+	var req struct {
+		TargetUserID string `json:"target_user_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid request body"),
+		})
+		return
+	}
+
+	if req.TargetUserID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("target_user_id is required"),
+		})
+		return
+	}
+
+	// Validate UUID
+	if _, err := uuid.Parse(req.TargetUserID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid target_user_id format"),
+		})
+		return
+	}
+
+	// Cannot create conversation with yourself
+	if claims.UserID == req.TargetUserID {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Cannot create conversation with yourself"),
+		})
+		return
+	}
+
+	// Try to find existing conversation
+	var conversationID string
+	err := h.db.QueryRow(`
+		SELECT cm1.conversation_id
+		FROM chat_conversation_members cm1
+		INNER JOIN chat_conversation_members cm2
+			ON cm1.conversation_id = cm2.conversation_id
+		WHERE cm1.user_id = $1
+			AND cm2.user_id = $2
+			AND cm1.archived_at IS NULL
+			AND cm2.archived_at IS NULL
+		LIMIT 1
+	`, claims.UserID, req.TargetUserID).Scan(&conversationID)
+
+	if err == nil {
+		// Conversation exists
+		c.JSON(http.StatusOK, conversationID)
+		return
+	}
+
+	if err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Create new conversation
+	conversationID = uuid.New().String()
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
+		INSERT INTO chat_conversations (id, created_at, updated_at)
+		VALUES ($1, NOW(), NOW())
+	`, conversationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO chat_conversation_members (conversation_id, user_id, joined_at, updated_at)
+		VALUES ($1, $2, NOW(), NOW()), ($1, $3, NOW(), NOW())
+	`, conversationID, claims.UserID, req.TargetUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, conversationID)
+}
+
+// ChatMarkDelivered marks messages as delivered
+func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization required"),
+		})
+		return
+	}
+
+	var req struct {
+		TargetConversationID string `json:"target_conversation_id"`
+		TargetMessageID      string `json:"target_message_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid request body"),
+		})
+		return
+	}
+
+	if req.TargetConversationID == "" || req.TargetMessageID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("target_conversation_id and target_message_id are required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid conversation_id format"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid message_id format"),
+		})
+		return
+	}
+
+	// Check if user is a member of this conversation
+	var isMember bool
+	err := h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_conversation_members
+			WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+		)
+	`, req.TargetConversationID, claims.UserID).Scan(&isMember)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if !isMember {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Access denied: not a member of this conversation"),
+		})
+		return
+	}
+
+	// Get message sent_at timestamp
+	var sentAt time.Time
+	err = h.db.QueryRow(`
+		SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2
+	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Mark all messages up to this one as delivered
+	_, err = h.db.Exec(`
+		INSERT INTO chat_receipts (message_id, user_id, delivered_at)
+		SELECT m.id, $1, NOW()
+		FROM chat_messages m
+		WHERE m.conversation_id = $2
+			AND m.sender_user_id != $1
+			AND m.sent_at <= $3
+		ON CONFLICT (message_id, user_id)
+		DO UPDATE SET delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
+	`, claims.UserID, req.TargetConversationID, sentAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, nil)
+}
+
+// ChatMarkRead marks messages as read
+func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
+			Error: stringPtr("Authorization required"),
+		})
+		return
+	}
+
+	var req struct {
+		TargetConversationID string `json:"target_conversation_id"`
+		TargetMessageID      string `json:"target_message_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("ChatMarkRead: Error binding JSON: %v", err)
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid request body"),
+		})
+		return
+	}
+
+	log.Printf("ChatMarkRead: user=%s, conversation=%s, message=%s", claims.UserID, req.TargetConversationID, req.TargetMessageID)
+
+	if req.TargetConversationID == "" || req.TargetMessageID == "" {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("target_conversation_id and target_message_id are required"),
+		})
+		return
+	}
+
+	// Validate UUIDs
+	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid conversation_id format"),
+		})
+		return
+	}
+	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
+		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
+			Error: stringPtr("Invalid message_id format"),
+		})
+		return
+	}
+
+	// Check if user is a member of this conversation
+	var isMember bool
+	err := h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM chat_conversation_members
+			WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
+		)
+	`, req.TargetConversationID, claims.UserID).Scan(&isMember)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if !isMember {
+		c.JSON(http.StatusForbidden, models.SupabaseResponse{
+			Error: stringPtr("Access denied: not a member of this conversation"),
+		})
+		return
+	}
+
+	// Get message sent_at timestamp
+	var sentAt time.Time
+	err = h.db.QueryRow(`
+		SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2
+	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+	defer tx.Rollback()
+
+	// Mark all messages up to this one as read and delivered
+	_, err = tx.Exec(`
+		INSERT INTO chat_receipts (message_id, user_id, delivered_at, read_at)
+		SELECT m.id, $1, NOW(), NOW()
+		FROM chat_messages m
+		WHERE m.conversation_id = $2
+			AND m.sender_user_id != $1
+			AND m.sent_at <= $3
+		ON CONFLICT (message_id, user_id)
+		DO UPDATE SET
+			delivered_at = COALESCE(chat_receipts.delivered_at, NOW()),
+			read_at = NOW()
+	`, claims.UserID, req.TargetConversationID, sentAt)
+
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	// Update last_read_at and reset unread count
+	_, err = tx.Exec(`
+		UPDATE chat_conversation_members
+		SET
+			last_read_at = $3,
+			unread_count_cache = 0,
+			updated_at = NOW()
+		WHERE conversation_id = $1
+			AND user_id = $2
+	`, req.TargetConversationID, claims.UserID, sentAt)
+
+	if err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
+			Error: stringPtr(err.Error()),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, nil)
+}
+

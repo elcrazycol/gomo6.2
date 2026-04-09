@@ -3,13 +3,16 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
+import { storageUrl } from "@/utils/storage";
 import {
   createClientMessageId,
   decryptMessengerText,
   encryptMessengerText,
   ensureLocalMessengerState,
 } from "@/lib/messengerCrypto";
+import { useWebSocket } from "@/contexts/WebSocketContext";
+import { OnlineStatus } from "@/components/OnlineStatus";
 
 type ProfileSummary = {
   id: string;
@@ -169,9 +172,9 @@ export const MessengerView = () => {
   const selectedConversationRef = useRef<ConversationView | null>(null);
   const messagesRef = useRef<MessageView[]>([]);
   const lastDeliveredMessageIdRef = useRef<string | null>(null);
-  const deliveryRpcBrokenRef = useRef(false);
   const isNearBottomRef = useRef(true);
   const previousConversationIdRef = useRef<string | null>(null);
+  const ws = useWebSocket();
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -273,13 +276,46 @@ export const MessengerView = () => {
 
   const ensureKeyForCurrentUser = async (userId: string) => {
     const cryptoState = await ensureLocalMessengerState(userId);
-    const { error } = await supabase.from("chat_user_keys" as never).upsert({
-      user_id: userId,
-      public_key: cryptoState.publicKey,
-    } as never, { onConflict: "user_id" });
 
-    if (error) {
-      throw new Error("Не удалось зарегистрировать messenger-ключ");
+    // Check if key already exists
+    const { data: existing, error: selectError } = await supabase
+      .from("chat_user_keys" as never)
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    // Ignore "multiple rows" error - just means key exists
+    if (selectError && selectError.code !== 'PGRST116') {
+      console.warn("Error checking existing key:", selectError);
+    }
+
+    if (existing) {
+      // Key already exists, update it
+      const { error } = await supabase
+        .from("chat_user_keys" as never)
+        .update({
+          public_key: cryptoState.publicKey,
+          updated_at: new Date().toISOString(),
+        } as never)
+        .eq("user_id", userId);
+
+      if (error) {
+        console.warn("Error updating key:", error);
+        // Don't throw - key exists is fine
+      }
+    } else {
+      // Key doesn't exist, insert it
+      const { error } = await supabase
+        .from("chat_user_keys" as never)
+        .insert({
+          user_id: userId,
+          public_key: cryptoState.publicKey,
+        } as never);
+
+      if (error && !error.message?.includes('duplicate key')) {
+        throw new Error("Не удалось зарегистрировать messenger-ключ");
+      }
+      // Ignore duplicate key error - means it was created by another tab
     }
 
     return cryptoState;
@@ -290,86 +326,73 @@ export const MessengerView = () => {
       setConversationsLoading(true);
     }
     try {
-      const { data: membershipRows, error: membershipError } = await supabase
+      // Get user's conversation memberships using supabase client
+      const { data: memberships, error: membershipError } = await supabase
         .from("chat_conversation_members" as never)
-        .select("conversation_id, unread_count_cache, last_read_at")
+        .select("conversation_id,unread_count_cache,last_read_at")
         .eq("user_id", userId)
         .is("archived_at", null)
         .order("updated_at", { ascending: false });
 
       if (membershipError) {
-        throw membershipError;
+        throw new Error("Failed to load conversations");
       }
 
-      const memberships = ((membershipRows ?? []) as ConversationRow[]);
-      const conversationIds = memberships.map((row) => row.conversation_id);
+      const conversationIds = (memberships as ConversationRow[] || []).map((row) => row.conversation_id);
+
       if (conversationIds.length === 0) {
         setConversations([]);
         setSelectedConversationId(null);
         return [];
       }
 
-      const [{ data: conversationsRows, error: conversationsError }, { data: membersRows, error: membersError }] =
-        await Promise.all([
-          supabase
-            .from("chat_conversations" as never)
-            .select("id, last_message_at, updated_at")
-            .in("id", conversationIds),
-          supabase
-            .from("chat_conversation_members" as never)
-            .select("conversation_id, user_id")
-            .in("conversation_id", conversationIds),
-        ]);
+      // Get conversations, members, profiles, and keys in parallel using supabase client
+      const [conversationsResult, membersResult, profilesResult, keysResult] = await Promise.all([
+        supabase
+          .from("chat_conversations" as never)
+          .select("id,last_message_at,updated_at")
+          .in("id", conversationIds),
+        supabase
+          .from("chat_conversation_members" as never)
+          .select("conversation_id,user_id")
+          .in("conversation_id", conversationIds),
+        supabase
+          .from("profiles")
+          .select("id,username,avatar_url,account_number,is_online,last_seen_at"),
+        supabase
+          .from("chat_user_keys" as never)
+          .select("user_id,public_key"),
+      ]);
 
-      if (conversationsError) {
-        throw conversationsError;
+      if (conversationsResult.error || membersResult.error || profilesResult.error || keysResult.error) {
+        throw new Error("Failed to load conversation data");
       }
 
-      if (membersError) {
-        throw membersError;
-      }
+      const conversationsRows = (conversationsResult.data || []) as ConversationRecord[];
+      const membersRows = (membersResult.data || []) as ConversationMemberRecord[];
+      const allProfiles = (profilesResult.data || []) as ProfileSummary[];
+      const allKeys = (keysResult.data || []) as Array<{ user_id: string; public_key: string }>;
 
-      const conversationMap = new Map(
-        ((conversationsRows ?? []) as ConversationRecord[]).map((row) => [row.id, row])
-      );
+      const conversationMap = new Map(conversationsRows.map((row) => [row.id, row]));
 
       const otherUserIds = Array.from(
         new Set(
-          ((membersRows ?? []) as ConversationMemberRecord[])
+          membersRows
             .filter((row) => row.user_id !== userId)
             .map((row) => row.user_id)
         )
       );
 
-      const [{ data: profileRows, error: profileError }, { data: keyRows, error: keyError }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id, username, avatar_url, account_number, is_online, last_seen_at")
-          .in("id", otherUserIds),
-        supabase
-          .from("chat_user_keys" as never)
-          .select("user_id, public_key")
-          .in("user_id", otherUserIds),
-      ]);
-
-      if (profileError) {
-        throw profileError;
-      }
-
-      if (keyError) {
-        throw keyError;
-      }
-
       const profileMap = new Map(
-        ((profileRows ?? []) as ProfileSummary[]).map((row) => [row.id, row])
+        allProfiles.filter(p => otherUserIds.includes(p.id)).map((row) => [row.id, row])
       );
       const keyMap = new Map(
-        (((keyRows ?? []) as Array<{ user_id: string; public_key: string }>).map((row) => [row.user_id, row.public_key]))
+        allKeys.filter(k => otherUserIds.includes(k.user_id)).map((row) => [row.user_id, row.public_key])
       );
 
-      const views = memberships
+      const views = (memberships as ConversationRow[] || [])
         .map((membership) => {
-          const otherMember = ((membersRows ?? []) as ConversationMemberRecord[]).find(
+          const otherMember = membersRows.find(
             (row) => row.conversation_id === membership.conversation_id && row.user_id !== userId
           );
           if (!otherMember) {
@@ -472,20 +495,26 @@ export const MessengerView = () => {
             ) ?? null;
 
           let plainText = "[Не удалось расшифровать сообщение]";
-          if (message.ciphertext && message.nonce) {
-            const peerPublicKey =
-              message.sender_user_id === userId ? message.recipient_public_key : message.sender_public_key;
+          if (message.ciphertext) {
+            // Check if message is from bot (BOT_PLAINTEXT format)
+            if (message.ciphertext.startsWith('BOT_PLAINTEXT:')) {
+              plainText = message.ciphertext.substring('BOT_PLAINTEXT:'.length);
+            } else if (message.nonce) {
+              const peerPublicKey =
+                message.sender_user_id === userId ? message.recipient_public_key : message.sender_public_key;
 
-            if (peerPublicKey) {
-              try {
-                plainText = await decryptMessengerText({
-                  cipherText: message.ciphertext,
-                  nonce: message.nonce,
-                  peerPublicKey,
-                  myPrivateKey: myCrypto.privateKey,
-                });
-              } catch {
-                plainText = "[Не удалось расшифровать сообщение]";
+              if (peerPublicKey) {
+                try {
+                  plainText = await decryptMessengerText({
+                    cipherText: message.ciphertext,
+                    nonce: message.nonce,
+                    peerPublicKey,
+                    myPrivateKey: myCrypto.privateKey,
+                  });
+                } catch (err) {
+                  console.error('Decryption error:', err);
+                  plainText = "[Не удалось расшифровать сообщение]";
+                }
               }
             }
           }
@@ -501,7 +530,7 @@ export const MessengerView = () => {
 
       setMessages((current) => {
         if (!incremental) {
-          return mergeMessages(current, normalized, userId);
+          return normalized;
         }
         return mergeMessages(current, normalized, userId);
       });
@@ -520,69 +549,66 @@ export const MessengerView = () => {
 
     setStartingConversation(true);
     try {
-      const { data, error } = await supabase.rpc("get_or_create_direct_chat" as never, {
+      const result = await supabase.rpc("get_or_create_direct_chat", {
         target_user_id: targetId,
-      } as never);
+      });
 
-      if (error) {
-        throw error;
-      }
+      const cleanId = typeof result === 'string' ? result.replace(/^"|"$/g, '') : result;
 
-      const conversationId = data as string;
-      updateSearch(conversationId, targetId);
-      setSelectedConversationId(conversationId);
+      updateSearch(cleanId, targetId);
+      setSelectedConversationId(cleanId);
       setMobileSidebarOpen(false);
-      return conversationId;
+      return cleanId;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось открыть диалог";
-      throw new Error(message);
+      setErrorMessage(message);
+      return null;
     } finally {
       setStartingConversation(false);
     }
   };
 
   const markDelivered = async (conversationId: string, latestMessageId: string | null) => {
-    if (!latestMessageId || deliveryRpcBrokenRef.current || lastDeliveredMessageIdRef.current === latestMessageId) {
+    if (!latestMessageId || lastDeliveredMessageIdRef.current === latestMessageId) {
       return;
     }
 
-    const { error } = await supabase.rpc("chat_mark_delivered" as never, {
-      target_conversation_id: conversationId,
-      target_message_id: latestMessageId,
-    } as never);
-
-    if (error) {
-      deliveryRpcBrokenRef.current = true;
-      throw error;
+    try {
+      await supabase.rpc("chat_mark_delivered", {
+        target_conversation_id: conversationId,
+        target_message_id: latestMessageId,
+      });
+      lastDeliveredMessageIdRef.current = latestMessageId;
+    } catch (error) {
+      // Silently fail delivery marking
+      console.warn("Failed to mark delivered:", error);
     }
-
-    lastDeliveredMessageIdRef.current = latestMessageId;
   };
 
   const markRead = async (conversationId: string, latestMessageId: string | null) => {
     if (!latestMessageId || lastReadMessageIdRef.current === latestMessageId) return;
 
-    const { error } = await supabase.rpc("chat_mark_read" as never, {
-      target_conversation_id: conversationId,
-      target_message_id: latestMessageId,
-    } as never);
+    try {
+      await supabase.rpc("chat_mark_read", {
+        target_conversation_id: conversationId,
+        target_message_id: latestMessageId,
+      });
 
-    if (error) {
-      throw error;
+      lastReadMessageIdRef.current = latestMessageId;
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                unreadCount: 0,
+                lastReadAt: messagesRef.current.at(-1)?.sent_at ?? conversation.lastReadAt,
+              }
+            : conversation
+        )
+      );
+    } catch (error) {
+      console.warn("Failed to mark read:", error);
     }
-
-    lastReadMessageIdRef.current = latestMessageId;
-    setConversations((current) =>
-      current.map((conversation) =>
-        conversation.id === conversationId
-          ? {
-              ...conversation,
-              unreadCount: 0,
-              lastReadAt: messagesRef.current.at(-1)?.sent_at ?? conversation.lastReadAt,
-            }
-          : conversation
-      )
-    );
   };
 
   const refreshCurrentConversation = async (incremental = true) => {
@@ -638,23 +664,41 @@ export const MessengerView = () => {
     );
 
     try {
-      const encrypted = await encryptMessengerText({
-        plainText,
-        recipientPublicKey: selectedConversation.otherUser.publicKey,
-        senderPrivateKey: cryptoState.privateKey,
-      });
+      // Check if recipient is a bot by checking username pattern
+      const username = selectedConversation.otherUser.username || '';
+      const isBot = username.startsWith('bot_') || username.endsWith('.bot');
+
+      let ciphertext: string;
+      let nonce: string;
+
+      if (isBot) {
+        // For bots, use BOT_PLAINTEXT: prefix instead of encryption
+        ciphertext = `BOT_PLAINTEXT:${plainText}`;
+        nonce = null as any; // null for bot messages
+      } else {
+        // For regular users, encrypt normally
+        const encrypted = await encryptMessengerText({
+          plainText,
+          recipientPublicKey: selectedConversation.otherUser.publicKey,
+          senderPrivateKey: cryptoState.privateKey,
+        });
+        ciphertext = encrypted.cipherText;
+        nonce = encrypted.nonce;
+      }
+
+      const insertPayload = {
+        conversation_id: selectedConversation.id,
+        sender_user_id: me.id,
+        client_message_id: clientMessageId,
+        sender_public_key: cryptoState.publicKey,
+        recipient_public_key: selectedConversation.otherUser.publicKey,
+        ciphertext,
+        nonce,
+      };
 
       const { data, error } = await supabase
         .from("chat_messages" as never)
-        .insert({
-          conversation_id: selectedConversation.id,
-          sender_user_id: me.id,
-          client_message_id: clientMessageId,
-          sender_public_key: cryptoState.publicKey,
-          recipient_public_key: selectedConversation.otherUser.publicKey,
-          ciphertext: encrypted.cipherText,
-          nonce: encrypted.nonce,
-        } as never)
+        .insert(insertPayload as never)
         .select("id, conversation_id, sender_user_id, client_message_id, sent_at, ciphertext, nonce, sender_public_key, recipient_public_key")
         .single();
 
@@ -708,18 +752,8 @@ export const MessengerView = () => {
         const profile = await fetchMyProfile(user.id);
         setMe(profile);
 
-        if (targetUserId && targetUserId !== user.id) {
-          await ensureConversation(user.id, targetUserId);
-        }
-
         const loaded = await loadConversations(user.id);
-        if (targetUserId) {
-          const targeted = loaded.find((conversation) => conversation.otherUser.id === targetUserId);
-          if (targeted) {
-            setSelectedConversationId(targeted.id);
-            setMobileSidebarOpen(false);
-          }
-        } else {
+        if (!targetUserId) {
           setMobileSidebarOpen(true);
           setSelectedConversationId(null);
         }
@@ -732,7 +766,35 @@ export const MessengerView = () => {
     };
 
     void bootstrap();
-  }, [navigate, targetUserId]);
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!me || !targetUserId || targetUserId === me.id) return;
+
+    const handleTargetUser = async () => {
+      try {
+        // Check if conversation already exists
+        const existing = conversations.find((conv) => conv.otherUser.id === targetUserId);
+        if (existing) {
+          setSelectedConversationId(existing.id);
+          setMobileSidebarOpen(false);
+          updateSearch(existing.id, targetUserId);
+          return;
+        }
+
+        // Create new conversation
+        const conversationId = await ensureConversation(me.id, targetUserId);
+        if (conversationId) {
+          await loadConversations(me.id);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось открыть диалог";
+        setErrorMessage(message);
+      }
+    };
+
+    void handleTargetUser();
+  }, [me?.id, targetUserId, conversations]);
 
   useEffect(() => {
     if (!me || !selectedConversation) {
@@ -803,135 +865,22 @@ export const MessengerView = () => {
     }
   }, [me?.id, selectedConversation?.id, messages]);
 
+  // Subscribe to WebSocket updates for current conversation
   useEffect(() => {
-    if (!me) return;
+    if (!selectedConversation) return;
 
-    const channel = supabase.channel(`messenger-web-${me.id}`);
+    const chatRoom = `chat_${selectedConversation.id}`;
+    ws.subscribe(chatRoom);
 
-    channel.on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "chat_conversation_members",
-        filter: `user_id=eq.${me.id}`,
-      },
-      (payload) => {
-        const next = payload.new as { conversation_id?: string; unread_count_cache?: number; last_read_at?: string | null } | null;
-        if (!next?.conversation_id) return;
-
-        setConversations((current) =>
-          current.map((conversation) => {
-            if (conversation.id !== next.conversation_id) {
-              return conversation;
-            }
-
-            const unreadCount = next.unread_count_cache ?? conversation.unreadCount;
-            const lastReadAt = next.last_read_at ?? conversation.lastReadAt;
-
-            if (unreadCount === conversation.unreadCount && lastReadAt === conversation.lastReadAt) {
-              return conversation;
-            }
-
-            return {
-              ...conversation,
-              unreadCount,
-              lastReadAt,
-            };
-          })
-        );
-
-        if (visibleConversationIdRef.current === next.conversation_id) {
-          void refreshCurrentConversation(true).catch(() => undefined);
-        }
-      }
-    );
-
-    channel.on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "chat_messages",
-      },
-      (payload) => {
-        const next = payload.new as { conversation_id?: string; sender_user_id?: string; sent_at?: string | null } | null;
-        if (!next?.conversation_id) return;
-
-        setConversations((current) =>
-          current
-            .map((conversation) =>
-              conversation.id === next.conversation_id
-                ? {
-                    ...conversation,
-                    lastMessageAt: next.sent_at ?? conversation.lastMessageAt,
-                  }
-                : conversation
-            )
-            .sort((left, right) => {
-              const leftTime = left.lastMessageAt ? new Date(left.lastMessageAt).getTime() : 0;
-              const rightTime = right.lastMessageAt ? new Date(right.lastMessageAt).getTime() : 0;
-              return rightTime - leftTime;
-            })
-        );
-
-        if (visibleConversationIdRef.current === next.conversation_id) {
-          const activeConversation = conversationsRef.current.find((conversation) => conversation.id === next.conversation_id);
-          if (activeConversation) {
-            void loadMessages(activeConversation, me.id, true).catch(() => undefined);
-          } else {
-            void loadConversations(me.id, { silent: true }).catch(() => undefined);
-          }
-        } else {
-          void loadConversations(me.id, { silent: true }).catch(() => undefined);
-        }
-      }
-    );
-
-    channel.on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "chat_receipts",
-      },
-      (payload) => {
-        const next = payload.new as ChatReceiptRecord | null;
-        if (!next || next.user_id === me.id) return;
-
-        setMessages((current) =>
-          current.map((message) => {
-            if (message.id !== next.message_id) {
-              return message;
-            }
-
-            const peerDeliveredAt = next.delivered_at ?? message.peerDeliveredAt;
-            const peerReadAt = next.read_at ?? message.peerReadAt;
-
-            if (peerDeliveredAt === message.peerDeliveredAt && peerReadAt === message.peerReadAt) {
-              return message;
-            }
-
-            return {
-              ...message,
-              peerDeliveredAt,
-              peerReadAt,
-            };
-          })
-        );
-
-        if (visibleConversationIdRef.current) {
-          void refreshCurrentConversation(true).catch(() => undefined);
-        }
-      }
-    );
-
-    channel.subscribe();
+    const unsubscribe = ws.on("new_chat_message", () => {
+      void refreshCurrentConversation(true).catch(() => undefined);
+    });
 
     return () => {
-      void supabase.removeChannel(channel);
+      unsubscribe();
+      ws.unsubscribe(chatRoom);
     };
-  }, [me?.id]);
+  }, [selectedConversation?.id, ws]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -1006,7 +955,10 @@ export const MessengerView = () => {
                 >
                   <div className="avatar">
                     {conversation.otherUser.avatar_url ? (
-                      <img src={conversation.otherUser.avatar_url} alt={conversation.otherUser.username} />
+                      <img
+                        src={storageUrl("post-images", conversation.otherUser.avatar_url) || undefined}
+                        alt={conversation.otherUser.username}
+                      />
                     ) : (
                       <span>{getInitials(conversation.otherUser.username)}</span>
                     )}
@@ -1026,7 +978,12 @@ export const MessengerView = () => {
                     <div className="conversation-meta">
                       <span>{formatDate(conversation.lastMessageAt)}</span>
                       <span>#{conversation.otherUser.account_number ?? "?"}</span>
-                      <span>{formatPresence(conversation.otherUser.is_online, conversation.otherUser.last_seen_at)}</span>
+                      <OnlineStatus
+                        userId={conversation.otherUser.id}
+                        isOnline={conversation.otherUser.is_online}
+                        lastSeen={conversation.otherUser.last_seen_at}
+                        showText={false}
+                      />
                       {conversation.unreadCount > 0 ? <span className="count-badge">{conversation.unreadCount}</span> : null}
                     </div>
                   </div>
@@ -1056,7 +1013,7 @@ export const MessengerView = () => {
                   <div className="avatar small">
                     {selectedConversation.otherUser.avatar_url ? (
                       <img
-                        src={selectedConversation.otherUser.avatar_url}
+                        src={storageUrl("post-images", selectedConversation.otherUser.avatar_url) || undefined}
                         alt={selectedConversation.otherUser.username}
                       />
                     ) : (

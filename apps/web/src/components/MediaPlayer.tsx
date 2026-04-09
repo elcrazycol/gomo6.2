@@ -10,32 +10,28 @@ declare global {
 }
 
 let plyrLoader: Promise<any> | null = null;
-const audioPool = new Map<string, { container: HTMLElement; instance: any; wasPlaying: boolean }>();
 
-const ensurePoolHost = () => {
-  let host = document.getElementById("global-audio-pool");
-  if (!host) {
-    host = document.createElement("div");
-    host.id = "global-audio-pool";
-    host.style.position = "fixed";
-    host.style.opacity = "0";
-    host.style.pointerEvents = "none";
-    host.style.inset = "0";
-    host.style.zIndex = "-1";
-    document.body.appendChild(host);
-  }
-  return host;
-};
+// Global audio element - single source of truth for audio playback
+let globalAudioElement: HTMLAudioElement | null = null;
+let globalAudioCurrentSrc: string | null = null;
 
-const moveContainer = (container: HTMLElement, target: HTMLElement) => {
-  if (container.parentElement && container.parentElement !== target) {
-    if (container.parentElement.contains(container)) {
-      container.parentElement.removeChild(container);
-    }
+const ensureGlobalAudio = () => {
+  if (!globalAudioElement) {
+    globalAudioElement = document.createElement("audio");
+    globalAudioElement.preload = "metadata";
+    globalAudioElement.crossOrigin = "anonymous";
+
+    // Keep it in DOM but hidden
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.top = "-9999px";
+    container.style.left = "-9999px";
+    container.style.visibility = "hidden";
+    container.style.pointerEvents = "none";
+    container.appendChild(globalAudioElement);
+    document.body.appendChild(container);
   }
-  if (container.parentElement !== target) {
-    target.appendChild(container);
-  }
+  return globalAudioElement;
 };
 
 const ensurePlyrAssets = () => {
@@ -84,109 +80,230 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
-  const [usingPooled, setUsingPooled] = useState(() => audioPool.has(playerKey));
+  const instanceRef = useRef<any>(null);
+  const isUnmountingRef = useRef(false);
 
   useEffect(() => {
-    let instance: any;
-    const controls =
-      kind === "audio"
-        ? ["play", "progress", "current-time", "duration", "mute"]
-        : ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
+    if (kind === "video") {
+      // Video: normal flow
+      let instance: any;
+      const controls = ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
 
-    // Reattach pooled audio instance if it exists
-    if (kind === "audio" && audioPool.has(playerKey) && mountRef.current) {
-      const pooled = audioPool.get(playerKey)!;
-      const host = mountRef.current;
-      host.innerHTML = "";
-      moveContainer(pooled.container, host);
-      instance = pooled.instance;
-      setUsingPooled(true);
-      onReady?.(instance);
-      if (pooled.wasPlaying && instance?.play) {
-        setTimeout(() => instance.play().catch(() => {}), 0);
-      }
+      ensurePlyrAssets()
+        .then((Plyr) => {
+          if (!Plyr || !mediaRef.current || !mountRef.current) return;
+          instance = new Plyr(mediaRef.current, {
+            ratio: "16:9",
+            controls,
+            autopause: false,
+            autoplay: false,
+            storage: { enabled: false },
+            previewThumbnails: { enabled: false },
+          });
+          instanceRef.current = instance;
+          onReady?.(instance);
+
+          instance.on("play", () => onPlay?.(instance));
+          instance.on("pause", () => {
+            if (!isUnmountingRef.current) {
+              onPause?.(instance);
+            }
+          });
+        })
+        .catch((e) => console.error(e));
+
       return () => {
-        // keep pooled instance alive; no destroy
-        const poolHost = ensurePoolHost();
-        moveContainer(pooled.container, poolHost);
-        audioPool.set(playerKey, { ...pooled, wasPlaying: !instance?.paused && !instance?.ended });
+        isUnmountingRef.current = true;
+        instance?.destroy?.();
       };
     }
 
-    ensurePlyrAssets()
-      .then((Plyr) => {
-        if (!Plyr || !mediaRef.current || !mountRef.current) return;
-        instance = new Plyr(mediaRef.current, {
-          ratio: "16:9",
-          controls,
-          autopause: false,
-          autoplay: false,
-          storage: { enabled: false },
-        });
-        onReady?.(instance);
-        if (kind === "audio" && playlistId !== undefined && playlistIndex !== undefined) {
-          window.dispatchEvent(
-            new CustomEvent("global-audio-register", {
-              detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src, playlistId, playlistIndex },
-            })
-          );
-        }
-        instance.on("play", () => {
-          onPlay?.(instance);
-          if (kind === "audio") {
+    // Audio: use global audio element, local element is MUTED and only for UI
+    if (kind === "audio") {
+      const globalAudio = ensureGlobalAudio();
+      let instance: any;
+      const controls = ["play", "progress", "current-time", "duration", "mute"];
+      const trackSrc = sources[0]?.src;
+
+      ensurePlyrAssets()
+        .then((Plyr) => {
+          if (!Plyr || !mediaRef.current || !mountRef.current) return;
+
+          // CRITICAL: Mute local audio element so it doesn't play sound
+          mediaRef.current.muted = true;
+          mediaRef.current.volume = 0;
+
+          // Create Plyr instance for UI
+          instance = new Plyr(mediaRef.current, {
+            ratio: "16:9",
+            controls,
+            autopause: false,
+            autoplay: false,
+            storage: { enabled: false },
+            previewThumbnails: { enabled: false },
+          });
+          instanceRef.current = instance;
+
+          // Intercept Plyr's play event BEFORE it actually plays
+          let isHandlingPlay = false;
+
+          instance.on("play", async (event: any) => {
+            if (isHandlingPlay) return;
+            isHandlingPlay = true;
+
+            // Pause local immediately
+            if (instance.media && !instance.media.paused) {
+              instance.media.pause();
+            }
+
+            // Handle global audio
+            if (globalAudioCurrentSrc !== trackSrc) {
+              globalAudio.src = trackSrc;
+              globalAudioCurrentSrc = trackSrc;
+
+              // Wait for metadata
+              if (globalAudio.readyState < 2) {
+                await new Promise((resolve) => {
+                  const onLoadedMetadata = () => {
+                    globalAudio.removeEventListener('loadedmetadata', onLoadedMetadata);
+                    resolve(null);
+                  };
+                  globalAudio.addEventListener('loadedmetadata', onLoadedMetadata);
+                });
+              }
+            }
+
+            globalAudio.currentTime = mediaRef.current?.currentTime || 0;
+
+            try {
+              await globalAudio.play();
+              // Sync UI to show playing state
+              if (instance.media && instance.media.paused) {
+                await instance.media.play();
+              }
+            } catch (err) {
+              console.error("Failed to play:", err);
+            }
+
+            // Notify AppLayout
             window.dispatchEvent(
               new CustomEvent("global-audio-play", {
-                detail: { instance, title, playerId: playerKey, src: sources?.[0]?.src, playlistId, playlistIndex },
+                detail: { instance: globalAudio, title, playerId: playerKey, src: trackSrc, playlistId, playlistIndex },
+              })
+            );
+
+            onPlay?.(instance);
+            isHandlingPlay = false;
+          });
+
+          // Check if this track is currently playing
+          const isCurrentTrack = globalAudioCurrentSrc === trackSrc;
+
+          if (isCurrentTrack) {
+            // Sync UI with global audio immediately and smoothly
+            if (mediaRef.current) {
+              mediaRef.current.currentTime = globalAudio.currentTime;
+              if (!globalAudio.paused && !globalAudio.ended) {
+                // Use requestAnimationFrame for smooth sync
+                requestAnimationFrame(() => {
+                  instance.play().catch(() => {});
+                });
+              }
+            }
+          }
+
+          // Sync local UI with global audio state
+          const syncTime = () => {
+            if (globalAudioCurrentSrc === trackSrc && mediaRef.current) {
+              const timeDiff = Math.abs(mediaRef.current.currentTime - globalAudio.currentTime);
+              // Only sync if difference is significant (reduces lag)
+              if (timeDiff > 1) {
+                mediaRef.current.currentTime = globalAudio.currentTime;
+              }
+            }
+          };
+
+          const syncPlay = () => {
+            if (globalAudioCurrentSrc === trackSrc && instance?.media?.paused) {
+              requestAnimationFrame(() => {
+                instance.play().catch(() => {});
+              });
+            }
+          };
+
+          const syncPause = () => {
+            if (globalAudioCurrentSrc === trackSrc && instance?.media && !instance.media.paused) {
+              requestAnimationFrame(() => {
+                instance.pause();
+              });
+            }
+          };
+
+          // Use passive listeners for better performance
+          globalAudio.addEventListener('timeupdate', syncTime, { passive: true });
+          globalAudio.addEventListener('play', syncPlay, { passive: true });
+          globalAudio.addEventListener('pause', syncPause, { passive: true });
+
+          instance.on("pause", () => {
+            if (!isUnmountingRef.current) {
+              onPause?.(instance);
+              if (globalAudioCurrentSrc === trackSrc) {
+                globalAudio.pause();
+              }
+            }
+          });
+
+          instance.on("seeked", () => {
+            if (globalAudioCurrentSrc === trackSrc && mediaRef.current) {
+              globalAudio.currentTime = mediaRef.current.currentTime;
+            }
+          });
+
+          if (playlistId !== undefined && playlistIndex !== undefined) {
+            window.dispatchEvent(
+              new CustomEvent("global-audio-register", {
+                detail: { instance: globalAudio, title, playerId: playerKey, src: trackSrc, playlistId, playlistIndex },
               })
             );
           }
-        });
-        instance.on("pause", () => onPause?.(instance));
-      })
-      .catch((e) => console.error(e));
 
-    return () => {
-      if (!instance) return;
-      if (kind === "audio") {
-        // persist audio instance across route changes
-        const container = instance.elements?.container as HTMLElement | undefined;
-        if (container) {
-          const wasPlaying = !instance.paused && !instance.ended;
-          audioPool.set(playerKey, { container, instance, wasPlaying });
-          const poolHost = ensurePoolHost();
-          moveContainer(container, poolHost);
-          if (wasPlaying && instance.play) {
-            // ensure playback keeps running after move
-            setTimeout(() => instance.play().catch(() => {}), 0);
-          }
-        }
-        // Do not unregister pooled audio on route unmount.
-        // The instance is still alive in the global pool and should remain controllable by Now Playing.
-      } else {
-        instance.destroy?.();
-      }
-    };
-  }, []);
+          onReady?.(instance);
+
+          // Cleanup
+          return () => {
+            globalAudio.removeEventListener('timeupdate', syncTime);
+            globalAudio.removeEventListener('play', syncPlay);
+            globalAudio.removeEventListener('pause', syncPause);
+          };
+        })
+        .catch((e) => console.error(e));
+
+      return () => {
+        isUnmountingRef.current = true;
+        instanceRef.current?.destroy?.();
+      };
+    }
+  }, [kind, sources, playerKey, title, playlistId, playlistIndex, onReady, onPlay, onPause]);
 
   const Element = kind === "video" ? "video" : "audio";
 
   return (
     <div className={`w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
       <div ref={mountRef}>
-        {!usingPooled && (
-          <Element
-            ref={mediaRef as any}
-            className="w-full"
-            playsInline
-            controls
-            data-poster={poster}
-          >
-            {sources.map((s, i) => (
-              <source key={i} src={s.src} type={s.type} />
-            ))}
-            Ваш браузер не поддерживает воспроизведение.
-          </Element>
-        )}
+        <Element
+          ref={mediaRef as any}
+          className="w-full"
+          playsInline
+          controls
+          preload="metadata"
+          crossOrigin="anonymous"
+          data-poster={poster}
+        >
+          {sources.map((s, i) => (
+            <source key={i} src={s.src} type={s.type} />
+          ))}
+          Ваш браузер не поддерживает воспроизведение.
+        </Element>
       </div>
     </div>
   );

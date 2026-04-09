@@ -1,0 +1,421 @@
+package storage
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
+)
+
+type FileInfo struct {
+	Bucket       string    `json:"bucket"`
+	Key          string    `json:"key"`
+	Size         int64     `json:"size"`
+	ContentType  string    `json:"contentType"`
+	ETag         string    `json:"etag"`
+	LastModified time.Time `json:"lastModified"`
+}
+
+// StorageClient talks to Garage over S3 API. Server-side ops use the internal endpoint;
+// presigned URLs for browsers use GARAGE_S3_PUBLIC_ENDPOINT when set (required when
+// the API runs in Docker and the browser cannot resolve docker hostnames).
+type StorageClient struct {
+	s3             *s3.Client
+	presigner      *s3.PresignClient
+	ctx            context.Context
+	corsConfigured sync.Map // bucket -> configured
+}
+
+func buildS3Client(endpoint, region, accessKey, secretKey string) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(
+		context.Background(),
+		config.WithRegion(region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
+		config.WithEndpointResolver(aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
+			return aws.Endpoint{
+				URL:               endpoint,
+				SigningRegion:     region,
+				HostnameImmutable: true,
+			}, nil
+		})),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.UsePathStyle = true
+	}), nil
+}
+
+func normalizeEndpoint(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" {
+		return "", fmt.Errorf("endpoint must include scheme (http/https)")
+	}
+	return strings.TrimSuffix(u.String(), "/"), nil
+}
+
+// browserReachableS3URL rewrites Docker-only hostnames in the S3 endpoint used for presigned URLs.
+// Browsers on the host cannot resolve Docker service names (garage, garage-proxy, etc.).
+func browserReachableS3URL(ep string) (string, error) {
+	u, err := url.Parse(ep)
+	if err != nil {
+		return ep, err
+	}
+	h := strings.ToLower(u.Hostname())
+	// Common Garage / compose hostnames that are not resolvable from the user's browser.
+	if h != "garage-proxy" && h != "garage" {
+		return ep, nil
+	}
+	port := u.Port()
+	if port == "" {
+		port = "3900"
+	}
+	return normalizeEndpoint(fmt.Sprintf("http://localhost:%s", port))
+}
+
+func corsOrigins() []string {
+	raw := os.Getenv("GARAGE_S3_CORS_ORIGINS")
+	if strings.TrimSpace(raw) == "" {
+		return []string{
+			"http://localhost:8081",
+			"http://127.0.0.1:8081",
+		}
+	}
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		o := strings.TrimSpace(p)
+		if o != "" {
+			out = append(out, o)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"http://localhost:8081"}
+	}
+	return out
+}
+
+// NewStorageClient builds an S3 client for Garage. Fails soft on bucket bootstrap
+// (logs only) so the process can still start if Garage is temporarily down.
+func NewStorageClient() (*StorageClient, error) {
+	endpoint := os.Getenv("GARAGE_S3_ENDPOINT")
+	accessKey := os.Getenv("GARAGE_S3_ACCESS_KEY")
+	secretKey := os.Getenv("GARAGE_S3_SECRET_KEY")
+	region := os.Getenv("GARAGE_S3_REGION")
+	if region == "" {
+		region = "garage"
+	}
+
+	if endpoint == "" || accessKey == "" || secretKey == "" {
+		return nil, fmt.Errorf("missing Garage S3 configuration (GARAGE_S3_ENDPOINT, access/secret key)")
+	}
+
+	internalEP, err := normalizeEndpoint(endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("GARAGE_S3_ENDPOINT: %w", err)
+	}
+
+	publicRaw := strings.TrimSpace(os.Getenv("GARAGE_S3_PUBLIC_ENDPOINT"))
+	if publicRaw == "" {
+		publicRaw = endpoint
+		if u, perr := url.Parse(endpoint); perr == nil && strings.EqualFold(u.Hostname(), "garage-proxy") {
+			port := u.Port()
+			if port == "" {
+				port = "3900"
+			}
+			publicRaw = fmt.Sprintf("http://localhost:%s", port)
+		}
+	}
+	publicEP, err := normalizeEndpoint(publicRaw)
+	if err != nil {
+		return nil, fmt.Errorf("GARAGE_S3_PUBLIC_ENDPOINT: %w", err)
+	}
+	publicEP, err = browserReachableS3URL(publicEP)
+	if err != nil {
+		return nil, fmt.Errorf("public S3 URL for browser: %w", err)
+	}
+
+	s3Internal, err := buildS3Client(internalEP, region, accessKey, secretKey)
+	if err != nil {
+		return nil, fmt.Errorf("s3 client: %w", err)
+	}
+
+	// Always use a presigner bound to the browser-facing URL. Never reuse the internal
+	// client for presigning: string equality between public/internal can misbehave, and
+	// an outdated binary would otherwise emit garage-proxy in signed URLs.
+	s3Public, err := buildS3Client(publicEP, region, accessKey, secretKey)
+	if err != nil {
+		return nil, fmt.Errorf("s3 public presign client: %w", err)
+	}
+	presigner := s3.NewPresignClient(s3Public)
+	log.Printf("storage: S3 internal endpoint %s, presigned URLs use %s", internalEP, publicEP)
+
+	s := &StorageClient{
+		s3:        s3Internal,
+		presigner: presigner,
+		ctx:       context.Background(),
+	}
+
+	s.bootstrapBucketsBestEffort()
+
+	return s, nil
+}
+
+func (s *StorageClient) bootstrapBucketsBestEffort() {
+	for bucket := range loadAllowedBuckets() {
+		if err := s.ensureBucket(bucket); err != nil {
+			log.Printf("storage: bootstrap bucket %q (will retry on write): %v", bucket, err)
+		}
+	}
+}
+
+func (s *StorageClient) ensureBucket(bucket string) error {
+	_, err := s.s3.HeadBucket(s.ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+	if err == nil {
+		return s.ensureBucketCORS(bucket)
+	}
+
+	_, createErr := s.s3.CreateBucket(s.ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	if createErr != nil {
+		return createErr
+	}
+	return s.ensureBucketCORS(bucket)
+}
+
+func (s *StorageClient) ensureBucketCORS(bucket string) error {
+	if _, loaded := s.corsConfigured.LoadOrStore(bucket, struct{}{}); loaded {
+		return nil
+	}
+
+	origins := corsOrigins()
+	_, err := s.s3.PutBucketCors(s.ctx, &s3.PutBucketCorsInput{
+		Bucket: aws.String(bucket),
+		CORSConfiguration: &s3types.CORSConfiguration{
+			CORSRules: []s3types.CORSRule{
+				{
+					AllowedOrigins: origins,
+					AllowedMethods: []string{"GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"},
+					AllowedHeaders: []string{
+						"Origin",
+						"Access-Control-Request-Method",
+						"Access-Control-Request-Headers",
+						"content-type",
+						"Content-Type",
+					},
+					MaxAgeSeconds: aws.Int32(3600),
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("put bucket CORS: %w", err)
+	}
+
+	out, err := s.s3.GetBucketCors(s.ctx, &s3.GetBucketCorsInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("get bucket CORS after put: %w", err)
+	}
+	if out == nil || len(out.CORSRules) == 0 {
+		return fmt.Errorf("bucket CORS empty after put")
+	}
+	return nil
+}
+
+// UploadFile stores an object. Bucket must be allowlisted.
+func (s *StorageClient) UploadFile(bucket, key string, data []byte, contentType string) (*FileInfo, error) {
+	if !IsAllowedBucket(bucket) {
+		return nil, fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return nil, err
+	}
+	if err := s.ensureBucket(bucket); err != nil {
+		return nil, fmt.Errorf("ensure bucket %s: %w", bucket, err)
+	}
+
+	out, err := s.s3.PutObject(s.ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String(contentType),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upload: %w", err)
+	}
+
+	return &FileInfo{
+		Bucket:       bucket,
+		Key:          key,
+		Size:         int64(len(data)),
+		ETag:         aws.ToString(out.ETag),
+		LastModified: time.Now().UTC(),
+		ContentType:  contentType,
+	}, nil
+}
+
+// GetObject streams an object from Garage (no presign, no extra HTTP hop).
+func (s *StorageClient) GetObject(ctx context.Context, bucket, key string) (*s3.GetObjectOutput, error) {
+	if !IsAllowedBucket(bucket) {
+		return nil, fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return nil, err
+	}
+	out, err := s.s3.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetObjectRange streams an object with optional byte range support for partial content.
+func (s *StorageClient) GetObjectRange(ctx context.Context, bucket, key string, rangeStart, rangeEnd *int64) (*s3.GetObjectOutput, error) {
+	if !IsAllowedBucket(bucket) {
+		return nil, fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return nil, err
+	}
+
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+
+	// Build Range header if specified
+	if rangeStart != nil || rangeEnd != nil {
+		var rangeStr string
+		if rangeStart != nil && rangeEnd != nil {
+			rangeStr = fmt.Sprintf("bytes=%d-%d", *rangeStart, *rangeEnd)
+		} else if rangeStart != nil {
+			rangeStr = fmt.Sprintf("bytes=%d-", *rangeStart)
+		} else if rangeEnd != nil {
+			rangeStr = fmt.Sprintf("bytes=0-%d", *rangeEnd)
+		}
+		if rangeStr != "" {
+			input.Range = aws.String(rangeStr)
+		}
+	}
+
+	out, err := s.s3.GetObject(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// IsNotFound reports whether err is an S3 missing-object error.
+func IsNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		switch ae.ErrorCode() {
+		case "NoSuchKey", "NotFound":
+			return true
+		}
+	}
+	// Some S3-compatible backends wrap errors without typed codes.
+	return strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "Not Found")
+}
+
+func (s *StorageClient) GetFile(bucket, key string) ([]byte, string, error) {
+	out, err := s.GetObject(s.ctx, bucket, key)
+	if err != nil {
+		return nil, "", err
+	}
+	defer out.Body.Close()
+
+	b, err := io.ReadAll(out.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("read body: %w", err)
+	}
+
+	ct := ""
+	if out.ContentType != nil {
+		ct = aws.ToString(out.ContentType)
+	}
+	return b, ct, nil
+}
+
+func (s *StorageClient) DeleteFile(bucket, key string) error {
+	if !IsAllowedBucket(bucket) {
+		return fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return err
+	}
+	_, err := s.s3.DeleteObject(s.ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	return nil
+}
+
+// GetPresignedURL returns a GET URL for clients that must talk to Garage directly (rare here).
+func (s *StorageClient) GetPresignedURL(bucket, key string, expiry time.Duration) (string, error) {
+	if !IsAllowedBucket(bucket) {
+		return "", fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return "", err
+	}
+
+	out, err := s.presigner.PresignGetObject(s.ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(expiry))
+	if err != nil {
+		return "", fmt.Errorf("presign get: %w", err)
+	}
+	return out.URL, nil
+}
+
+// GetPresignedPutURL returns a PUT URL for direct browser uploads to Garage.
+func (s *StorageClient) GetPresignedPutURL(bucket, key string, contentType string, expiry time.Duration) (string, error) {
+	if !IsAllowedBucket(bucket) {
+		return "", fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return "", err
+	}
+	if err := s.ensureBucket(bucket); err != nil {
+		return "", fmt.Errorf("ensure bucket %s: %w", bucket, err)
+	}
+
+	out, err := s.presigner.PresignPutObject(s.ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+	}, s3.WithPresignExpires(expiry))
+	if err != nil {
+		return "", fmt.Errorf("presign put: %w", err)
+	}
+	return out.URL, nil
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, ChevronDown, HelpCircle, AlertTriangle } from "lucide-react";
@@ -23,6 +23,7 @@ interface PrivacySettingsData {
   allow_wall_posts_from_others?: boolean;
   show_profile_stats?: boolean;
   show_detailed_stats?: boolean;
+  show_online_status?: boolean;
 }
 
 const PrivacySettings = () => {
@@ -49,6 +50,7 @@ const PrivacySettings = () => {
     allow_wall_posts_from_others: true,
     show_profile_stats: false,
     show_detailed_stats: false,
+    show_online_status: true,
   };
 
   useEffect(() => {
@@ -74,7 +76,6 @@ const PrivacySettings = () => {
             filter: `user_id=eq.${user.id}`,
           },
           (payload) => {
-            console.log('Privacy settings updated from another device:', payload);
             // Update local state
             setSettings(payload.new);
           }
@@ -141,6 +142,7 @@ const PrivacySettings = () => {
         allow_wall_posts_from_others: updatedSettings.allow_wall_posts_from_others ?? true,
         show_profile_stats: updatedSettings.show_profile_stats ?? false,
         show_detailed_stats: updatedSettings.show_detailed_stats ?? false,
+        show_online_status: updatedSettings.show_online_status ?? true,
       };
 
       const { error } = await supabase
@@ -318,6 +320,14 @@ const PrivacySettings = () => {
                   <Switch
                     checked={settings.show_detailed_stats ?? false}
                     onCheckedChange={(value) => updateSetting('show_detailed_stats', value)}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Показывать мой онлайн-статус</span>
+                  <Switch
+                    checked={settings.show_online_status ?? true}
+                    onCheckedChange={(value) => updateSetting('show_online_status', value)}
                     disabled={saving}
                   />
                 </div>

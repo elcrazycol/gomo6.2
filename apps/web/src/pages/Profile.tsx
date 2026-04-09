@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
+import { storageUrl } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -26,11 +27,13 @@ import { ThreadCard } from "@/components/ThreadCard";
 import { AvatarCropper } from "@/components/AvatarCropper";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
+import { OnlineStatus } from "@/components/OnlineStatus";
 
 interface Profile {
   id: string;
   username: string;
   bio: string | null;
+  bio_json?: unknown;
   is_anonymous: boolean;
   thread_count: number;
   post_count: number;
@@ -39,6 +42,8 @@ interface Profile {
   created_at: string;
   avatar_url?: string | null;
   account_number?: number | null;
+  is_online?: boolean;
+  last_seen?: string | null;
 }
 
 interface Achievement {
@@ -259,11 +264,11 @@ const Profile = () => {
     if (userId) {
       const loadAll = async () => {
         setPageLoading(true);
-        await Promise.all([
-          loadProfile(),
-          loadAchievements(),
-        ]);
-        setPageLoading(false);
+        try {
+          await Promise.all([loadProfile(), loadAchievements()]);
+        } finally {
+          setPageLoading(false);
+        }
       };
       loadAll();
     }
@@ -312,6 +317,7 @@ const Profile = () => {
 
       setProfile({
         ...data,
+        bio_json: (data as any).bio_json ?? undefined,
         garma: data.garma ?? 0,
         thread_likes_received_count: threadLikesData || 0
       });
@@ -491,9 +497,9 @@ const Profile = () => {
     if (data) {
       // Process achievements without grouping by type (show all levels separately)
       const processedAchievements = data.map((ua: any) => {
-        const achievement = ua.achievements;
-        let displayName = achievement.name;
-        let displayDescription = achievement.description;
+        const achievement = ua.achievements ?? {};
+        let displayName = achievement.name ?? "—";
+        let displayDescription = achievement.description ?? "";
 
         // Achievement processing based on achievement ID and level
 
@@ -746,13 +752,9 @@ const Profile = () => {
         return;
       }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('post-images')
-        .getPublicUrl(fileName);
-
       const { error } = await supabase
         .from("profiles")
-        .update({ avatar_url: publicUrl })
+        .update({ avatar_url: fileName })
         .eq("id", userId);
 
       if (error) {
@@ -761,7 +763,7 @@ const Profile = () => {
         return;
       }
 
-      setAvatarUrl(publicUrl);
+      setAvatarUrl(fileName);
       setCropImage(null);
       toast.success("Аватар обновлен");
     } catch (error) {
@@ -773,8 +775,10 @@ const Profile = () => {
 
   const handleSaveAndExit = async () => {
     try {
-      // Save bio changes
-      if (userId && bio !== profile.bio) {
+      const prevBioJson = profile.bio_json ?? null;
+      const bioJsonChanged =
+        JSON.stringify(bioJson ?? null) !== JSON.stringify(prevBioJson);
+      if (userId && (bio !== profile.bio || bioJsonChanged)) {
         const { error: bioError } = await supabase
           .from("profiles")
           .update({ bio, bio_json: bioJson })
@@ -821,7 +825,7 @@ const Profile = () => {
   const startEditing = () => {
     setNewUsername(profile.username);
     setBio(profile.bio || "");
-    setBioJson(null);
+    setBioJson(profile.bio_json ?? null);
     setBioEditorResetKey((prev) => prev + 1);
     setIsAnonymous(profile.is_anonymous);
     setIsEditing(true);
@@ -886,7 +890,7 @@ const Profile = () => {
                 <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden">
                   {avatarUrl ? (
                     <img
-                      src={avatarUrl}
+                      src={storageUrl("post-images", avatarUrl) || avatarUrl}
                       alt="Avatar"
                       className="w-full h-full object-cover"
                     />
@@ -955,13 +959,12 @@ const Profile = () => {
                   <p className="text-sm text-muted-foreground">
                     ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
                   </p>
-                  {showOnlineStatus && isOnline && (
-                    <span className="text-xs text-green-500 font-medium">● В сети</span>
-                  )}
-                  {showLastSeen && !isOnline && lastSeen && (
-                    <span className="text-xs text-muted-foreground">
-                      Был в сети {formatDistanceToNow(new Date(lastSeen), { locale: ru, addSuffix: true })}
-                    </span>
+                  {showOnlineStatus && (
+                    <OnlineStatus
+                      userId={profile.id}
+                      isOnline={profile.is_online}
+                      lastSeen={profile.last_seen}
+                    />
                   )}
                 </div>
               </div>
