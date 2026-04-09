@@ -72,6 +72,8 @@ type Hub struct {
 	cancel         context.CancelFunc
 	allowedOrigins []string
 	rateLimiter    *RateLimiter
+	statusUpdateDebounce map[string]*time.Timer
+	statusUpdateMu sync.Mutex
 }
 
 // NewHub creates a new Hub with Redis integration
@@ -93,6 +95,7 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 		cancel:         cancel,
 		allowedOrigins: allowedOrigins,
 		rateLimiter:    NewRateLimiter(60, time.Minute), // 60 messages per minute
+		statusUpdateDebounce: make(map[string]*time.Timer),
 	}
 }
 
@@ -428,24 +431,42 @@ func (h *Hub) GetClientByUserID(userID string) *Client {
 	return h.presence[userID]
 }
 
-// updateUserOnlineStatus updates user's online status in database
+// updateUserOnlineStatus updates user's online status in database with debouncing
 func (h *Hub) updateUserOnlineStatus(userID string, isOnline bool) {
 	if h.db == nil {
 		return
 	}
 
-	// Type assert to *sql.DB
-	db, ok := h.db.(*sql.DB)
-	if !ok {
-		log.Printf("[WebSocket] Database type assertion failed")
-		return
+	// Debounce status updates to prevent rapid DB writes
+	h.statusUpdateMu.Lock()
+
+	// Cancel existing timer for this user
+	if timer, exists := h.statusUpdateDebounce[userID]; exists {
+		timer.Stop()
 	}
 
-	query := "UPDATE users SET is_online = $1, last_seen = NOW() WHERE id = $2"
-	_, err := db.Exec(query, isOnline, userID)
-	if err != nil {
-		log.Printf("[WebSocket] Error updating user online status: %v", err)
-	}
+	// Create new debounced update
+	h.statusUpdateDebounce[userID] = time.AfterFunc(500*time.Millisecond, func() {
+		// Type assert to *sql.DB
+		db, ok := h.db.(*sql.DB)
+		if !ok {
+			log.Printf("[WebSocket] Database type assertion failed")
+			return
+		}
+
+		query := "UPDATE users SET is_online = $1, last_seen = NOW() WHERE id = $2"
+		_, err := db.Exec(query, isOnline, userID)
+		if err != nil {
+			log.Printf("[WebSocket] Error updating user online status: %v", err)
+		}
+
+		// Clean up timer
+		h.statusUpdateMu.Lock()
+		delete(h.statusUpdateDebounce, userID)
+		h.statusUpdateMu.Unlock()
+	})
+
+	h.statusUpdateMu.Unlock()
 }
 
 // broadcastUserStatus broadcasts user online/offline status to all clients

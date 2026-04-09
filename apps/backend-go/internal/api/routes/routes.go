@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/handlers"
@@ -27,8 +28,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Initialize auth service
 	authService := auth.NewAuthService()
 
-	// Initialize messenger rate limiter
+	// Initialize rate limiters
 	messengerRateLimiter := middleware.NewMessengerRateLimiter()
+	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute) // 100 requests per minute for auth/me
 
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
@@ -98,7 +100,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.POST("/login", authHandler.Login)
-			authGroup.GET("/me", middleware.AuthMiddleware(authService), authHandler.GetMe)
+			// Apply both caching and rate limiting to /me endpoint
+			authGroup.GET("/me",
+				middleware.AuthCacheMiddleware(authService, redis),
+				middleware.AuthRateLimitMiddleware(authRateLimiter),
+				authHandler.GetMe)
 			authGroup.POST("/password", middleware.AuthMiddleware(authService), authHandler.UpdatePassword)
 		}
 	}
@@ -178,7 +184,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Protected endpoints
 		protected := rest.Group("")
-		protected.Use(middleware.SupabaseAuthMiddleware(authService))
+		protected.Use(middleware.SupabaseAuthCacheMiddleware(authService, redis))
 		{
 			// Messenger tables (protected with rate limiting)
 			messenger := protected.Group("")
@@ -344,12 +350,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// WebSocket endpoint
 	if wsHandler != nil {
 		ws := router.Group("/ws")
-		ws.Use(middleware.SupabaseAuthMiddleware(authService))
+		ws.Use(middleware.SupabaseAuthCacheMiddleware(authService, redis))
 		{
 			ws.GET("", wsHandler.HandleWebSocket)
 		}
 
 		// Debug endpoint for online users count (protected, admin only in production)
-		router.GET("/ws/stats", middleware.SupabaseAuthMiddleware(authService), wsHandler.GetOnlineUsers)
+		router.GET("/ws/stats", middleware.SupabaseAuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
 	}
 }

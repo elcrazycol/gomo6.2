@@ -58,6 +58,8 @@ class WebSocketService {
   private subscribedRooms: Set<string> = new Set();
   private isConnected = false;
   private isConnecting = false;
+  private lastConnectAttempt = 0;
+  private minConnectInterval = 1000; // Minimum 1 second between connect attempts
 
   constructor() {
     // Bind methods
@@ -83,6 +85,14 @@ class WebSocketService {
     if (this.isConnected || this.isConnecting) {
       return;
     }
+
+    // Debounce: prevent multiple rapid connect attempts
+    const now = Date.now();
+    if (now - this.lastConnectAttempt < this.minConnectInterval) {
+      console.log('[WebSocket] Debouncing connect attempt');
+      return;
+    }
+    this.lastConnectAttempt = now;
 
     this.isConnecting = true;
 

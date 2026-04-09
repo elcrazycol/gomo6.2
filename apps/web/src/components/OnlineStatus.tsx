@@ -1,7 +1,9 @@
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 
 interface OnlineStatusProps {
+  userId?: string;
   isOnline?: boolean;
   lastSeen?: string | null;
   showText?: boolean;
@@ -9,11 +11,19 @@ interface OnlineStatusProps {
 }
 
 export function OnlineStatus({
-  isOnline,
-  lastSeen,
+  userId,
+  isOnline: initialIsOnline,
+  lastSeen: initialLastSeen,
   showText = true,
   className = ""
 }: OnlineStatusProps) {
+  // Subscribe to real-time status updates if userId is provided
+  const realtimeStatus = useUserRealtimeStatus(userId);
+
+  // Use real-time status if available, otherwise fall back to props
+  const isOnline = realtimeStatus?.is_online ?? initialIsOnline;
+  const lastSeen = realtimeStatus?.last_seen ?? initialLastSeen;
+
   if (isOnline) {
     return (
       <div className={`flex items-center gap-1.5 ${className}`}>

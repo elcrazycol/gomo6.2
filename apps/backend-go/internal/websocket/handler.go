@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,25 +24,31 @@ func NewHandler(hub *Hub, authService *auth.AuthService) *Handler {
 
 // HandleWebSocket handles WebSocket upgrade requests
 func (h *Handler) HandleWebSocket(c *gin.Context) {
+	log.Printf("[WebSocket] HandleWebSocket called from %s", c.ClientIP())
+
 	// Extract user from context (set by auth middleware)
 	claims, exists := c.Get("claims")
 	if !exists {
+		log.Printf("[WebSocket] No claims found in context")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return
 	}
-	
+
 	userClaims, ok := claims.(*auth.Claims)
 	if !ok {
+		log.Printf("[WebSocket] Invalid claims type: %T", claims)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication"})
 		return
 	}
-	
+
+	log.Printf("[WebSocket] Upgrading connection for user: %s (%s)", userClaims.Username, userClaims.UserID)
+
 	// Get username from claims or use userID as fallback
 	username := userClaims.Username
 	if username == "" {
 		username = userClaims.UserID[:8] // Use first 8 chars of ID as fallback
 	}
-	
+
 	// Upgrade HTTP connection to WebSocket
 	ServeWs(h.hub, c.Writer, c.Request, userClaims.UserID, username)
 }

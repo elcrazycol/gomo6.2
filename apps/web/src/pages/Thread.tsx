@@ -491,10 +491,8 @@ const Thread = () => {
   useEffect(() => {
     if (!threadId) return;
 
-    // Connect to WebSocket if not already connected
-    if (!wsService.connected && user) {
-      wsService.connect();
-    }
+    // REMOVED: wsService.connect() - already handled in App.tsx and WebSocketContext
+    // No need to call connect() here, it causes duplicate connections
 
     // Subscribe to thread room
     wsService.subscribe(threadId);
