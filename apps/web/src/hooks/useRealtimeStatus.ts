@@ -1,7 +1,6 @@
 // Hook for real-time online status updates via WebSocket
 import { useEffect, useState } from 'react';
 import { wsService } from '@/services/websocket';
-import { useQueryClient } from '@tanstack/react-query';
 
 interface UserStatus {
   user_id: string;
@@ -82,7 +81,6 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
  */
 export function useUserRealtimeStatus(userId: string | undefined) {
   const [status, setStatus] = useState<UserStatus | null>(null);
-  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!userId) return;
@@ -101,9 +99,6 @@ export function useUserRealtimeStatus(userId: string | undefined) {
               is_online: true,
               last_seen: new Date().toISOString(),
             });
-
-            // Invalidate profile cache to force refetch
-            queryClient.invalidateQueries({ queryKey: ['profile-hover', userId] });
           }
         } catch (e) {
           console.error('Error parsing user_online event:', e);
@@ -124,9 +119,6 @@ export function useUserRealtimeStatus(userId: string | undefined) {
               is_online: false,
               last_seen: new Date().toISOString(),
             });
-
-            // Invalidate profile cache to force refetch
-            queryClient.invalidateQueries({ queryKey: ['profile-hover', userId] });
           }
         } catch (e) {
           console.error('Error parsing user_offline event:', e);

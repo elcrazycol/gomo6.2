@@ -9,17 +9,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type ThreadsHandler struct {
 	db                *sql.DB
+	redis             *redis.Client
 	botEventPublisher *BotEventPublisher
 }
 
 func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 	return &ThreadsHandler{db: db}
+}
+
+// SetRedis sets the Redis client for cache invalidation
+func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
 }
 
 // SetBotEventPublisher sets the bot event publisher
@@ -354,6 +362,11 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 
 	RecomputeUserProfileStats(h.db, userClaims.UserID)
 
+	// Invalidate cache for this board's threads
+	if h.redis != nil {
+		middleware.InvalidateCacheForBoard(h.redis, req.BoardID)
+	}
+
 	// Publish event to bots
 	if h.botEventPublisher != nil {
 		h.botEventPublisher.PublishThread(map[string]interface{}{
@@ -418,6 +431,11 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	}
 
 	RecomputeUserProfileStats(h.db, ownerID)
+
+	// Invalidate cache for this thread
+	if h.redis != nil {
+		middleware.InvalidateCacheForThread(h.redis, id)
+	}
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: gin.H{"deleted": true},

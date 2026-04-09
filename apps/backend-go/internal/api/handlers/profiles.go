@@ -9,16 +9,24 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type ProfilesHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	redis *redis.Client
 }
 
 func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 	return &ProfilesHandler{db: db}
+}
+
+// SetRedis sets the Redis client for cache invalidation
+func (h *ProfilesHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
 }
 
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
@@ -283,6 +291,11 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 			Error: stringPtr(err.Error()),
 		})
 		return
+	}
+
+	// Invalidate cache for this profile
+	if h.redis != nil {
+		middleware.InvalidateCacheForProfile(h.redis, id)
 	}
 
 	// Return updated profile

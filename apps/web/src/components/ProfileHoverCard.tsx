@@ -1,5 +1,5 @@
-import { useState, cloneElement } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, cloneElement, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/api/client_simple";
 import { User } from "lucide-react";
 import { format } from "date-fns";
@@ -9,6 +9,7 @@ import { AdminBadge } from "./AdminBadge";
 import { processProfileBio } from "@/utils/profileBio";
 import { storageUrl } from "@/utils/storage";
 import { OnlineStatus } from "./OnlineStatus";
+import { wsService } from "@/services/websocket";
 
 interface ProfileHoverCardProps {
   userId: string;
@@ -78,15 +79,84 @@ const fetchProfileData = async (userId: string) => {
 
 export const ProfileHoverCard = ({ userId, children, disabled = false }: ProfileHoverCardProps) => {
   const [showCard, setShowCard] = useState(false);
+  const queryClient = useQueryClient();
 
   // Use React Query for caching - only fetch when card is shown
   const { data } = useQuery({
     queryKey: ['profile-hover', userId],
     queryFn: () => fetchProfileData(userId),
     enabled: showCard && !!userId,
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes - остальные данные кешируются надолго
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });
+
+  // Subscribe to WebSocket events to update ONLY online status in real-time
+  // Subscribe globally (not dependent on showCard) to catch all status changes
+  useEffect(() => {
+    if (!userId) return;
+
+    console.log('[ProfileHoverCard] Subscribing to status updates for user:', userId);
+
+    const unsubscribeOnline = wsService.on('user_online', (message) => {
+      try {
+        // message.data is already parsed as object by WebSocket service
+        const eventData = message.data;
+
+        console.log('[ProfileHoverCard] user_online event:', eventData);
+
+        if (eventData.user_id === userId) {
+          console.log('[ProfileHoverCard] Updating online status for user:', userId);
+          // Update ONLY is_online and last_seen in cached data, keep everything else
+          queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+            if (!old) return old;
+            return {
+              ...old,
+              profile: {
+                ...old.profile,
+                is_online: true,
+                last_seen: new Date().toISOString(),
+              }
+            };
+          });
+        }
+      } catch (e) {
+        console.error('[ProfileHoverCard] Error handling user_online:', e, message);
+      }
+    });
+
+    const unsubscribeOffline = wsService.on('user_offline', (message) => {
+      try {
+        // message.data is already parsed as object by WebSocket service
+        const eventData = message.data;
+
+        console.log('[ProfileHoverCard] user_offline event:', eventData);
+
+        if (eventData.user_id === userId) {
+          console.log('[ProfileHoverCard] Updating offline status for user:', userId);
+          // Update ONLY is_online and last_seen in cached data, keep everything else
+          queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+            if (!old) return old;
+            return {
+              ...old,
+              profile: {
+                ...old.profile,
+                is_online: false,
+                last_seen: eventData.last_seen || new Date().toISOString(),
+              }
+            };
+          });
+        }
+      } catch (e) {
+        console.error('[ProfileHoverCard] Error handling user_offline:', e, message);
+      }
+    });
+
+    return () => {
+      console.log('[ProfileHoverCard] Unsubscribing from status updates for user:', userId);
+      unsubscribeOnline();
+      unsubscribeOffline();
+    };
+  }, [userId, queryClient]);
 
   const childrenWithHover = cloneElement(children as React.ReactElement, disabled ? {} : {
     onMouseEnter: () => setShowCard(true),

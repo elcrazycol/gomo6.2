@@ -22,11 +22,15 @@ func rowUserID(v interface{}) string {
 // RecomputeUserProfileStats sets users.post_count, thread_count, garma from live data.
 // Garma formula matches the Stats page weights: posts×0.5 + threads×4 + likes on posts×2 +
 // likes on threads×3 + replies by others in own threads×0.25 + floor(session_minutes/30).
+// This function runs asynchronously to avoid blocking the request.
 func RecomputeUserProfileStats(db *sql.DB, userID string) {
 	if userID == "" {
 		return
 	}
-	const q = `
+
+	// Run in goroutine to avoid blocking
+	go func() {
+		const q = `
 UPDATE users u SET
   post_count = s.pc,
   thread_count = s.tc,
@@ -53,5 +57,6 @@ FROM (
     )::int)) AS g
 ) s
 WHERE u.id = $1`
-	_, _ = db.Exec(q, userID)
+		_, _ = db.Exec(q, userID)
+	}()
 }
