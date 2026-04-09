@@ -1,5 +1,6 @@
 // Hook for real-time online status updates via WebSocket
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { wsService } from '@/services/websocket';
 
 interface UserStatus {
@@ -22,9 +23,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
     const unsubscribeOnline = wsService.on('user_online', (message) => {
       if (message.data) {
         try {
-          const data = typeof message.data === 'string'
-            ? JSON.parse(message.data)
-            : message.data;
+          const data = message.data;
 
           if (data.user_id && userIds.includes(data.user_id)) {
             setStatuses(prev => {
@@ -46,9 +45,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
     const unsubscribeOffline = wsService.on('user_offline', (message) => {
       if (message.data) {
         try {
-          const data = typeof message.data === 'string'
-            ? JSON.parse(message.data)
-            : message.data;
+          const data = message.data;
 
           if (data.user_id && userIds.includes(data.user_id)) {
             setStatuses(prev => {
@@ -78,9 +75,11 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
 
 /**
  * Hook to track online status of a single user in real-time
+ * Also updates React Query cache for profile-hover queries
  */
 export function useUserRealtimeStatus(userId: string | undefined) {
   const [status, setStatus] = useState<UserStatus | null>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!userId) return;
@@ -89,15 +88,27 @@ export function useUserRealtimeStatus(userId: string | undefined) {
     const unsubscribeOnline = wsService.on('user_online', (message) => {
       if (message.data) {
         try {
-          const data = typeof message.data === 'string'
-            ? JSON.parse(message.data)
-            : message.data;
+          const data = message.data;
 
           if (data.user_id === userId) {
-            setStatus({
+            const newStatus = {
               user_id: data.user_id,
               is_online: true,
               last_seen: new Date().toISOString(),
+            };
+            setStatus(newStatus);
+
+            // Update React Query cache for profile-hover
+            queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+              if (!old) return old;
+              return {
+                ...old,
+                profile: {
+                  ...old.profile,
+                  is_online: true,
+                  last_seen: newStatus.last_seen,
+                }
+              };
             });
           }
         } catch (e) {
@@ -109,15 +120,27 @@ export function useUserRealtimeStatus(userId: string | undefined) {
     const unsubscribeOffline = wsService.on('user_offline', (message) => {
       if (message.data) {
         try {
-          const data = typeof message.data === 'string'
-            ? JSON.parse(message.data)
-            : message.data;
+          const data = message.data;
 
           if (data.user_id === userId) {
-            setStatus({
+            const newStatus = {
               user_id: data.user_id,
               is_online: false,
-              last_seen: new Date().toISOString(),
+              last_seen: data.last_seen || new Date().toISOString(),
+            };
+            setStatus(newStatus);
+
+            // Update React Query cache for profile-hover
+            queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+              if (!old) return old;
+              return {
+                ...old,
+                profile: {
+                  ...old.profile,
+                  is_online: false,
+                  last_seen: newStatus.last_seen,
+                }
+              };
             });
           }
         } catch (e) {
@@ -130,7 +153,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
       unsubscribeOnline();
       unsubscribeOffline();
     };
-  }, [userId]);
+  }, [userId, queryClient]);
 
   return status;
 }
