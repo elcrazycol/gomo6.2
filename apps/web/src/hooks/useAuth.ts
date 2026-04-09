@@ -16,8 +16,8 @@ export function useAuth() {
     queryFn: () => apiClient.getCurrentUser(),
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
     retry: 1,
   });
 
