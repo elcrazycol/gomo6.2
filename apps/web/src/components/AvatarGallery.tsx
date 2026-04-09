@@ -52,7 +52,13 @@ export const AvatarGallery = ({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    document.body.style.overflow = "hidden";
+
+    // Block scroll completely
+    const scrollY = window.scrollY;
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
 
     // Try to enter fullscreen on mobile
     const enterFullscreen = async () => {
@@ -73,7 +79,14 @@ export const AvatarGallery = ({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "unset";
+
+      // Restore scroll
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      window.scrollTo(0, scrollY);
+
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
       }
