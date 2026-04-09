@@ -71,7 +71,8 @@ const Auth = () => {
         }
 
         // Invalidate auth cache to force refetch
-        queryClient.invalidateQueries({ queryKey: ['auth'] });
+        await queryClient.invalidateQueries({ queryKey: ['auth'] });
+        await queryClient.refetchQueries({ queryKey: ['auth', 'currentUser'] });
 
         // Reconnect WebSocket with new token
         const { wsService } = await import("@/services/websocket");
