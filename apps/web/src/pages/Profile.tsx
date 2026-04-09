@@ -1282,22 +1282,22 @@ const Profile = () => {
               )}
             </div>
           )}
-
-          {/* Avatar Gallery */}
-          {showAvatarGallery && avatarHistory.length > 0 && (
-            <AvatarGallery
-              avatars={avatarHistory.map(ah => ({
-                id: ah.id,
-                url: storageUrl("post-images", ah.avatar_url) || ah.avatar_url,
-                is_current: ah.is_current
-              }))}
-              initialIndex={avatarGalleryIndex}
-              onClose={() => setShowAvatarGallery(false)}
-              onDelete={isOwnProfile ? handleDeleteAvatar : undefined}
-              canDelete={isOwnProfile}
-            />
-          )}
         </div>
+        )}
+
+        {/* Avatar Gallery */}
+        {showAvatarGallery && avatarHistory.length > 0 && (
+          <AvatarGallery
+            avatars={avatarHistory.map(ah => ({
+              id: ah.id,
+              url: storageUrl("post-images", ah.avatar_url) || ah.avatar_url,
+              is_current: ah.is_current
+            }))}
+            initialIndex={avatarGalleryIndex}
+            onClose={() => setShowAvatarGallery(false)}
+            onDelete={isOwnProfile ? handleDeleteAvatar : undefined}
+            canDelete={isOwnProfile}
+          />
         )}
       </main>
   );
