@@ -96,17 +96,17 @@ BEGIN
         ORDER BY uploaded_at DESC
         LIMIT 1;
 
-        -- Update user (this will trigger the history function, but it won't duplicate since URL is same)
-        UPDATE users
-        SET avatar_url = prev_avatar_url
-        WHERE id = avatar_user_id;
-
-        -- Mark the previous avatar as current
+        -- Mark the previous avatar as current FIRST (before updating users table)
         IF prev_avatar_url IS NOT NULL THEN
             UPDATE avatar_history
             SET is_current = TRUE
             WHERE user_id = avatar_user_id AND avatar_url = prev_avatar_url;
         END IF;
+
+        -- Update user (this will trigger the history function, but it won't duplicate since URL is same and is_current is already set)
+        UPDATE users
+        SET avatar_url = prev_avatar_url
+        WHERE id = avatar_user_id;
     END IF;
 
     RETURN TRUE;
