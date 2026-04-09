@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -28,6 +29,8 @@ const (
 	MessageTypeUpdateWallPost = "update_wall_post"
 	MessageTypeDeleteWallPost = "delete_wall_post"
 	MessageTypeNewChatMessage = "new_chat_message"
+	MessageTypeUserOnline     = "user_online"
+	MessageTypeUserOffline    = "user_offline"
 
 	// Redis channels
 	RedisChannelPosts   = "realtime:posts"
@@ -35,6 +38,7 @@ const (
 	RedisChannelLikes   = "realtime:likes"
 	RedisChannelWall    = "realtime:wall"
 	RedisChannelChat    = "realtime:chat"
+	RedisChannelStatus  = "realtime:status"
 )
 
 // Message represents a WebSocket message
@@ -63,6 +67,7 @@ type Hub struct {
 	presence       map[string]*Client
 	mu             sync.RWMutex
 	redis          *redis.Client
+	db             interface{} // database connection for status updates
 	ctx            context.Context
 	cancel         context.CancelFunc
 	allowedOrigins []string
@@ -83,11 +88,17 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 		rooms:          make(map[string]map[*Client]bool),
 		presence:       make(map[string]*Client),
 		redis:          redisClient,
+		db:             nil, // will be set via SetDB method
 		ctx:            ctx,
 		cancel:         cancel,
 		allowedOrigins: allowedOrigins,
 		rateLimiter:    NewRateLimiter(60, time.Minute), // 60 messages per minute
 	}
+}
+
+// SetDB sets the database connection for the Hub
+func (h *Hub) SetDB(db interface{}) {
+	h.db = db
 }
 
 // Run starts the Hub and begins listening for Redis messages
@@ -102,6 +113,13 @@ func (h *Hub) Run() {
 			h.clients[client] = true
 			h.presence[client.UserID] = client
 			h.mu.Unlock()
+
+			// Update user online status in database
+			go h.updateUserOnlineStatus(client.UserID, true)
+
+			// Broadcast user online event
+			go h.broadcastUserStatus(client.UserID, client.Username, true)
+
 			log.Printf("[WebSocket] Client connected: %s (%s)", client.Username, client.UserID)
 
 		case client := <-h.unregister:
@@ -125,6 +143,12 @@ func (h *Hub) Run() {
 				log.Printf("[WebSocket] Client disconnected: %s (%s)", client.Username, client.UserID)
 			}
 			h.mu.Unlock()
+
+			// Update user offline status in database
+			go h.updateUserOnlineStatus(client.UserID, false)
+
+			// Broadcast user offline event
+			go h.broadcastUserStatus(client.UserID, client.Username, false)
 
 		case message := <-h.broadcast:
 			h.mu.RLock()
@@ -161,10 +185,10 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus)
 	defer pubsub.Close()
 
-	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat)
+	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus)
 
 	ch := pubsub.Channel()
 
@@ -243,6 +267,10 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
 			h.BroadcastToRoom(chatRoom, messageBytes)
 		}
+
+	case MessageTypeUserOnline, MessageTypeUserOffline:
+		// Broadcast user status to all connected clients
+		h.broadcast <- messageBytes
 
 	default:
 		// Broadcast to all clients for unknown types
@@ -398,6 +426,51 @@ func (h *Hub) GetClientByUserID(userID string) *Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.presence[userID]
+}
+
+// updateUserOnlineStatus updates user's online status in database
+func (h *Hub) updateUserOnlineStatus(userID string, isOnline bool) {
+	if h.db == nil {
+		return
+	}
+
+	// Type assert to *sql.DB
+	db, ok := h.db.(*sql.DB)
+	if !ok {
+		log.Printf("[WebSocket] Database type assertion failed")
+		return
+	}
+
+	query := "UPDATE users SET is_online = $1, last_seen = NOW() WHERE id = $2"
+	_, err := db.Exec(query, isOnline, userID)
+	if err != nil {
+		log.Printf("[WebSocket] Error updating user online status: %v", err)
+	}
+}
+
+// broadcastUserStatus broadcasts user online/offline status to all clients
+func (h *Hub) broadcastUserStatus(userID, username string, isOnline bool) {
+	var messageType string
+	if isOnline {
+		messageType = MessageTypeUserOnline
+	} else {
+		messageType = MessageTypeUserOffline
+	}
+
+	event := RealtimeEvent{
+		Type: messageType,
+		Payload: map[string]interface{}{
+			"user_id":   userID,
+			"username":  username,
+			"is_online": isOnline,
+			"timestamp": time.Now().Unix(),
+		},
+	}
+
+	// Publish to Redis for cross-server communication
+	if err := h.PublishToRedis(RedisChannelStatus, event); err != nil {
+		log.Printf("[WebSocket] Error publishing user status: %v", err)
+	}
 }
 
 // CheckOrigin validates WebSocket origin against allowed origins
