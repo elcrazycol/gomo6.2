@@ -1160,15 +1160,15 @@ const Thread = () => {
               {senderDisplayType === 'modern' ? (
                 <div className="flex items-start gap-2">
                   <img
-                    src={storageUrl("post-images", thread.profiles?.avatar_url) || '/placeholder.svg'}
+                    src={storageUrl("post-images", thread.avatar_url) || '/placeholder.svg'}
                     alt="Avatar"
                     className="w-12 h-12 rounded-full object-cover border border-border"
                   />
                   <div>
                     <UserBadge
                       userId={thread.user_id}
-                      username={thread.profiles?.username || "Аноним"}
-                      isAnonymous={thread.profiles?.is_anonymous}
+                      username={thread.username || "Аноним"}
+                      isAnonymous={false}
                       showOutline={false}
                     />
                     <div className="text-muted-foreground">
@@ -1186,8 +1186,8 @@ const Thread = () => {
                   {" · "}
                   <UserBadge
                     userId={thread.user_id}
-                    username={thread.profiles?.username || "Аноним"}
-                    isAnonymous={thread.profiles?.is_anonymous}
+                    username={thread.username || "Аноним"}
+                    isAnonymous={false}
                     showOutline={false}
                   />
                   {" · "}
@@ -1244,7 +1244,7 @@ const Thread = () => {
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
                   postAuthorId={thread.user_id}
-                  authorUsername={thread.profiles?.username}
+                  authorUsername={thread.username}
                 />
               </div>
             )}
@@ -1353,15 +1353,15 @@ const Thread = () => {
                   {senderDisplayType === 'modern' ? (
                     <div className="flex items-start gap-2">
                       <img
-                        src={storageUrl("post-images", post.profiles?.avatar_url) || '/placeholder.svg'}
+                        src={storageUrl("post-images", post.avatar_url) || '/placeholder.svg'}
                         alt="Avatar"
                         className="w-12 h-12 rounded-full object-cover border border-border"
                       />
                       <div>
                         <UserBadge
                           userId={post.user_id}
-                          username={post.profiles?.username || "Аноним"}
-                          isAnonymous={post.profiles?.is_anonymous}
+                          username={post.username || "Аноним"}
+                          isAnonymous={false}
                           showOutline={false}
                         />
                         <div className="text-muted-foreground">
@@ -1379,8 +1379,8 @@ const Thread = () => {
                       {" · "}
                       <UserBadge
                         userId={post.user_id}
-                        username={post.profiles?.username || "Аноним"}
-                        isAnonymous={post.profiles?.is_anonymous}
+                        username={post.username || "Аноним"}
+                        isAnonymous={false}
                         showOutline={false}
                       />
                       {" · "}
@@ -1512,7 +1512,7 @@ const Thread = () => {
                         currentUsername={currentUserUsername}
                         currentUserColor={currentUserColor}
                         postAuthorId={post.user_id}
-                        authorUsername={post.profiles?.username}
+                        authorUsername={post.username}
                       />
                     </>
                   )}
