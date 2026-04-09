@@ -142,6 +142,8 @@ type Post struct {
 	ServerDomain       string          `json:"server_domain" db:"server_domain"`
 	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 	IsRemote           bool            `json:"is_remote" db:"is_remote"`
+	Username           string          `json:"username"`
+	AvatarURL          *string         `json:"avatar_url"`
 }
 
 // PostLike

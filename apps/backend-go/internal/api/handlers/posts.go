@@ -179,6 +179,12 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			})
 			return
 		}
+		if username.Valid {
+			post.Username = username.String
+		}
+		if avatarURL.Valid {
+			post.AvatarURL = &avatarURL.String
+		}
 		if len(contentJSON) > 0 {
 			var decoded interface{}
 			if err := json.Unmarshal(contentJSON, &decoded); err == nil {
@@ -231,6 +237,12 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 			Error: stringPtr(err.Error()),
 		})
 		return
+	}
+	if username.Valid {
+		post.Username = username.String
+	}
+	if avatarURL.Valid {
+		post.AvatarURL = &avatarURL.String
 	}
 	if len(contentJSON) > 0 {
 		var decoded interface{}
