@@ -5,6 +5,11 @@ export interface AttachmentMeta {
   name?: string | null;
   size?: number | null;
   poster?: string | null;
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  duration?: number | null;
+  coverArt?: string | null;
 }
 
 export interface UserProfileLite {
@@ -29,6 +34,7 @@ export interface Thread {
     slug: string;
     name: string;
     is_rules_board: boolean;
+    is_gomosub?: boolean;
   };
   profiles: UserProfileLite | null;
 }

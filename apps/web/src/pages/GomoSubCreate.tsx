@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -97,10 +97,10 @@ const GomoSubCreate = () => {
       blocks.push(form.standardRules.trim());
     }
     if (allowed.length) {
-      blocks.push(`### Можно\n${allowed.map((x) => `- ${x}`).join("\n")}`);
+      blocks.push(`Можно\n${allowed.map((x) => `- ${x}`).join("\n")}`);
     }
     if (forbidden.length) {
-      blocks.push(`### Нельзя\n${forbidden.map((x) => `- ${x}`).join("\n")}`);
+      blocks.push(`Нельзя\n${forbidden.map((x) => `- ${x}`).join("\n")}`);
     }
     return blocks.join("\n\n").trim() || null;
   };
@@ -152,9 +152,8 @@ const GomoSubCreate = () => {
       });
       if (error) throw error;
 
-      const { data: { publicUrl } } = supabase.storage.from("post-images").getPublicUrl(fileName);
-      if (kind === "avatar") setAvatarImages([publicUrl]);
-      else setCoverImages([publicUrl]);
+      if (kind === "avatar") setAvatarImages([fileName]);
+      else setCoverImages([fileName]);
       toast.success(kind === "avatar" ? "Аватар загружен" : "Фон загружен");
     } catch (e: any) {
       toast.error(e?.message || "Не удалось загрузить изображение");

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -141,22 +141,9 @@ export default function Stats() {
         supabase.from("profiles").select("username, garma, post_count, thread_count").eq("id", targetUserId).single(),
         supabase.from("posts").select("created_at").eq("user_id", targetUserId).order("created_at", { ascending: true }),
         supabase.from("threads").select("created_at").eq("user_id", targetUserId).order("created_at", { ascending: true }),
-        supabase
-          .from("post_likes")
-          .select("created_at, posts!inner(user_id)")
-          .eq("posts.user_id", targetUserId)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("thread_likes")
-          .select("created_at, threads!inner(user_id)")
-          .eq("threads.user_id", targetUserId)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("posts")
-          .select("created_at, threads!inner(user_id)")
-          .eq("threads.user_id", targetUserId)
-          .neq("user_id", targetUserId)
-          .order("created_at", { ascending: true }),
+        supabase.rpc("get_user_post_likes_received_timestamps", { user_uuid: targetUserId }),
+        supabase.rpc("get_user_thread_likes_received_timestamps", { user_uuid: targetUserId }),
+        supabase.rpc("get_user_thread_reply_timestamps", { user_uuid: targetUserId }),
         supabase
           .from("user_session_time")
           .select("total_minutes, last_updated")

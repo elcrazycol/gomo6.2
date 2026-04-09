@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -13,6 +13,7 @@ import { CookieBanner } from "@/components/CookieBanner";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
+import { useAuth } from "@/hooks/useAuth";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -30,10 +31,9 @@ type NowPlayingState = {
 };
 
 export const AppLayout = ({ children }: AppLayoutProps) => {
-  const APP_VERSION = "v1.4";
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<{ id: string } | null>(null);
+  const { user } = useAuth(); // Use cached auth hook instead of local state
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -74,11 +74,10 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [hideMessengerChrome, setHideMessengerChrome] = useState(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastPlayEventRef = useRef<string | null>(null);
+  const isBackgroundResumeRef = useRef(false);
   const { scrollY } = useScroll();
 
-  useEffect(() => {
-    console.info(`[gomo6] App version: ${APP_VERSION}`);
-  }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hidden = localStorage.getItem("nowPlayingHidden") === "true";
@@ -93,8 +92,19 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const pauseOthers = (exceptId?: string) => {
     audioMapRef.current.forEach((entry, key) => {
       if (key === exceptId) return;
-      if (entry.inst?.pause) entry.inst.pause();
-      if ("paused" in entry.inst && entry.inst.paused === false && entry.inst?.pause) entry.inst.pause();
+      if (!entry.inst) return;
+
+      // For Plyr instances, check the actual media element
+      const media = entry.inst.media || entry.inst;
+      const isPlaying = media && !media.paused && !media.ended;
+      
+      if (isPlaying) {
+        if (entry.inst.pause) {
+          entry.inst.pause();
+        } else if (media.pause) {
+          media.pause();
+        }
+      }
     });
   };
 
@@ -127,6 +137,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const playTrackById = useCallback((targetId: string) => {
     setNowPlayingHidden(false);
     if (typeof window !== "undefined") localStorage.removeItem("nowPlayingHidden");
+    
+    // Reset duplicate event protection when explicitly playing a track
+    lastPlayEventRef.current = null;
     let entry = audioMapRef.current.get(targetId);
     let hasMedia = !!(entry?.inst?.media || entry?.inst instanceof HTMLMediaElement);
 
@@ -138,7 +151,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       const meta = list.find((i) => i.id === targetId);
       if (meta?.src) {
         const audio = new Audio(meta.src);
-        audio.preload = "auto";
+        audio.preload = "metadata";
+        audio.crossOrigin = "anonymous";
         const v = storedVolumeRef.current !== null ? storedVolumeRef.current : volume;
         audio.volume = v;
         audioMapRef.current.set(targetId, {
@@ -150,7 +164,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
         const persist = () => {
           const now = performance.now();
-          if (now - lastProgressUpdateRef.current < 200) return;
+          if (now - lastProgressUpdateRef.current < 500) return;
           lastProgressUpdateRef.current = now;
           setProgress({ current: audio.currentTime || 0, duration: audio.duration || 0 });
           localStorage.setItem(
@@ -172,6 +186,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           setProgress({ current: 0, duration: audio.duration || 0 });
           controlRef.current?.("next");
         });
+        audio.addEventListener("error", (e) => {
+          console.error("Audio playback error:", e);
+          audioMapRef.current.delete(targetId);
+          setQueue((q) => q.filter((k) => k !== targetId));
+          controlRef.current?.("next");
+        });
         audio.addEventListener("playing", () => setNowPlaying((cur) => (cur ? { ...cur, instance: audio } : cur)));
         audio.addEventListener("pause", () => setNowPlaying((cur) => (cur ? { ...cur, instance: audio } : cur)));
         hasMedia = true;
@@ -183,7 +203,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     if (!entry?.inst?.play || !hasMedia) return;
 
     pauseOthers(targetId);
-    entry.inst.play();
+    entry.inst.play().catch((err) => {
+      console.error("Failed to play audio:", err);
+      audioMapRef.current.delete(targetId);
+      setQueue((q) => q.filter((k) => k !== targetId));
+      controlRef.current?.("next");
+    });
     const playlistId = entry.playlistId ?? nowPlaying?.playlistId;
     const list = playlistId ? playlistMapRef.current.get(playlistId) || [] : [];
     const found = list.find((i) => i.id === targetId);
@@ -302,7 +327,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
       const audio = new Audio(data.src);
       audio.crossOrigin = "anonymous";
-      audio.preload = "auto";
+      audio.preload = "metadata";
       const savedPos = data.position || 0;
       const savedVol =
         storedVolumeRef.current !== null
@@ -367,7 +392,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
       const update = () => {
         const now = performance.now();
-        if (now - lastProgressUpdateRef.current < 200) return;
+        if (now - lastProgressUpdateRef.current < 500) return;
         lastProgressUpdateRef.current = now;
         const current = audio.currentTime || 0;
         const duration = audio.duration || 0;
@@ -390,6 +415,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       audio.addEventListener("ended", () => {
         setProgress({ current: 0, duration: audio.duration || 0 });
         controlRef.current?.("next");
+      });
+      audio.addEventListener("error", (e) => {
+        console.error("Audio restore error:", e);
+        audioMapRef.current.delete(id);
+        setQueue((q) => q.filter((k) => k !== id));
+        setNowPlaying(null);
+        setProgress({ current: 0, duration: 0 });
       });
 
       // keep persisted state updated while paused
@@ -421,13 +453,24 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       if (!detail) return;
 
       const id = detail.playerId || crypto.randomUUID();
-      const title = detail.title || "Аудио";
+      const title = detail.title || "Áóäèî";
       const src = detail.src;
       const playlistId = detail.playlistId as string | undefined;
       const playlistIndex = detail.playlistIndex as number | undefined;
 
-      // Pause other audio instances to avoid overlap
-      pauseOthers(id);
+      // Prevent duplicate events for the same instance
+      if (lastPlayEventRef.current === id) {
+        return;
+      }
+      lastPlayEventRef.current = id;
+
+      // Don't pause others during background resume
+      if ((window as any).isBackgroundResume) {
+        (window as any).isBackgroundResume = false;
+      } else {
+        // Pause other audio instances to avoid overlap
+        pauseOthers(id);
+      }
 
       lastTrackRef.current = { id, title, src };
 
@@ -452,7 +495,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       const attachProgress = () => {
         const update = () => {
           const now = performance.now();
-          if (now - lastProgressUpdateRef.current < 200) return; // throttle to reduce re-renders
+          if (now - lastProgressUpdateRef.current < 500) return;
           lastProgressUpdateRef.current = now;
           const current = inst.currentTime || 0;
           const duration = inst.duration || 0;
@@ -490,6 +533,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             );
           }
         };
+        const handleError = (e: any) => {
+          console.error("Audio playback error:", e);
+          audioMapRef.current.delete(id);
+          setQueue((q) => q.filter((k) => k !== id));
+          controlRef.current?.("next");
+        };
         // normalize events for plyr (inst.on) and native audio
         if (typeof inst.on === "function") {
           inst.on("timeupdate", update);
@@ -498,6 +547,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             setProgress({ current: 0, duration: inst.duration || 0 });
             controlRef.current?.("next");
           });
+          inst.on("error", handleError);
           inst.on("playing", () => setNowPlaying((cur) => (cur ? { ...cur, instance: inst } : cur)));
           inst.on("pause", () => setNowPlaying((cur) => (cur ? { ...cur, instance: inst } : cur)));
         } else if (inst?.addEventListener) {
@@ -507,6 +557,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             setProgress({ current: 0, duration: inst.duration || 0 });
             controlRef.current?.("next");
           });
+          inst.addEventListener("error", handleError);
           inst.addEventListener("playing", () => setNowPlaying((cur) => (cur ? { ...cur, instance: inst } : cur)));
           inst.addEventListener("pause", () => setNowPlaying((cur) => (cur ? { ...cur, instance: inst } : cur)));
         }
@@ -608,9 +659,28 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       });
     };
 
+    const handleAudioError = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const id = detail?.playerId;
+      if (!id) return;
+
+      console.error("Audio error for track:", detail.title, detail.error);
+      audioMapRef.current.delete(id);
+      setQueue((q) => q.filter((k) => k !== id));
+
+      // Auto-skip to next track on error
+      if (nowPlaying?.id === id) {
+        controlRef.current?.("next");
+      }
+    };
+
     window.addEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
-    return () => window.removeEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
-  }, []);
+    window.addEventListener("global-audio-error", handleAudioError as EventListener);
+    return () => {
+      window.removeEventListener("global-audio-destroy", handleAudioDestroy as EventListener);
+      window.removeEventListener("global-audio-error", handleAudioError as EventListener);
+    };
+  }, [nowPlaying?.id]);
 
   useEffect(() => {
     const headerPad = isHeaderVisible ? (isDesktop ? 74 : mobileSearchOpen ? 120 : 68) : 24;
@@ -638,20 +708,25 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     }
 
     if (action === "toggle") {
-      const isPlaying =
-        typeof currentEntry.inst.playing === "boolean"
-          ? currentEntry.inst.playing
-          : currentEntry.inst.paused === false;
+      // For Plyr instances, check the actual media element state
+      const media = currentEntry.inst.media || currentEntry.inst;
+      const isPlaying = media && !media.paused && !media.ended;
+
       if (isPlaying) {
         currentEntry.inst.pause();
       } else {
         pauseOthers(nowPlaying.id);
-        currentEntry.inst.play();
+        currentEntry.inst.play().catch((err: any) => {
+          console.error("Failed to play:", err);
+        });
       }
       return;
     }
     if (action === "mute") {
-      currentEntry.inst.muted = !currentEntry.inst.muted;
+      const media = currentEntry.inst.media || currentEntry.inst;
+      if (media) {
+        media.muted = !media.muted;
+      }
       return;
     }
 
@@ -660,6 +735,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     const targetIdx =
       action === "next" ? (idx + 1) % orderedIds.length : (idx - 1 + orderedIds.length) % orderedIds.length;
 
+    // Reset duplicate event protection when switching tracks
+    lastPlayEventRef.current = null;
     playTrackById(orderedIds[targetIdx]);
   }, [getOrderedIds, nowPlaying, playTrackById]);
 
@@ -687,68 +764,63 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [handleNowPlayingControl]);
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+    // Load user profile data when user changes
+    const loadUserProfile = async () => {
+      if (!user?.id) {
+        setIsModerator(false);
+        setCurrentUserUsername("");
+        setCurrentUserColor("");
+        return;
+      }
 
-      if (user) {
-        // Load user role
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id);
+      // Load user role
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id);
 
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+      setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", user.id)
-          .single();
+      // Load current user profile and color
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("id", user.id)
+        .single();
 
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-        }
+      if (profile) {
+        setCurrentUserUsername(profile.username);
+      }
 
-        // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", user.id);
+      // Load current user color
+      const { data: achievements } = await supabase
+        .from("user_achievements")
+        .select(`
+          achievement_id,
+          achievements (
+            reward_type,
+            reward_value
+          )
+        `)
+        .eq("user_id", user.id);
 
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a) => a.achievements?.reward_type === "username_color")
-            .map((a) => a.achievements!.reward_value);
+      if (achievements) {
+        const colorRewards = achievements
+          .filter((a) => a.achievements?.reward_type === "username_color")
+          .map((a) => a.achievements!.reward_value);
 
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
+        const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
+        for (const p of priority) {
+          if (colorRewards.includes(p)) {
+            setCurrentUserColor(p);
+            break;
           }
         }
       }
     };
 
-    getUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null);
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
+    loadUserProfile();
+  }, [user?.id]);
 
   useEffect(() => {
     const term = searchQuery.trim();
@@ -1054,10 +1126,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               >
                 {(() => {
                   const inst = nowPlaying.instance;
-                  const playing =
-                    typeof inst?.playing === "boolean"
-                      ? inst.playing
-                      : inst?.paused === false;
+                  const media = inst?.media || inst;
+                  const playing = media && !media.paused && !media.ended;
                   return playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />;
                 })()}
               </button>

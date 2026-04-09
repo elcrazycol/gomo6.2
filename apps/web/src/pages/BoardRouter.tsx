@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -23,6 +23,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
+import { storageUrl } from "@/utils/storage";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 
 interface Board {
@@ -490,7 +491,7 @@ const Board = () => {
               <div className="flex gap-2 sm:gap-3">
                 {thread.image_url && (
                   <img
-                    src={thread.image_url}
+                    src={storageUrl("content", thread.image_url) || thread.image_url}
                     alt="Thread"
                     className="w-16 h-16 sm:w-20 sm:h-20 object-cover border border-border flex-shrink-0"
                   />

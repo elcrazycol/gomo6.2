@@ -1,22 +1,22 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState, memo } from "react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useProfileCache } from "@/contexts/ProfileCacheContext";
 
 interface AdminBadgeProps {
   userId: string;
 }
 
 const AdminIconSVG = () => (
-  <svg 
-    version="1.0" 
+  <svg
+    version="1.0"
     xmlns="http://www.w3.org/2000/svg"
-    width="1020.000000pt" 
-    height="1280.000000pt" 
+    width="1020.000000pt"
+    height="1280.000000pt"
     viewBox="0 0 1020.000000 1280.000000"
     preserveAspectRatio="xMidYMid meet"
     className="w-4 h-4"
@@ -30,21 +30,19 @@ const AdminIconSVG = () => (
   </svg>
 );
 
-export const AdminBadge = ({ userId }: AdminBadgeProps) => {
+export const AdminBadge = memo(({ userId }: AdminBadgeProps) => {
+  const { getProfile, loadProfile } = useProfileCache();
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const checkAdmin = async () => {
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId);
+    const cached = getProfile(userId);
+    if (cached) {
+      setIsAdmin(cached.isAdmin);
+      return;
+    }
 
-      setIsAdmin(roles?.some(r => r.role === 'admin') || false);
-    };
-
-    checkAdmin();
-  }, [userId]);
+    loadProfile(userId).then(profile => setIsAdmin(profile.isAdmin));
+  }, [userId, getProfile, loadProfile]);
 
   if (!isAdmin) return null;
 
@@ -62,4 +60,6 @@ export const AdminBadge = ({ userId }: AdminBadgeProps) => {
       </Tooltip>
     </TooltipProvider>
   );
-};
+});
+
+AdminBadge.displayName = 'AdminBadge';
