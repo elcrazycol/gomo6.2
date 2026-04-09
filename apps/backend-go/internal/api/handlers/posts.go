@@ -10,24 +10,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type PostsHandler struct {
-	db               *sql.DB
-	wsHub            interface{}
+	db                *sql.DB
+	redis             *redis.Client
+	wsHub             interface{}
 	botEventPublisher *BotEventPublisher
 }
 
-// NewPostsHandler creates a new PostsHandler with optional WebSocket Hub
+// NewPostsHandler creates a new PostsHandler with optional WebSocket Hub and Redis
 func NewPostsHandler(db *sql.DB, wsHub ...interface{}) *PostsHandler {
 	h := &PostsHandler{db: db}
 	if len(wsHub) > 0 {
 		h.wsHub = wsHub[0]
 	}
 	return h
+}
+
+// SetRedis sets the Redis client for cache invalidation
+func (h *PostsHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
 }
 
 // SetBotEventPublisher sets the bot event publisher
@@ -293,6 +301,11 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	`, threadID)
 	RecomputeUserProfileStats(h.db, authorID)
 
+	// Invalidate cache for this thread's posts
+	if h.redis != nil {
+		middleware.InvalidateCacheForThread(h.redis, threadID)
+	}
+
 	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: gin.H{"deleted": true},
 	})
@@ -413,26 +426,25 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 
 	RecomputeUserProfileStats(h.db, userClaims.UserID)
 
+	// Invalidate cache for this thread's posts
+	if h.redis != nil {
+		middleware.InvalidateCacheForThread(h.redis, req.ThreadID)
+	}
+
 	// Publish realtime event to WebSocket Hub
 	fmt.Printf("[WebSocket DEBUG] wsHub is nil: %v\n", h.wsHub == nil)
 	if h.wsHub != nil {
 		if hub, ok := h.wsHub.(*websocket.Hub); ok {
-			// Fetch author info for the post
-			var username, avatarURL string
-			h.db.QueryRow("SELECT username, COALESCE(avatar_url, '') FROM users WHERE id = $1", userClaims.UserID).Scan(&username, &avatarURL)
-
-			// Create enriched post data with author info
-			postData := struct {
-				models.Post
-				Username  string `json:"username"`
-				AvatarURL string `json:"avatar_url"`
-			}{
-				Post:      post,
-				Username:  username,
-				AvatarURL: avatarURL,
+			// Send minimal payload - only IDs and essential data
+			// Frontend will use React Query cache or fetch if needed
+			postData := map[string]interface{}{
+				"id":        post.ID,
+				"thread_id": post.ThreadID,
+				"user_id":   post.UserID,
+				"created_at": post.CreatedAt,
 			}
 
-			fmt.Printf("[WebSocket DEBUG] Publishing post event for %s by %s\n", post.ID, username)
+			fmt.Printf("[WebSocket DEBUG] Publishing minimal post event for %s\n", post.ID)
 			if err := hub.PublishNewPost(postData); err != nil {
 				fmt.Printf("[WebSocket] Error publishing new post event: %v\n", err)
 			} else {

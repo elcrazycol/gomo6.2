@@ -43,9 +43,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	boardsHandler := handlers.NewBoardsHandler(db)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetBotEventPublisher(botEventPublisher)
+	threadsHandler.SetRedis(redis)
 	postsHandler := handlers.NewPostsHandler(db, wsHub)
 	postsHandler.SetBotEventPublisher(botEventPublisher)
+	postsHandler.SetRedis(redis)
 	profilesHandler := handlers.NewProfilesHandler(db)
+	profilesHandler.SetRedis(redis)
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	rpcHandler := handlers.NewRPCHandler(db)
@@ -112,6 +115,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Supabase compatibility routes
 	rest := router.Group("/rest/v1")
 	{
+		// Apply data caching middleware for GET requests (30 second TTL)
+		rest.Use(middleware.DataCacheMiddleware(redis, 30*time.Second))
+
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)
 		rest.GET("/profiles/:id", profilesHandler.GetProfile)

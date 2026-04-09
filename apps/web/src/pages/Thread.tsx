@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
+import { useWebSocketSync } from "@/hooks/useWebSocketSync";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ImageGallery } from "@/components/ImageGallery";
@@ -189,8 +191,12 @@ const Thread = () => {
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
   const navigate = useNavigate();
-  const [thread, setThread] = useState<ThreadModel | null>(null);
-  const [posts, setPosts] = useState<PostModel[]>([]);
+
+  // Use React Query hooks instead of manual state management
+  useWebSocketSync(); // Sync WebSocket events with React Query cache
+  const { data: thread, isLoading: threadLoading } = useThread(threadId);
+  const { data: posts = [], isLoading: postsLoading } = usePosts(threadId);
+
   const [user, setUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
@@ -215,7 +221,9 @@ const Thread = () => {
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  // Use React Query hook for subscription status
+  const { data: isSubscribed = false } = useThreadSubscription(threadId, user?.id);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editContentJson, setEditContentJson] = useState<unknown>(null);
@@ -229,14 +237,13 @@ const Thread = () => {
   const [galleryEditable, setGalleryEditable] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false); // Changed from true - React Query handles loading
   const [removeMetadata, setRemoveMetadata] = useState(true);
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as any) || 'classic';
   });
   const [pollData, setPollData] = useState<any>(null);
   const shouldStickBottomRef = useRef(false);
-  const postsRef = useRef<PostModel[]>([]);
   const SCROLL_STICKY_THRESHOLD = 240;
 
   // Simple BBCode renderer for preview
@@ -483,81 +490,12 @@ const Thread = () => {
   }, []);
 
   // Keep postsRef in sync with posts state
-  useEffect(() => {
-    postsRef.current = posts;
-  }, [posts]);
+  // REMOVED: No longer needed with React Query
 
   // WebSocket realtime subscription for new posts
-  useEffect(() => {
-    if (!threadId) return;
+  // REMOVED: Handled by useWebSocketSync hook
 
-    // REMOVED: wsService.connect() - already handled in App.tsx and WebSocketContext
-    // No need to call connect() here, it causes duplicate connections
-
-    // Subscribe to thread room
-    wsService.subscribe(threadId);
-
-    // Listen for new posts
-    const unsubscribe = wsService.on('new_post', (message) => {
-      if (message.data) {
-        try {
-          const postData = typeof message.data === 'string' 
-            ? JSON.parse(message.data) 
-            : message.data;
-          
-          // Validate post data
-          if (!postData.id || !postData.thread_id) return;
-          
-          // Only add if it's for this thread
-          if (postData.thread_id !== threadId) return;
-          
-          // Check against current state for deduplication
-          const postId = String(postData.id);
-          setPosts(prevPosts => {
-            if (prevPosts.some(p => String(p.id) === postId)) {
-              return prevPosts; // Post already exists, don't duplicate
-            }
-            
-            // Add new post with profile data
-            const newPost = {
-              ...postData,
-              profiles: {
-                id: postData.user_id,
-                username: postData.username || 'Аноним',
-                avatar_url: postData.avatar_url
-              }
-            };
-            
-            return [...prevPosts, newPost];
-          });
-          
-          // Clear pending post ID if this was our own post
-          if (pendingPostId === postId) {
-            setPendingPostId(null);
-          }
-        } catch (e) {
-          // Silent error
-        }
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [threadId, user, pendingPostId]);
-
-  const checkSubscription = useCallback(async () => {
-    if (!user || !threadId) return;
-    
-    const { data } = await supabase
-      .from("thread_subscriptions")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("thread_id", threadId)
-      .maybeSingle();
-    
-    setIsSubscribed(!!data);
-  }, [threadId, user]);
+  // REMOVED: checkSubscription - handled by useThreadSubscription hook
 
   const toggleSubscription = async () => {
     if (!user) {
@@ -571,18 +509,16 @@ const Thread = () => {
         .delete()
         .eq("user_id", user.id)
         .eq("thread_id", threadId);
-      
+
       if (!error) {
-        setIsSubscribed(false);
         toast.success("Отписались от уведомлений");
       }
     } else {
       const { error } = await supabase
         .from("thread_subscriptions")
         .insert({ user_id: user.id, thread_id: threadId });
-      
+
       if (!error) {
-        setIsSubscribed(true);
         toast.success("Подписались на уведомления");
       }
     }
@@ -703,135 +639,57 @@ const Thread = () => {
     }
   }, [navigate, slug, threadId, user]);
 
-  const normalizePost = useCallback(async (post: any): Promise<PostModel> => {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("username, is_anonymous, avatar_url, id")
-      .eq("id", post.user_id!)
-      .maybeSingle();
+  // REMOVED: loadThread and loadPosts - handled by React Query hooks
+  // REMOVED: normalizePost, fetchPostWithProfile, mergePostIntoList - no longer needed
 
-    const attachments = parseAttachments(post.attachments);
-
-    let imageUrls: string[] = [];
-    if (Array.isArray(post.image_urls)) {
-      imageUrls = post.image_urls;
-    } else if (typeof post.image_urls === "string") {
-      try {
-        imageUrls = JSON.parse(post.image_urls);
-      } catch {
-        imageUrls = [];
-      }
-    } else if (attachments.length > 0) {
-      imageUrls = attachments.filter(att => att.type === "image").map(att => att.url);
-    } else if (post.image_url) {
-      imageUrls = [post.image_url];
-    }
-
-    return {
-      ...post,
-      profiles: profile as UserProfileLite | null,
-      imageUrls,
-      attachments,
-    } as PostModel;
-  }, []);
-
-  const fetchPostWithProfile = useCallback(async (postId: string) => {
-    try {
-      const result = await supabase
-        .from("posts")
-        .select("*")
-        .eq("id", postId)
-        .single();
-      
-      if (result.error || !result.data) return null;
-      return normalizePost(result.data);
-    } catch (err) {
-      console.error("fetchPostWithProfile error:", err);
-      return null;
-    }
-  }, [normalizePost]);
-
-  const mergePostIntoList = useCallback((list: PostModel[], post: PostModel) => {
-    const idx = list.findIndex(p => p.id === post.id);
-    const next = idx >= 0 ? [...list.slice(0, idx), post, ...list.slice(idx + 1)] : [...list, post];
-    next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    return next;
-  }, []);
-
-  const handleAIReply = useCallback(async (triggerPost: any) => {
-    try {
-      // Get the post that was replied to (this is the prompt)
-      const { data: promptPost } = await supabase
-        .from("posts")
-        .select("content")
-        .eq("id", triggerPost.reply_to)
-        .single();
-
-      if (!promptPost) return;
-
-      console.log('[AI] Triggering AI reply to:', promptPost.content);
-      
-      // Show notification that AI is processing
-      toast.info("🤖 AI генерирует ответ...", {
-        duration: 3000,
-      });
-
-      // Call AI edge function
-      // DISABLED: Go backend doesn't support Supabase Edge Functions
-      /*
-      const { error } = await supabase.functions.invoke('ai-reply', {
-        body: {
-          threadId: threadId,
-          replyToId: triggerPost.reply_to,
-          promptContent: promptPost.content
-        }
-      });
-
-      if (error) {
-        console.error('[AI] Error calling AI function:', error);
-        toast.error("❌ Ошибка AI");
-      } else {
-        toast.success("✅ AI ответил");
-      }
-      */
-    } catch (error) {
-      console.error('[AI] Error in handleAIReply:', error);
-      toast.error("❌ Ошибка AI");
-    }
-  }, [threadId]);
-
-  const loadPosts = useCallback(async () => {
-    const { data: postsData } = await supabase
-      .from("posts")
-      .select("*")
-      .eq("thread_id", threadId)
-      .order("created_at", { ascending: true });
-
-    if (postsData) {
-      const postsWithProfiles = await Promise.all(postsData.map(normalizePost));
-      setPosts(postsWithProfiles);
-
-      if (postsData.length > 0) {
-        const latestPost = postsData[postsData.length - 1];
-        if (latestPost.content.includes('@AI') && latestPost.reply_to) {
-          await handleAIReply(latestPost);
-        }
-      }
-    }
-  }, [handleAIReply, normalizePost, threadId]);
-
+  // Load poll data when thread is loaded
   useEffect(() => {
-    const loadAll = async () => {
-      setPageLoading(true);
-      await Promise.all([
-        loadThread(),
-        loadPosts(),
-        checkSubscription(),
-      ]);
-      setPageLoading(false);
+    if (!thread?.id || !threadId) return;
+
+    const loadPollData = async () => {
+      const { data: poll } = await supabase
+        .from('polls')
+        .select('*')
+        .eq('thread_id', threadId)
+        .maybeSingle();
+
+      if (poll) {
+        let userVotes: string[] = [];
+        if (user?.id) {
+          const { data: userVote } = await supabase
+            .from('poll_votes')
+            .select('option_ids')
+            .eq('poll_id', poll.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          userVotes = userVote?.option_ids || [];
+        }
+
+        setPollData({ ...poll, user_votes: userVotes });
+      }
+
+      // Track thread visit for achievements
+      if (user && thread) {
+        try {
+          const hasCustomMessage = thread.custom_message && thread.custom_message.trim().length > 0;
+          await supabase
+            .from('thread_custom_message_visits')
+            .upsert({
+              user_id: user.id,
+              thread_id: thread.id,
+              has_custom_message: hasCustomMessage
+            }, {
+              onConflict: 'user_id,thread_id'
+            });
+        } catch (error) {
+          console.error("Thread visit tracking unavailable:", error);
+        }
+      }
     };
-    loadAll();
-  }, [threadId, user, loadPosts, loadThread, checkSubscription]);
+
+    loadPollData();
+  }, [thread, threadId, user]);
 
   // Keep view anchored when мы уже у низа или запланировали при отправке своего поста
   useEffect(() => {
@@ -943,49 +801,8 @@ const Thread = () => {
 
       const data = await response.json();
 
-      // Add new post to local state ONLY if not already added by WebSocket
-      // Backend returns { data: post } wrapped in SupabaseResponse
-      const postData = data.data || data;
-      if (postData) {
-        const postId = String(postData.id);
-        
-        // Mark this post as pending to avoid WebSocket duplicates
-        setPendingPostId(postId);
-        
-        setPosts((currentPosts) => {
-          // Check if post already exists (might be added by WebSocket)
-          if (currentPosts.some(p => String(p.id) === postId)) {
-            return currentPosts; // Don't duplicate
-          }
-          
-          const newPost = {
-            ...postData,
-            profiles: {
-              id: user.id,
-              username: user.username,
-              avatar_url: user.avatar_url
-            }
-          };
-          
-          if (replyingTo) {
-            // Insert after the post we're replying to
-            const replyIndex = currentPosts.findIndex(p => p.id === replyingTo);
-            if (replyIndex !== -1) {
-              const newPosts = [...currentPosts];
-              newPosts.splice(replyIndex + 1, 0, newPost);
-              return newPosts;
-            }
-          }
-          
-          // Add to end
-          return [...currentPosts, newPost];
-        });
-        
-        // Clear pending post ID after a short delay to handle WebSocket race conditions
-        setTimeout(() => {
-          setPendingPostId(null);
-        }, 2000);
-      }
+      // React Query will automatically update via WebSocket + cache invalidation
+      // No need to manually update posts state
 
       // Start clearing mode
       setIsClearing(true);
@@ -1077,12 +894,12 @@ const Thread = () => {
       .from("posts")
       .delete()
       .eq("id", postId);
-    
+
     if (error) {
       toast.error("Ошибка удаления поста");
     } else {
       toast.success("Пост удален");
-      loadPosts();
+      // React Query will auto-refetch via cache invalidation
     }
   };
 
@@ -1121,11 +938,7 @@ const Thread = () => {
       setEditingPostId(null);
       setEditContent("");
       setEditContentJson(null);
-      if (isOpeningPost) {
-        loadThread();
-      } else {
-        loadPosts();
-      }
+      // React Query will auto-refetch via cache invalidation
     }
   };
 
@@ -1233,7 +1046,15 @@ const Thread = () => {
     toast.success("Вышли");
   };
 
-  // Don't show fullscreen loader for pageLoading - let content loader handle it
+  // Don't show fullscreen loader for pageLoading - React Query handles loading states
+  if (threadLoading || postsLoading) {
+    return (
+      <div className="bg-background flex items-center justify-center min-h-screen">
+        <PentagramLoader size="lg" />
+      </div>
+    );
+  }
+
   if (!thread) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
