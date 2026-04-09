@@ -414,7 +414,7 @@ const InitialContentPlugin = ({
           const root = $getRoot();
           root.clear();
           const paragraph = $createParagraphNode();
-          paragraph.append($createTextNode(""));
+          paragraph.append($createTextNode("\u200b"));
           root.append(paragraph);
         });
       }
@@ -525,7 +525,7 @@ const Toolbar = ({
     }
 
     setSelectionSnapshot(nextSnapshot);
-    setColorDraft(nextSnapshot.color || "#ff5500");
+    setColorDraft(nextSnapshot.color || randomHexColor());
     setIsColorDialogOpen(true);
   };
 
@@ -604,7 +604,7 @@ const Toolbar = ({
               <Input
                 value={colorDraft}
                 onChange={(event) => setColorDraft(event.target.value)}
-                placeholder="#ff5500"
+                placeholder={randomHexColor()}
                 className="min-w-0 flex-[0_1_10rem]"
               />
               <Button
@@ -676,7 +676,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const initialState = useMemo(
     () => normalizeLexicalContent(contentJson, legacyContent),
-    [resetKey]
+    [contentJson, legacyContent, resetKey]
   );
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
 
@@ -747,7 +747,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
             onChange={(editorState) => {
               const json = editorState.toJSON();
               editorState.read(() => {
-                const text = $getRoot().getTextContent();
+                const text = $getRoot().getTextContent().replace(/\u200b/g, "");
                 onChange({ json, text: text.trimEnd() || lexicalJsonToPlainText(json, "") });
               });
             }}

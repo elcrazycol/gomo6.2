@@ -1,7 +1,8 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { compressImageWithMetadataRemoval } from "@/lib/imageProcessing";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toast } from "sonner";
+import * as mm from 'music-metadata';
 
 export type AttachmentType = "image" | "video" | "audio" | "file";
 
@@ -12,6 +13,11 @@ export interface AttachmentMeta {
   name: string;
   size: number;
   poster?: string; // preview for videos
+  title?: string; // audio track title
+  artist?: string; // audio artist name
+  album?: string; // audio album name
+  duration?: number; // audio duration in seconds
+  coverArt?: string; // audio cover art URL
 }
 
 // Оптимизированные настройки
@@ -153,16 +159,160 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
   }
 };
 
-const transcodeAudio = async (file: File): Promise<File> => {
+const extractAudioMetadata = async (file: File): Promise<{
+  title?: string;
+  artist?: string;
+  album?: string;
+  duration?: number;
+  coverArt?: string;
+}> => {
+  try {
+    
+    // Сначала пробуем извлечь через music-metadata
+    let metadata: any = null;
+    let coverArt: string | undefined;
+    
+    try {
+      // Проверяем поддерживаемые форматы
+      const supportedTypes = [
+        'audio/mpeg', 'audio/mp3', 'audio/mpg',
+        'audio/flac', 'audio/ogg', 'audio/wav', 
+        'audio/x-wav', 'audio/aac', 'audio/mp4',
+        'audio/m4a', 'audio/x-m4a'
+      ];
+      
+      if (supportedTypes.includes(file.type) || file.name.match(/\.(mp3|flac|ogg|wav|m4a|aac)$/i)) {
+        metadata = await mm.parseBlob(file, {
+          duration: true,
+          skipCovers: false,
+          includeChapters: false,
+        });
+
+        // Извлекаем обложку и загружаем в S3
+        if (metadata.common.picture && metadata.common.picture.length > 0) {
+          const picture = metadata.common.picture[0];
+
+          try {
+            // Создаем файл из обложки
+            const blob = new Blob([new Uint8Array(picture.data)], { type: picture.format });
+            const ext = picture.format.split('/')[1] || 'jpg';
+            const coverFile = new File([blob], `cover_${Date.now()}.${ext}`, { type: picture.format });
+
+            // Загружаем обложку в S3
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const timestamp = Date.now();
+              const randomStr = Math.random().toString(36).substring(7);
+              const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
+
+              const response = await fetch('http://localhost:8080/storage/v1/presign-upload', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${session.access_token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  bucket: 'content',
+                  key: coverKey,
+                  content_type: picture.format,
+                  expires_seconds: 3600,
+                }),
+              });
+
+              if (response.ok) {
+                const { upload_url } = await response.json();
+
+                const uploadResponse = await fetch(upload_url, {
+                  method: 'PUT',
+                  body: blob,
+                  headers: { 'Content-Type': picture.format },
+                });
+
+                if (uploadResponse.ok) {
+                  coverArt = coverKey;
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Failed to upload cover art:', e);
+          }
+        }
+      }
+    } catch (mmError) {
+      // Silently fail
+    }
+
+    // Если music-metadata не сработал, пробуем серверное извлечение
+    if (!metadata || !metadata.common.title) {
+      try {
+        const formData = new FormData();
+        formData.append('audio', file);
+
+        const response = await fetch('http://localhost:8080/api/v1/audio/metadata', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (response.ok) {
+          const serverMetadata = await response.json();
+
+          return {
+            title: serverMetadata.title || undefined,
+            artist: serverMetadata.artist || undefined,
+            album: serverMetadata.album || undefined,
+            duration: serverMetadata.duration || undefined,
+            coverArt: serverMetadata.coverArt || undefined,
+          };
+        }
+      } catch (serverError) {
+        // Silently fail
+      }
+    }
+    
+    // Если ничего не сработало, пробуем получить длительность через HTML5 Audio
+    let duration = metadata?.format.duration;
+    if (!duration) {
+      try {
+        duration = await new Promise<number>((resolve) => {
+          const audio = new Audio();
+          audio.addEventListener('loadedmetadata', () => {
+            resolve(audio.duration);
+            URL.revokeObjectURL(audio.src);
+          });
+          audio.addEventListener('error', () => {
+            resolve(0);
+            URL.revokeObjectURL(audio.src);
+          });
+          audio.src = URL.createObjectURL(file);
+        });
+      } catch (audioError) {
+        duration = undefined;
+      }
+    }
+
+    return {
+      title: metadata?.common.title || undefined,
+      artist: metadata?.common.artist || undefined,
+      album: metadata?.common.album || undefined,
+      duration: duration || undefined,
+      coverArt,
+    };
+  } catch (error) {
+    return {};
+  }
+};
+
+const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: any }> => {
+  // Извлекаем метаданные ПЕРЕД transcoding
+  const metadata = await extractAudioMetadata(file);
+
   // Проверяем кэш
   const cached = getCachedFile(file);
-  if (cached) return cached.file;
+  if (cached) return { file: cached.file, metadata };
 
   if (file.size > MAX_FILE_SIZE) {
     throw new Error("Аудио больше 25MB — сожмите перед загрузкой");
   }
-
-  console.log('Transcoding audio:', file.name);
 
   const ffmpeg = await loadFFmpeg();
   const inputName = `input.${file.name.split(".").pop() || "wav"}`;
@@ -187,7 +337,7 @@ const transcodeAudio = async (file: File): Promise<File> => {
     const outFile = new File([arrayBuffer], file.name.replace(/\.[^.]+$/, "") + ".ogg", { type: "audio/ogg" });
     
     setCachedFile(file, { file: outFile });
-    return outFile;
+    return { file: outFile, metadata };
   } finally {
     try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
     try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
@@ -211,6 +361,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const type = inferType(original);
     let file: File = original;
     let poster: string | undefined;
+    let audioMetadata: any;
 
     // Показываем прогресс для больших файлов
     // const showProgress = original.size > 5 * 1024 * 1024; // > 5MB
@@ -226,7 +377,16 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
         file = transcoded.file;
         poster = transcoded.poster;
       } else if (type === "audio") {
-        file = await transcodeAudio(original);
+        // Для MP3 файлов не делаем transcoding, чтобы сохранить метаданные
+        if (file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')) {
+          file = original;
+          // Все равно извлекаем метаданные для MP3
+          audioMetadata = await extractAudioMetadata(original);
+        } else {
+          const audioResult = await transcodeAudio(original);
+          file = audioResult.file;
+          audioMetadata = audioResult.metadata;
+        }
       } else if (file.size > MAX_FILE_SIZE) {
         throw new Error("Файл больше 25MB — прикрепите меньший");
       }
@@ -256,27 +416,55 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const ext = file.name.split(".").pop() || "bin";
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from("content")
-      .upload(key, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
+    // Get presigned URL from backend
+    const presignResponse = await fetch('http://localhost:8080/storage/v1/presign-upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      },
+      body: JSON.stringify({
+        bucket: 'content',
+        key: key,
+        content_type: file.type,
+        expires_seconds: 3600,
+      }),
+    });
 
-    if (uploadError) {
-      console.error("Upload error", uploadError);
-      throw new Error(uploadError.message || "Ошибка загрузки файла");
+    if (!presignResponse.ok) {
+      const errorData = await presignResponse.json();
+      throw new Error(errorData.error || 'Presign failed');
     }
 
-    const { data: { publicUrl } } = supabase.storage.from("content").getPublicUrl(key);
+    const { upload_url } = await presignResponse.json();
+
+    // Upload file directly to Garage using presigned URL
+    const uploadResponse = await fetch(upload_url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type,
+      },
+      body: file,
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error('Upload failed');
+    }
 
     results.push({
-      url: publicUrl,
+      url: key,
       type,
       mime: file.type,
       name: file.name,
       size: file.size,
       poster,
+      ...(audioMetadata && {
+        title: audioMetadata.title,
+        artist: audioMetadata.artist,
+        album: audioMetadata.album,
+        duration: audioMetadata.duration,
+        coverArt: audioMetadata.coverArt,
+      }),
     });
   }
 

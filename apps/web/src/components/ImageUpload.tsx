@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Upload, X } from "lucide-react";
+import { storageUrl } from "@/utils/storage";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 
 interface ImageUploadProps {
@@ -133,7 +134,7 @@ export const ImageUpload = ({
         const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
-          .from('post-images')
+          .from('content')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
@@ -144,11 +145,8 @@ export const ImageUpload = ({
           throw new Error(uploadError.message || 'Ошибка загрузки файла');
         }
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('post-images')
-          .getPublicUrl(fileName);
-
-        return publicUrl;
+        // Store storageKey in DB; UI previews are rendered via storageUrl().
+        return fileName;
       });
 
       const newUrls = await Promise.all(uploadPromises);
@@ -228,7 +226,7 @@ export const ImageUpload = ({
           {previews.map((preview, index) => (
             <div key={index} className="relative inline-block">
               <img
-                src={preview}
+                src={storageUrl("content", preview) || preview}
                 alt={`Preview ${index + 1}`}
                 className="max-w-xs max-h-48 border border-border rounded"
               />

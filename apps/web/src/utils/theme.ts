@@ -705,10 +705,14 @@ export const syncSharedAppearanceCookies = () => {
   const darkMode = localStorage.getItem("dark-mode") ?? String(DEFAULT_DARK_MODE);
   const customFont = localStorage.getItem("custom_font") || "";
   const maxAge = 60 * 60 * 24 * 365;
+  const host = window.location.hostname;
+  const domainAttr = host === "gomo6.wtf" || host.endsWith(".gomo6.wtf")
+    ? "; domain=.gomo6.wtf"
+    : "";
 
-  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
-  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/; domain=.gomo6.wtf; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_color_theme=${encodeURIComponent(colorTheme)}; path=/${domainAttr}; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_dark_mode=${encodeURIComponent(darkMode)}; path=/${domainAttr}; max-age=${maxAge}; samesite=lax`;
+  document.cookie = `gomo6_custom_font=${encodeURIComponent(customFont)}; path=/${domainAttr}; max-age=${maxAge}; samesite=lax`;
 };
 
 export const applyTheme = (color: ColorTheme, dark: boolean) => {
