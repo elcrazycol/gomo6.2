@@ -38,8 +38,10 @@ func (v *MessengerValidator) ValidateMessageData(data map[string]interface{}) er
 		return fmt.Errorf("ciphertext is required")
 	}
 
+	// For bot messages (BOT_PLAINTEXT:), nonce can be null
+	isBotMessage := strings.HasPrefix(ciphertext, "BOT_PLAINTEXT:")
 	nonce, ok := data["nonce"].(string)
-	if !ok || nonce == "" {
+	if !isBotMessage && (!ok || nonce == "") {
 		return fmt.Errorf("nonce is required")
 	}
 
@@ -72,10 +74,10 @@ func (v *MessengerValidator) ValidateMessageData(data map[string]interface{}) er
 	}
 
 	// Validate base64 format for encrypted data
-	if !isValidBase64(ciphertext) {
+	if !isBotMessage && !isValidBase64(ciphertext) {
 		return fmt.Errorf("invalid ciphertext format: must be base64")
 	}
-	if !isValidBase64(nonce) {
+	if !isBotMessage && !isValidBase64(nonce) {
 		return fmt.Errorf("invalid nonce format: must be base64")
 	}
 	if !isValidBase64(senderPublicKey) {

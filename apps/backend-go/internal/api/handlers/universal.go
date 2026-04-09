@@ -980,6 +980,13 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 
 		// Publish to bot events
 		if h.botEventPublisher != nil {
+			// Extract plaintext from BOT_PLAINTEXT: prefix for bots
+			if ciphertext, ok := result["ciphertext"].(string); ok {
+				if strings.HasPrefix(ciphertext, "BOT_PLAINTEXT:") {
+					plaintext := strings.TrimPrefix(ciphertext, "BOT_PLAINTEXT:")
+					result["plaintext"] = plaintext
+				}
+			}
 			h.botEventPublisher.PublishChatMessage(result)
 		}
 	}

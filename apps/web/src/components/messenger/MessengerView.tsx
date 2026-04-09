@@ -494,11 +494,11 @@ export const MessengerView = () => {
             ) ?? null;
 
           let plainText = "[Не удалось расшифровать сообщение]";
-          if (message.ciphertext && message.nonce) {
+          if (message.ciphertext) {
             // Check if message is from bot (BOT_PLAINTEXT format)
             if (message.ciphertext.startsWith('BOT_PLAINTEXT:')) {
               plainText = message.ciphertext.substring('BOT_PLAINTEXT:'.length);
-            } else {
+            } else if (message.nonce) {
               const peerPublicKey =
                 message.sender_user_id === userId ? message.recipient_public_key : message.sender_public_key;
 
@@ -663,23 +663,41 @@ export const MessengerView = () => {
     );
 
     try {
-      const encrypted = await encryptMessengerText({
-        plainText,
-        recipientPublicKey: selectedConversation.otherUser.publicKey,
-        senderPrivateKey: cryptoState.privateKey,
-      });
+      // Check if recipient is a bot by checking username pattern
+      const username = selectedConversation.otherUser.username || '';
+      const isBot = username.startsWith('bot_') || username.endsWith('.bot');
+
+      let ciphertext: string;
+      let nonce: string;
+
+      if (isBot) {
+        // For bots, use BOT_PLAINTEXT: prefix instead of encryption
+        ciphertext = `BOT_PLAINTEXT:${plainText}`;
+        nonce = null as any; // null for bot messages
+      } else {
+        // For regular users, encrypt normally
+        const encrypted = await encryptMessengerText({
+          plainText,
+          recipientPublicKey: selectedConversation.otherUser.publicKey,
+          senderPrivateKey: cryptoState.privateKey,
+        });
+        ciphertext = encrypted.cipherText;
+        nonce = encrypted.nonce;
+      }
+
+      const insertPayload = {
+        conversation_id: selectedConversation.id,
+        sender_user_id: me.id,
+        client_message_id: clientMessageId,
+        sender_public_key: cryptoState.publicKey,
+        recipient_public_key: selectedConversation.otherUser.publicKey,
+        ciphertext,
+        nonce,
+      };
 
       const { data, error } = await supabase
         .from("chat_messages" as never)
-        .insert({
-          conversation_id: selectedConversation.id,
-          sender_user_id: me.id,
-          client_message_id: clientMessageId,
-          sender_public_key: cryptoState.publicKey,
-          recipient_public_key: selectedConversation.otherUser.publicKey,
-          ciphertext: encrypted.cipherText,
-          nonce: encrypted.nonce,
-        } as never)
+        .insert(insertPayload as never)
         .select("id, conversation_id, sender_user_id, client_message_id, sent_at, ciphertext, nonce, sender_public_key, recipient_public_key")
         .single();
 

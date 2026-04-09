@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -11,11 +13,19 @@ import (
 // BotEventPublisher handles publishing events to bots via Redis
 type BotEventPublisher struct {
 	redis *redis.Client
+	db    *sql.DB
 }
 
 // NewBotEventPublisher creates a new bot event publisher
 func NewBotEventPublisher(redis *redis.Client) *BotEventPublisher {
-	return &BotEventPublisher{redis: redis}
+	return &BotEventPublisher{
+		redis: redis,
+	}
+}
+
+// SetDB sets the database connection for decrypting messages
+func (p *BotEventPublisher) SetDB(db *sql.DB) {
+	p.db = db
 }
 
 // PublishWallPost publishes a wall post event to bots
@@ -78,6 +88,17 @@ func (p *BotEventPublisher) PublishThreadPost(post map[string]interface{}) {
 func (p *BotEventPublisher) PublishChatMessage(message map[string]interface{}) {
 	if p.redis == nil {
 		return
+	}
+
+	// Extract plaintext from BOT_PLAINTEXT: prefix if present
+	var plaintext string
+	if ciphertext, ok := message["ciphertext"].(string); ok {
+		if strings.HasPrefix(ciphertext, "BOT_PLAINTEXT:") {
+			plaintext = strings.TrimPrefix(ciphertext, "BOT_PLAINTEXT:")
+			// Add plaintext to message data for bots
+			message["plaintext"] = plaintext
+			log.Printf("[BotEvents] Extracted plaintext for bot: %s", plaintext)
+		}
 	}
 
 	event := map[string]interface{}{
