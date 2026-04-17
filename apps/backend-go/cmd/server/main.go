@@ -51,7 +51,10 @@ func main() {
 	// Initialize Gin router
 	router := gin.Default()
 
-	// Add middleware
+	// Add security middleware first
+	router.Use(middleware.ApplySecurityHeaders())
+
+	// Add other middleware
 	router.Use(middleware.CORS())
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())

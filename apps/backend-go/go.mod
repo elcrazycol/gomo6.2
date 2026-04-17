@@ -18,6 +18,7 @@ require (
 	github.com/redis/go-redis/v9 v9.0.5
 	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/crypto v0.46.0
+	golang.org/x/time v0.11.0
 )
 
 require (
