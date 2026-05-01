@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: gomo6
       POSTGRES_USER: gomo6
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-secure-password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gomo6password}
     ports:
       - "5432:5432"
     volumes:
@@ -99,7 +99,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: postgres://gomo6:${POSTGRES_PASSWORD:-change-me-secure-password}@postgres:5432/gomo6?sslmode=disable
+      DATABASE_URL: postgres://gomo6:${POSTGRES_PASSWORD:-gomo6password}@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-min-32-chars}
       SERVER_DOMAIN: localhost:8080

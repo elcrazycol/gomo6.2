@@ -10,14 +10,51 @@ If you discover a security vulnerability, please report it privately by opening 
 
 - **NEVER commit `.env` files** to version control
 - Use `.env.example` as a template with placeholder values
-- Generate secure random secrets for production:
-  ```bash
-  # JWT Secret (min 32 chars)
-  openssl rand -base64 32
-  
-  # Federation Key (32 chars hex)
-  openssl rand -hex 32
-  ```
+- Generate secure random secrets for production
+
+#### Required Secrets Generation
+
+**1. JWT_SECRET** (Signs authentication tokens, min 32 chars):
+```bash
+openssl rand -base64 32
+```
+
+**2. FEDERATION_KEY** (Inter-server authentication, min 32 chars):
+```bash
+openssl rand -base64 32
+```
+
+**3. GARAGE_S3_SECRET_KEY** (S3 storage authentication, 64 chars):
+```bash
+openssl rand -hex 32
+```
+
+**4. MESSENGER_SHARED_SESSION_SECRET** (Session cookie signing, min 32 chars):
+```bash
+openssl rand -base64 32
+```
+
+**5. POSTGRES_PASSWORD** (Database password, min 16 chars):
+```bash
+openssl rand -base64 24
+```
+
+#### Quick Setup Script
+
+```bash
+#!/bin/bash
+echo "=== Gomo6 Secrets Generator ==="
+echo ""
+echo "Copy these to your .env file:"
+echo ""
+echo "JWT_SECRET=$(openssl rand -base64 32)"
+echo "FEDERATION_KEY=$(openssl rand -base64 32)"
+echo "GARAGE_S3_SECRET_KEY=$(openssl rand -hex 32)"
+echo "MESSENGER_SHARED_SESSION_SECRET=$(openssl rand -base64 32)"
+echo "POSTGRES_PASSWORD=$(openssl rand -base64 24)"
+```
+
+Save as `generate-secrets.sh`, run `chmod +x generate-secrets.sh && ./generate-secrets.sh`
 
 ### Rate Limiting
 

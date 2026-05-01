@@ -20,6 +20,16 @@ dist-ssr
 .env.*.local
 *.env
 
+# Go compiled binaries
+apps/backend-go/gomo6-server
+apps/backend-go/main
+apps/backend-go/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
