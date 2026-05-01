@@ -4,12 +4,17 @@ services:
     environment:
       POSTGRES_DB: gomo6
       POSTGRES_USER: gomo6
-      POSTGRES_PASSWORD: gomo6password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gomo6password}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gomo6 -d gomo6"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -18,6 +23,11 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   garage:
     image: dxflrs/garage:v1.3.1
@@ -89,28 +99,31 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
+      DATABASE_URL: postgres://gomo6:${POSTGRES_PASSWORD:-gomo6password}@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-secret-key-change-in-production
+      JWT_SECRET: ${JWT_SECRET:-change-me-jwt-secret-min-32-chars}
       SERVER_DOMAIN: localhost:8080
-      FEDERATION_KEY: your-federation-key-change-in-production
-      ENVIRONMENT: development
-      SUPABASE_ANON_KEY: your-anon-key
+      FEDERATION_KEY: ${FEDERATION_KEY:-change-me-federation-key-32-chars}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-change-me-anon-key}
       # WebSocket security - allowed origins for CORS
-      ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8080,http://localhost:3000,http://localhost:8081
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8080,http://localhost:3000,http://localhost:8081}
       # Garage S3 (replaces MinIO)
       # Backend connects directly to Garage for S3 API (with AWS Signature)
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
-      GARAGE_S3_ACCESS_KEY: GK3515373e4c851ebaad366558
-      GARAGE_S3_SECRET_KEY: 7d37d093435a41f2aab8f13c19ba067d9776c90215f56614adad6ece597dbb34
+      GARAGE_S3_ACCESS_KEY: ${GARAGE_S3_ACCESS_KEY:-GK3515373e4c851ebaad366558}
+      GARAGE_S3_SECRET_KEY: ${GARAGE_S3_SECRET_KEY:-change-me-garage-secret-key-64-chars}
       GARAGE_S3_USE_SSL: false
       # Browser uses garage-proxy for CORS-enabled access
       GARAGE_S3_PUBLIC_ENDPOINT: http://localhost:3900
     depends_on:
-      - postgres
-      - redis
-      - garage-init
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      garage-init:
+        condition: service_completed_successfully
     volumes:
       - .:/app
 
