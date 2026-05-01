@@ -1,9 +1,11 @@
 package routes
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -18,9 +20,79 @@ import (
 )
 
 func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub, botManager interface{}) {
-	// Health check
+	// Enhanced health check with database and Redis connectivity
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
+		response := gin.H{
+			"status":      "ok",
+			"websocket":   wsHub != nil,
+			"timestamp":   time.Now().UTC().Format(time.RFC3339),
+			"version":     "1.0.1",
+			"environment": os.Getenv("ENVIRONMENT"),
+		}
+
+		// Check database connectivity
+		dbStatus := "connected"
+		if err := db.Ping(); err != nil {
+			dbStatus = "disconnected: " + err.Error()
+			response["status"] = "degraded"
+		}
+		response["database"] = dbStatus
+
+		// Check Redis connectivity
+		redisStatus := "connected"
+		if redis != nil {
+			if err := redis.Ping(context.Background()).Err(); err != nil {
+				redisStatus = "disconnected: " + err.Error()
+				response["status"] = "degraded"
+			}
+		} else {
+			redisStatus = "not configured"
+			response["status"] = "degraded"
+		}
+		response["redis"] = redisStatus
+
+		// Determine HTTP status based on health
+		statusCode := http.StatusOK
+		if response["status"] == "degraded" {
+			statusCode = http.StatusServiceUnavailable
+		}
+
+		c.JSON(statusCode, response)
+	})
+
+	// Live endpoint for Kubernetes/load balancer checks (no dependencies)
+	router.GET("/health/live", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "alive"})
+	})
+
+	// Ready endpoint (checks all dependencies)
+	router.GET("/health/ready", func(c *gin.Context) {
+		response := gin.H{"status": "ready"}
+		statusCode := http.StatusOK
+
+		// Check database
+		if err := db.Ping(); err != nil {
+			response["status"] = "not ready"
+			response["database"] = err.Error()
+			statusCode = http.StatusServiceUnavailable
+		} else {
+			response["database"] = "ok"
+		}
+
+		// Check Redis
+		if redis == nil {
+			response["status"] = "not ready"
+			response["redis"] = "not configured"
+			statusCode = http.StatusServiceUnavailable
+		} else if err := redis.Ping(context.Background()).Err(); err != nil {
+			response["status"] = "not ready"
+			response["redis"] = err.Error()
+			statusCode = http.StatusServiceUnavailable
+		} else {
+			response["redis"] = "ok"
+		}
+
+		c.JSON(statusCode, response)
 	})
 
 	// Initialize handlers
@@ -70,8 +142,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// WebSocket handler disabled for now
 	// wsHandler := handlers.NewWebSocketHandler(wsHub)
 
-	// API routes
+	// API routes with rate limiting
 	api := router.Group("/api/v1")
+	api.Use(middleware.RateLimitMiddleware("api", redis))
 	{
 		// Audio metadata endpoint
 		api.POST("/audio/metadata", audioHandler.ExtractAudioMetadata)
@@ -112,8 +185,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		}
 	}
 
-	// Supabase compatibility routes
+	// Supabase compatibility routes with rate limiting
 	rest := router.Group("/rest/v1")
+	rest.Use(middleware.RateLimitMiddleware("api", redis))
 	{
 		// Apply data caching middleware for GET requests (30 second TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, 30*time.Second))
@@ -271,8 +345,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		}
 	}
 
-	// RPC functions (Supabase compatibility)
+	// RPC functions (Supabase compatibility) with rate limiting
 	rpc := router.Group("/rpc/v1")
+	rpc.Use(middleware.RateLimitMiddleware("rpc", redis))
 	{
 		// Public RPC functions
 		rpc.GET("/get_post_likes_count", rpcHandler.GetPostLikesCount)
