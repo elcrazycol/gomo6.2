@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -63,7 +64,7 @@ func NewRedisRateLimiter(redisClient *redis.Client, config RateLimiterConfig) *R
 
 // Allow checks if a request is allowed and returns remaining requests and reset time
 func (rl *RedisRateLimiter) Allow(key string) (allowed bool, remaining int, resetAt int64) {
-	ctx := rl.redis.Context()
+	ctx := context.Background()
 	now := time.Now()
 	windowEnd := now.Add(time.Second).Unix()
 
@@ -83,7 +84,7 @@ func (rl *RedisRateLimiter) Allow(key string) (allowed bool, remaining int, rese
 	}
 
 	// Calculate remaining
-	remaining = int(float64(rl.config.BurstSize) - val)
+	remaining = rl.config.BurstSize - int(val)
 	if remaining < 0 {
 		remaining = 0
 	}

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -40,7 +41,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Check Redis connectivity
 		redisStatus := "connected"
 		if redis != nil {
-			if err := redis.Ping(redis.Context()).Err(); err != nil {
+			if err := redis.Ping(context.Background()).Err(); err != nil {
 				redisStatus = "disconnected: " + err.Error()
 				response["status"] = "degraded"
 			}
@@ -83,7 +84,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			response["status"] = "not ready"
 			response["redis"] = "not configured"
 			statusCode = http.StatusServiceUnavailable
-		} else if err := redis.Ping(redis.Context()).Err(); err != nil {
+		} else if err := redis.Ping(context.Background()).Err(); err != nil {
 			response["status"] = "not ready"
 			response["redis"] = err.Error()
 			statusCode = http.StatusServiceUnavailable
