@@ -11,6 +11,18 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// noCachePaths contains URL path prefixes that should never be cached
+// because their data changes frequently and stale data would be confusing
+var noCachePaths = []string{
+	"/rest/v1/profile_wall_posts",
+	"/rest/v1/profile_wall_post_comments",
+	"/rest/v1/profile_wall_post_likes",
+	"/rest/v1/profile_wall_post_reposts",
+	"/rest/v1/notifications",
+	"/rest/v1/thread_likes",
+	"/rest/v1/post_likes",
+}
+
 // DataCacheMiddleware provides Redis-based caching for GET requests
 // Caches response data to reduce database load
 func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.HandlerFunc {
@@ -19,6 +31,15 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		if c.Request.Method != "GET" {
 			c.Next()
 			return
+		}
+
+		// Skip caching for frequently-changing tables
+		path := c.Request.URL.Path
+		for _, prefix := range noCachePaths {
+			if path == prefix || len(path) > len(prefix) && path[:len(prefix)+1] == prefix+"?" {
+				c.Next()
+				return
+			}
 		}
 
 		// Skip if Redis is not available

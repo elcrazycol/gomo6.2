@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,17 +13,23 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 // UniversalHandler handles generic CRUD operations for any table
 type UniversalHandler struct {
 	db                *sql.DB
+	redis             *redis.Client
 	hub               *websocket.Hub
 	botEventPublisher *BotEventPublisher
 }
 
 func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
 	return &UniversalHandler{db: db, hub: hub}
+}
+
+func (h *UniversalHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
 }
 
 // SetBotEventPublisher sets the bot event publisher
@@ -400,6 +408,30 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			RecomputeUserProfileStats(h.db, uid)
 		}
 	}
+
+	// Invalidate cache for write operations
+	h.invalidateTableCache(tableName, true)
+	if tableName == "profile_wall_posts" {
+		if uid := rowUserID(result["profile_id"]); uid != "" {
+			h.invalidateWallPostCache(uid)
+		}
+	}
+	if tableName == "profile_wall_post_likes" || tableName == "profile_wall_post_comments" || tableName == "profile_wall_post_reposts" {
+		if uid := rowUserID(result["profile_id"]); uid != "" {
+			h.invalidateWallPostCache(uid)
+		}
+	}
+	if tableName == "thread_likes" {
+		if tid := rowUserID(result["thread_id"]); tid != "" {
+			h.invalidateTableCache("threads", true)
+		}
+	}
+	if tableName == "post_likes" {
+		if pid := rowUserID(result["post_id"]); pid != "" {
+			h.invalidateTableCache("posts", true)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
@@ -504,6 +536,15 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 			RecomputeUserProfileStats(h.db, uid)
 		}
 	}
+
+	// Invalidate cache for write operations
+	h.invalidateTableCache(tableName, true)
+	if tableName == "profile_wall_posts" {
+		if uid := rowUserID(result["profile_id"]); uid != "" {
+			h.invalidateWallPostCache(uid)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
@@ -580,6 +621,71 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
+
+	// Invalidate cache for delete operations
+	h.invalidateTableCache(tableName, true)
+	if tableName == "profile_wall_posts" {
+		if uid := rowUserID(result["profile_id"]); uid != "" {
+			h.invalidateWallPostCache(uid)
+		}
+	}
+	if tableName == "thread_likes" || tableName == "post_likes" {
+		h.invalidateTableCache("threads", true)
+		h.invalidateTableCache("posts", true)
+	}
+}
+
+// invalidateTableCache invalidates cache for a specific table operation
+func (h *UniversalHandler) invalidateTableCache(tableName string, isWrite bool) {
+	if !isWrite || h.redis == nil {
+		return
+	}
+
+	// Build cache key prefix for this table
+	pattern := fmt.Sprintf("data:/rest/v1/%s*", tableName)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	keys, err := h.redis.Keys(ctx, pattern).Result()
+	if err != nil {
+		log.Printf("[DataCache] Failed to find keys for pattern %s: %v", pattern, err)
+		return
+	}
+
+	if len(keys) > 0 {
+		if err := h.redis.Del(ctx, keys...).Err(); err != nil {
+			log.Printf("[DataCache] Failed to invalidate cache for %s: %v", tableName, err)
+		} else {
+			log.Printf("[DataCache] Invalidated %d cache keys for %s", len(keys), tableName)
+		}
+	}
+}
+
+// invalidateWallPostCache invalidates cache for profile wall posts
+func (h *UniversalHandler) invalidateWallPostCache(userID string) {
+	if h.redis == nil || userID == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/profile_wall_posts?profile_id=eq.%s*", userID),
+		fmt.Sprintf("data:/rest/v1/profile_wall_posts?user_id=eq.%s*", userID),
+	}
+
+	for _, pattern := range patterns {
+		keys, err := h.redis.Keys(ctx, pattern).Result()
+		if err != nil {
+			continue
+		}
+		if len(keys) > 0 {
+			h.redis.Del(ctx, keys...).Err()
+			log.Printf("[DataCache] Invalidated %d wall post cache keys for user %s", len(keys), userID)
+		}
+	}
 }
 
 func joinStrings(strs []string, sep string) string {
