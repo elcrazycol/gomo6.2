@@ -1,5 +1,5 @@
 // Simple API Client for Go Backend
-import { apiClient, API_BASE_URL, API_KEY } from './client';
+import { apiClient, API_BASE_URL, API_KEY, getDeviceId } from './client';
 
 // Direct Supabase replacement - simplified version
 export const supabase = {
@@ -15,7 +15,17 @@ export const supabase = {
     },
     signInWithPassword: async ({ email, password }: any) => {
       try {
-        const result = await apiClient.login(email, password);
+        const deviceId = getDeviceId();
+        const result = await apiClient.login(email, password, deviceId);
+        
+        if (result.needs_2fa) {
+          // Return partial session with needs_2fa flag
+          return { 
+            data: { user: result.user, session: { access_token: result.token, needs_2fa: true } }, 
+            error: null 
+          };
+        }
+        
         return { data: { user: result.user, session: { access_token: result.token } }, error: null };
       } catch (error) {
         return { data: null, error: { message: (error as Error).message } };
@@ -57,6 +67,47 @@ export const supabase = {
       
       checkAuth();
       return { data: { subscription: { unsubscribe: () => {} } } };
+    },
+    verify2FA: async (partialToken: string, code: string, trustDevice?: boolean) => {
+      try {
+        const deviceId = getDeviceId();
+        const result = await apiClient.verify2FA(partialToken, code, deviceId, trustDevice);
+        return { data: { session: { access_token: result.token } }, error: null };
+      } catch (error) {
+        return { data: null, error: { message: (error as Error).message } };
+      }
+    },
+    setupTOTP: async () => {
+      try {
+        const result = await apiClient.setupTOTP();
+        return { data: result, error: null };
+      } catch (error) {
+        return { data: null, error: { message: (error as Error).message } };
+      }
+    },
+    verifyAndEnableTOTP: async (code: string) => {
+      try {
+        const result = await apiClient.verifyAndEnableTOTP(code);
+        return { data: result, error: null };
+      } catch (error) {
+        return { data: null, error: { message: (error as Error).message } };
+      }
+    },
+    disableTOTP: async () => {
+      try {
+        await apiClient.disableTOTP();
+        return { data: { ok: true }, error: null };
+      } catch (error) {
+        return { data: null, error: { message: (error as Error).message } };
+      }
+    },
+    get2FAStatus: async () => {
+      try {
+        const result = await apiClient.get2FAStatus();
+        return { data: result, error: null };
+      } catch (error) {
+        return { data: null, error: { message: (error as Error).message } };
+      }
     },
     updateUser: async (attrs: { password?: string }) => {
       try {
