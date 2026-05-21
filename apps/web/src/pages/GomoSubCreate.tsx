@@ -45,7 +45,7 @@ const GomoSubCreate = () => {
   const [garma, setGarma] = useState<number>(0);
   const [profileCreatedAt, setProfileCreatedAt] = useState<string | null>(null);
 
-  const garmaOk = useMemo(() => garma >= 50, [garma]);
+  const garmaOk = useMemo(() => garma >= 10, [garma]);
   const ageOk = useMemo(() => {
     if (!profileCreatedAt) return false;
     return Date.now() - new Date(profileCreatedAt).getTime() >= 14 * 24 * 60 * 60 * 1000;
@@ -171,7 +171,7 @@ const GomoSubCreate = () => {
       return;
     }
     if (!(garmaOk && ageOk)) {
-      toast.error("Для создания нужно >=50 gармы и аккаунт старше 2 недель");
+      toast.error("Для создания нужно >=10 gармы и аккаунт старше 2 недель");
       return;
     }
 
@@ -229,7 +229,7 @@ const GomoSubCreate = () => {
                 <div className={`rounded-lg border p-3 ${garmaOk ? "border-emerald-500/40 bg-emerald-500/10" : "border-border bg-muted/30"}`}>
                   <div className="flex items-center gap-2 font-medium">
                     {garmaOk ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <XCircle className="w-4 h-4 text-muted-foreground" />}
-                    50+ gармы
+                    10+ gармы
                   </div>
                   <div className="text-sm text-muted-foreground mt-1">Текущая gарма: {garma}</div>
                 </div>

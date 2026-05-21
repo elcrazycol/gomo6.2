@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -49,6 +50,9 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		// Cache miss - continue to handler
 		c.Header("X-Cache", "MISS")
 
+		// Store cache key in context for potential invalidation later
+		c.Set("cache_key", cacheKey)
+
 		// Capture response
 		writer := &responseWriter{
 			ResponseWriter: c.Writer,
@@ -59,16 +63,21 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		c.Next()
 
 		// Cache successful responses in background
-		if c.Writer.Status() == 200 && len(writer.body) > 0 {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-				defer cancel()
+		// Don't cache empty arrays or very small responses (likely empty results)
+		if c.Writer.Status() == 200 && len(writer.body) > 10 {
+			// Check if response is an empty array []
+			bodyStr := string(writer.body)
+			if bodyStr != "[]" && bodyStr != "{\"data\":[]}" {
+				go func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+					defer cancel()
 
-				err := redisClient.Set(ctx, cacheKey, writer.body, ttl).Err()
-				if err != nil {
-					log.Printf("[DataCache] Failed to cache response: %v", err)
-				}
-			}()
+					err := redisClient.Set(ctx, cacheKey, writer.body, ttl).Err()
+					if err != nil {
+						log.Printf("[DataCache] Failed to cache response: %v", err)
+					}
+				}()
+			}
 		}
 	}
 }
@@ -86,67 +95,142 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 
 // InvalidateCache removes cached data by pattern
 func InvalidateCache(redisClient *redis.Client, pattern string) error {
-	if redisClient == nil {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Find all keys matching pattern
-	keys, err := redisClient.Keys(ctx, pattern).Result()
-	if err != nil {
-		return err
-	}
-
-	// Delete all matching keys
-	if len(keys) > 0 {
-		return redisClient.Del(ctx, keys...).Err()
-	}
-
+	cache.InvalidateByPattern(redisClient, pattern)
 	return nil
 }
 
 // InvalidateCacheForThread invalidates all cache entries related to a thread
 func InvalidateCacheForThread(redisClient *redis.Client, threadID string) {
+	// Use wildcard patterns to invalidate ALL queries for this thread
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/posts?thread_id=eq.%s*", threadID),
-		fmt.Sprintf("data:/rest/v1/threads/%s*", threadID),
-		fmt.Sprintf("data:/rest/v1/threads?id=eq.%s*", threadID),
+		fmt.Sprintf("data:/rest/v1/posts*thread_id=eq.%s*", threadID),
+		fmt.Sprintf("data:/rest/v1/threads*%s*", threadID),
+		"data:/rest/v1/posts*",
 	}
-
 	for _, pattern := range patterns {
-		if err := InvalidateCache(redisClient, pattern); err != nil {
-			log.Printf("[DataCache] Failed to invalidate cache for pattern %s: %v", pattern, err)
-		}
+		cache.InvalidateByPattern(redisClient, pattern)
 	}
 }
 
 // InvalidateCacheForProfile invalidates all cache entries related to a profile
 func InvalidateCacheForProfile(redisClient *redis.Client, userID string) {
+	// Use wildcard patterns to invalidate ALL queries for this profile
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/profiles/%s*", userID),
-		fmt.Sprintf("data:/rest/v1/profiles?id=eq.%s*", userID),
-		fmt.Sprintf("data:/rest/v1/profiles?id=in.*%s*", userID),
+		fmt.Sprintf("data:/rest/v1/profiles*%s*", userID),
 	}
-
 	for _, pattern := range patterns {
-		if err := InvalidateCache(redisClient, pattern); err != nil {
-			log.Printf("[DataCache] Failed to invalidate cache for pattern %s: %v", pattern, err)
-		}
+		cache.InvalidateByPattern(redisClient, pattern)
 	}
 }
 
 // InvalidateCacheForBoard invalidates all cache entries related to a board
 func InvalidateCacheForBoard(redisClient *redis.Client, boardID string) {
+	// Use wildcard patterns to invalidate ALL queries for this board
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/threads?board_id=eq.%s*", boardID),
-		fmt.Sprintf("data:/rest/v1/boards/%s*", boardID),
+		fmt.Sprintf("data:/rest/v1/threads*board_id=eq.%s*", boardID),
+		fmt.Sprintf("data:/rest/v1/boards*%s*", boardID),
 	}
-
 	for _, pattern := range patterns {
-		if err := InvalidateCache(redisClient, pattern); err != nil {
-			log.Printf("[DataCache] Failed to invalidate cache for pattern %s: %v", pattern, err)
-		}
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+}
+
+// InvalidateCacheForProfileWall invalidates all cache entries related to a user's profile wall
+func InvalidateCacheForProfileWall(redisClient *redis.Client, userID string) {
+	// Use wildcard patterns to invalidate ALL queries for this user's wall
+	// This covers queries with different select, order, limit params
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/profile_wall_posts*user_id=eq.%s*", userID),
+		"data:/rest/v1/profile_wall_posts*",
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+	// Also invalidate comments, likes, reposts
+	cache.InvalidateForTable(redisClient, "profile_wall_post_comments", map[string]string{})
+	cache.InvalidateForTable(redisClient, "profile_wall_post_likes", map[string]string{})
+	cache.InvalidateForTable(redisClient, "profile_wall_post_reposts", map[string]string{})
+}
+
+// InvalidateCacheForWallPost invalidates cache for a specific wall post and its comments, likes, reposts
+func InvalidateCacheForWallPost(redisClient *redis.Client, postID string) {
+	cache.InvalidateForWallPost(redisClient, postID, "")
+}
+
+// InvalidateCacheForPost invalidates cache for a specific post
+func InvalidateCacheForPost(redisClient *redis.Client, postID string, threadID string) {
+	// Use wildcard patterns to invalidate ALL queries for this post and its thread
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/posts*%s*", postID),
+	}
+	if threadID != "" {
+		patterns = append(patterns, fmt.Sprintf("data:/rest/v1/posts*thread_id=eq.%s*", threadID))
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+}
+
+// InvalidateCacheForPostLike invalidates cache when a post is liked/unliked
+func InvalidateCacheForPostLike(redisClient *redis.Client, postID string, threadID string) {
+	// Invalidate the post itself (likes affect post data)
+	InvalidateCacheForPost(redisClient, postID, threadID)
+}
+
+// InvalidateCacheForThreadLike invalidates cache when a thread is liked/unliked
+func InvalidateCacheForThreadLike(redisClient *redis.Client, threadID string, boardID string) {
+	// Invalidate the thread itself (likes affect thread data)
+	InvalidateCacheForThread(redisClient, threadID)
+}
+
+// InvalidateCacheForNotification invalidates notification cache for a user
+func InvalidateCacheForNotification(redisClient *redis.Client, userID string) {
+	// Use wildcard to invalidate ALL notification queries for this user
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/notifications*user_id=eq.%s*", userID),
+		"data:/rest/v1/notifications*",
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+}
+
+// InvalidateCacheForChatMessage invalidates chat message cache
+func InvalidateCacheForChatMessage(redisClient *redis.Client, messageID string, conversationID string) {
+	// Use wildcard to invalidate ALL chat message queries
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/chat_messages*conversation_id=eq.%s*", conversationID),
+		"data:/rest/v1/chat_messages*",
+		"data:/rest/v1/chat_conversations*",
+		"data:/rest/v1/chat_receipts*",
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+}
+
+// InvalidateCacheForChatConversation invalidates chat conversation cache
+func InvalidateCacheForChatConversation(redisClient *redis.Client, conversationID string, userID string) {
+	// Use wildcard to invalidate ALL chat conversation queries
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/chat_conversations*%s*", conversationID),
+		"data:/rest/v1/chat_conversation_members*",
+		"data:/rest/v1/chat_messages*",
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+}
+
+// InvalidateCacheForWallComment invalidates wall comment cache
+func InvalidateCacheForWallComment(redisClient *redis.Client, commentID string, postID string) {
+	// Use wildcard to invalidate ALL wall comment queries for this post
+	patterns := []string{
+		fmt.Sprintf("data:/rest/v1/profile_wall_post_comments*post_id=eq.%s*", postID),
+		"data:/rest/v1/profile_wall_post_comments*",
+		fmt.Sprintf("data:/rest/v1/profile_wall_posts*%s*", postID),
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
 	}
 }

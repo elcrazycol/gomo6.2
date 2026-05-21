@@ -10,18 +10,98 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/redis/go-redis/v9"
 )
+
+// invalidateCacheForTableResult invalidates cache based on table and result data
+func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, result map[string]interface{}) {
+	if h.redis == nil {
+		fmt.Printf("[CacheInvalidator] Redis is nil, skipping invalidation for %s\n", tableName)
+		return
+	}
+
+	fmt.Printf("[CacheInvalidator] Invalidating cache for table %s\n", tableName)
+	for k, v := range result {
+		fmt.Printf("[CacheInvalidator]   result[%s] = %v (type: %T)\n", k, v, v)
+	}
+
+	// Build values map from result
+	values := make(map[string]string)
+	if id, ok := result["id"].(string); ok && id != "" {
+		fmt.Printf("[CacheInvalidator] Found id: %s\n", id)
+		values["id"] = id
+	} else {
+		fmt.Printf("[CacheInvalidator] id not found or not string, ok=%v, id=%v\n", ok, result["id"])
+	}
+
+	// Add foreign keys based on table
+	switch tableName {
+	case "posts":
+		if threadID, ok := result["thread_id"].(string); ok && threadID != "" {
+			values["thread_id"] = threadID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating post cache: id=%s, thread_id=%s\n", values["id"], values["thread_id"])
+		cache.InvalidateForPost(h.redis, values["id"], values["thread_id"])
+	case "threads":
+		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
+			values["board_id"] = boardID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating thread cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
+		cache.InvalidateForThread(h.redis, values["id"], values["board_id"])
+	case "profile_wall_posts":
+		// Note: profile_wall_posts uses author_id, not user_id
+		if authorID, ok := result["author_id"].(string); ok && authorID != "" {
+			values["user_id"] = authorID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating wall post cache: id=%s, user_id=%s\n", values["id"], values["user_id"])
+		cache.InvalidateForWallPost(h.redis, values["id"], values["user_id"])
+	case "profile_wall_post_comments":
+		if postID, ok := result["post_id"].(string); ok && postID != "" {
+			values["post_id"] = postID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating wall comment cache: id=%s, post_id=%s\n", values["id"], values["post_id"])
+		cache.InvalidateForWallComment(h.redis, values["id"], values["post_id"])
+	case "chat_messages":
+		if conversationID, ok := result["conversation_id"].(string); ok && conversationID != "" {
+			values["conversation_id"] = conversationID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating chat message cache: id=%s, conversation_id=%s\n", values["id"], values["conversation_id"])
+		cache.InvalidateForChatMessage(h.redis, values["id"], values["conversation_id"])
+	case "notifications":
+		if userID, ok := result["user_id"].(string); ok && userID != "" {
+			fmt.Printf("[CacheInvalidator] Invalidating notification cache for user_id=%s\n", userID)
+			cache.InvalidateForNotification(h.redis, userID)
+		}
+	case "chat_conversation_members":
+		if conversationID, ok := result["conversation_id"].(string); ok && conversationID != "" {
+			fmt.Printf("[CacheInvalidator] Invalidating chat conversation cache: conversation_id=%s\n", conversationID)
+			cache.InvalidateForChatConversation(h.redis, conversationID, "")
+		}
+	default:
+		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
+		// Generic table invalidation
+		cache.InvalidateForTable(h.redis, tableName, values)
+	}
+}
 
 // UniversalHandler handles generic CRUD operations for any table
 type UniversalHandler struct {
 	db                *sql.DB
 	hub               *websocket.Hub
+	redis             *redis.Client
 	botEventPublisher *BotEventPublisher
 }
 
 func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
 	return &UniversalHandler{db: db, hub: hub}
+}
+
+// SetRedis sets the Redis client for cache invalidation
+func (h *UniversalHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
 }
 
 // SetBotEventPublisher sets the bot event publisher
@@ -186,7 +266,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 	}
 	defer rows.Close()
 
-	var results []map[string]interface{}
+	results := []map[string]interface{}{}
 	columns, _ := rows.Columns()
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
@@ -268,6 +348,16 @@ ON CONFLICT (user_id, board_id) DO UPDATE SET
   updated_at = NOW()
 RETURNING *`
 		return q, []interface{}{uid, bid, acceptedAt}, true
+	case "profile_wall_post_likes":
+		pid, hasPID := data["post_id"]
+		uid, hasUID := data["user_id"]
+		if !hasPID || !hasUID {
+			return "", nil, false
+		}
+		q := `INSERT INTO profile_wall_post_likes (post_id, user_id) VALUES ($1, $2)
+ON CONFLICT (post_id, user_id) DO NOTHING
+RETURNING *`
+		return q, []interface{}{pid, uid}, true
 	default:
 		return "", nil, false
 	}
@@ -370,6 +460,14 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	}
 
 	if tableName == "profile_wall_posts" {
+		// Invalidate cache for this user's wall (author_id is the wall owner)
+		if authorID, ok := result["author_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForProfileWall(h.redis, authorID)
+		}
+
+		// Also invalidate via the new cache system
+		h.invalidateCacheForTableResult(tableName, result)
+
 		if h.hub != nil {
 			fmt.Printf("[WebSocket DEBUG] Publishing wall post event for %s\n", result["id"])
 			if err := h.hub.PublishNewWallPost(result); err != nil {
@@ -385,9 +483,34 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	}
 
 	if tableName == "profile_wall_post_comments" {
+		// Invalidate cache for this comment and the post's comments
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			commentID, _ := result["id"].(string)
+			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+		}
+
 		// Publish event to bots
 		if h.botEventPublisher != nil {
 			h.botEventPublisher.PublishWallComment(result)
+		}
+	}
+
+	if tableName == "profile_wall_post_likes" {
+		// Invalidate cache for the post and its likes
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/rest/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
+			cache.InvalidateByPattern(h.redis, "data:/rest/v1/profile_wall_post_likes*")
+		}
+	}
+
+	if tableName == "profile_wall_post_reposts" {
+		// Invalidate cache for both the original post and the user's wall
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForWallPost(h.redis, postID)
+		}
+		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForProfileWall(h.redis, userID)
 		}
 	}
 
@@ -400,6 +523,10 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			RecomputeUserProfileStats(h.db, uid)
 		}
 	}
+
+	// Invalidate cache for the created record
+	h.invalidateCacheForTableResult(tableName, result)
+
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
@@ -485,6 +612,11 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	// Publish WebSocket events for profile wall posts updates BEFORE enrichment
 	if tableName == "profile_wall_posts" {
+		// Invalidate cache for this user's wall
+		if userID, ok := result["user_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+		}
+
 		if h.hub != nil {
 			fmt.Printf("[WebSocket DEBUG] Publishing wall post update event for %s\n", result["id"])
 			if err := h.hub.PublishUpdateWallPost(result); err != nil {
@@ -492,6 +624,14 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 			} else {
 				fmt.Printf("[WebSocket] Published wall post update event for post %s\n", result["id"])
 			}
+		}
+	}
+
+	if tableName == "profile_wall_post_comments" {
+		// Invalidate cache for this comment and the post's comments
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			commentID, _ := result["id"].(string)
+			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
 		}
 	}
 
@@ -504,6 +644,10 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 			RecomputeUserProfileStats(h.db, uid)
 		}
 	}
+
+	// Invalidate cache for the updated record
+	h.invalidateCacheForTableResult(tableName, result)
+
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
 
@@ -569,6 +713,11 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 
 	// Publish WebSocket events for profile wall posts deletion
 	if tableName == "profile_wall_posts" {
+		// Invalidate cache for this user's wall
+		if userID, ok := result["user_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+		}
+
 		if h.hub != nil {
 			fmt.Printf("[WebSocket DEBUG] Publishing wall post delete event for %s\n", result["id"])
 			if err := h.hub.PublishDeleteWallPost(result); err != nil {
@@ -578,6 +727,36 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 			}
 		}
 	}
+
+	if tableName == "profile_wall_post_comments" {
+		// Invalidate cache for this comment and the post's comments
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			commentID, _ := result["id"].(string)
+			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+		}
+	}
+
+	if tableName == "profile_wall_post_likes" {
+		// Invalidate cache for the post and its likes
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/rest/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
+			cache.InvalidateByPattern(h.redis, "data:/rest/v1/profile_wall_post_likes*")
+		}
+	}
+
+	if tableName == "profile_wall_post_reposts" {
+		// Invalidate cache for both the original post and the user's wall
+		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForWallPost(h.redis, postID)
+		}
+		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+		}
+	}
+
+	// Invalidate cache for the deleted record
+	h.invalidateCacheForTableResult(tableName, result)
 
 	c.JSON(http.StatusOK, gin.H{"data": result})
 }
@@ -809,7 +988,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 	}
 	defer rows.Close()
 
-	var results []map[string]interface{}
+	results := []map[string]interface{}{}
 	columns, _ := rows.Columns()
 	for rows.Next() {
 		values := make([]interface{}, len(columns))

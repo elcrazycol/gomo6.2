@@ -521,6 +521,11 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		return
 	}
 
+	// Invalidate cache for this thread and its board
+	if h.redis != nil {
+		middleware.InvalidateCacheForThread(h.redis, thread.ID)
+	}
+
 	c.JSON(http.StatusOK, models.SupabaseResponse{
 		Data: thread,
 	})
