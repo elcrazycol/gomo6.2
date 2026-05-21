@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
+import { TwoFASection } from "@/components/TwoFASection";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 const defaultPrivacySettings = {
@@ -877,6 +878,15 @@ const Settings = () => {
                           </div>
                         </DialogContent>
                       </Dialog>
+                    </div>
+
+                    {/* 2FA Section */}
+                    <div className="border-t border-border pt-4 mt-4">
+                      <h3 className="text-lg font-semibold mb-2">Двухфакторная аутентификация (2FA)</h3>
+                      <p className="text-sm text-muted-foreground mt-1 mb-3">
+                        Защитите ваш аккаунт с помощью TOTP кода из аутентификатора
+                      </p>
+                      <TwoFASection userId={user.id} />
                     </div>
                   </div>
                 </div>
