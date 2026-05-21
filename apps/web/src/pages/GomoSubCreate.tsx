@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { storageUrl } from "@/utils/storage";
 import { Loader2, CheckCircle2, XCircle, Plus } from "lucide-react";
 
 const RESERVED_SLUGS = [
@@ -283,7 +284,7 @@ const GomoSubCreate = () => {
                 className="group relative w-full h-full text-left"
               >
                 {coverImages[0] ? (
-                  <img src={coverImages[0]} alt="cover" className="w-full h-full object-cover" />
+                  <img src={storageUrl("post-images", coverImages[0])} alt="cover" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
                     {uploadingCover ? "Загрузка..." : "Нажми сюда, чтобы добавить фон"}
@@ -309,7 +310,7 @@ const GomoSubCreate = () => {
                   className="group relative w-full h-full"
                 >
                 {avatarImages[0] ? (
-                  <img src={avatarImages[0]} alt="avatar" className="w-full h-full object-cover" />
+                  <img src={storageUrl("post-images", avatarImages[0])} alt="avatar" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-xl font-bold text-muted-foreground">
                     {uploadingAvatar ? "..." : (form.name.trim()[0] || "g").toUpperCase()}
