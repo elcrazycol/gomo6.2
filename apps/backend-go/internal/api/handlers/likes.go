@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -100,6 +101,11 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
 	RecomputeUserProfileStats(h.db, threadOwner)
 
+	// Invalidate cache for thread and its posts
+	if h.redis != nil {
+		middleware.InvalidateCacheForThreadLike(h.redis, threadID, "")
+	}
+
 	// Publish bot event
 	if h.redis != nil {
 		eventData, _ := json.Marshal(map[string]interface{}{
@@ -162,6 +168,11 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
 	RecomputeUserProfileStats(h.db, threadOwner)
+
+	// Invalidate cache for thread and its posts
+	if h.redis != nil {
+		middleware.InvalidateCacheForThreadLike(h.redis, threadID, "")
+	}
 
 	// Publish bot event
 	if h.redis != nil {
@@ -250,9 +261,14 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 		return
 	}
 
-	var postAuthor string
-	_ = h.db.QueryRow("SELECT user_id FROM posts WHERE id = $1", postID).Scan(&postAuthor)
+	var postAuthor, threadID string
+	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
 	RecomputeUserProfileStats(h.db, postAuthor)
+
+	// Invalidate cache for post and its thread
+	if h.redis != nil {
+		middleware.InvalidateCacheForPostLike(h.redis, postID, threadID)
+	}
 
 	// Publish bot event
 	if h.redis != nil {
@@ -313,9 +329,14 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 		return
 	}
 
-	var postAuthor string
-	_ = h.db.QueryRow("SELECT user_id FROM posts WHERE id = $1", postID).Scan(&postAuthor)
+	var postAuthor, threadID string
+	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
 	RecomputeUserProfileStats(h.db, postAuthor)
+
+	// Invalidate cache for post and its thread
+	if h.redis != nil {
+		middleware.InvalidateCacheForPostLike(h.redis, postID, threadID)
+	}
 
 	// Publish bot event
 	if h.redis != nil {
