@@ -33,7 +33,7 @@ const GomoSubs = () => {
   const [activeTab, setActiveTab] = useState<"all" | "my-feed">("all");
 
   const canCreate = useMemo(() => {
-    const garmaOk = (profile?.garma ?? 0) >= 50;
+    const garmaOk = (profile?.garma ?? 0) >= 10;
     const ageOk = profile?.created_at
       ? Date.now() - new Date(profile.created_at).getTime() >= 14 * 24 * 60 * 60 * 1000
       : false;

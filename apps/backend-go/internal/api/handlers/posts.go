@@ -450,9 +450,9 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 			// Send minimal payload - only IDs and essential data
 			// Frontend will use React Query cache or fetch if needed
 			postData := map[string]interface{}{
-				"id":        post.ID,
-				"thread_id": post.ThreadID,
-				"user_id":   post.UserID,
+				"id":         post.ID,
+				"thread_id":  post.ThreadID,
+				"user_id":    post.UserID,
 				"created_at": post.CreatedAt,
 			}
 
@@ -562,6 +562,11 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	}
 	if len(retJSON) > 0 {
 		post.ContentJSON = json.RawMessage(retJSON)
+	}
+
+	// Invalidate cache for this post and its thread
+	if h.redis != nil {
+		middleware.InvalidateCacheForPost(h.redis, post.ID, post.ThreadID)
 	}
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{

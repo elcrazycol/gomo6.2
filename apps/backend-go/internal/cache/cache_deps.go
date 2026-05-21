@@ -1,0 +1,211 @@
+package cache
+
+import (
+	"fmt"
+)
+
+// CacheDependencyMap defines cache key patterns for each table
+// Keys are cache key patterns with placeholders like {id}, {user_id}, etc.
+type CacheDependencyMap map[string][]string
+
+// TableCacheDeps maps table names to their cache key patterns
+var TableCacheDeps = CacheDependencyMap{
+	"posts": {
+		"data:/rest/v1/posts",
+		"data:/rest/v1/posts?id=eq.{id}",
+		"data:/rest/v1/posts?thread_id=eq.{thread_id}",
+		"data:/rest/v1/posts/{id}",
+	},
+	"threads": {
+		"data:/rest/v1/threads",
+		"data:/rest/v1/threads?id=eq.{id}",
+		"data:/rest/v1/threads/{id}",
+		"data:/rest/v1/threads?board_id=eq.{board_id}",
+	},
+	"boards": {
+		"data:/rest/v1/boards",
+		"data:/rest/v1/boards?id=eq.{id}",
+		"data:/rest/v1/boards/{id}",
+		"data:/rest/v1/boards?slug=eq.{slug}",
+	},
+	"profiles": {
+		"data:/rest/v1/profiles",
+		"data:/rest/v1/profiles?id=eq.{id}",
+		"data:/rest/v1/profiles/{id}",
+		"data:/rest/v1/profiles?username=eq.{username}",
+	},
+	"users": {
+		"data:/rest/v1/profiles",
+		"data:/rest/v1/profiles?id=eq.{id}",
+		"data:/rest/v1/profiles/{id}",
+	},
+	"notifications": {
+		"data:/rest/v1/notifications",
+		"data:/rest/v1/notifications?user_id=eq.{user_id}",
+	},
+	"profile_wall_posts": {
+		"data:/rest/v1/profile_wall_posts",
+		"data:/rest/v1/profile_wall_posts?id=eq.{id}",
+		"data:/rest/v1/profile_wall_posts?user_id=eq.{user_id}",
+	},
+	"profile_wall_post_comments": {
+		"data:/rest/v1/profile_wall_post_comments",
+		"data:/rest/v1/profile_wall_post_comments?id=eq.{id}",
+		"data:/rest/v1/profile_wall_post_comments?post_id=eq.{post_id}",
+	},
+	"profile_wall_post_likes": {
+		"data:/rest/v1/profile_wall_post_likes",
+		"data:/rest/v1/profile_wall_post_likes?post_id=eq.{post_id}",
+	},
+	"profile_wall_post_reposts": {
+		"data:/rest/v1/profile_wall_post_reposts",
+		"data:/rest/v1/profile_wall_post_reposts?post_id=eq.{post_id}",
+	},
+	"chat_messages": {
+		"data:/rest/v1/chat_messages",
+		"data:/rest/v1/chat_messages?id=eq.{id}",
+		"data:/rest/v1/chat_messages?conversation_id=eq.{conversation_id}",
+	},
+	"chat_conversations": {
+		"data:/rest/v1/chat_conversations",
+		"data:/rest/v1/chat_conversations?id=eq.{id}",
+	},
+	"chat_conversation_members": {
+		"data:/rest/v1/chat_conversation_members",
+		"data:/rest/v1/chat_conversation_members?conversation_id=eq.{conversation_id}",
+		"data:/rest/v1/chat_conversation_members?user_id=eq.{user_id}",
+	},
+	"chat_receipts": {
+		"data:/rest/v1/chat_receipts",
+		"data:/rest/v1/chat_receipts?conversation_id=eq.{conversation_id}",
+	},
+	"post_likes": {
+		"data:/rest/v1/posts?id=eq.{post_id}",
+		"data:/rest/v1/posts/{post_id}",
+		"data:/rest/v1/posts?thread_id=eq.{thread_id}",
+	},
+	"thread_likes": {
+		"data:/rest/v1/threads?id=eq.{thread_id}",
+		"data:/rest/v1/threads/{thread_id}",
+	},
+	"polls": {
+		"data:/rest/v1/polls",
+		"data:/rest/v1/polls?id=eq.{id}",
+	},
+	"poll_votes": {
+		"data:/rest/v1/polls",
+		"data:/rest/v1/polls?id=eq.{poll_id}",
+		"data:/rest/v1/poll_votes?poll_id=eq.{poll_id}",
+	},
+}
+
+// BuildCacheKeys generates cache key patterns with actual values
+func BuildCacheKeys(table string, values map[string]string) []string {
+	patterns, ok := TableCacheDeps[table]
+	if !ok {
+		return nil
+	}
+
+	var keys []string
+	for _, pattern := range patterns {
+		key := pattern
+		for placeholder, value := range values {
+			key = replacePlaceholder(key, placeholder, value)
+		}
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// replacePlaceholder replaces {placeholder} with actual value
+func replacePlaceholder(pattern, placeholder, value string) string {
+	return replaceAll(pattern, "{"+placeholder+"}", value)
+}
+
+// replaceAll replaces all occurrences of old with new
+func replaceAll(s, old, new string) string {
+	result := s
+	for {
+		idx := 0
+		found := false
+		for i := 0; i <= len(result)-len(old); i++ {
+			if result[i:i+len(old)] == old {
+				idx = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			break
+		}
+		result = result[:idx] + new + result[idx+len(old):]
+	}
+	return result
+}
+
+// GetPrimaryKeyColumn returns the primary key column name for a table
+func GetPrimaryKeyColumn(table string) string {
+	switch table {
+	case "posts", "threads", "boards", "users", "notifications",
+		"profile_wall_posts", "profile_wall_post_comments",
+		"chat_messages", "chat_conversations", "polls":
+		return "id"
+	case "post_likes", "thread_likes":
+		return "id"
+	case "chat_conversation_members":
+		return "id"
+	case "chat_receipts":
+		return "id"
+	default:
+		return "id"
+	}
+}
+
+// GetForeignKeyColumns returns foreign key columns that affect cache for a table
+func GetForeignKeyColumns(table string) []string {
+	switch table {
+	case "posts":
+		return []string{"thread_id", "user_id"}
+	case "threads":
+		return []string{"board_id", "user_id"}
+	case "profile_wall_posts":
+		return []string{"user_id"}
+	case "profile_wall_post_comments":
+		return []string{"post_id", "user_id"}
+	case "profile_wall_post_likes", "profile_wall_post_reposts":
+		return []string{"post_id"}
+	case "chat_messages":
+		return []string{"conversation_id", "sender_user_id"}
+	case "chat_conversation_members":
+		return []string{"conversation_id", "user_id"}
+	case "chat_receipts":
+		return []string{"message_id", "user_id", "conversation_id"}
+	case "notifications":
+		return []string{"user_id"}
+	case "post_likes":
+		return []string{"post_id", "user_id"}
+	case "thread_likes":
+		return []string{"thread_id", "user_id"}
+	case "poll_votes":
+		return []string{"poll_id", "user_id"}
+	default:
+		return nil
+	}
+}
+
+// GetCacheKeyExact returns exact cache key for a specific query
+func GetCacheKeyExact(path string, queryParams map[string]string) string {
+	query := ""
+	first := true
+	for key, value := range queryParams {
+		if !first {
+			query += "&"
+		}
+		query += key + "=" + value
+		first = false
+	}
+	if query != "" {
+		return fmt.Sprintf("data:%s?%s", path, query)
+	}
+	return fmt.Sprintf("data:%s", path)
+}

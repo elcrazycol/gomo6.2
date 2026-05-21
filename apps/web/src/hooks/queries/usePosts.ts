@@ -38,7 +38,7 @@ export function usePosts(threadId: string | undefined) {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      return data as Post[];
+      return (data as Post[]) ?? [];
     },
     enabled: !!threadId,
     staleTime: 30 * 1000, // 30 seconds
