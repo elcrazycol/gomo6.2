@@ -1547,6 +1547,23 @@ export const ProfileWall = ({
     if (!currentUserId) return;
 
     try {
+      // Find the post being deleted to check if it's a repost
+      const postToDelete = posts.find(p => p.id === postId);
+
+      // If this post is a repost, also delete the repost record so the original post
+      // doesn't show a stale repost status
+      if (postToDelete?.repost_of_post_id) {
+        const { error: repostRecordError } = await supabase
+          .from("profile_wall_post_reposts")
+          .delete()
+          .eq("reposted_wall_post_id", postId)
+          .eq("user_id", currentUserId);
+
+        if (repostRecordError) {
+          console.error("Error deleting repost record:", repostRecordError);
+        }
+      }
+
       const { error } = await supabase
         .from("profile_wall_posts")
         .delete()
