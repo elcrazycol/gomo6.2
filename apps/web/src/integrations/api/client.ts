@@ -99,6 +99,18 @@ export interface Notification {
 export interface AuthResponse {
   token: string;
   user: User;
+  needs_2fa?: boolean;
+}
+
+// 2FA Types
+export interface TOTPSetupResponse {
+  secret: string;
+  uri: string;
+}
+
+export interface TwoFAStatus {
+  enabled: boolean;
+  has_pending_secret: boolean;
 }
 
 // Supabase-like Response Format
@@ -125,6 +137,10 @@ class ApiClient {
   clearToken() {
     this.token = null;
     localStorage.removeItem('auth_token');
+  }
+
+  getToken(): string | null {
+    return this.token;
   }
 
   public async request<T>(
@@ -189,10 +205,40 @@ class ApiClient {
     return response.data as AuthResponse;
   }
 
-  async login(email: string, password: string): Promise<AuthResponse> {
+  async login(email: string, password: string, deviceId?: string): Promise<AuthResponse & { needs_2fa?: boolean }> {
+    const body: any = { email, password };
+    if (deviceId) {
+      body.device_id = deviceId;
+    }
+
     const response = await this.request<AuthResponse>('/api/v1/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(body),
+    });
+
+    const data = response.data as any;
+    if (data) {
+      // Only set token if 2FA is not needed (full token)
+      if (!data.needs_2fa) {
+        this.setToken(data.token);
+      }
+    }
+
+    return data as AuthResponse & { needs_2fa?: boolean };
+  }
+
+  async verify2FA(token: string, code: string, deviceId?: string, trustDevice?: boolean): Promise<AuthResponse> {
+    const body: any = { token, code };
+    if (deviceId) {
+      body.device_id = deviceId;
+    }
+    if (trustDevice) {
+      body.trust_device = true;
+    }
+
+    const response = await this.request<AuthResponse>('/api/v1/auth/verify-2fa', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
 
     if (response.data) {
@@ -223,6 +269,33 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ password }),
     });
+  }
+
+  // 2FA Methods
+  async setupTOTP(): Promise<TOTPSetupResponse> {
+    const response = await this.request<TOTPSetupResponse>('/api/v1/auth/2fa/setup', {
+      method: 'POST',
+    });
+    return response.data as TOTPSetupResponse;
+  }
+
+  async verifyAndEnableTOTP(code: string): Promise<{ enabled: boolean; recovery_codes?: string[] }> {
+    const response = await this.request<any>('/api/v1/auth/2fa/verify-and-enable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    return response.data as { enabled: boolean; recovery_codes?: string[] };
+  }
+
+  async disableTOTP(): Promise<void> {
+    await this.request<unknown>('/api/v1/auth/2fa/disable', {
+      method: 'POST',
+    });
+  }
+
+  async get2FAStatus(): Promise<TwoFAStatus> {
+    const response = await this.request<TwoFAStatus>('/api/v1/auth/2fa/status');
+    return response.data as TwoFAStatus;
   }
 
   // Boards Methods
@@ -458,6 +531,16 @@ class ApiClient {
 // Create singleton instance
 export const apiClient = new ApiClient();
 
+// Generate a device ID (stable per browser)
+export function getDeviceId(): string {
+  let deviceId = localStorage.getItem('device_id');
+  if (!deviceId) {
+    deviceId = 'device_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    localStorage.setItem('device_id', deviceId);
+  }
+  return deviceId;
+}
+
 // Export for backward compatibility with existing code
 export const supabase = {
   // Auth
@@ -472,7 +555,17 @@ export const supabase = {
     },
     signInWithPassword: async ({ email, password }: any) => {
       try {
-        const result = await apiClient.login(email, password);
+        const deviceId = getDeviceId();
+        const result = await apiClient.login(email, password, deviceId);
+        
+        if (result.needs_2fa) {
+          // Return session with partial token and needs_2fa flag
+          return { 
+            data: { user: result.user, session: { access_token: result.token, needs_2fa: true } }, 
+            error: null 
+          };
+        }
+        
         return { data: { user: result.user, session: { access_token: result.token } }, error: null };
       } catch (error) {
         return { data: null, error: { message: (error as Error).message } };
@@ -493,7 +586,7 @@ export const supabase = {
     getSession: async () => {
       try {
         const user = await apiClient.getCurrentUser();
-        return { data: { session: user ? { user, access_token: apiClient['token'] } : null }, error: null };
+        return { data: { session: user ? { user, access_token: apiClient.getToken() } : null }, error: null };
       } catch (error) {
         return { data: { session: null }, error: { message: (error as Error).message } };
       }

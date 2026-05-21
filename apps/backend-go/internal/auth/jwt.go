@@ -40,6 +40,21 @@ func (a *AuthService) GenerateToken(userID, username, domain string) (string, er
 	return token.SignedString(a.jwtSecret)
 }
 
+func (a *AuthService) GeneratePartialToken(userID, username, domain string) (string, error) {
+	claims := Claims{
+		UserID:   userID,
+		Username: username,
+		Domain:   domain,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(a.jwtSecret)
+}
+
 func (a *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {

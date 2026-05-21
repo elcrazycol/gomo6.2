@@ -111,6 +111,18 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				middleware.AuthRateLimitMiddleware(authRateLimiter),
 				authHandler.GetMe)
 			authGroup.POST("/password", middleware.AuthMiddleware(authService), authHandler.UpdatePassword)
+
+			// 2FA endpoints
+			auth2fa := authGroup.Group("/2fa")
+			auth2fa.Use(middleware.AuthMiddleware(authService))
+			{
+				auth2fa.POST("/setup", authHandler.SetupTOTP)
+				auth2fa.POST("/verify-and-enable", authHandler.VerifyAndEnableTOTP)
+				auth2fa.POST("/disable", authHandler.DisableTOTP)
+				auth2fa.GET("/status", authHandler.Get2FAStatus)
+			}
+			// Verify 2FA during login (uses partial token, no full auth middleware)
+			authGroup.POST("/verify-2fa", authHandler.Verify2FA)
 		}
 	}
 
