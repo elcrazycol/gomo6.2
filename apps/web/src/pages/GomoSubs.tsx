@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { storageUrl } from "@/utils/storage";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ThreadCard } from "@/components/ThreadCard";
@@ -280,7 +281,7 @@ const GomoSubs = () => {
                         {sub.cover_image_url ? (
                           <div
                             className="h-28 w-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${sub.cover_image_url})` }}
+                            style={{ backgroundImage: `url(${storageUrl("post-images", sub.cover_image_url)})` }}
                           />
                         ) : (
                           <div className="h-28 w-full bg-gradient-to-br from-primary/20 to-muted" />
