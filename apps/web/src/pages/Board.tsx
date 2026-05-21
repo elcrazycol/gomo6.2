@@ -54,7 +54,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus } from "lucide-react";
+import { Settings, Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2 } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -620,7 +620,23 @@ const Board = () => {
 
               <div className="relative px-4 sm:px-6 pt-12 sm:pt-14 pb-4 sm:pb-5">
                 {board.is_gomosub && (
-                  <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2">
+                  <div className="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 w-9 p-0 sm:h-10 sm:w-10"
+                      onClick={() => {
+                        const url = `${window.location.origin}/g/${board.slug}`;
+                        navigator.clipboard.writeText(url).then(() => {
+                          toast.success("Ссылка на g-саб скопирована");
+                        }).catch(() => {
+                          toast.error("Не удалось скопировать ссылку");
+                        });
+                      }}
+                      title="Поделиться"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </Button>
                     <Button
                       variant={isJoined ? "secondary" : "default"}
                       onClick={handleToggleJoin}
