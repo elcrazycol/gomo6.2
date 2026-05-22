@@ -3,7 +3,7 @@ FROM golang:1.25-alpine AS builder
 WORKDIR /app
 
 # Install git and ca-certificates
-RUN apk add --no-cache git=~2.47 ca-certificates=~20241121
+RUN apk add --no-cache git=~2.52 ca-certificates=20260413-r0
 
 # Copy go mod files
 COPY go.mod go.sum ./
@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/m
 # Final stage
 FROM alpine:3.21
 
-RUN apk --no-cache add ca-certificates=~20241121 curl=~8.12
+RUN apk --no-cache add ca-certificates=20260413-r0 curl=8.14.1-r2
 WORKDIR /root/
 
 # Copy the binary from builder stage
