@@ -248,10 +248,8 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		var decoded interface{}
 		if err := json.Unmarshal(contentJSON, &decoded); err == nil {
 			post.ContentJSON = json.RawMessage(contentJSON)
-			fmt.Printf("DEBUG: Post contentJSON decoded successfully: %s\n", string(contentJSON))
 		} else {
 			post.ContentJSON = nil
-			fmt.Printf("DEBUG: Failed to decode contentJSON: %v\n", err)
 		}
 	}
 
@@ -331,8 +329,6 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	}
 
 	// Validate that content is not empty
-	fmt.Printf("DEBUG: CreatePost received %d attachments\n", len(req.Attachments))
-	fmt.Printf("DEBUG: Attachments data: %+v\n", req.Attachments)
 	if req.Content == "" && len(req.Attachments) == 0 {
 		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
 			Error: stringPtr("Пост не может быть пустым"),
@@ -387,10 +383,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	var insertContentJSON interface{}
 	if len(req.ContentJSON) > 0 {
 		insertContentJSON = []byte(req.ContentJSON)
-		fmt.Printf("DEBUG: req.ContentJSON length: %d\n", len(req.ContentJSON))
-		fmt.Printf("DEBUG: req.ContentJSON content: %s\n", string(req.ContentJSON))
 	} else {
-		fmt.Printf("DEBUG: req.ContentJSON is empty or nil\n")
 	}
 
 	query := `
@@ -401,7 +394,6 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 
 	var post models.Post
 	var retContentJSON []byte
-	fmt.Printf("DEBUG: Storing attachments in DB: %+v\n", req.Attachments)
 	err = h.db.QueryRow(query,
 		req.ThreadID, userClaims.UserID, req.Content, insertContentJSON, imageURL,
 		imageURLs, req.Attachments, req.ReplyTo, "localhost:8080",
@@ -419,7 +411,6 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	}
 	if len(retContentJSON) > 0 {
 		post.ContentJSON = json.RawMessage(retContentJSON)
-		fmt.Printf("DEBUG: CreatePost contentJSON: %s\n", string(retContentJSON))
 	}
 
 	// Update thread post count and updated_at
@@ -442,7 +433,6 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	}
 
 	// Publish realtime event to WebSocket Hub
-	fmt.Printf("[WebSocket DEBUG] wsHub is nil: %v\n", h.wsHub == nil)
 	if h.wsHub != nil {
 		if hub, ok := h.wsHub.(*websocket.Hub); ok {
 			// Send minimal payload - only IDs and essential data
@@ -454,17 +444,12 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 				"created_at": post.CreatedAt,
 			}
 
-			fmt.Printf("[WebSocket DEBUG] Publishing minimal post event for %s\n", post.ID)
 			if err := hub.PublishNewPost(postData); err != nil {
 				fmt.Printf("[WebSocket] Error publishing new post event: %v\n", err)
 			} else {
 				fmt.Printf("[WebSocket] Published new post event for post %s\n", post.ID)
 			}
-		} else {
-			fmt.Printf("[WebSocket DEBUG] wsHub is not *websocket.Hub, type: %T\n", h.wsHub)
 		}
-	} else {
-		fmt.Printf("[WebSocket DEBUG] wsHub is nil, cannot publish\n")
 	}
 
 	// Publish event to bots
