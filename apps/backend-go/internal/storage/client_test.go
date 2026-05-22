@@ -366,7 +366,7 @@ type smithyAPIError struct {
 	message string
 }
 
-func (e *smithyAPIError) Error() string   { return e.code + ": " + e.message }
+func (e *smithyAPIError) Error() string { return e.code + ": " + e.message }
 func (e *smithyAPIError) ErrorCode() string { return e.code }
 func (e *smithyAPIError) ErrorMessage() string { return e.message }
 func (e *smithyAPIError) ErrorFault() smithy.ErrorFault { return smithy.FaultServer }
