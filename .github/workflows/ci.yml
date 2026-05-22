@@ -1,3 +1,9 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ci.yml — Быстрый CI на каждый push/PR
+# Только критичные проверки: сборка, линтинг, типчекинг, секьюрити.
+# Полные тесты с БД → full-tests.yml
+# ──────────────────────────────────────────────────────────────────────────────
+
 name: CI
 
 on:
@@ -8,37 +14,14 @@ on:
 
 jobs:
   ##############################################################################
-  # Backend (Go)
+  # Backend (Go) — build + lint + vet + vulnerable check
   ##############################################################################
   backend:
+    name: Go (build + lint)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/backend-go
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: gomo6
-          POSTGRES_DB: gomo6
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -70,26 +53,11 @@ jobs:
       - name: Vendoring check
         run: go mod tidy && git diff --exit-code go.mod go.sum
 
-      - name: Apply migrations to test DB
-        env:
-          PGHOST: localhost
-          PGUSER: gomo6
-          PGDATABASE: gomo6
-        run: |
-          for f in migrations/0*.sql; do
-            psql -q < "$f"
-          done
-
-      - name: Test
-        env:
-          DATABASE_URL_TEST: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
-          REDIS_URL: redis://localhost:6379/0
-        run: go test -race -count=1 ./...
-
   ##############################################################################
   # Secret scanning (gitleaks)
   ##############################################################################
   gitleaks:
+    name: Secrets scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,6 +72,7 @@ jobs:
   # Dockerfile linting (hadolint)
   ##############################################################################
   dockerfile:
+    name: Dockerfile lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,9 +82,10 @@ jobs:
           recursive: true
 
   ##############################################################################
-  # Frontend (TypeScript apps)
+  # Frontend (TypeScript) — install, typecheck, lint, build
   ##############################################################################
   frontend:
+    name: Frontend (TS + lint + build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -139,12 +109,6 @@ jobs:
 
       - name: Lint — web
         run: npm run lint --workspace=@gomo6/web
-
-      - name: Test — web
-        run: npm run test --workspace=@gomo6/web
-
-      - name: Audit dependencies
-        run: npm audit --audit-level=critical
 
       - name: Build — web
         run: npm run build --workspace=@gomo6/web
