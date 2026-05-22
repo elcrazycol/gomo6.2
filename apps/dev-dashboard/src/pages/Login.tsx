@@ -1,68 +1,36 @@
-import { useState, FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
-import { api } from "@/lib/api";
+import { loginWithGomo6 } from "@/lib/oauth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { KeyRound, ExternalLink } from "lucide-react";
 
 const Login = () => {
-  const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const result = await api.login(email, password);
-      api.setToken(result.token);
-      toast.success("Вход выполнен");
-      navigate("/apps");
-    } catch (err: any) {
-      toast.error(err.message || "Ошибка входа");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+              <KeyRound className="w-8 h-8 text-white" />
+            </div>
+          </div>
           <CardTitle className="text-xl">gomo6 Dev Dashboard</CardTitle>
-          <CardDescription>Войдите для управления приложениями</CardDescription>
+          <CardDescription className="mt-2">
+            Войдите через свою учётную запись gomo6 для управления
+            OAuth-приложениями и интеграциями
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@example.com"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Пароль</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Вход..." : "Войти"}
-            </Button>
-          </form>
+          <Button
+            onClick={loginWithGomo6}
+            className="w-full h-12 text-base gap-3 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 shadow-lg shadow-emerald-500/25 transition-all duration-200 hover:shadow-emerald-500/40"
+          >
+            <ExternalLink className="w-5 h-5" />
+            Войти через gomo6
+          </Button>
+          <p className="text-xs text-center text-muted-foreground mt-4">
+            Вы будете перенаправлены на страницу авторизации gomo6,
+            где сможете подтвердить вход
+          </p>
         </CardContent>
       </Card>
     </div>
