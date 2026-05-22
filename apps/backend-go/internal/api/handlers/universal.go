@@ -469,7 +469,6 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		h.invalidateCacheForTableResult(tableName, result)
 
 		if h.hub != nil {
-			fmt.Printf("[WebSocket DEBUG] Publishing wall post event for %s\n", result["id"])
 			if err := h.hub.PublishNewWallPost(result); err != nil {
 				fmt.Printf("[WebSocket] Error publishing wall post event: %v\n", err)
 			} else {
@@ -618,7 +617,6 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		}
 
 		if h.hub != nil {
-			fmt.Printf("[WebSocket DEBUG] Publishing wall post update event for %s\n", result["id"])
 			if err := h.hub.PublishUpdateWallPost(result); err != nil {
 				fmt.Printf("[WebSocket] Error publishing wall post update event: %v\n", err)
 			} else {
@@ -719,7 +717,6 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		}
 
 		if h.hub != nil {
-			fmt.Printf("[WebSocket DEBUG] Publishing wall post delete event for %s\n", result["id"])
 			if err := h.hub.PublishDeleteWallPost(result); err != nil {
 				fmt.Printf("[WebSocket] Error publishing wall post delete event: %v\n", err)
 			} else {
@@ -1148,7 +1145,6 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		if h.hub != nil {
 			conversationID := rowUserID(result["conversation_id"])
 			if conversationID != "" {
-				fmt.Printf("[WebSocket DEBUG] Publishing new chat message event for conversation %s\n", conversationID)
 				if err := h.hub.PublishNewChatMessage(result); err != nil {
 					fmt.Printf("[WebSocket] Error publishing chat message event: %v\n", err)
 				} else {
