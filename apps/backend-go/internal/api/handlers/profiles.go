@@ -64,18 +64,14 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 
 	// Handle username filter
 	if username := c.Query("username"); username != "" {
-		if strings.HasPrefix(username, "eq.") {
-			username = username[3:]
-		}
+		username = strings.TrimPrefix(username, "eq.")
 		conditions = append(conditions, "username = $"+strconv.Itoa(len(args)+1))
 		args = append(args, username)
 	}
 
 	// Handle domain filter
 	if domain := c.Query("domain"); domain != "" {
-		if strings.HasPrefix(domain, "eq.") {
-			domain = domain[3:]
-		}
+		domain = strings.TrimPrefix(domain, "eq.")
 		conditions = append(conditions, "domain = $"+strconv.Itoa(len(args)+1))
 		args = append(args, domain)
 	}

@@ -250,8 +250,8 @@ func (br *BotRuntime) luaDeleteData(L *lua.LState) int {
 	return 1
 }
 
-// luaHttpGet implements bot.httpGet(url)
-func (br *BotRuntime) luaHttpGet(L *lua.LState) int {
+// luaHTTPGet implements bot.httpGet(url)
+func (br *BotRuntime) luaHTTPGet(L *lua.LState) int {
 	url := L.CheckString(1)
 
 	// Whitelist check - only allow certain domains
@@ -290,8 +290,8 @@ func (br *BotRuntime) luaHttpGet(L *lua.LState) int {
 	return 2
 }
 
-// luaHttpPost implements bot.httpPost(url, body)
-func (br *BotRuntime) luaHttpPost(L *lua.LState) int {
+// luaHTTPPost implements bot.httpPost(url, body)
+func (br *BotRuntime) luaHTTPPost(L *lua.LState) int {
 	url := L.CheckString(1)
 	body := L.CheckString(2)
 

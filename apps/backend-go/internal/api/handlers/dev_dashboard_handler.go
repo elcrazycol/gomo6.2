@@ -40,16 +40,16 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"client_id":             clientID,
-		"authorization_url":     baseURL + "/oauth/authorize",
-		"token_url":             baseURL + "/oauth/token",
-		"userinfo_url":           baseURL + "/oauth/userinfo",
-		"revocation_url":         baseURL + "/oauth/revoke",
-		"introspection_url":      baseURL + "/oauth/introspect",
-		"redirect_uri":          frontendURL + "/callback",
-		"scopes":                []string{"openid", "profile", "email"},
-		"app_name":              "gomo6 Dev Dashboard",
-		"app_description":       "Управление OAuth-приложениями и интеграциями gomo6",
+		"client_id":         clientID,
+		"authorization_url": baseURL + "/oauth/authorize",
+		"token_url":         baseURL + "/oauth/token",
+		"userinfo_url":      baseURL + "/oauth/userinfo",
+		"revocation_url":    baseURL + "/oauth/revoke",
+		"introspection_url": baseURL + "/oauth/introspect",
+		"redirect_uri":      frontendURL + "/callback",
+		"scopes":            []string{"openid", "profile", "email"},
+		"app_name":          "gomo6 Dev Dashboard",
+		"app_description":   "Управление OAuth-приложениями и интеграциями gomo6",
 	})
 }
 
