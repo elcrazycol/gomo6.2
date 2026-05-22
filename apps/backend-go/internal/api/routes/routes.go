@@ -38,6 +38,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Initialize rate limiters
 	messengerRateLimiter := middleware.NewMessengerRateLimiter()
 	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute) // 100 requests per minute for auth/me
+	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute) // 20/min for token, 10/min for revoke
 
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
@@ -405,9 +406,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			}
 		})
 		// POST /oauth/token - exchanges code for tokens (no auth, uses client_secret)
-		oauthGroup.POST("/token", oauthHandler.Token)
+		oauthGroup.POST("/token", middleware.OAuthTokenRateLimitMiddleware(oauthRateLimiter), oauthHandler.Token)
 		// POST /oauth/revoke - revokes a token
-		oauthGroup.POST("/revoke", oauthHandler.Revoke)
+		oauthGroup.POST("/revoke", middleware.OAuthRevokeRateLimitMiddleware(oauthRateLimiter), oauthHandler.Revoke)
 		// GET /oauth/userinfo - requires OAuth Bearer token
 		oauthGroup.GET("/userinfo", handlers.OAuthBearerMiddleware(oauthService), oauthHandler.UserInfo)
 		// GET /oauth/app-info - public app info for consent page
