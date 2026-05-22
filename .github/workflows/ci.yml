@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_COLOR: 1
+
+jobs:
+  ##############################################################################
+  # Go — build, vet, test
+  ##############################################################################
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend-go
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gomo6
+          POSTGRES_DB: gomo6
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: apps/backend-go/go.sum
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -o /dev/null ./cmd/server/
+
+      - name: Test
+        env:
+          DATABASE_URL: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+        run: go test -race -count=1 ./...
+
+  ##############################################################################
+  # Frontend — install, typecheck, lint, build (all workspaces via Turbo)
+  ##############################################################################
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeCheck web
+        run: npx tsc --noEmit -p apps/web/tsconfig.app.json
+
+      - name: TypeCheck dev-dashboard
+        run: npx tsc --noEmit -p apps/dev-dashboard/tsconfig.json
+
+      - name: TypeCheck docs
+        run: npx tsc --noEmit -p apps/docs/tsconfig.json
+
+      - name: Lint (web)
+        run: npm run lint --workspace=@gomo6/web
+
+      - name: Build all (Turbo)
+        run: npm run build
+
+  ##############################################################################
+  # Vercel deploy preview (required secrets: VERCEL_TOKEN, VERCEL_ORG_ID,
+  # VERCEL_PROJECT_ID)
+  ##############################################################################
+  deploy-preview:
+    if: github.event_name == 'pull_request'
+    needs: [go, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install & Build web
+        run: |
+          npm ci
+          npm run build --workspace=@gomo6/web
+
+      - name: Deploy preview to Vercel
+        if: >
+          secrets.VERCEL_TOKEN != '' &&
+          secrets.VERCEL_ORG_ID != '' &&
+          secrets.VERCEL_PROJECT_ID != ''
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prebuilt'
+          working-directory: apps/web
