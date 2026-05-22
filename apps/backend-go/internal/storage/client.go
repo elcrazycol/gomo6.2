@@ -45,7 +45,7 @@ func buildS3Client(endpoint, region, accessKey, secretKey string) (*s3.Client, e
 		context.Background(),
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-		config.WithEndpointResolver(aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) {
+		config.WithEndpointResolver(aws.EndpointResolverFunc(func(service, region string) (aws.Endpoint, error) { //nolint:staticcheck // SA1019: v1 deprecated but v2 not available in current SDK version
 			return aws.Endpoint{
 				URL:               endpoint,
 				SigningRegion:     region,

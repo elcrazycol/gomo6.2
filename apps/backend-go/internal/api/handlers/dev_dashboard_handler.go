@@ -70,7 +70,7 @@ func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
 	systemUserID := "00000000-0000-0000-0000-000000000000"
 
 	// First ensure a system user exists to satisfy the owner_id FK constraint
-	_, err = db.Exec(`
+	_, _ = db.Exec(`
 		INSERT INTO users (id, username, email, password_hash, domain)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (id) DO NOTHING

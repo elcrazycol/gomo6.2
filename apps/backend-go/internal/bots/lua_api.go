@@ -686,25 +686,6 @@ func (br *BotRuntime) incrementStat(stat string) {
 	}
 }
 
-// Helper function to convert Lua table to Go map
-func luaTableToMap(L *lua.LState, table *lua.LTable) map[string]interface{} {
-	result := make(map[string]interface{})
-	table.ForEach(func(key, value lua.LValue) {
-		keyStr := key.String()
-		switch v := value.(type) {
-		case lua.LString:
-			result[keyStr] = string(v)
-		case lua.LNumber:
-			result[keyStr] = float64(v)
-		case lua.LBool:
-			result[keyStr] = bool(v)
-		case *lua.LTable:
-			result[keyStr] = luaTableToMap(L, v)
-		}
-	})
-	return result
-}
-
 // Helper function to convert Go map to Lua table
 func mapToLuaTable(L *lua.LState, m map[string]interface{}) *lua.LTable {
 	table := L.NewTable()
