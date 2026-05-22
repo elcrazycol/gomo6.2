@@ -1,15 +1,37 @@
 
 
-This project is built with:
+# Gomo6
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Социальная платформа с мессенджером, OAuth, подкастами, стримингом и ботами.
 
-#er deployment:
+## Архитектура
 
-### Clear Browser Cache
-- **Chrome/Edge**: Ctrl+Shift+R (hard refresh) or Ctrl+Shift+Delete → Clear browsing data
-- **Firefox**: Ctrl+F5 or Ctrl+Shift+R
+Проект — монорепозиторий (npm workspaces + Turbo):
+
+| Приложение | Пакет | Порт | Назначение |
+|---|---|---|---|
+| `apps/web` | `@gomo6/web` | 8081 | Основной сайт |
+| `apps/docs` | `@gomo6/docs` | 3001 | Документация (боты + OAuth API) |
+| `apps/dev-dashboard` | `@gomo6/dev-dashboard` | 3002 | Dev dashboard для OAuth приложений |
+| `apps/backend-go` | — | 8080 | Go-сервер (REST + WebSocket) |
+
+## CI / CD
+
+Подробное описание всех GitHub Actions workflow: [`.github/CI_README.md`](.github/CI_README.md)
+
+Кратко:
+- **`ci.yml`** — быстрая проверка на каждый push/PR (build + lint + typecheck)
+- **`full-tests.yml`** — полные тесты (с БД, race, coverage, smoke) вручную или по cron
+- **`release.yml`** — релиз по тегу `v*` (Docker → ghcr.io + GitHub Release)
+
+## Быстрый старт
+
+```bash
+npm install
+npm run dev       # Запуск всех приложений
+```
+
+### Очистка кеша браузера
+
+- **Chrome/Edge**: Ctrl+Shift+R (hard refresh) или Ctrl+Shift+Delete → Clear browsing data
+- **Firefox**: Ctrl+F5 или Ctrl+Shift+R
