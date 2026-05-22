@@ -15,6 +15,11 @@ type Config struct {
 	FederationKey   string
 	Environment     string
 	AllowedOrigins  []string
+	// TLS configuration — set TLSCertFile and TLSKeyFile to enable HTTPS
+	TLSCertFile     string
+	TLSKeyFile      string
+	// When TLS is enabled, TLSRedirectHTTP controls whether port 8080 redirects to HTTPS
+	TLSRedirectHTTP bool
 }
 
 func LoadConfig() *Config {
@@ -24,14 +29,17 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		ServerPort:     getEnv("SERVER_PORT", "8080"),
-		DatabaseURL:    getEnv("DATABASE_URL", "postgres://user:password@localhost/gomo6?sslmode=disable"),
-		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379"),
-		JWTSecret:      os.Getenv("JWT_SECRET"), // Not used directly; auth.GetJWTSecret() has its own logic
-		ServerDomain:   getEnv("SERVER_DOMAIN", "localhost:8080"),
-		FederationKey:  getEnv("FEDERATION_KEY", "your-federation-key"),
-		Environment:    getEnv("ENVIRONMENT", "development"),
-		AllowedOrigins: allowedOrigins,
+		ServerPort:      getEnv("SERVER_PORT", "8080"),
+		DatabaseURL:     getEnv("DATABASE_URL", "postgres://user:password@localhost/gomo6?sslmode=disable"),
+		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
+		JWTSecret:       os.Getenv("JWT_SECRET"), // Not used directly; auth.GetJWTSecret() has its own logic
+		ServerDomain:    getEnv("SERVER_DOMAIN", "localhost:8080"),
+		FederationKey:   getEnv("FEDERATION_KEY", "your-federation-key"),
+		Environment:     getEnv("ENVIRONMENT", "development"),
+		AllowedOrigins:  allowedOrigins,
+		TLSCertFile:     os.Getenv("TLS_CERT_FILE"),
+		TLSKeyFile:      os.Getenv("TLS_KEY_FILE"),
+		TLSRedirectHTTP: getEnvBool("TLS_REDIRECT_HTTP", false),
 	}
 }
 
