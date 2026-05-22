@@ -1,8 +1,9 @@
 // WebSocket service for real-time updates
 // Connects to Go backend WebSocket endpoint for live post/thread notifications
 
-// Use backend port 8080, not Vite dev server port
-const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
+// Relative WebSocket URL (works through Vite proxy in dev, Caddy in Docker).
+// Override with VITE_WS_URL for custom setups.
+const WS_BASE_URL = import.meta.env.VITE_WS_URL || '/ws';
 
 // Ensure URL has correct format
 function getWebSocketUrl(): string {
@@ -103,11 +104,12 @@ class WebSocketService {
         return;
       }
 
-      // Build WebSocket URL with auth token
-      const wsUrl = new URL(getWebSocketUrl());
-      wsUrl.searchParams.set('token', token);
+      // Build WebSocket URL with auth token (relative to current origin)
+      const wsBase = getWebSocketUrl();
+      const separator = wsBase.includes('?') ? '&' : '?';
+      const wsUrl = `${wsBase}${separator}token=${encodeURIComponent(token)}`;
 
-      this.ws = new WebSocket(wsUrl.toString());
+      this.ws = new WebSocket(wsUrl);
       
       this.ws.onopen = this.handleOpen;
       this.ws.onmessage = this.handleMessage;

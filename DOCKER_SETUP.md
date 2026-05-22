@@ -1,241 +1,218 @@
-# 🚀 Оптимизация завершена - Инструкции по запуску
+# 🚀 Gomo6 — Docker Deployment with Caddy
 
-## ✅ Что было сделано
+## 📦 Что входит
 
-### Backend оптимизации
-- ✅ Redis кеширование auth токенов (30 сек TTL)
-- ✅ Rate limiting для /api/v1/auth/me (10 req/min)
-- ✅ Удален RecomputeUserProfileStats из GetMe
-- ✅ Debouncing для WebSocket статуса (500ms)
-- ✅ Кеширование для всех protected endpoints
+- **Caddy** — reverse proxy с автоматическим HTTPS (Let's Encrypt)
+- **Backend (Go)** — API сервер на порту 8080
+- **PostgreSQL 15** — база данных
+- **Redis 7** — кеширование
+- **Garage S3** — объектное хранилище
+- **Frontends** — три SPA (web, docs, dev-dashboard), каждый в nginx
 
-### Frontend оптимизации
-- ✅ React Query с кешированием (5 мин)
-- ✅ Новый хук useAuth() для централизованной авторизации
-- ✅ Debouncing для WebSocket connect (1 сек)
-- ✅ Удалены дублирующие wsService.connect()
-- ✅ Оптимизирован QueryClient
+```
+                       ┌──────────────────────────────┐
+                       │     Caddy (:80 / :443)        │
+                       │   Auto HTTPS (Let's Encrypt)  │
+                       │   + S3 CORS proxy (/s3/*)    │
+                       └──────┬───────┬───────┬────────┘
+                              │       │       │
+              ┌───────────────┘       │       └───────────────┐
+              ▼                       ▼                       ▼
+    ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────────┐
+    │   web (nginx)   │   │  docs (nginx)   │   │ dev-dashboard (nginx)│
+    │    main app     │   │   /docs/*       │   │     /dev/*          │
+    └─────────────────┘   └─────────────────┘   └─────────────────────┘
+              │
+              ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    backend:8080 (Go API)                        │
+    │         /api  /oauth  /ws  /rest  /rpc  /.well-known           │
+    └──────────────┬──────────────────────┬───────────────────────────┘
+                   │                      │
+                   ▼                      ▼
+          ┌──────────────┐       ┌──────────────┐
+          │ PostgreSQL   │       │    Redis     │
+          └──────────────┘       └──────────────┘
+                   │
+                   ▼
+    ┌─────────────────────────────────────────────────────────────────┐
+    │  Garage S3 (:3900)  ←  Caddy /s3/*  (CORS, prefix stripped)    │
+    └─────────────────────────────────────────────────────────────────┘
+```
 
-### Docker
-- ✅ Контейнеры пересобраны с новыми оптимизациями
-- ✅ Redis уже настроен в docker-compose.yml
-- ✅ Все сервисы запускаются автоматически
+## 🐳 Быстрый старт
 
-## 🐳 Запуск через Docker
-
-### Проверка статуса сборки
+### 1. Настройка
 
 ```bash
-cd /Users/lesha/codes/gomo6/apps/backend-go
-
-# Проверить статус контейнеров
-docker-compose ps
-
-# Посмотреть логи
-docker-compose logs -f backend
+# Скопируй пример .env и заполни значения
+cp .env.docker .env
 ```
 
-### Если нужно перезапустить
+Минимальные настройки в `.env`:
 
 ```bash
-# Остановить все
-docker-compose down
+# Для production — укажи домен (Caddy автоматически получит HTTPS-сертификат)
+DOMAIN=example.com
 
-# Запустить все сервисы
-docker-compose up -d
-
-# Или с пересборкой
-docker-compose up -d --build
+# JWT секрет (сгенерируй: openssl rand -hex 32)
+JWT_SECRET=your-64-char-random-hex-string
 ```
 
-### Проверка работоспособности
+### 2. Запуск
 
 ```bash
-# Проверить health check
-curl http://localhost:8080/health
+# Production (с HTTPS если указан DOMAIN)
+docker compose up -d
 
-# Должен вернуть:
-# {"status":"ok","websocket":true}
+# Посмотреть логи всех сервисов
+docker compose logs -f
 
-# Проверить Redis
-docker-compose exec redis redis-cli ping
-# Должен вернуть: PONG
-
-# Проверить PostgreSQL
-docker-compose exec postgres psql -U gomo6 -d gomo6 -c "SELECT 1;"
+# Посмотреть логи конкретного сервиса
+docker compose logs -f caddy
+docker compose logs -f backend
 ```
 
-## 🌐 Frontend запуск
+### 3. Локальная разработка (без домена)
+
+Без `DOMAIN` Caddy работает на `http://localhost`:
 
 ```bash
-cd /Users/lesha/codes/gomo6/apps/web
+# Просто запускаем
+docker compose up -d
 
-# Установить зависимости (если нужно)
-npm install
-
-# Запустить dev сервер
-npm run dev
-
-# Или собрать для production
-npm run build
+# Доступно:
+# http://localhost          → основной сайт (web)
+# http://localhost/docs/    → документация
+# http://localhost/dev/     → dev dashboard
+# http://localhost/api/...  → API бекенда
 ```
 
-## 📊 Мониторинг оптимизаций
+## 🌐 Маршрутизация Caddy
 
-### 1. Проверка кеширования auth токенов
+| Путь               | Назначение                                |
+|---------------------|-------------------------------------------|
+| `/`                 | Основной сайт (web SPA)                   |
+| `/docs/*`           | Документация (docs SPA)                   |
+| `/dev/*`            | Dev Dashboard (dev-dashboard SPA)         |
+| `/api/*`            | REST API                                  |
+| `/oauth/*`          | OAuth 2.0 эндпоинты                       |
+| `/rest/*`, `/rpc/*` | JSON-RPC / REST                           |
+| `/ws/*`             | WebSocket (авто-upgrade)                  |
+| `/.well-known/*`    | Federation / ActivityPub                  |
+| `/storage/*`        | Хранилище (внутренний API)                |
+| `/s3/*`             | S3 presigned URLs (CORS proxy к Garage)    |
+
+## 🛠️ Полезные команды
+
+### Проверка статуса
 
 ```bash
-# Подключиться к Redis
-docker-compose exec redis redis-cli
+# Статус всех контейнеров
+docker compose ps
 
-# Посмотреть все закешированные токены
-KEYS auth:token:*
-
-# Проверить TTL конкретного токена
-TTL auth:token:<ваш_токен>
+# Health checks
+curl http://localhost:8080/health          # бекенд
+curl http://localhost/s3/                   # Garage S3 через Caddy
+curl http://localhost/docs/                # документация
 ```
 
-### 2. Проверка rate limiting
-
-Сделайте 15 запросов подряд к /auth/me:
+### Логи
 
 ```bash
-TOKEN="your_token_here"
+# Все сервисы
+docker compose logs -f --tail=100
 
-for i in {1..15}; do
-  echo "Request $i:"
-  curl -s -w "\nHTTP Status: %{http_code}\n" \
-    -H "Authorization: Bearer $TOKEN" \
-    http://localhost:8080/api/v1/auth/me | head -5
-  echo "---"
-done
+# Caddy (запросы, ошибки TLS)
+docker compose logs -f caddy
+
+# Бекенд
+docker compose logs -f backend
 ```
 
-После 10-го запроса должен появиться 429 Too Many Requests.
-
-### 3. Проверка WebSocket стабильности
+### Перезапуск / обновление
 
 ```bash
-# Смотреть логи WebSocket подключений
-docker-compose logs -f backend | grep WebSocket
+# Пересобрать и перезапустить всё
+docker compose up -d --build
 
-# Должны видеть:
-# - [WebSocket] Client connected: username (user_id)
-# - [WebSocket] Client subscribed to room ...
-# - НЕ должно быть множественных быстрых connect/disconnect
+# Перезапустить только один сервис
+docker compose up -d --build web
+docker compose restart backend
 ```
 
-### 4. Проверка производительности БД
+### Полная остановка
 
 ```bash
-# Подключиться к PostgreSQL
-docker-compose exec postgres psql -U gomo6 -d gomo6
+# Остановить и удалить контейнеры (данные в volume сохраняются)
+docker compose down
 
-# Посмотреть самые медленные запросы
-SELECT query, calls, total_time, mean_time 
-FROM pg_stat_statements 
-ORDER BY mean_time DESC 
-LIMIT 10;
-
-# Проверить количество UPDATE запросов к users
-SELECT query, calls 
-FROM pg_stat_statements 
-WHERE query LIKE '%UPDATE users%' 
-ORDER BY calls DESC;
+# Удалить контейнеры + volumes (⚠️ все данные будут удалены)
+docker compose down -v
 ```
 
-## 🔧 Настройка параметров
+## 📁 Структура файлов Docker
 
-### Изменить TTL кеша (если нужно)
-
-В `apps/backend-go/internal/middleware/auth_cache.go`:
-
-```go
-// Строка 73 - изменить TTL Redis кеша
-redisClient.Set(ctx, cacheKey, claimsJSON, 30*time.Second)
-// Можно увеличить до 60*time.Second или больше
+```
+gomo6/
+├── docker-compose.yml          # Основной compose-файл
+├── Caddyfile                   # Конфиг Caddy reverse proxy
+├── .env                        # Переменные окружения (создать из .env.docker)
+├── .env.docker                 # Пример .env
+├── .dockerignore               # Исключения из Docker контекста
+├── apps/
+│   ├── web/
+│   │   ├── Dockerfile          # Сборка web (Vite → nginx)
+│   │   └── nginx.conf          # SPA-конфиг nginx
+│   ├── docs/
+│   │   ├── Dockerfile          # Сборка docs (Vite → nginx)
+│   │   └── nginx.conf          # SPA-конфиг nginx
+│   ├── dev-dashboard/
+│   │   ├── Dockerfile          # Сборка dev-dashboard (Vite → nginx)
+│   │   └── nginx.conf          # SPA-конфиг nginx
+│   └── backend-go/
+│       ├── Dockerfile          # Сборка Go backend
+│       └── docker-compose.yml  # Легковесный compose для бекенд-разработки
 ```
 
-В `apps/web/src/App.tsx`:
+## 🔧 Production checklist
 
-```typescript
-// Строка 55 - изменить staleTime React Query
-staleTime: 5 * 60 * 1000, // 5 минут
-// Можно увеличить до 10 * 60 * 1000 (10 минут)
-```
-
-### Изменить rate limit (если нужно)
-
-В `apps/backend-go/internal/api/routes/routes.go`:
-
-```go
-// Строка 32
-authRateLimiter := middleware.NewAuthRateLimiter(10, time.Minute)
-// Первый параметр - количество запросов
-// Второй параметр - временное окно
-```
-
-## 📈 Ожидаемые результаты
-
-### До оптимизации
-- 15-20 одновременных запросов к /auth/me за секунду
-- Множественные WebSocket переподключения (3-5 за секунду)
-- RecomputeUserProfileStats выполняется при каждом auth check
-- Высокая нагрузка на CPU и БД
-
-### После оптимизации
-- Максимум 10 запросов к /auth/me в минуту (rate limit)
-- 90% запросов обслуживаются из кеша (Redis или React Query)
-- WebSocket переподключения с debouncing минимум 1 секунда
-- Обновления статуса группируются (debouncing 500ms)
-
-**Ожидаемое снижение нагрузки: 70-90%**
+- [ ] Сгенерировать `JWT_SECRET`: `openssl rand -hex 32`
+- [ ] Указать `DOMAIN=example.com` в `.env`
+- [ ] Указать `FEDERATION_KEY` (уникальный ключ для ActivityPub)
+- [ ] Проверить, что DNS A-запись указывает на сервер
+- [ ] Открыть порты 80 и 443 в файрволе
+- [ ] Настроить бэкапы PostgreSQL: `docker compose exec postgres pg_dump -U gomo6 gomo6 > backup.sql`
 
 ## 🐛 Troubleshooting
 
-### Redis не работает
+### Caddy не получает HTTPS-сертификат
 
 ```bash
-# Проверить статус
-docker-compose ps redis
+# Проверить, что порты 80 и 443 доступны извне
+curl -I http://example.com
 
-# Перезапустить Redis
-docker-compose restart redis
-
-# Посмотреть логи
-docker-compose logs redis
+# Посмотреть логи Caddy
+docker compose logs caddy | grep -i "acme\|tls\|certificate"
 ```
 
-Если Redis недоступен, приложение продолжит работать без кеширования.
-
-### Backend не запускается
+### Бекенд не подключается к БД
 
 ```bash
-# Посмотреть логи
-docker-compose logs backend
+# Проверить, что postgres готов
+docker compose exec postgres pg_isready -U gomo6 -d gomo6
 
-# Проверить переменные окружения
-docker-compose exec backend env | grep -E "DATABASE|REDIS"
-
-# Пересобрать контейнер
-docker-compose up -d --build backend
+# Посмотреть логи бекенда
+docker compose logs backend | tail -50
 ```
 
-### Frontend ошибки
+### Фронтенд не грузится (белый экран)
 
 ```bash
-# Очистить кеш и пересобрать
-cd apps/web
-rm -rf node_modules/.vite
-npm run build
+# Проверить, что сбилдилось
+docker compose build web --no-cache
+docker compose up -d web
+
+# Проверить nginx в контейнере
+docker compose exec web wget -qO- http://localhost/
 ```
-
-## 📝 Дополнительная информация
-
-Полный технический отчет: `OPTIMIZATION_REPORT.md`
-
-Измененные файлы:
-- Backend: 5 файлов (2 новых middleware)
-- Frontend: 6 файлов (1 новый хук)
-
-Все изменения протестированы и готовы к production! 🎉

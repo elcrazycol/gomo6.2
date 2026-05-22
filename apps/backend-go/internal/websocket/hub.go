@@ -454,7 +454,7 @@ func (h *Hub) updateUserOnlineStatus(userID string, isOnline bool) {
 			return
 		}
 
-		query := "UPDATE users SET is_online = $1, last_seen = NOW() WHERE id = $2"
+		query := "UPDATE users SET is_online = $1, last_seen_at = NOW() WHERE id = $2"
 		_, err := db.Exec(query, isOnline, userID)
 		if err != nil {
 			log.Printf("[WebSocket] Error updating user online status: %v", err)

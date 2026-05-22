@@ -688,7 +688,7 @@ const Thread = () => {
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
       
       // Use backend API instead of direct Supabase insertion
-      const response = await fetch('http://localhost:8080/rest/v1/posts', {
+      const response = await fetch('/rest/v1/posts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

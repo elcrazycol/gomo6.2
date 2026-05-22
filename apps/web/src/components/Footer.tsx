@@ -6,8 +6,11 @@ export const Footer = () => {
           <p className="text-xs sm:text-sm text-muted-foreground">
             © 2026 gomo6
           </p>
-          <a href="http://localhost:3002" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <a href="/dev" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
             Dev
+          </a>
+          <a href="/docs" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            Docs
           </a>
         </div>
       </div>

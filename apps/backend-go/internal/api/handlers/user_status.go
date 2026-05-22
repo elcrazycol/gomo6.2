@@ -46,7 +46,7 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 
 	// Query user status and privacy settings
 	query := `
-		SELECT u.id, u.is_online, u.last_seen,
+		SELECT u.id, u.is_online, u.last_seen_at,
 		       COALESCE(ps.show_online_status, true) as show_status
 		FROM users u
 		LEFT JOIN privacy_settings ps ON ps.user_id = u.id
@@ -116,7 +116,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 
 	// Build query with placeholders
 	query := `
-		SELECT u.id, u.is_online, u.last_seen,
+		SELECT u.id, u.is_online, u.last_seen_at,
 		       COALESCE(ps.show_online_status, true) as show_status
 		FROM users u
 		LEFT JOIN privacy_settings ps ON ps.user_id = u.id

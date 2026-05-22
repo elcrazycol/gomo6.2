@@ -1,0 +1,44 @@
+# =============================================================================
+# .dockerignore — exclude from Docker build context
+# =============================================================================
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Backend — not needed by frontend builds
+apps/backend-go/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+**/dist/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Misc
+*.md
+.env
+.env.*
+**/.env.local
+**/.env.production
+.DS_Store
+Thumbs.db
+
+# Test files
+*.test.*
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx

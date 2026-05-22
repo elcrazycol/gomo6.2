@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS gomosub_rules_acceptance (
 -- Add foreign key constraints
 ALTER TABLE gomosub_rules_acceptance 
     ADD CONSTRAINT fk_gomosub_rules_acceptance_user_id 
-    FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 ALTER TABLE gomosub_rules_acceptance 
     ADD CONSTRAINT fk_gomosub_rules_acceptance_board_id 
