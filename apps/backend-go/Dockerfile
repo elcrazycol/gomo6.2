@@ -16,9 +16,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/main.go
 
 # Final stage
-FROM alpine:3.21
+FROM alpine:3.23
 
-RUN apk --no-cache add ca-certificates=20260413-r0 curl=8.14.1-r2
+RUN apk --no-cache add ca-certificates=20260413-r0 curl=~8.19
 WORKDIR /root/
 
 # Copy the binary from builder stage
