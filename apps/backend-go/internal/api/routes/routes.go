@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/oauth"
 	stor "github.com/gomo6/backend/internal/storage"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
 	"github.com/gomo6/backend/internal/websocket"
@@ -28,9 +30,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Initialize auth service
 	authService := auth.NewAuthService()
 
+	// Initialize OAuth service and handlers
+	oauthService := oauth.NewOAuthService(db, authService)
+	oauthHandler := handlers.NewOAuthHandler(db, oauthService, authService)
+	devHandler := handlers.NewDeveloperHandler(db, oauthService)
+
 	// Initialize rate limiters
 	messengerRateLimiter := middleware.NewMessengerRateLimiter()
 	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute) // 100 requests per minute for auth/me
+	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute) // 20/min for token, 10/min for revoke
 
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
@@ -368,6 +376,63 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				storageHandler.PresignUpload(c)
 			})
 		}
+	}
+
+	// OAuth 2.0 + OpenID Connect endpoints
+	// OAuth 2.0 + OpenID Connect endpoints
+	// GET /oauth/authorize - if Authorization header is present, process normally.
+	// If not (external app redirects the browser), redirect to the frontend consent page.
+	oauthGroup := router.Group("/oauth")
+	{
+		// GET /oauth/authorize
+		oauthGroup.GET("/authorize", func(c *gin.Context) {
+			authHeader := c.GetHeader("Authorization")
+			if authHeader == "" {
+				// No auth header — redirect to frontend consent page
+				// The frontend will add the Authorization header and call this endpoint
+				frontendURL := os.Getenv("FRONTEND_URL")
+				if frontendURL == "" {
+					frontendURL = "http://localhost:8081"
+				}
+				consentURL := frontendURL + "/oauth/consent?" + c.Request.URL.RawQuery
+				log.Printf("Redirecting to consent page: %s", consentURL)
+				c.Redirect(http.StatusTemporaryRedirect, consentURL)
+				return
+			}
+			// Auth header present — apply middleware and process
+			middleware.AuthMiddleware(authService)(c)
+			if !c.IsAborted() {
+				oauthHandler.Authorize(c)
+			}
+		})
+		// POST /oauth/token - exchanges code for tokens (no auth, uses client_secret)
+		oauthGroup.POST("/token", middleware.OAuthTokenRateLimitMiddleware(oauthRateLimiter), oauthHandler.Token)
+		// POST /oauth/revoke - revokes a token
+		oauthGroup.POST("/revoke", middleware.OAuthRevokeRateLimitMiddleware(oauthRateLimiter), oauthHandler.Revoke)
+		// POST /oauth/introspect - token introspection (RFC 7662)
+		oauthGroup.POST("/introspect", oauthHandler.Introspect)
+		// GET /oauth/userinfo - requires OAuth Bearer token
+		oauthGroup.GET("/userinfo", handlers.OAuthBearerMiddleware(oauthService), oauthHandler.UserInfo)
+		// GET /oauth/app-info - public app info for consent page
+		oauthGroup.GET("/app-info", oauthHandler.AppInfo)
+	}
+
+	// OpenID Connect discovery
+	router.GET("/.well-known/openid-configuration", oauthHandler.OpenIDConfiguration)
+	router.GET("/.well-known/jwks.json", oauthHandler.JWKS)
+
+	// Developer panel (protected by auth middleware)
+	dev := api.Group("/developer")
+	dev.Use(middleware.AuthMiddleware(authService))
+	{
+		dev.GET("/apps", devHandler.ListApps)
+		dev.POST("/apps", devHandler.CreateApp)
+		dev.GET("/apps/:id", devHandler.GetApp)
+		dev.PUT("/apps/:id", devHandler.UpdateApp)
+		dev.DELETE("/apps/:id", devHandler.DeleteApp)
+		dev.POST("/apps/:id/regenerate-secret", devHandler.RegenerateSecret)
+		dev.GET("/apps/:id/tokens", devHandler.ListTokens)
+		dev.POST("/apps/:id/revoke-user-tokens", devHandler.RevokeUserTokens)
 	}
 
 	// WebSocket endpoint

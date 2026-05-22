@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -59,15 +61,53 @@ func main() {
 	// Setup routes with WebSocket Hub and BotManager
 	routes.SetupRoutes(router, db, redisClient, wsHub, botManager)
 
+	// pprof for memory profiling
+	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))
+
 	// Get port from environment
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	// Start server
-	log.Printf("Server starting on port %s", port)
-	if err := router.Run(":" + port); err != nil {
-		log.Fatal("Failed to start server:", err)
+	// TLS configuration
+	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+		// HTTPS mode
+		log.Printf("TLS enabled — starting HTTPS server on port %s", port)
+
+		if cfg.TLSRedirectHTTP && port == "443" {
+			// Start a separate goroutine that redirects HTTP :80 → HTTPS :443
+			go func() {
+				redirectSrv := &http.Server{
+					Addr: ":80",
+					Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						target := "https://" + r.Host + r.URL.RequestURI()
+						http.Redirect(w, r, target, http.StatusMovedPermanently)
+					}),
+				}
+				log.Printf("HTTP→HTTPS redirect listening on :80")
+				if err := redirectSrv.ListenAndServe(); err != nil {
+					log.Printf("HTTP redirect server stopped: %v", err)
+				}
+			}()
+		} else if cfg.TLSRedirectHTTP {
+			log.Printf("Warning: TLS_REDIRECT_HTTP is set but SERVER_PORT is not 443 — redirect only works with standard HTTPS port 443")
+		}
+
+		// Start HTTPS server
+		srv := &http.Server{
+			Addr:    ":" + port,
+			Handler: router,
+		}
+		if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+			log.Fatal("Failed to start TLS server:", err)
+		}
+	} else {
+		// Plain HTTP mode (development)
+		log.Printf("TLS not configured — starting HTTP server on port %s", port)
+		log.Printf("  Set TLS_CERT_FILE and TLS_KEY_FILE env vars to enable HTTPS")
+		if err := router.Run(":" + port); err != nil {
+			log.Fatal("Failed to start server:", err)
+		}
 	}
 }

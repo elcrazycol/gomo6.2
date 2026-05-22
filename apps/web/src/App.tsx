@@ -40,6 +40,7 @@ const SearchResults = lazy(() => import("./pages/SearchResults"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
 const Bots = lazy(() => import("./pages/Bots"));
+const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Prefetch critical routes on app start
@@ -134,6 +135,7 @@ const App = () => {
                 <Routes>
                   {/* Special pages without layout */}
                   <Route path="/auth" element={<LazyPage component={Auth} />} />
+                  <Route path="/oauth/consent" element={<LazyPage component={OAuthConsent} />} />
 
                   {/* Pages with layout */}
                   <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>

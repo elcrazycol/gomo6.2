@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -21,8 +24,29 @@ type AuthService struct {
 
 func NewAuthService() *AuthService {
 	return &AuthService{
-		jwtSecret: []byte(getEnv("JWT_SECRET", "your-secret-key")),
+		jwtSecret: []byte(GetJWTSecret()),
 	}
+}
+
+// GetJWTSecret returns the JWT secret from env or generates a secure random one.
+// In production, always set JWT_SECRET explicitly to keep tokens valid across restarts.
+func GetJWTSecret() string {
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		if len(secret) < 32 {
+			log.Printf("WARNING: JWT_SECRET is too short (%d bytes). Use at least 32 bytes (64 hex chars) for production.", len(secret))
+		}
+		return secret
+	}
+
+	// Auto-generate a secure random key
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("FATAL: Failed to generate random JWT secret: %v", err)
+	}
+	secret := hex.EncodeToString(b)
+	log.Printf("WARNING: JWT_SECRET not set. Generated random key. All tokens will be invalidated on next restart.")
+	log.Printf("WARNING: Set JWT_SECRET environment variable to a fixed value for production (e.g.: %s)", secret)
+	return secret
 }
 
 func (a *AuthService) GenerateToken(userID, username, domain string) (string, error) {
@@ -74,9 +98,4 @@ func (a *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	return nil, fmt.Errorf("invalid token")
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
+
