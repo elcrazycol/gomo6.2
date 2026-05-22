@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -25,10 +26,11 @@ import (
 
 // OAuthService handles all OAuth 2.0 + OpenID Connect operations
 type OAuthService struct {
-	db        *sql.DB
-	authSvc   *auth.AuthService
-	issuer    string
-	jwtSecret []byte
+	db            *sql.DB
+	authSvc       *auth.AuthService
+	issuer        string
+	jwtSecret     []byte
+	rsaPrivateKey *rsa.PrivateKey
 }
 
 // NewOAuthService creates a new OAuthService
@@ -43,11 +45,18 @@ func NewOAuthService(db *sql.DB, authSvc *auth.AuthService) *OAuthService {
 		secret = "your-secret-key"
 	}
 
+	// Generate RSA key pair for RS256-signed ID tokens
+	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		log.Printf("Warning: failed to generate RSA key for ID tokens: %v. Falling back to HS256.", err)
+	}
+
 	return &OAuthService{
-		db:        db,
-		authSvc:   authSvc,
-		issuer:    issuer,
-		jwtSecret: []byte(secret),
+		db:            db,
+		authSvc:       authSvc,
+		issuer:         issuer,
+		jwtSecret:      []byte(secret),
+		rsaPrivateKey:  rsaPrivateKey,
 	}
 }
 
@@ -382,8 +391,13 @@ func (s *OAuthService) GenerateIDToken(clientID, userID, username, nonce string,
 		}
 	}
 
-	// Sign with HMAC-SHA256 (same as access token for now)
-	// In production, you'd want RS256 for ID tokens so third parties can verify
+	// Sign with RS256 so third parties can verify the ID token using our JWKS endpoint
+	// Falls back to HS256 if RSA key generation failed at startup
+	if s.rsaPrivateKey != nil {
+		token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		token.Header["kid"] = "rsa-key-1"
+		return token.SignedString(s.rsaPrivateKey)
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.jwtSecret)
 }
@@ -629,7 +643,7 @@ func (s *OAuthService) GetOpenIDConfiguration() *OpenIDConfiguration {
 			"sub", "name", "preferred_username", "email", "email_verified", "picture",
 		},
 		SubjectTypesSupported:            []string{"public"},
-		IDTokenSigningAlgValuesSupported: []string{"HS256"},
+		IDTokenSigningAlgValuesSupported: []string{"RS256", "HS256"},
 		CodeChallengeMethodsSupported: []string{
 			CodeChallengeMethodS256,
 			CodeChallengeMethodPlain,
@@ -638,13 +652,48 @@ func (s *OAuthService) GetOpenIDConfiguration() *OpenIDConfiguration {
 }
 
 // GetJWKS returns the JWK Set for ID token verification
-// For HMAC-signed tokens, returns a minimal representation
+// With RS256, clients can verify ID tokens using the public key
 func (s *OAuthService) GetJWKS() map[string]interface{} {
-	// For HMAC, we return an empty keys array since the secret can't be exposed
-	// In production with RS256, you'd return the public key
-	return map[string]interface{}{
-		"keys": []interface{}{},
+	if s.rsaPrivateKey == nil {
+		return map[string]interface{}{
+			"keys": []interface{}{},
+		}
 	}
+
+	pubKey := &s.rsaPrivateKey.PublicKey
+	n := base64.RawURLEncoding.EncodeToString(pubKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(bigEndianBytes(pubKey.E))
+
+	return map[string]interface{}{
+		"keys": []interface{}{
+			map[string]interface{}{
+				"kty": "RSA",
+				"kid": "rsa-key-1",
+				"use": "sig",
+				"alg": "RS256",
+				"n":   n,
+				"e":   e,
+			},
+		},
+	}
+}
+
+// bigEndianBytes converts an int to big-endian bytes for JWK exponent encoding
+func bigEndianBytes(v int) []byte {
+	if v == 0 {
+		return []byte{0}
+	}
+	b := make([]byte, 4)
+	for i := 3; i >= 0; i-- {
+		b[i] = byte(v & 0xff)
+		v >>= 8
+	}
+	// Strip leading zeros
+	i := 0
+	for i < len(b) && b[i] == 0 {
+		i++
+	}
+	return b[i:]
 }
 
 // =============================
