@@ -43,7 +43,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	if id := c.Query("id"); id != "" {
 		// Support Supabase-style filters: eq.<uuid> and in.(uuid1,uuid2)
 		if strings.HasPrefix(id, "eq.") {
-			id = strings.TrimPrefix(id, "eq.")
+			id = id[3:]
 			conditions = append(conditions, "id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, id)
 		} else if strings.HasPrefix(id, "in.(") && strings.HasSuffix(id, ")") {
@@ -65,7 +65,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	// Handle username filter
 	if username := c.Query("username"); username != "" {
 		if strings.HasPrefix(username, "eq.") {
-			username = strings.TrimPrefix(username, "eq.")
+			username = username[3:]
 		}
 		conditions = append(conditions, "username = $"+strconv.Itoa(len(args)+1))
 		args = append(args, username)
@@ -74,7 +74,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	// Handle domain filter
 	if domain := c.Query("domain"); domain != "" {
 		if strings.HasPrefix(domain, "eq.") {
-			domain = strings.TrimPrefix(domain, "eq.")
+			domain = domain[3:]
 		}
 		conditions = append(conditions, "domain = $"+strconv.Itoa(len(args)+1))
 		args = append(args, domain)
