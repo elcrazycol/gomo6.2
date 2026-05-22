@@ -40,10 +40,7 @@ func NewOAuthService(db *sql.DB, authSvc *auth.AuthService) *OAuthService {
 		issuer = "http://localhost:8080"
 	}
 
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "your-secret-key"
-	}
+	secret := auth.GetJWTSecret()
 
 	// Generate RSA key pair for RS256-signed ID tokens
 	rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
