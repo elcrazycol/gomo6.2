@@ -83,6 +83,24 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 		return
 	}
 
+	// Validate PKCE (mandatory: S256 only)
+	if req.CodeChallenge == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             oauth.ErrorInvalidRequest,
+			"error_description": "code_challenge is required (S256 PKCE is mandatory)",
+			"state":             req.State,
+		})
+		return
+	}
+	if req.CodeChallengeMethod != oauth.CodeChallengeMethodS256 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             oauth.ErrorInvalidRequest,
+			"error_description": "Only S256 code_challenge_method is supported",
+			"state":             req.State,
+		})
+		return
+	}
+
 	// Validate scopes
 	requestedScopes := oauth.ParseScopeString(req.Scope)
 	for _, s := range requestedScopes {
@@ -110,9 +128,18 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 
 	claims := claimsInterface.(*auth.Claims)
 
-	// User is authenticated, render consent page
-	// For now, auto-approve (like Google does for first-party apps)
-	// In production, show a consent page
+	// Require explicit consent from the frontend consent page
+	// The frontend passes consent=true when the user clicks "Allow"
+	// This prevents code generation from direct API calls without user consent
+	if c.Query("consent") != "true" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             oauth.ErrorAccessDenied,
+			"error_description": "User consent is required. The consent page must pass consent=true.",
+			"state":             req.State,
+		})
+		return
+	}
+
 	code, err := h.oauthSvc.GenerateAuthorizationCode(
 		req.ClientID,
 		claims.UserID,
