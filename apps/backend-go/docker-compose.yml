@@ -1,15 +1,19 @@
 services:
   postgres:
-    image: postgres:15
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: gomo6
       POSTGRES_USER: gomo6
       POSTGRES_PASSWORD: gomo6password
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gomo6"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
 
   redis:
     image: redis:7-alpine
@@ -122,9 +126,12 @@ services:
     #   ISSUER_URL: https://example.com
     #   FRONTEND_URL: https://example.com
     depends_on:
-      - postgres
-      - redis
-      - garage-init
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      garage-init:
+        condition: service_started
     volumes:
       - .:/app
 
