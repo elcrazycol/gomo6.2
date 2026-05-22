@@ -97,5 +97,3 @@ func (a *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 
 	return nil, fmt.Errorf("invalid token")
 }
-
-

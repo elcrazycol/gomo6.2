@@ -173,13 +173,14 @@ func MessengerRateLimitMiddleware(limiter *MessengerRateLimiter) gin.HandlerFunc
 
 		// Check rate limit based on operation
 		if c.Request.Method == "POST" {
-			if path == "/rpc/v1/get_or_create_direct_chat" {
+			switch path {
+			case "/rpc/v1/get_or_create_direct_chat":
 				if !limiter.AllowConversationCreate(userID) {
 					c.JSON(429, gin.H{"error": "Rate limit exceeded: too many conversations created. Please wait."})
 					c.Abort()
 					return
 				}
-			} else if path == "/rest/v1/chat_messages" {
+			case "/rest/v1/chat_messages":
 				if !limiter.AllowMessage(userID) {
 					c.JSON(429, gin.H{"error": "Rate limit exceeded: too many messages sent. Please slow down."})
 					c.Abort()

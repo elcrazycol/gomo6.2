@@ -6,17 +6,17 @@ import (
 )
 
 type Config struct {
-	ServerPort      string
-	DatabaseURL     string
-	RedisURL        string
-	JWTSecret       string
-	ServerDomain    string
-	FederationKey   string
-	Environment     string
-	AllowedOrigins  []string
+	ServerPort     string
+	DatabaseURL    string
+	RedisURL       string
+	JWTSecret      string
+	ServerDomain   string
+	FederationKey  string
+	Environment    string
+	AllowedOrigins []string
 	// TLS configuration — set TLSCertFile and TLSKeyFile to enable HTTPS
-	TLSCertFile     string
-	TLSKeyFile      string
+	TLSCertFile string
+	TLSKeyFile  string
 	// When TLS is enabled, TLSRedirectHTTP controls whether port 8080 redirects to HTTPS
 	TLSRedirectHTTP bool
 }

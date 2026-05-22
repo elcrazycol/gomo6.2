@@ -99,8 +99,8 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 	// Audit log: app created
 	h.oauthSvc.LogOAuthAction(claims.UserID, app.ClientID, app.Name, oauth.AuditActionAppCreated,
 		c.ClientIP(), map[string]interface{}{
-			"scopes":         allowedScopes,
-			"redirect_uris":  req.RedirectURIs,
+			"scopes":          allowedScopes,
+			"redirect_uris":   req.RedirectURIs,
 			"is_confidential": isConfidential,
 		})
 

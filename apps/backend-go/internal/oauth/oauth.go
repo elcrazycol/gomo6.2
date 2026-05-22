@@ -51,9 +51,9 @@ func NewOAuthService(db *sql.DB, authSvc *auth.AuthService) *OAuthService {
 	return &OAuthService{
 		db:            db,
 		authSvc:       authSvc,
-		issuer:         issuer,
-		jwtSecret:      []byte(secret),
-		rsaPrivateKey:  rsaPrivateKey,
+		issuer:        issuer,
+		jwtSecret:     []byte(secret),
+		rsaPrivateKey: rsaPrivateKey,
 	}
 }
 

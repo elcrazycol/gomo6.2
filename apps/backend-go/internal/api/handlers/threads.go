@@ -78,11 +78,8 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	// Handle id filter
 	if id := c.Query("id"); id != "" {
-		if strings.HasPrefix(id, "eq.") {
-			id = strings.TrimPrefix(id, "eq.")
-			conditions = append(conditions, "t.id = $"+strconv.Itoa(len(args)+1))
-			args = append(args, id)
-		} else if strings.HasPrefix(id, "in.(") && strings.HasSuffix(id, ")") {
+		id = strings.TrimPrefix(id, "eq.")
+		if strings.HasPrefix(id, "in.(") && strings.HasSuffix(id, ")") {
 			raw := strings.TrimSuffix(strings.TrimPrefix(id, "in.("), ")")
 			ids := strings.Split(raw, ",")
 			placeholders := make([]string, 0, len(ids))
@@ -388,9 +385,7 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		id = c.Query("id")
-		if strings.HasPrefix(id, "eq.") {
-			id = strings.TrimPrefix(id, "eq.")
-		}
+		id = strings.TrimPrefix(id, "eq.")
 	}
 	if id == "" {
 		c.JSON(http.StatusBadRequest, models.SupabaseResponse{

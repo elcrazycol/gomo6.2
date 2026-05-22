@@ -43,7 +43,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Initialize rate limiters
 	messengerRateLimiter := middleware.NewMessengerRateLimiter()
-	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute) // 100 requests per minute for auth/me
+	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute)      // 100 requests per minute for auth/me
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute) // 20/min for token, 10/min for revoke
 
 	// Initialize BotEventPublisher

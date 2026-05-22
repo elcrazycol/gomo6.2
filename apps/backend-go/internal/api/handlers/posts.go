@@ -264,10 +264,8 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		id = c.Query("id")
-		if strings.HasPrefix(id, "eq.") {
-			id = id[3:]
-		}
 	}
+	id = strings.TrimPrefix(id, "eq.")
 	if id == "" {
 		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
 			Error: stringPtr("Post id is required"),

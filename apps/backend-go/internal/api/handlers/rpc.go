@@ -1441,4 +1441,3 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 
 	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
 }
-

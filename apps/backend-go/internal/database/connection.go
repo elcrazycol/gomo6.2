@@ -11,7 +11,7 @@ import (
 func InitDB() (*sql.DB, error) {
 	// For now, use environment variable or default
 	databaseURL := getEnv("DATABASE_URL", "postgres://user:password@localhost/gomo6?sslmode=disable")
-	
+
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
