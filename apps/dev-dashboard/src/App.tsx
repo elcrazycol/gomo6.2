@@ -9,7 +9,7 @@ import Login from "./pages/Login";
 import Callback from "./pages/Callback";
 import { getAccessToken, getSavedUser, logout, OAuthUser, checkAuth } from "@/lib/oauth";
 import { Button } from "@/components/ui/button";
-import { LogOut, KeyRound, BookOpen } from "lucide-react";
+import { LogOut, BookOpen } from "lucide-react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,15 +65,19 @@ function Header() {
     <header className="border-b border-border bg-card sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate("/apps")}
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-          >
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center">
-              <KeyRound className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-semibold text-sm hidden sm:inline">gomo6 Dev</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <a
+              href="http://localhost:8081"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-sm hover:text-emerald-400 transition-colors"
+            >
+              gomo6
+            </a>
+            <span className="font-semibold text-sm text-muted-foreground">
+              Dev
+            </span>
+          </div>
           <nav className="flex items-center gap-1 ml-4">
             <Button
               variant="ghost"
