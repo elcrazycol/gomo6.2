@@ -63,7 +63,7 @@ export function useCreatePost() {
       is_private?: boolean;
       private_recipient_id?: string;
     }) => {
-      const response = await fetch('http://localhost:8080/rest/v1/posts', {
+      const response = await fetch('/rest/v1/posts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

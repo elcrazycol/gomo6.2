@@ -2,7 +2,10 @@
 import { toast } from "sonner";
 
 // API Configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
+// In Docker production, API goes through Caddy reverse proxy at same origin.
+// In dev mode (npm run dev), Vite proxy forwards /api, /rest, etc. to localhost:8080.
+// Set VITE_API_BASE_URL to override (e.g., for direct backend access during dev).
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const API_KEY = 'your-anon-key';
 
 // Types

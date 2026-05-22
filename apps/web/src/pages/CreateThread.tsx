@@ -283,7 +283,7 @@ const CreateThread = () => {
         };
       }
 
-      const response = await fetch('http://localhost:8080/rest/v1/threads', {
+      const response = await fetch('/rest/v1/threads', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -93,7 +93,7 @@ end`,
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch("http://localhost:8080/api/v1/bots", {
+      const response = await fetch("/api/v1/bots", {
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -113,7 +113,7 @@ end`,
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch("http://localhost:8080/api/v1/bots", {
+      const response = await fetch("/api/v1/bots", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
@@ -148,7 +148,7 @@ end`,
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch(`http://localhost:8080/api/v1/bots/${editingBot.id}`, {
+      const response = await fetch(`/api/v1/bots/${editingBot.id}`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
@@ -179,7 +179,7 @@ end`,
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch(`http://localhost:8080/api/v1/bots/${botId}/toggle`, {
+      const response = await fetch(`/api/v1/bots/${botId}/toggle`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
@@ -202,7 +202,7 @@ end`,
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch(`http://localhost:8080/api/v1/bots/${botId}`, {
+      const response = await fetch(`/api/v1/bots/${botId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
@@ -225,7 +225,7 @@ end`,
       if (!session) return;
 
       console.log("[Logs] Fetching logs for bot:", botId);
-      const response = await fetch(`http://localhost:8080/api/v1/bots/${botId}/logs`, {
+      const response = await fetch(`/api/v1/bots/${botId}/logs`, {
         headers: {
           "Authorization": `Bearer ${session.access_token}`,
         },
@@ -255,7 +255,7 @@ end`,
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const response = await fetch(`http://localhost:8080/api/v1/bots/${botId}/logs`, {
+      const response = await fetch(`/api/v1/bots/${botId}/logs`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${session.access_token}`,

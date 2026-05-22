@@ -151,9 +151,7 @@ function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
       {/* Footer */}
       <div className="p-3 border-t border-[var(--sidebar-border)]">
         <a
-          href="http://localhost:3002"
-          target="_blank"
-          rel="noopener noreferrer"
+          href="/dev"
           className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-[var(--sidebar-hover)] transition-all duration-150"
         >
           <ExternalLink className="w-3.5 h-3.5" />
@@ -253,7 +251,7 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      <BrowserRouter basename="/docs">
         <AppContent />
       </BrowserRouter>
     </ThemeProvider>

@@ -80,9 +80,7 @@ function Header() {
           <div className="flex items-center justify-between h-14">
             {/* Left: Logo + Nav */}
             <div className="flex items-center gap-6">                <a
-                  href="http://localhost:8081"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href="/"
                   className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-emerald-300 transition-colors"
                 >
                   <span>gomo6</span>
@@ -95,7 +93,7 @@ function Header() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => window.open("http://localhost:3001/oauth", "_blank")}
+                  onClick={() => window.open("/docs/oauth", "_blank")}
                   className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
@@ -151,7 +149,7 @@ function Header() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => window.open("http://localhost:3001/oauth", "_blank")}
+                  onClick={() => window.open("/docs/oauth", "_blank")}
                   className="text-xs px-2 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
                 >
                   <BookOpen className="w-4 h-4" />
@@ -191,14 +189,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             </p>
             <span className="text-muted-foreground/30">·</span>
             <a
-              href="http://localhost:3001/oauth"
+              href="/docs/oauth"
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               OAuth API Docs
             </a>
             <span className="text-muted-foreground/30">·</span>
             <a
-              href="http://localhost:8081"
+              href="/"
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               gomo6
@@ -215,7 +213,7 @@ const App = () => {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <Toaster richColors position="top-right" />
-        <BrowserRouter>
+        <BrowserRouter basename="/dev">
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/callback" element={<Callback />} />

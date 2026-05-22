@@ -130,7 +130,7 @@ const App = () => {
             <TooltipProvider>
               <Toaster />
               <Sonner />
-              {import.meta.env.PROD ? <SpeedInsights /> : null}
+              {import.meta.env.PROD && !import.meta.env.VITE_DOCKER ? <SpeedInsights /> : null}
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <Routes>
                   {/* Special pages without layout */}
