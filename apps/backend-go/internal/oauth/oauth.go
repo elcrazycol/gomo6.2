@@ -949,22 +949,48 @@ func (s *OAuthService) GenerateAuthToken(userID, username, domain string) (strin
 	return s.authSvc.GenerateToken(userID, username, domain)
 }
 
-// buildAvatarURL converts a relative avatar path to an absolute URL
+// buildAvatarURL converts a relative or Garage-direct avatar path to an absolute URL
 // through the application's storage proxy endpoint (which fetches from Garage server-side).
-// Direct Garage S3 endpoints don't allow anonymous access (no anonymous access configured),
-// so we must go through the app proxy at /storage/v1/object/avatars/<key>.
+// Direct Garage S3 endpoints don't allow anonymous access, so we must go through
+// the app proxy at /storage/v1/object/post-images/<key>.
+//
+// The avatar_url in the DB can be either:
+//   - A relative key:         "<uuid>/avatar_<ts>.jpg"
+//   - A Garage direct URL:    "http://localhost:3900/<uuid>/avatar_<ts>.jpg"
+//   - An external URL:        "https://gravatar.com/..."
+//
+// For relative keys and Garage URLs, we rewrite through our storage proxy with
+// the correct bucket (post-images). External URLs are returned as-is.
 func (s *OAuthService) buildAvatarURL(avatarPath string) string {
 	if avatarPath == "" {
 		return ""
 	}
-	// If already an absolute URL, return as-is
+
+	// For absolute URLs, check if they point to our Garage S3
 	if strings.HasPrefix(avatarPath, "http://") || strings.HasPrefix(avatarPath, "https://") {
-		return avatarPath
+		garageEndpoint := os.Getenv("GARAGE_S3_PUBLIC_ENDPOINT")
+		if garageEndpoint != "" && strings.HasPrefix(avatarPath, garageEndpoint) {
+			// Garage S3 URL — extract the object key (everything after the endpoint)
+			// and proxy through our app with the post-images bucket.
+			// URL formats handled:
+			//   http://localhost:3900/<uuid>/avatar_<ts>.jpg         → key: <uuid>/avatar_<ts>.jpg
+			//   http://localhost:3900/post-images/<uuid>/avatar_<ts>.jpg → key: <uuid>/avatar_<ts>.jpg
+			key := strings.TrimPrefix(avatarPath, garageEndpoint)
+			key = strings.TrimPrefix(key, "/")
+			// If the Garage URL includes a bucket prefix, strip it
+			if parts := strings.SplitN(key, "/", 2); len(parts) == 2 {
+				// parts[0] is the bucket name (e.g. "post-images" or a UUID)
+				// parts[1] is the object key (could be "<uuid>/avatar_<ts>.jpg" or just "avatar_<ts>.jpg")
+				// Use the second part as the key — it already includes any UUID prefix
+				key = parts[1]
+			}
+			return s.issuer + "/storage/v1/object/post-images/" + key
+		}
+		return avatarPath // external URL (not our Garage), return as-is
 	}
-	// Construct URL through the app's storage proxy endpoint
-	// which uses the S3 client credentials server-side (not anonymous)
-	// The storage proxy is at {issuer}/storage/v1/object/{bucket}/{key}
-	return s.issuer + "/storage/v1/object/avatars/" + avatarPath
+
+	// Relative path — construct proxy URL with the correct bucket (post-images, not avatars)
+	return s.issuer + "/storage/v1/object/post-images/" + avatarPath
 }
 
 // ParseScopeString parses a space-separated scope string into a slice
