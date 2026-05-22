@@ -7,9 +7,9 @@ import CreateApp from "./pages/CreateApp";
 import AppDetail from "./pages/AppDetail";
 import Login from "./pages/Login";
 import Callback from "./pages/Callback";
-import { getAccessToken, getSavedUser, logout, OAuthUser, checkAuth } from "@/lib/oauth";
+import { getSavedUser, logout, OAuthUser, checkAuth } from "@/lib/oauth";
 import { Button } from "@/components/ui/button";
-import { LogOut, BookOpen } from "lucide-react";
+import { LogOut, BookOpen, Github } from "lucide-react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,7 +39,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (checking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Проверка авторизации...</p>
+        </div>
       </div>
     );
   }
@@ -47,13 +50,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Header with user info and logout
+// Header with user info and logout — matching main site style
 function Header() {
   const navigate = useNavigate();
   const [user, setUser] = useState<OAuthUser | null>(null);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     setUser(getSavedUser());
+
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const handleLogout = async () => {
@@ -62,75 +70,107 @@ function Header() {
   };
 
   return (
-    <header className="border-b border-border bg-card sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1">
-            <a
-              href="http://localhost:8081"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-semibold text-sm hover:text-emerald-400 transition-colors"
-            >
-              gomo6
-            </a>
-            <span className="font-semibold text-sm text-muted-foreground">
-              Dev
-            </span>
-          </div>
-          <nav className="flex items-center gap-1 ml-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate("/apps")}
-              className="text-xs"
-            >
-              Приложения
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open("http://localhost:3001/oauth", "_blank")}
-              className="text-xs gap-1"
-            >
-              <BookOpen className="w-3 h-3" />
-              Документация
-            </Button>
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {user && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {user.picture ? (
-                <img
-                  src={user.picture}
-                  alt=""
-                  className="w-6 h-6 rounded-full ring-1 ring-border"
-                />
-              ) : (
-                <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center ring-1 ring-emerald-500/30">
-                  <span className="text-[10px] font-medium text-emerald-400">
-                    {(user.preferred_username || user.name || "?")[0].toUpperCase()}
+    <header
+      className={`sticky top-0 z-50 transition-shadow duration-200 ${
+        scrolled ? "shadow-lg shadow-black/5" : "shadow-none"
+      }`}
+    >
+      <div className="bg-board-header text-board-header-foreground">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="flex items-center justify-between h-14">
+            {/* Left: Logo + Nav */}
+            <div className="flex items-center gap-6">                <a
+                  href="http://localhost:8081"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-emerald-300 transition-colors"
+                >
+                  <span>gomo6</span>
+                  <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-white/10 text-emerald-200">
+                    Dev
                   </span>
+                </a>
+
+              <nav className="hidden sm:flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open("http://localhost:3001/oauth", "_blank")}
+                  className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Документация
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open("https://github.com/scramble22/gomo6", "_blank")}
+                  className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
+                >
+                  <Github className="w-3.5 h-3.5" />
+                  GitHub
+                </Button>
+              </nav>
+            </div>
+
+            {/* Right: User info */}
+            <div className="flex items-center gap-2">
+              {user && (
+                <div className="flex items-center gap-2.5">
+                  <div className="hidden sm:flex items-center gap-2 text-sm">
+                    {user.picture ? (
+                      <img
+                        src={user.picture}
+                        alt=""
+                        className="w-7 h-7 rounded-full ring-2 ring-white/20"
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-emerald-500/30 flex items-center justify-center ring-2 ring-white/20">
+                        <span className="text-xs font-semibold text-emerald-200">
+                          {(user.preferred_username || user.name || "?")[0].toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    <span className="text-xs font-medium text-board-header-foreground/90 max-w-[120px] truncate">
+                      {user.preferred_username || user.name || user.email || ""}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleLogout}
+                    className="text-xs text-board-header-foreground/70 hover:text-white hover:bg-white/10"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               )}
-              <span className="hidden sm:inline text-xs">
-                {user.preferred_username || user.name || user.email || ""}
-              </span>
+
+              {/* Mobile nav trigger */}
+              <div className="sm:hidden flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open("http://localhost:3001/oauth", "_blank")}
+                  className="text-xs px-2 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
+                >
+                  <BookOpen className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open("https://github.com/scramble22/gomo6", "_blank")}
+                  className="text-xs px-2 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
+                >
+                  <Github className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleLogout}
-            className="text-xs text-muted-foreground hover:text-destructive"
-          >
-            <LogOut className="w-3 h-3 mr-1" />
-            Выйти
-          </Button>
+          </div>
         </div>
       </div>
+      {/* Subtle bottom border */}
+      <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
     </header>
   );
 }
@@ -138,11 +178,34 @@ function Header() {
 // Main layout with header
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       <Header />
-      <main className="pb-12">
+      <main className="flex-1 pb-12 pt-6 sm:pt-8">
         {children}
       </main>
+      <footer className="border-t border-border bg-card mt-auto">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-center gap-4">
+            <p className="text-xs text-muted-foreground">
+              © 2026 gomo6 Dev Portal
+            </p>
+            <span className="text-muted-foreground/30">·</span>
+            <a
+              href="http://localhost:3001/oauth"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              OAuth API Docs
+            </a>
+            <span className="text-muted-foreground/30">·</span>
+            <a
+              href="http://localhost:8081"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              gomo6
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
