@@ -32,7 +32,7 @@ func (h *ProfilesHandler) SetRedis(redis *redis.Client) {
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
 		SELECT id, username, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, is_online, last_seen, created_at, is_remote, is_anonymous
+		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 	`
 
@@ -169,7 +169,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 
 	query := `
 		SELECT id, username, email, domain, avatar_url, bio, bio_json, garma, post_count,
-		       thread_count, is_online, last_seen, created_at, is_remote, is_anonymous
+		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 		WHERE id = $1
 	`

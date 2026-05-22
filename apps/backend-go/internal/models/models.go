@@ -42,7 +42,7 @@ type User struct {
 	PostCount   *int            `json:"post_count" db:"post_count"`
 	ThreadCount *int            `json:"thread_count" db:"thread_count"`
 	IsOnline    bool            `json:"is_online" db:"is_online"`
-	LastSeen    *time.Time      `json:"last_seen,omitempty" db:"last_seen"`
+	LastSeen    *time.Time      `json:"last_seen,omitempty" db:"last_seen_at"`
 	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 	IsRemote    bool            `json:"is_remote" db:"is_remote"`
 	IsAnonymous bool            `json:"is_anonymous" db:"is_anonymous"`

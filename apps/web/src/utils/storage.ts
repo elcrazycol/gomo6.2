@@ -1,4 +1,5 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+// Relative URLs in Docker (via Caddy), overridable via env for dev mode.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const isHttpUrl = (v: string) => /^https?:\/\//i.test(v);
 

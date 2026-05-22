@@ -205,7 +205,7 @@ const extractAudioMetadata = async (file: File): Promise<{
               const randomStr = Math.random().toString(36).substring(7);
               const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
 
-              const response = await fetch('http://localhost:8080/storage/v1/presign-upload', {
+              const response = await fetch('/storage/v1/presign-upload', {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${session.access_token}`,
@@ -248,7 +248,7 @@ const extractAudioMetadata = async (file: File): Promise<{
         const formData = new FormData();
         formData.append('audio', file);
 
-        const response = await fetch('http://localhost:8080/api/v1/audio/metadata', {
+        const response = await fetch('/api/v1/audio/metadata', {
           method: 'POST',
           body: formData,
         });
@@ -417,7 +417,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
     // Get presigned URL from backend
-    const presignResponse = await fetch('http://localhost:8080/storage/v1/presign-upload', {
+    const presignResponse = await fetch('/storage/v1/presign-upload', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

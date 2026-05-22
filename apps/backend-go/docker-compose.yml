@@ -97,6 +97,8 @@ services:
       FEDERATION_KEY: your-federation-key-change-in-production
       ENVIRONMENT: development
       SUPABASE_ANON_KEY: your-anon-key
+      # Migration runner — SQL files are volume-mounted at /app/migrations
+      MIGRATIONS_DIR: /app/migrations
       # WebSocket security - allowed origins for CORS
       ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8080,http://localhost:3000,http://localhost:8081
       # Garage S3 (replaces MinIO)

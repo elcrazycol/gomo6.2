@@ -57,15 +57,21 @@ jobs:
       - name: Vendoring check
         run: go mod tidy && git diff --exit-code go.mod go.sum
 
-      - name: Run migrations & test
+      - name: Apply migrations to test DB
         env:
-          DATABASE_URL: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
-          REDIS_URL: redis://localhost:6379/0
+          PGHOST: localhost
+          PGUSER: gomo6
+          PGDATABASE: gomo6
         run: |
           for f in migrations/0*.sql; do
-            psql "$DATABASE_URL" -q < "$f"
+            psql -q < "$f"
           done
-          go test -count=1 ./...
+
+      - name: Test
+        env:
+          DATABASE_URL_TEST: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+        run: go test -count=1 ./...
 
   ##############################################################################
   # Frontend (TypeScript apps)
