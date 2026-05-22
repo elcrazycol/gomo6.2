@@ -54,6 +54,46 @@ func setupThreadsHandler(t *testing.T) (*ThreadsHandler, sqlmock.Sqlmock) {
 	return handler, mock
 }
 
+// setupBoardsHandler creates a BoardsHandler with a mock DB.
+func setupBoardsHandler(t *testing.T) (*BoardsHandler, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled mock expectations: %v", err)
+		}
+		db.Close()
+	})
+
+	handler := NewBoardsHandler(db)
+	return handler, mock
+}
+
+// setupProfilesHandler creates a ProfilesHandler with a mock DB.
+func setupProfilesHandler(t *testing.T) (*ProfilesHandler, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled mock expectations: %v", err)
+		}
+		db.Close()
+	})
+
+	handler := NewProfilesHandler(db)
+	return handler, mock
+}
+
 // newGETContext creates a gin test context for a GET request.
 // Returns (context, *httptest.ResponseRecorder).
 func newGETContext(url string, queryParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
