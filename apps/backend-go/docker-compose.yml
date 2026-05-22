@@ -91,7 +91,8 @@ services:
     environment:
       DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-secret-key-change-in-production
+      # For production: replace with a fixed value (openssl rand -hex 32) so tokens survive restarts
+      JWT_SECRET: dev-auto-generated-each-restart
       SERVER_DOMAIN: localhost:8080
       FEDERATION_KEY: your-federation-key-change-in-production
       ENVIRONMENT: development
