@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { toast } from "sonner";
-import { Check, Shield, ExternalLink, Ban, User } from "lucide-react";
+import { Check, Shield, ExternalLink, Ban, User, Fingerprint, Mail, RefreshCw } from "lucide-react";
 
 interface OAuthApp {
   client_id: string;
@@ -20,6 +20,8 @@ interface OAuthApp {
   logo_url: string;
   homepage_url: string;
   allowed_scopes: string[];
+  scope_descriptions: Record<string, string>;
+  scope_labels: Record<string, string>;
 }
 
 interface UserInfo {
@@ -28,10 +30,11 @@ interface UserInfo {
   avatar_url?: string;
 }
 
-const SCOPE_LABELS: Record<string, { label: string; icon: string }> = {
-  openid: { label: "OpenID Connect (аутентификация)", icon: "🔑" },
-  profile: { label: "Имя пользователя и аватар", icon: "👤" },
-  email: { label: "Email адрес", icon: "📧" },
+const SCOPE_ICONS: Record<string, React.ReactNode> = {
+  openid: <Fingerprint className="w-5 h-5 text-blue-500" />,
+  profile: <User className="w-5 h-5 text-emerald-500" />,
+  email: <Mail className="w-5 h-5 text-amber-500" />,
+  offline_access: <RefreshCw className="w-5 h-5 text-violet-500" />,
 };
 
 const OAuthConsent = () => {
@@ -320,29 +323,32 @@ const OAuthConsent = () => {
                   </p>
                 ) : (
                   scopes.map((s) => {
-                    const scopeInfo = SCOPE_LABELS[s] || {
-                      label: s,
-                      icon: "🔒",
-                    };
+                    const icon = SCOPE_ICONS[s] || <Shield className="w-5 h-5 text-muted-foreground" />;
+                    const label = app?.scope_labels?.[s] || s;
+                    const description = app?.scope_descriptions?.[s];
                     return (
                       <div
                         key={s}
                         className="flex items-start gap-3 p-3 rounded-lg bg-muted/30 border border-border/30 hover:bg-muted/50 transition-colors"
                       >
-                        <span className="text-base flex-shrink-0 mt-0.5">
-                          {scopeInfo.icon}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium">
-                            {scopeInfo.label}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {s === "openid" &&
-                              "Идентификация вашей учётной записи"}
-                            {s === "profile" &&
-                              "Чтение вашего имени пользователя и аватара"}
-                            {s === "email" && "Чтение вашего email адреса"}
-                          </p>
+                        <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center flex-shrink-0 ring-1 ring-border/40">
+                          {icon}
+                        </div>
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium">
+                              {label}
+                            </p>
+                          </div>
+                          {description ? (
+                            <p className="text-xs text-muted-foreground/80 mt-0.5 leading-relaxed">
+                              {description}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground/50 mt-0.5 italic">
+                              Базовый доступ
+                            </p>
+                          )}
                         </div>
                       </div>
                     );

@@ -205,6 +205,22 @@ const (
 // AllSupportedScopes lists all scopes supported by this server
 var AllSupportedScopes = []string{ScopeOpenID, ScopeProfile, ScopeEmail, ScopeOfflineAccess}
 
+// ScopeDescriptions maps each scope to its human-readable description in Russian
+var ScopeDescriptions = map[string]string{
+	ScopeOpenID:        "Идентификация вашей учётной записи (OpenID Connect)",
+	ScopeProfile:       "Чтение вашего имени пользователя и аватара",
+	ScopeEmail:         "Чтение вашего email адреса",
+	ScopeOfflineAccess: "Обновление токенов в фоне (offline access)",
+}
+
+// ScopeLabels maps each scope to a short human-readable label for UI display
+var ScopeLabels = map[string]string{
+	ScopeOpenID:        "OpenID Connect (аутентификация)",
+	ScopeProfile:       "Имя пользователя и аватар",
+	ScopeEmail:         "Email адрес",
+	ScopeOfflineAccess: "Offline доступ",
+}
+
 // Grant types
 const (
 	GrantTypeAuthorizationCode = "authorization_code"

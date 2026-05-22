@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { toast } from "sonner";
-import { ArrowLeft, Copy, Check, RotateCcw, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, Check, RotateCcw, Trash2, Fingerprint, User, Mail, RefreshCw } from "lucide-react";
 
 interface OAuthApp {
   id: string;
@@ -227,13 +227,50 @@ const AppDetail = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Scopes</CardTitle>
+              <CardTitle className="text-lg">Разрешения (Scopes)</CardTitle>
+              <CardDescription>
+                Данные, к которым приложение имеет доступ
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {app.allowed_scopes?.map((s) => (
-                  <Badge key={s} variant="outline">{s}</Badge>
-                ))}
+              <div className="space-y-3">
+                {(!app.allowed_scopes || app.allowed_scopes.length === 0) ? (
+                  <p className="text-sm text-muted-foreground">Нет разрешений</p>
+                ) : (
+                  app.allowed_scopes.map((s) => {
+                    const descriptions: Record<string, string> = {
+                      openid: "OpenID Connect — идентификация учётной записи",
+                      profile: "Имя пользователя и аватар",
+                      email: "Email адрес",
+                      offline_access: "Обновление токенов в фоне",
+                    };
+                    const scopeIcon = (scope: string) => {
+                      const cls = "w-4 h-4";
+                      switch (scope) {
+                        case "openid": return <Fingerprint className={`${cls} text-blue-500`} />;
+                        case "profile": return <User className={`${cls} text-emerald-500`} />;
+                        case "email": return <Mail className={`${cls} text-amber-500`} />;
+                        case "offline_access": return <RefreshCw className={`${cls} text-violet-500`} />;
+                        default: return null;
+                      }
+                    };
+                    return (
+                      <div key={s} className="flex items-start gap-3 p-3 rounded-lg bg-muted/40 border border-border/30 hover:bg-muted/60 transition-colors">
+                        <div className="w-7 h-7 rounded-md bg-background flex items-center justify-center flex-shrink-0 ring-1 ring-border/30">
+                          {scopeIcon(s)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="font-mono text-xs">{s}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                            {descriptions[s] || s}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </CardContent>
           </Card>
