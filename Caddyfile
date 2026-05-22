@@ -65,35 +65,6 @@ http://{$DOMAIN:localhost} {
 		reverse_proxy dev-dashboard:80
 	}
 
-	# ── Garage S3 Storage (replaces nginx garage-proxy) ──────────────────
-	handle_path /s3/* {
-		# Add CORS headers to ALL responses (including OPTIONS preflight)
-		header {
-			Access-Control-Allow-Origin *
-			Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, HEAD"
-			Access-Control-Allow-Headers "Origin, Content-Type, Access-Control-Request-Method, Access-Control-Request-Headers"
-			Access-Control-Max-Age "3600"
-			Vary "Origin"
-		}
-
-		# Handle OPTIONS preflight before proxying
-		@options {
-			method OPTIONS
-		}
-		respond @options 204
-
-		# Proxy to Garage S3, stripping its own CORS headers (avoids duplicates)
-		reverse_proxy garage:3900 {
-			header_down -Access-Control-Allow-Origin
-			header_down -Access-Control-Allow-Methods
-			header_down -Access-Control-Allow-Headers
-			header_down -Access-Control-Expose-Headers
-			header_down -Access-Control-Max-Age
-			header_down -Access-Control-Allow-Credentials
-			# Disable buffering for large file uploads/downloads
-			flush_interval -1
-		}
-	}
 
 	# ── Main Web App (catch-all, must be last) ─────────────────────────────
 	handle {
