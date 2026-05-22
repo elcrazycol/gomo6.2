@@ -75,6 +75,20 @@ const ApiDocs = () => {
   -d "client_id=app_abc123" \\
   -d "client_secret=secret_xyz"`;
 
+  const curlIntrospect = `curl -X POST http://localhost:8080/oauth/introspect \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -d "token=ACCESS_TOKEN" \\
+  -d "token_type_hint=access_token" \\
+  -d "client_id=app_abc123" \\
+  -d "client_secret=secret_xyz"`;
+
+  const curlIntrospectBearer = `curl -X POST http://localhost:8080/oauth/introspect \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -H "Authorization: Bearer RESOURCE_SERVER_TOKEN" \\
+  -d "token=ACCESS_TOKEN"`;
+
+  const curlAppInfo = `curl "http://localhost:8080/oauth/app-info?client_id=app_abc123"`;
+
   const jsExample = `// Полный пример авторизации через gomo6
 const CONFIG = {
   clientId: 'app_abc123',
@@ -375,6 +389,7 @@ function generateRandomString(length) {
               <EndpointRow method="POST" path="/oauth/token" desc="Обмен кода на токены" auth="client_secret" />
               <EndpointRow method="POST" path="/oauth/revoke" desc="Отзыв токена" auth="client_secret" />
               <EndpointRow method="GET" path="/oauth/userinfo" desc="Информация о пользователе" auth="Bearer" />
+              <EndpointRow method="POST" path="/oauth/introspect" desc="Интроспекция токена (RFC 7662)" auth="Bearer / client_id" />
               <EndpointRow method="GET" path="/oauth/app-info" desc="Информация о приложении" auth="Нет" />
               <EndpointRow method="GET" path="/.well-known/openid-configuration" desc="OpenID Discovery" auth="Нет" />
               <EndpointRow method="GET" path="/.well-known/jwks.json" desc="Публичные ключи JWT" auth="Нет" />
@@ -425,6 +440,18 @@ function generateRandomString(length) {
                 <p className="text-sm font-semibold mb-2">Revoke токена</p>
                 <CodeBlock language="bash" code={curlRevoke} />
               </div>
+              <div>
+                <p className="text-sm font-semibold mb-2">Интроспекция токена (client credentials)</p>
+                <CodeBlock language="bash" code={curlIntrospect} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold mb-2">Интроспекция токена (Bearer аутентификация)</p>
+                <CodeBlock language="bash" code={curlIntrospectBearer} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold mb-2">Информация о приложении (консент-скрин)</p>
+                <CodeBlock language="bash" code={curlAppInfo} />
+              </div>
             </div>
           </Section>
         </TabsContent>
@@ -457,10 +484,15 @@ function generateRandomString(length) {
                       <td className="py-2 px-3">Профиль пользователя</td>
                       <td className="py-2 px-3"><code className="text-xs">name</code>, <code className="text-xs">preferred_username</code>, <code className="text-xs">picture</code></td>
                     </tr>
-                    <tr>
+                    <tr className="border-b border-border/50">
                       <td className="py-2 px-3"><code className="bg-muted px-1 rounded text-xs">email</code></td>
                       <td className="py-2 px-3">Email адрес</td>
                       <td className="py-2 px-3"><code className="text-xs">email</code>, <code className="text-xs">email_verified</code></td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 px-3"><code className="bg-muted px-1 rounded text-xs">offline_access</code></td>
+                      <td className="py-2 px-3">Refresh token (фоновый доступ)</td>
+                      <td className="py-2 px-3"><code className="text-xs">—</code> (только <code className="text-xs">refresh_token</code> в ответе)</td>
                     </tr>
                   </tbody>
                 </table>
@@ -471,6 +503,38 @@ function generateRandomString(length) {
       </Tabs>
 
       {/* Footer */}
+      {/* Audit Log Section */}
+      <Card className="border-muted-foreground/20">
+        <CardHeader>
+          <CardTitle className="text-lg">Аудит (Audit Log)</CardTitle>
+          <CardDescription>Все действия в OAuth логируются для безопасности</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {[
+              ["authorize", "Пользователь разрешил доступ"],
+              ["token_exchange", "Обмен кода на токены"],
+              ["token_refresh", "Обновление токена"],
+              ["token_revoke", "Отзыв токена"],
+              ["token_introspect", "Интроспекция токена"],
+              ["app_created", "Создание приложения"],
+              ["app_updated", "Обновление приложения"],
+              ["app_deleted", "Удаление приложения"],
+              ["secret_regenerated", "Сброс client_secret"],
+              ["user_tokens_revoked", "Отзыв токенов пользователя"],
+            ].map(([action, desc]) => (
+              <div key={action} className="flex items-center gap-2 text-xs">
+                <Badge variant="outline" className="font-mono shrink-0">{action}</Badge>
+                <span className="text-muted-foreground">{desc}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            Лог содержит user_id, client_id, название приложения, IP адрес и timestamp.
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="pt-6 border-t border-border text-center">
         <p className="text-xs text-muted-foreground">
           Полная документация в файле <code className="bg-muted px-1 rounded">OAUTH_API.md</code>
