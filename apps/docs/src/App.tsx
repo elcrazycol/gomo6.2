@@ -6,9 +6,14 @@ import { APIReference } from './pages/APIReference'
 import { Examples } from './pages/Examples'
 import { EventHandlers } from './pages/EventHandlers'
 import { BestPractices } from './pages/BestPractices'
-import { OAuthApiDocs } from './pages/OAuthApiDocs'
+import { OAuthOverview } from './pages/OAuthOverview'
+import { OAuthAuthorization } from './pages/OAuthAuthorization'
+import { OAuthTokens } from './pages/OAuthTokens'
+import { OAuthUserinfo } from './pages/OAuthUserinfo'
+import { OAuthClientLibrary } from './pages/OAuthClientLibrary'
+import { OAuthReference } from './pages/OAuthReference'
 import { ThemeProvider } from './contexts/ThemeContext'
-import { BookOpen, Bot, Key, ChevronRight, Menu, X, ExternalLink, Code2, Zap, Shield, FileText, GraduationCap } from 'lucide-react'
+import { BookOpen, Bot, Key, ChevronRight, Menu, X, ExternalLink, Code2, Zap, Shield, FileText, GraduationCap, RefreshCw, User } from 'lucide-react'
 
 // Sidebar sections data
 const sidebarSections = [
@@ -37,7 +42,12 @@ const sidebarSections = [
     label: 'OAuth 2.0',
     icon: Key,
     items: [
-      { path: '/oauth', label: 'OAuth 2.0 API', icon: Key },
+      { path: '/oauth', label: 'Обзор', icon: BookOpen },
+      { path: '/oauth/authorization', label: 'Авторизация', icon: Key },
+      { path: '/oauth/tokens', label: 'Токены', icon: RefreshCw },
+      { path: '/oauth/userinfo', label: 'Данные пользователя', icon: User },
+      { path: '/oauth/client-library', label: 'TS клиент', icon: Code2, badge: 'NEW' },
+      { path: '/oauth/reference', label: 'Справочник', icon: FileText },
     ],
   },
 ]
@@ -123,9 +133,9 @@ function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
                       >
                         <ItemIcon className={`w-3.5 h-3.5 ${active ? 'text-emerald-400' : ''}`} />
                         <span>{item.label}</span>
-                        {item.path === '/oauth' && (
+                        {(item as any).badge && (
                           <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            NEW
+                            {(item as any).badge}
                           </span>
                         )}
                       </Link>
@@ -230,7 +240,12 @@ function AppContent() {
       <Route path="/api" element={<PageContainer><APIReference /></PageContainer>} />
       <Route path="/examples" element={<PageContainer><Examples /></PageContainer>} />
       <Route path="/best-practices" element={<PageContainer><BestPractices /></PageContainer>} />
-      <Route path="/oauth" element={<PageContainer><OAuthApiDocs /></PageContainer>} />
+      <Route path="/oauth" element={<PageContainer><OAuthOverview /></PageContainer>} />
+      <Route path="/oauth/authorization" element={<PageContainer><OAuthAuthorization /></PageContainer>} />
+      <Route path="/oauth/tokens" element={<PageContainer><OAuthTokens /></PageContainer>} />
+      <Route path="/oauth/userinfo" element={<PageContainer><OAuthUserinfo /></PageContainer>} />
+      <Route path="/oauth/client-library" element={<PageContainer><OAuthClientLibrary /></PageContainer>} />
+      <Route path="/oauth/reference" element={<PageContainer><OAuthReference /></PageContainer>} />
     </Routes>
   )
 }
