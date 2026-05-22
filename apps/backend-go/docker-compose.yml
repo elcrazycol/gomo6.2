@@ -91,7 +91,8 @@ services:
     environment:
       DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: your-secret-key-change-in-production
+      # For production: replace with a fixed value (openssl rand -hex 32) so tokens survive restarts
+      JWT_SECRET: dev-auto-generated-each-restart
       SERVER_DOMAIN: localhost:8080
       FEDERATION_KEY: your-federation-key-change-in-production
       ENVIRONMENT: development
@@ -107,6 +108,17 @@ services:
       GARAGE_S3_USE_SSL: false
       # Browser uses garage-proxy for CORS-enabled access
       GARAGE_S3_PUBLIC_ENDPOINT: http://localhost:3900
+    # TLS (optional — for production with real certificates)
+    # 1. Generate certs: openssl req -x509 -newkey rsa:2048 -keyout ./certs/server.key -out ./certs/server.crt -days 365 -nodes -subj "/CN=example.com"
+    # 2. Uncomment volumes and env vars below
+    # volumes:
+    #   - ./certs:/app/certs:ro
+    # environment:
+    #   TLS_CERT_FILE: /app/certs/server.crt
+    #   TLS_KEY_FILE: /app/certs/server.key
+    #   TLS_REDIRECT_HTTP: "true"
+    #   ISSUER_URL: https://example.com
+    #   FRONTEND_URL: https://example.com
     depends_on:
       - postgres
       - redis
