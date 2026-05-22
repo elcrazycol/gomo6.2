@@ -107,6 +107,9 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 		if s == oauth.ScopeOpenID {
 			continue // always allow openid
 		}
+		if s == oauth.ScopeOfflineAccess {
+			continue // always allow offline_access (no special permissions needed)
+		}
 		if !isScopeAllowed(app.AllowedScopes, s) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":             oauth.ErrorInvalidScope,
@@ -374,18 +377,23 @@ func (h *OAuthHandler) handleAuthorizationCodeGrant(c *gin.Context, req oauth.To
 		return
 	}
 
-	// Generate refresh token
-	refreshTokenStr, err := h.oauthSvc.GenerateRefreshToken(at.ID, req.ClientID, userID, scopes)
-	if err != nil {
-		log.Printf("Failed to generate refresh token: %v", err)
+	// Generate refresh token only if offline_access scope was requested
+	var refreshTokenStr string
+	if oauth.HasScope(scopes, oauth.ScopeOfflineAccess) {
+		refreshTokenStr, err = h.oauthSvc.GenerateRefreshToken(at.ID, req.ClientID, userID, scopes)
+		if err != nil {
+			log.Printf("Failed to generate refresh token: %v", err)
+		}
 	}
 
 	tokenResponse := oauth.TokenResponse{
 		AccessToken:  accessTokenStr,
 		TokenType:    "Bearer",
 		ExpiresIn:    3600,
-		RefreshToken: refreshTokenStr,
 		Scope:        oauth.JoinScopes(scopes),
+	}
+	if refreshTokenStr != "" {
+		tokenResponse.RefreshToken = refreshTokenStr
 	}
 
 	// Generate ID token if openid scope

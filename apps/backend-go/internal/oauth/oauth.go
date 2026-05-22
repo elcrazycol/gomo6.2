@@ -521,10 +521,13 @@ func (s *OAuthService) RefreshAccessToken(refreshTokenStr, clientID string) (new
 		return "", "", "", err
 	}
 
-	// Generate new refresh token
-	newRefreshTokenStr, err := s.GenerateRefreshToken(at.ID, clientID, userID, scopes)
-	if err != nil {
-		return "", "", "", err
+	// Generate new refresh token only if offline_access was in original scopes
+	var newRefreshTokenStr string
+	if HasScope(scopes, ScopeOfflineAccess) {
+		newRefreshTokenStr, err = s.GenerateRefreshToken(at.ID, clientID, userID, scopes)
+		if err != nil {
+			return "", "", "", err
+		}
 	}
 
 	// Generate ID token if openid scope is present
@@ -944,14 +947,19 @@ func isValidScope(scope string) bool {
 	return false
 }
 
-// hasScope checks if a list of scopes contains a specific scope
-func hasScope(scopes []string, target string) bool {
+// HasScope checks if a list of scopes contains a specific scope
+func HasScope(scopes []string, target string) bool {
 	for _, s := range scopes {
 		if s == target {
 			return true
 		}
 	}
 	return false
+}
+
+// hasScope is an alias for internal use
+func hasScope(scopes []string, target string) bool {
+	return HasScope(scopes, target)
 }
 
 // verifyPKCE validates a PKCE S256 code challenge/verifier pair

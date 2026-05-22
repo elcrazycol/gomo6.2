@@ -170,13 +170,14 @@ type OAuthError struct {
 
 // Standard OAuth scopes
 const (
-	ScopeOpenID  = "openid"
-	ScopeProfile = "profile"
-	ScopeEmail   = "email"
+	ScopeOpenID         = "openid"
+	ScopeProfile        = "profile"
+	ScopeEmail          = "email"
+	ScopeOfflineAccess  = "offline_access"
 )
 
 // AllSupportedScopes lists all scopes supported by this server
-var AllSupportedScopes = []string{ScopeOpenID, ScopeProfile, ScopeEmail}
+var AllSupportedScopes = []string{ScopeOpenID, ScopeProfile, ScopeEmail, ScopeOfflineAccess}
 
 // Grant types
 const (
