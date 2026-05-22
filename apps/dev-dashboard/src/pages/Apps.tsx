@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/api/client_simple";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,38 +22,30 @@ interface OAuthApp {
 const DeveloperApps = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [session, setSession] = useState<any>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   // Check auth
   useState(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (!session) navigate("/auth?redirect=/developer/apps");
+    api.getSession().then(({ session }) => {
+      if (!session) navigate("/login?redirect=/apps");
+      setSessionChecked(true);
     });
   });
 
   const { data: apps, isLoading } = useQuery({
     queryKey: ["developer-apps"],
     queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-      const res = await fetch("/api/v1/developer/apps", {
-        headers: { "Authorization": `Bearer ${session.access_token}` },
-      });
+      const res = await api.fetch("/api/v1/developer/apps");
       if (!res.ok) throw new Error("Failed to fetch apps");
       const json = await res.json();
       return json.data as OAuthApp[];
     },
-    enabled: !!session,
+    enabled: sessionChecked,
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (appId: string) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`/api/v1/developer/apps/${appId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${session!.access_token}` },
-      });
+      const res = await api.fetch(`/api/v1/developer/apps/${appId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete app");
     },
     onSuccess: () => {
@@ -83,11 +75,11 @@ const DeveloperApps = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate("/developer/docs")}>
+          <Button variant="outline" onClick={() => window.open("http://localhost:3001/oauth", "_blank")}>
             <BookOpen className="w-4 h-4 mr-2" />
             Документация
           </Button>
-          <Button onClick={() => navigate("/developer/apps/create")}>
+          <Button onClick={() => navigate("/apps/create")}>
             <Plus className="w-4 h-4 mr-2" />
             Создать
           </Button>
@@ -102,7 +94,7 @@ const DeveloperApps = () => {
             <p className="text-sm text-muted-foreground mb-4">
               Создайте своё первое OAuth-приложение для интеграции с gomo6
             </p>
-            <Button onClick={() => navigate("/developer/apps/create")}>
+            <Button onClick={() => navigate("/apps/create")}>
               Создать приложение
             </Button>
           </CardContent>
@@ -110,7 +102,7 @@ const DeveloperApps = () => {
       ) : (
         <div className="grid gap-4">
           {apps.map((app) => (
-            <Card key={app.id} className="hover:border-primary/40 transition-colors cursor-pointer" onClick={() => navigate(`/developer/apps/${app.id}`)}>
+            <Card key={app.id} className="hover:border-primary/40 transition-colors cursor-pointer" onClick={() => navigate(`/apps/${app.id}`)}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div>

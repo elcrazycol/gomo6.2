@@ -1,5 +1,3 @@
-import { Link } from "react-router-dom";
-
 export const Footer = () => {
   return (
     <footer className="bg-card border-t border-border">
@@ -8,9 +6,9 @@ export const Footer = () => {
           <p className="text-xs sm:text-sm text-muted-foreground">
             © 2026 gomo6
           </p>
-          <Link to="/developer/apps" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <a href="http://localhost:3002" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
             Dev
-          </Link>
+          </a>
         </div>
       </div>
     </footer>
