@@ -253,7 +253,7 @@ const ThreadCard = ({
       );
 
       if (!likesError && likesData !== null) {
-        setLikesCount(likesData);
+        setLikesCount(likesData as number);
       }
 
       // Get recent likers for tooltip (always load, even if no likes yet)
@@ -266,7 +266,7 @@ const ThreadCard = ({
       );
 
       if (!likersError && likersData) {
-        setRecentLikers(likersData);
+        setRecentLikers(likersData as {username: string; id: string; avatar_url: string | null; is_anonymous: boolean}[]);
       }
 
       // Check if current user liked this thread
@@ -280,7 +280,7 @@ const ThreadCard = ({
         );
 
         if (!likedError) {
-          setUserLiked(likedData);
+          setUserLiked(likedData as boolean);
         }
       }
     } catch (error) {

@@ -183,6 +183,7 @@ const Profile = () => {
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
   const [showProfileWall, setShowProfileWall] = useState(true);
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
+  const [newPassword, setNewPassword] = useState("");
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [showProfileStats, setShowProfileStats] = useState(false);
