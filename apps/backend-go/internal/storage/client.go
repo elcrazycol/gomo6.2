@@ -66,8 +66,13 @@ func normalizeEndpoint(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if u.Scheme == "" {
-		return "", fmt.Errorf("endpoint must include scheme (http/https)")
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("endpoint must include http or https scheme")
+	}
+	// url.Parse is lenient: "localhost:3900" parses as scheme=localhost,opaque=3900.
+	// Reject URLs that don't look like proper HTTP endpoints.
+	if u.Host == "" {
+		return "", fmt.Errorf("endpoint must have a host (e.g. http://host:port)")
 	}
 	return strings.TrimSuffix(u.String(), "/"), nil
 }
