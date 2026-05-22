@@ -6,7 +6,46 @@ import path from "path";
 export default defineConfig(() => ({
   server: {
     host: "::",
-    port: 8080,
+    port: 8081,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/oauth": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.url?.startsWith("/oauth/consent")) {
+            return req.url; // return the URL to skip proxy — let Vite serve it as SPA route
+          }
+        },
+      },
+      "/rest": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/rpc": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/.well-known": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/ws": {
+        target: "http://localhost:8080",
+        ws: true,
+      },
+      "/storage": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      "/federation": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+    },
   },
   optimizeDeps: {
     exclude: ["@ffmpeg/ffmpeg", "@ffmpeg/core"],
