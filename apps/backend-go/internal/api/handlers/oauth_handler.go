@@ -339,12 +339,14 @@ func (h *OAuthHandler) AppInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"client_id":      app.ClientID,
-		"name":           app.Name,
-		"description":    app.Description,
-		"logo_url":       app.LogoURL,
-		"homepage_url":   app.HomepageURL,
-		"allowed_scopes": app.AllowedScopes,
+		"client_id":          app.ClientID,
+		"name":               app.Name,
+		"description":        app.Description,
+		"logo_url":            app.LogoURL,
+		"homepage_url":        app.HomepageURL,
+		"allowed_scopes":      app.AllowedScopes,
+		"scope_descriptions":  oauth.ScopeDescriptions,
+		"scope_labels":        oauth.ScopeLabels,
 	})
 }
 
