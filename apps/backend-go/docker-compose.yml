@@ -108,6 +108,17 @@ services:
       GARAGE_S3_USE_SSL: false
       # Browser uses garage-proxy for CORS-enabled access
       GARAGE_S3_PUBLIC_ENDPOINT: http://localhost:3900
+    # TLS (optional — for production with real certificates)
+    # 1. Generate certs: openssl req -x509 -newkey rsa:2048 -keyout ./certs/server.key -out ./certs/server.crt -days 365 -nodes -subj "/CN=example.com"
+    # 2. Uncomment volumes and env vars below
+    # volumes:
+    #   - ./certs:/app/certs:ro
+    # environment:
+    #   TLS_CERT_FILE: /app/certs/server.crt
+    #   TLS_KEY_FILE: /app/certs/server.key
+    #   TLS_REDIRECT_HTTP: "true"
+    #   ISSUER_URL: https://example.com
+    #   FRONTEND_URL: https://example.com
     depends_on:
       - postgres
       - redis
