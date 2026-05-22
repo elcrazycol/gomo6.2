@@ -54,6 +54,19 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.1
+          args: --timeout=5m ./...
+          working-directory: apps/backend-go
+
+      - name: Vulnerability check (govulncheck)
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: apps/backend-go/go.mod
+          work-dir: apps/backend-go
+
       - name: Vendoring check
         run: go mod tidy && git diff --exit-code go.mod go.sum
 
@@ -71,7 +84,21 @@ jobs:
         env:
           DATABASE_URL_TEST: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
           REDIS_URL: redis://localhost:6379/0
-        run: go test -count=1 ./...
+        run: go test -race -count=1 ./...
+
+  ##############################################################################
+  # Secret scanning (gitleaks)
+  ##############################################################################
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ##############################################################################
   # Frontend (TypeScript apps)
@@ -100,6 +127,12 @@ jobs:
 
       - name: Lint — web
         run: npm run lint --workspace=@gomo6/web
+
+      - name: Test — web
+        run: npm run test --workspace=@gomo6/web
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=critical
 
       - name: Build — web
         run: npm run build --workspace=@gomo6/web
