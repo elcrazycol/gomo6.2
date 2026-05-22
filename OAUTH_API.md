@@ -49,7 +49,7 @@ GET /oauth/authorize?response_type=code
 | `response_type` | Да | Всегда `code` |
 | `client_id` | Да | ID вашего приложения |
 | `redirect_uri` | Да | URI для редиректа (должен быть в списке разрешённых) |
-| `scope` | Опционально | `openid`, `profile`, `email` (через пробел) |
+| `scope` | Опционально | `scope` | Опционально | `openid`, `profile`, `email`, `offline_access` (через пробел) |
 | `state` | Рекомендуется | Строка для CSRF-защиты |
 | `code_challenge` | Рекомендуется | PKCE challenge (SHA-256 хеш code_verifier) |
 | `code_challenge_method` | Для PKCE | `S256` или `plain` |
@@ -117,6 +117,26 @@ curl -X POST http://localhost:8080/oauth/token \
   "id_token": "eyJhbGciOiJIUzI1NiIs...",
   "scope": "openid profile email"
 }
+
+**cURL с PKCE:**
+
+```bash
+# Сгенерируйте code_verifier + code_challenge (см. раздел PKCE)
+CODE_VERIFIER="my_random_verifier_string_here"
+CODE_CHALLENGE=$(echo -n "$CODE_VERIFIER" | openssl dgst -sha256 -binary | base64 | tr '+/' '-_' | tr -d '=')
+
+# Шаг 1: редирект пользователя
+# http://localhost:8080/oauth/authorize?response_type=code&client_id=app_abc123&redirect_uri=...&scope=openid+profile+email&code_challenge=$CODE_CHALLENGE&code_challenge_method=S256
+
+# Шаг 2: обмен кода на токены
+curl -X POST http://localhost:8080/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code" \
+  -d "code=def456" \
+  -d "redirect_uri=https://myapp.com/callback" \
+  -d "client_id=app_abc123" \
+  -d "code_verifier=$CODE_VERIFIER"
+```
 ```
 
 ---
@@ -197,12 +217,77 @@ curl -X POST http://localhost:8080/oauth/token \
 
 > ⚠️ **Token Rotation**: При каждом обновлении выдаётся новый refresh_token. Старый становится недействительным.
 
+> ⚠️ Для получения refresh_token необходимо запросить scope `offline_access` при авторизации.
+
 ---
 
-## 5. Revoke токена
+## 5. Token Introspection (RFC 7662)
+
+Проверка валидности токена. Используется resource server'ами для проверки токенов без самостоятельного декодирования JWT.
 
 ```
-POST /oauth/revoke
+POST /oauth/introspect
+Content-Type: application/x-www-form-urlencoded
+
+token=ACCESS_OR_REFRESH_TOKEN
+&token_type_hint=access_token
+&client_id=app_abc123
+&client_secret=YOUR_CLIENT_SECRET
+```
+
+**Аутентификация:**
+- Через Bearer токен (OAuth access token resource server'а)
+- **Или** через client_id + client_secret (confidential clients)
+- **Или** через client_id (public clients — только ID, без секрета)
+
+**cURL пример (client credentials):**
+
+```bash
+curl -X POST http://localhost:8080/oauth/introspect \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "token=eyJhbGciOiJIUzI1NiIs..." \
+  -d "token_type_hint=access_token" \
+  -d "client_id=app_abc123" \
+  -d "client_secret=secret_xyz"
+```
+
+**cURL пример (Bearer token):**
+
+```bash
+curl -X POST http://localhost:8080/oauth/introspect \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -d "token=eyJhbGciOiJIUzI1NiIs..."
+```
+
+**Ответ:**
+
+```json
+{
+  "active": true,
+  "scope": "openid profile email",
+  "client_id": "app_abc123",
+  "user_id": "user_uuid",
+  "token_id": "tok_abc123",
+  "token_type": "access_token",
+  "sub": "user_uuid",
+  "username": "username",
+  "aud": ["app_abc123"],
+  "iss": "http://localhost:8080",
+  "exp": 1715000000,
+  "iat": 1714996400
+}
+```
+
+Для невалидного или отозванного токена:
+
+```json
+{"active": false}
+```
+
+---
+
+## 6. Revoke токена
 Content-Type: application/x-www-form-urlencoded
 
 token=ACCESS_OR_REFRESH_TOKEN
@@ -226,7 +311,50 @@ curl -X POST http://localhost:8080/oauth/revoke \
 
 ---
 
-## 6. PKCE (для публичных клиентов)
+## 7. Информация о приложении (консент-скрин)
+
+Получение информации о приложении для отображения на экране согласия:
+
+```
+GET /oauth/app-info?client_id=app_abc123
+```
+
+**cURL пример:**
+
+```bash
+curl "http://localhost:8080/oauth/app-info?client_id=app_abc123"
+```
+
+**Ответ:**
+
+```json
+{
+  "client_id": "app_abc123",
+  "name": "My App",
+  "description": "Описание приложения",
+  "logo_url": "",
+  "homepage_url": "https://myapp.com",
+  "allowed_scopes": ["openid", "profile", "email"],
+  "scope_descriptions": {
+    "openid": "Идентификация вашей учётной записи (OpenID Connect)",
+    "profile": "Чтение вашего имени пользователя и аватара",
+    "email": "Чтение вашего email адреса",
+    "offline_access": "Обновление токенов в фоне (offline access)"
+  },
+  "scope_labels": {
+    "openid": "OpenID Connect (аутентификация)",
+    "profile": "Имя пользователя и аватар",
+    "email": "Email адрес",
+    "offline_access": "Offline доступ"
+  }
+}
+```
+
+Фронтенд консент-скрина доступен по адресу `/oauth/consent?client_id=...&scope=...`.
+
+---
+
+## 8. PKCE (для публичных клиентов)
 
 Для SPA/мобильных приложений используйте PKCE:
 
@@ -268,7 +396,7 @@ function generateRandomString(length) {
 
 ---
 
-## 7. OpenID Connect
+## 9. OpenID Connect
 
 **Discovery URL:**
 
@@ -285,8 +413,9 @@ GET /.well-known/openid-configuration
   "token_endpoint": "http://localhost:8080/oauth/token",
   "userinfo_endpoint": "http://localhost:8080/oauth/userinfo",
   "revocation_endpoint": "http://localhost:8080/oauth/revoke",
+  "introspection_endpoint": "http://localhost:8080/oauth/introspect",
   "jwks_uri": "http://localhost:8080/.well-known/jwks.json",
-  "scopes_supported": ["openid", "profile", "email"],
+  "scopes_supported": ["openid", "profile", "email", "offline_access"],
   "claims_supported": ["sub", "name", "preferred_username", "email", "email_verified", "picture"]
 }
 ```
@@ -299,17 +428,18 @@ GET /.well-known/jwks.json
 
 ---
 
-## 8. Scopes
+## 10. Scopes
 
 | Scope | Доступ | Claims в id_token / userinfo |
 |-------|--------|-------------------------|
 | `openid` | Базовая | `sub` (user ID) |
 | `profile` | Профиль | `name`, `preferred_username`, `picture` |
 | `email` | Email | `email`, `email_verified` |
+| `offline_access` | Refresh token | Нет claims (только refresh_token в ответе) |
 
 ---
 
-## 9. Ошибки
+## 11. Ошибки
 
 Стандартные OAuth 2.0 ошибки:
 
@@ -324,7 +454,149 @@ GET /.well-known/jwks.json
 
 ---
 
-## 10. Полный пример (JavaScript)
+## 12. Клиентская библиотека (TypeScript)
+
+**Файл:** `src/integrations/api/oauth.ts` (0 зависимостей, использует Web Crypto API)
+
+### Быстрый старт
+
+```typescript
+import { createOAuthClient, getOAuthClient } from "@/integrations/api/oauth"
+
+// Инициализация (один раз при старте приложения)
+createOAuthClient({
+  clientId: "app_abc123",
+  redirectUri: "https://myapp.com/callback",
+  // clientSecret: "secret_xyz", // только для confidential clients
+  // authorizationBaseUrl: "http://localhost:8080", // по умолчанию — текущий origin
+})
+```
+
+### Авторизация через редирект (PKCE)
+
+```typescript
+const client = getOAuthClient()
+
+// 1. Генерация PKCE + редирект
+const { url, verifier } = await client.startAuthorization({
+  scope: "openid profile email offline_access",
+})
+
+// Сохраняем verifier для callback
+sessionStorage.setItem("oauth_verifier", verifier)
+
+// Редиректим пользователя
+window.location.href = url.href
+
+// 2. В callback handler (/callback?code=...&state=...)
+const savedVerifier = sessionStorage.getItem("oauth_verifier")!
+sessionStorage.removeItem("oauth_verifier")
+
+const tokens = await client.handleCallback(
+  window.location.href,
+  savedVerifier
+)
+
+console.log("Access token:", tokens.accessToken)
+console.log("ID token:", tokens.idToken)
+```
+
+### Авто-refresh токена
+
+```typescript
+const client = getOAuthClient()
+
+// При каждом запросе — библиотека сама обновит токен если нужно
+const token = await client.getAccessToken()
+if (!token) {
+  // Нет валидного токена — нужно авторизоваться заново
+  return redirectToLogin()
+}
+
+fetch("https://api.example.com/data", {
+  headers: { Authorization: `Bearer ${token}` },
+})
+```
+
+### Получение данных пользователя
+
+```typescript
+const client = getOAuthClient()
+
+// Из ID token (без запроса к серверу)
+const userFromIDToken = client.getUserFromIDToken()
+console.log(userFromIDToken?.name)
+
+// Из /userinfo endpoint
+const user = await client.getUserinfo(await client.getAccessToken()!)
+console.log(user.preferredUsername, user.email)
+```
+
+### Интроспекция токена
+
+```typescript
+const client = getOAuthClient()
+
+// Как resource server — с Bearer токеном
+const result = await client.introspectToken(
+  { token: "eyJhbGciOiJIUzI1NiIs...", tokenTypeHint: "access_token" },
+  "my_resource_server_token"
+)
+console.log("Active:", result.active)
+console.log("Scope:", result.scope)
+console.log("User:", result.sub)
+
+// С client credentials (без Bearer)
+const result2 = await client.introspectToken({
+  token: "eyJhbGciOiJIUzI1NiIs...",
+  tokenTypeHint: "access_token",
+})
+```
+
+### Отзыв токена
+
+```typescript
+const client = getOAuthClient()
+
+await client.revokeToken({
+  token: "eyJhbGciOiJIUzI1NiIs...",
+  tokenTypeHint: "access_token",
+})
+```
+
+### React Hook
+
+```typescript
+import { useOAuth } from "@/hooks/useOAuth"
+
+function LoginButton() {
+  const { loginWithRedirect, isAuthenticated, user, logout } = useOAuth({
+    config: {
+      clientId: "app_abc123",
+      redirectUri: "https://myapp.com/callback",
+    }
+  })
+
+  if (isAuthenticated) {
+    return (
+      <div>
+        Привет, {user?.name}!<br/>
+        <button onClick={logout}>Выйти</button>
+      </div>
+    )
+  }
+
+  return (
+    <button onClick={() => loginWithRedirect("openid profile email")}>
+      Войти через gomo6
+    </button>
+  )
+}
+```
+
+---
+
+## 13. Полный пример (JavaScript)
 
 ```javascript
 const CONFIG = {
@@ -408,7 +680,7 @@ async function refreshToken() {
 
 ---
 
-## 11. Полный пример (Python)
+## 14. Полный пример (Python)
 
 ```python
 import requests
@@ -468,7 +740,38 @@ print("New access token:", new_tokens["access_token"][:50], "...")
 
 ---
 
-## 12. Проверка ID Token (JWT)
+## 15. Аудит (Audit Log)
+
+Все OAuth действия логируются в таблицу `oauth_audit_log`:
+
+| Действие | Описание |
+|----------|----------|
+| `authorize` | Пользователь разрешил доступ приложению |
+| `token_exchange` | Обмен кода на токены |
+| `token_refresh` | Обновление токена |
+| `token_revoke` | Отзыв токена |
+| `token_introspect` | Интроспекция токена |
+| `app_created` | Создано новое приложение |
+| `app_updated` | Обновлено приложение |
+| `app_deleted` | Удалено приложение |
+| `secret_regenerated` | Сброшен client_secret |
+| `user_tokens_revoked` | Отозваны все токены пользователя |
+
+Лог содержит user_id, client_id, название приложения, IP адрес и timestamp.
+
+---
+
+## 16. Проверка ID Token (JWT)
+
+ID Token — это JWT, подписанный HS256. Проверить его можно через JWKS endpoint:
+
+```bash
+# Получить публичные ключи
+curl http://localhost:8080/.well-known/jwks.json
+
+# Декодировать JWT (без проверки подписи)
+echo "eyJhbGciOiJIUzI1NiIs..." | cut -d'.' -f2 | base64 -d 2>/dev/null || echo "Декодируйте вручную на jwt.io"
+```
 
 ID Token — это JWT, подписанный HS256. Проверить его можно через JWKS endpoint:
 
