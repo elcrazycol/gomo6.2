@@ -240,7 +240,6 @@ const PrivacySettings = () => {
                           <span>Не показывать сообщения <u>НП</u></span>
                           <HelpCircle
                             className="h-4 w-4 text-muted-foreground cursor-help"
-                            title="НП - незарегистрированный пользователь"
                           />
                         </div>
                         <Switch
@@ -255,7 +254,6 @@ const PrivacySettings = () => {
                           <span>Не показывать мои треды <u>НП</u></span>
                           <HelpCircle
                             className="h-4 w-4 text-muted-foreground cursor-help"
-                            title="НП - незарегистрированный пользователь"
                           />
                         </div>
                         <Switch
@@ -270,7 +268,6 @@ const PrivacySettings = () => {
                           <span>Запретить посещать мой профиль <u>НП</u></span>
                           <HelpCircle
                             className="h-4 w-4 text-muted-foreground cursor-help"
-                            title="НП - незарегистрированный пользователь"
                           />
                         </div>
                         <Switch
@@ -285,7 +282,7 @@ const PrivacySettings = () => {
                           <span>Показывать вкладку тредов в профиле</span>
                           <HelpCircle
                             className="h-4 w-4 text-muted-foreground cursor-help"
-                            title="Показывать вкладку с вашими тредами в профиле"
+  
                           />
                         </div>
                         <Switch
@@ -304,7 +301,7 @@ const PrivacySettings = () => {
             <div className="bg-card p-6 border border-border">
               <div className="flex items-center gap-2 mb-4">
                 <h2 className="text-lg font-semibold">Статистика</h2>
-                <HelpCircle className="h-4 w-4 text-muted-foreground" title="Управление тем, что видят другие в /stats" />
+                <HelpCircle className="h-4 w-4 text-muted-foreground" />
               </div>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -394,7 +391,7 @@ const PrivacySettings = () => {
                     <span>Показывать стену профиля</span>
                     <HelpCircle
                       className="h-4 w-4 text-muted-foreground cursor-help"
-                      title="Если отключено, никто не увидит стену на вашем профиле"
+
                     />
                   </div>
                   <Switch
@@ -409,7 +406,7 @@ const PrivacySettings = () => {
                     <span>Разрешить писать на стене другим пользователям</span>
                     <HelpCircle
                       className="h-4 w-4 text-muted-foreground cursor-help"
-                      title="Если отключено, только вы сможете оставлять посты на своей стене"
+
                     />
                   </div>
                   <Switch
@@ -437,7 +434,7 @@ const PrivacySettings = () => {
                     <span>Удалять метаданные с изображений</span>
                     <HelpCircle
                       className="h-4 w-4 text-muted-foreground cursor-help"
-                      title="Удаляет EXIF данные (геолокация, время съемки и др.) для защиты приватности"
+
                     />
                   </div>
                   <Switch

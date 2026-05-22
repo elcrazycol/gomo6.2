@@ -12,8 +12,8 @@ export interface VisibilityResult {
   processedContent: string;
   isHidden: boolean;
   hasHiddenParts: boolean; // True if some parts were hidden but content is not empty
-  hiddenForUsers?: string[]; // User IDs who can't see
-  visibleForUsers?: string[]; // User IDs who can see (if restricted)
+  hiddenForUsers?: string[];
+  visibleForUsers?: string[];
   hiddenReason?: 'seeusers' | 'nousers' | 'adm';
 }
 

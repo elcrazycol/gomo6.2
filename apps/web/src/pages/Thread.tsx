@@ -551,94 +551,6 @@ const Thread = () => {
   }, [threadId]);
   */
 
-  const loadThread = useCallback(async () => {
-    const { data: threadData } = await supabase
-      .from("threads")
-      .select("*, custom_message")
-      .eq("id", threadId)
-      .single();
-
-    if (threadData) {
-      const { data: board } = await supabase
-        .from("boards")
-        .select("slug, name, is_rules_board, is_gomosub")
-        .eq("id", threadData.board_id)
-        .single();
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username, is_anonymous, avatar_url")
-        .eq("id", threadData.user_id!)
-        .maybeSingle();
-
-      const attachments = parseAttachments(threadData.attachments);
-      const imageUrlsFromAttachments = attachments
-        .filter(att => att.type === "image")
-        .map(att => att.url);
-
-      setThread({
-        ...threadData,
-        boards: board ?? {
-          slug: slug ?? "",
-          name: "",
-          is_rules_board: false,
-          is_gomosub: false,
-        },
-        profiles: profile,
-        attachments,
-        image_urls: threadData.image_urls || imageUrlsFromAttachments,
-      });
-
-      // Load poll data if exists
-      const { data: poll } = await supabase
-        .from('polls')
-        .select('*')
-        .eq('thread_id', threadData.id)
-        .maybeSingle();
-
-      if (poll) {
-        // Get user votes for this poll
-        let userVotes: string[] = [];
-        if (user?.id) {
-          const { data: userVote } = await supabase
-            .from('poll_votes')
-            .select('option_ids')
-            .eq('poll_id', poll.id)
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          userVotes = userVote?.option_ids || [];
-        }
-
-        // Set poll data without results (they will be loaded in Poll component)
-        const pollData = {
-          ...poll,
-          user_votes: userVotes
-        };
-
-        setPollData(pollData);
-      }
-
-      // Track thread visit for achievements
-      if (user) {
-        try {
-          const hasCustomMessage = threadData.custom_message && threadData.custom_message.trim().length > 0;
-          await supabase
-            .from('thread_custom_message_visits')
-            .upsert({
-              user_id: user.id,
-              thread_id: threadData.id,
-              has_custom_message: hasCustomMessage
-            }, {
-              onConflict: 'user_id,thread_id'
-            });
-        } catch (error) {
-          console.error("Thread visit tracking unavailable:", error);
-        }
-      }
-    }
-  }, [navigate, slug, threadId, user]);
-
   // REMOVED: loadThread and loadPosts - handled by React Query hooks
   // REMOVED: normalizePost, fetchPostWithProfile, mergePostIntoList - no longer needed
 
@@ -672,7 +584,7 @@ const Thread = () => {
       // Track thread visit for achievements
       if (user && thread) {
         try {
-          const hasCustomMessage = thread.custom_message && thread.custom_message.trim().length > 0;
+          const hasCustomMessage = (thread as any).custom_message && (thread as any).custom_message.trim().length > 0;
           await supabase
             .from('thread_custom_message_visits')
             .upsert({
@@ -856,37 +768,6 @@ const Thread = () => {
       setReportReason("");
       setReportingPost(null);
     }
-  };
-
-  const handleNowPlayingControl = (direction: 'prev' | 'next' | 'toggle') => {
-    if (!nowPlaying) return;
-    const keys = Array.from(audioMapRef.current.keys());
-    const currentIndex = keys.findIndex(k => k === nowPlaying.key);
-    if (currentIndex === -1) return;
-
-    const playKey = (key: string) => {
-      const entry = audioMapRef.current.get(key);
-      if (!entry?.inst) return;
-      try {
-        entry.inst.play();
-        setNowPlaying({ key, title: entry.title, instance: entry.inst });
-      } catch (e) {
-        console.error(e);
-      }
-    };
-
-    if (direction === 'toggle') {
-      const entry = audioMapRef.current.get(nowPlaying.key);
-      if (!entry?.inst) return;
-      if (entry.inst.playing) entry.inst.pause();
-      else entry.inst.play();
-      return;
-    }
-
-    let nextIdx = currentIndex;
-    if (direction === 'next') nextIdx = (currentIndex + 1) % keys.length;
-    if (direction === 'prev') nextIdx = (currentIndex - 1 + keys.length) % keys.length;
-    playKey(keys[nextIdx]);
   };
 
   const handleDeletePost = async (postId: string) => {
@@ -1160,14 +1041,14 @@ const Thread = () => {
               {senderDisplayType === 'modern' ? (
                 <div className="flex items-start gap-2">
                   <img
-                    src={storageUrl("post-images", thread.avatar_url) || '/placeholder.svg'}
+                    src={storageUrl("post-images", (thread as any).avatar_url) || '/placeholder.svg'}
                     alt="Avatar"
                     className="w-12 h-12 rounded-full object-cover border border-border"
                   />
                   <div>
                     <UserBadge
                       userId={thread.user_id}
-                      username={thread.username || "Аноним"}
+                      username={(thread as any).username || "Аноним"}
                       isAnonymous={false}
                       showOutline={false}
                       isThreadOpener={true}
@@ -1244,8 +1125,7 @@ const Thread = () => {
                   isAdmin={isAdmin}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  postAuthorId={thread.user_id}
-                  authorUsername={thread.username}
+                  postAuthorId={thread.user_id}                        authorUsername={(thread as any).username}
                 />
               </div>
             )}
@@ -1354,14 +1234,14 @@ const Thread = () => {
                   {senderDisplayType === 'modern' ? (
                     <div className="flex items-start gap-2">
                       <img
-                        src={storageUrl("post-images", post.avatar_url) || '/placeholder.svg'}
+                        src={storageUrl("post-images", (post as any).avatar_url) || '/placeholder.svg'}
                         alt="Avatar"
                         className="w-12 h-12 rounded-full object-cover border border-border"
                       />
                       <div>
                         <UserBadge
                           userId={post.user_id}
-                          username={post.username || "Аноним"}
+                          username={(post as any).username || "Аноним"}
                           isAnonymous={false}
                           showOutline={false}
                           isThreadOpener={post.user_id === thread?.user_id}
@@ -1381,9 +1261,9 @@ const Thread = () => {
                       {" · "}
                       <UserBadge
                         userId={post.user_id}
-                        username={post.username || "Аноним"}
-                        isAnonymous={false}
-                        showOutline={false}
+                      username={(post as any).username || "Аноним"}
+                      isAnonymous={false}
+                      showOutline={false}
                       />
                       {" · "}
                       {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
@@ -1514,7 +1394,7 @@ const Thread = () => {
                         currentUsername={currentUserUsername}
                         currentUserColor={currentUserColor}
                         postAuthorId={post.user_id}
-                        authorUsername={post.username}
+                        authorUsername={(post as any).username}
                       />
                     </>
                   )}
