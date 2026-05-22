@@ -58,7 +58,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	// Handle thread_id filter (eq.uuid or in.(uuid,...))
 	if threadID := c.Query("thread_id"); threadID != "" {
 		if strings.HasPrefix(threadID, "eq.") {
-			tid := strings.TrimPrefix(threadID, "eq.")
+			tid := threadID[3:]
 			conditions = append(conditions, "p.thread_id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, tid)
 		} else if strings.HasPrefix(threadID, "in.(") && strings.HasSuffix(threadID, ")") {
@@ -85,7 +85,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	// Handle id filter
 	if id := c.Query("id"); id != "" {
 		if strings.HasPrefix(id, "eq.") {
-			id = strings.TrimPrefix(id, "eq.")
+			id = id[3:]
 			conditions = append(conditions, "p.id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, id)
 		} else if strings.HasPrefix(id, "in.(") && strings.HasSuffix(id, ")") {
@@ -265,7 +265,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	if id == "" {
 		id = c.Query("id")
 		if strings.HasPrefix(id, "eq.") {
-			id = strings.TrimPrefix(id, "eq.")
+			id = id[3:]
 		}
 	}
 	if id == "" {
@@ -433,7 +433,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 
 	if err != nil {
 		// Log error but don't fail the request
-		// TODO: Add proper logging
+		fmt.Printf("ERROR: Failed to update thread post count: %v\n", err)
 	}
 
 	RecomputeUserProfileStats(h.db, userClaims.UserID)

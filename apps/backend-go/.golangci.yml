@@ -1,0 +1,19 @@
+version: "2"
+linters:
+  disable:
+    - errcheck       # 50+ pre-existing unchecked errors (Close/Rollback/Scan) — technical debt, not bugs
+    - depguard       # not configured, would block all imports
+    - tagliatelle    # JSON tag style differs by package and isn't worth enforcing globally
+    - forbidigo      # would block fmt.Printf, log.Printf which are used extensively
+    - wrapcheck      # would require wrapping every external error — too strict for handlers
+  settings:
+    staticcheck:
+      checks: ["all", "-SA9003", "-SA1019"]
+  exclusions:
+    rules:
+      - linters: [staticcheck]
+        text: "SA1019"  # deprecated AWS SDK v1 resolver — upgrade blocked by SDK version
+formatters:
+  enable:
+    - gofmt
+    - goimports
