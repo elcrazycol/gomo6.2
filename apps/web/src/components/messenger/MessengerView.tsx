@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, type NavigateOptions } from "react-router-dom";
 import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -250,7 +250,7 @@ export const MessengerView = () => {
       next.delete("user");
     }
 
-    setSearchParams(next, { replace: true });
+    setSearchParams(next, { replace: true } as NavigateOptions);
   };
 
   const resizeComposer = () => {

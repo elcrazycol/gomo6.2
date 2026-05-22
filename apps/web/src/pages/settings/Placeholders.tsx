@@ -37,8 +37,17 @@ const Placeholders = () => {
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [profile, setProfile] = useState<{ username?: string } | null>(null);
-  const [customization, setCustomization] = useState<Record<string, unknown> | null>(null);
+  const [profile, setProfile] = useState<{
+    username?: string;
+    bio?: string | null;
+    created_at: string;
+    post_count?: number;
+    thread_count?: number;
+    account_number?: number;
+    id: string;
+    avatar_url?: string | null;
+  } | null>(null);
+  const [customization, setCustomization] = useState<any>(null);
   
   const [placeholder1, setPlaceholder1] = useState<string>('bio');
   const [placeholder2, setPlaceholder2] = useState<string>('created_at');
@@ -127,9 +136,9 @@ const Placeholders = () => {
       case 'created_at':
         return format(new Date(profile.created_at), "dd.MM.yyyy", { locale: ru });
       case 'post_count':
-        return `${profile.post_count || 0} ${profile.post_count === 1 ? 'пост' : profile.post_count < 5 ? 'поста' : 'постов'}`;
+        return `${profile.post_count || 0} ${profile.post_count === 1 ? 'пост' : (profile.post_count ?? 0) < 5 ? 'поста' : 'постов'}`;
       case 'thread_count':
-        return `${profile.thread_count || 0} ${profile.thread_count === 1 ? 'тред' : profile.thread_count < 5 ? 'треда' : 'тредов'}`;
+        return `${profile.thread_count || 0} ${profile.thread_count === 1 ? 'тред' : (profile.thread_count ?? 0) < 5 ? 'треда' : 'тредов'}`;
       case 'account_number':
         return profile.account_number ? `#${profile.account_number}` : null;
       case 'id':

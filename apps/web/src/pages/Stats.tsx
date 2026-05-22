@@ -168,11 +168,11 @@ export default function Stats() {
       }
       if (timeRes.data) setTimeStats(timeRes.data);
 
-      setPostsTs(postsRes.data?.map((p) => p.created_at) || []);
-      setThreadsTs(threadsRes.data?.map((t) => t.created_at) || []);
-      setPostLikesTs(postLikesRes.data?.map((l) => l.created_at) || []);
-      setThreadLikesTs(threadLikesRes.data?.map((l) => l.created_at) || []);
-      setRepliesTs(repliesRes.data?.map((r) => r.created_at) || []);
+      setPostsTs((postsRes.data as any[])?.map((p: any) => p.created_at) || []);
+      setThreadsTs((threadsRes.data as any[])?.map((t: any) => t.created_at) || []);
+      setPostLikesTs((postLikesRes.data as any[])?.map((l: any) => l.created_at) || []);
+      setThreadLikesTs((threadLikesRes.data as any[])?.map((l: any) => l.created_at) || []);
+      setRepliesTs((repliesRes.data as any[])?.map((r: any) => r.created_at) || []);
 
       setLoading(false);
     };

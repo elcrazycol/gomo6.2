@@ -280,8 +280,9 @@ const Index = () => {
         return;
       }
 
-      const { data: threadsData } = await threadsQuery;
-      const dedupThreads = Array.from(new Map((threadsData ?? []).map((t) => [t.id, t])).values());
+      const { data: rawThreadsData } = await threadsQuery;
+      const threadsData = (rawThreadsData ?? []) as any[];
+      const dedupThreads = Array.from(new Map(threadsData.map((t: any) => [t.id, t])).values());
       const threadAuthorIds = dedupThreads.map((t) => t.user_id).filter(Boolean);
       const { data: threadAuthors } = threadAuthorIds.length
         ? await supabase

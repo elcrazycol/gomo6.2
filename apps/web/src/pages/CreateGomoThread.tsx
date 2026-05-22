@@ -31,6 +31,15 @@ const CreateGomoThread = () => {
   const [content, setContent] = useState("");
   const [contentJson, setContentJson] = useState<unknown>(null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
+
+  // CreateAttachmentMeta can accept either a value or a function
+  const onAttachmentsChange = (value: AttachmentMeta[] | ((prev: AttachmentMeta[]) => AttachmentMeta[])) => {
+    if (typeof value === "function") {
+      setAttachments(value);
+    } else {
+      setAttachments(value);
+    }
+  };
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const editorRef = useRef<GomoRichEditorHandle | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -215,7 +224,7 @@ const CreateGomoThread = () => {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">Вложения</label>
-            <AttachmentUpload value={attachments} onChange={setAttachments} maxFiles={10} />
+            <AttachmentUpload value={attachments} onChange={onAttachmentsChange} maxFiles={10} />
             {attachments.length > 0 && (
               <div className="space-y-2 rounded-md border border-border/60 p-3">
                 {attachments.map((att, index) => (

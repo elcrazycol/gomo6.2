@@ -242,10 +242,7 @@ const EmojiCreate = () => {
       const fileName = `emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
       const { error: uploadError } = await supabase.storage
         .from('emojis')
-        .upload(fileName, compressedFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(fileName, compressedFile);
 
       if (uploadError) throw uploadError;
 

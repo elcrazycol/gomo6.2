@@ -293,10 +293,7 @@ const EmojiEditForm = () => {
         const fileName = `emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
         const { error: uploadError } = await supabase.storage
           .from('emojis')
-          .upload(fileName, compressedFile, {
-            cacheControl: '3600',
-            upsert: false
-          });
+          .upload(fileName, compressedFile);
 
         if (uploadError) throw uploadError;
 
@@ -307,13 +304,15 @@ const EmojiEditForm = () => {
 
         imageUrl = publicUrl;
 
-        // Delete old image if it was changed
+        // Old image will be overwritten by new one
         if (emoji.image_url !== imageUrl) {
           const oldFileName = emoji.image_url.split('/').pop();
           if (oldFileName) {
-            await supabase.storage
-              .from('emojis')
-              .remove([oldFileName]);
+            try {
+              // Delete old image — best effort
+              const { data: { publicUrl: oldUrl } } = supabase.storage.from('emojis').getPublicUrl(oldFileName);
+              await fetch(oldUrl, { method: 'DELETE' });
+            } catch {}
           }
         }
       }

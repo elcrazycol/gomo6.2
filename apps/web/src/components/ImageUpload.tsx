@@ -7,6 +7,9 @@ import { storageUrl } from "@/utils/storage";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
 
 interface ImageUploadProps {
+  images?: string[];
+  onImagesChange?: (images: string[]) => void;
+  maxImages?: number;
   onImagesUploaded: (urls: string[]) => void;
   currentImages?: string[];
   maxImages?: number;

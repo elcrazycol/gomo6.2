@@ -286,8 +286,8 @@ const StyleContinuationPlugin = () => {
             }
 
             if (event.key === "Enter") {
-              selection.setStyle("");
-              selection.setFormat(0);
+              (selection as any).setStyle("");
+              (selection as any).setFormat(0);
               handled = false;
               return;
             }
@@ -305,8 +305,8 @@ const StyleContinuationPlugin = () => {
             const previousChar = text[Math.max(0, selection.anchor.offset - 1)] ?? "";
 
             if (previousChar === " " || previousChar === "\n") {
-              selection.setStyle("");
-              selection.setFormat(0);
+              (selection as any).setStyle("");
+              (selection as any).setFormat(0);
               handled = false;
             }
           });

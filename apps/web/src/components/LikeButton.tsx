@@ -59,7 +59,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           [isThread ? 'thread_uuid' : 'post_uuid']: postId,
           limit_count: 3
         });
-        setRecentLikers(likers || []);
+        setRecentLikers((likers as { username: string; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]) || []);
       } catch (error) {
         console.error('Error loading recent likers:', error);
       }
@@ -75,11 +75,11 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
       if (achievementType === 'likes_given') {
         const countFunction = isThread ? 'get_user_thread_likes_given_count' : 'get_user_likes_given_count';
         const { data } = await supabase.rpc(countFunction, { user_uuid: userId });
-        count = data || 0;
+        count = (data as number) || 0;
       } else if (achievementType === 'likes_received') {
         const countFunction = isThread ? 'get_user_thread_likes_received_count' : 'get_user_likes_received_count';
         const { data } = await supabase.rpc(countFunction, { user_uuid: userId });
-        count = data || 0;
+        count = (data as number) || 0;
       }
 
       // Determine achievement level based on count

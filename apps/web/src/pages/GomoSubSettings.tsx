@@ -228,10 +228,7 @@ const GomoSubSettings = () => {
 
       const ext = file.name.split(".").pop() || "jpg";
       const fileName = `${user.id}/${Date.now()}_${kind}.${ext}`;
-      const { error } = await supabase.storage.from("post-images").upload(fileName, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
+      const { error } = await supabase.storage.from("post-images").upload(fileName, file);
       if (error) throw error;
 
       if (kind === "avatar") {

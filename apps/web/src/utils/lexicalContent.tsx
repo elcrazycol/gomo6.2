@@ -16,6 +16,10 @@ export type LexicalJsonNode = {
   format?: number;
   style?: string;
   url?: string;
+  direction?: string | null;
+  indent?: number;
+  textFormat?: number;
+  textStyle?: string;
 };
 
 export type LexicalEditorStateJson = {
@@ -33,11 +37,11 @@ const EMPTY_PARAGRAPH_NODE: LexicalJsonNode = {
       style: "",
     },
   ],
-  direction: null as unknown as never,
-  format: "" as unknown as never,
-  indent: 0 as unknown as never,
-  textFormat: 0 as unknown as never,
-  textStyle: "" as unknown as never,
+  direction: null,
+  format: 0,
+  indent: 0,
+  textFormat: 0,
+  textStyle: "",
   type: "paragraph",
   version: 1,
 };
@@ -226,9 +230,9 @@ const ensureNonEmptyEditorState = (state: LexicalEditorStateJson): LexicalEditor
       ...state.root,
       type: "root",
       version: state.root.version ?? 1,
-      direction: ("direction" in state.root ? (state.root as Record<string, unknown>).direction : null) as never,
-      format: ("format" in state.root ? (state.root as Record<string, unknown>).format : "") as never,
-      indent: ("indent" in state.root ? (state.root as Record<string, unknown>).indent : 0) as never,
+      direction: ("direction" in state.root ? (state.root as Record<string, unknown>).direction : null) as string | null | undefined,
+      format: "format" in state.root ? (state.root as Record<string, unknown>).format : 0,
+      indent: "indent" in state.root ? (state.root as Record<string, unknown>).indent : 0,
       children: [EMPTY_PARAGRAPH_NODE],
     },
   };

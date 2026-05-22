@@ -95,7 +95,7 @@ export const ThreadFeed = ({
 
         if (!recError && recommended && recommended.length > 0) {
           // Get full thread data for recommendations
-          const recommendedIds = recommended.map((r: any) => r.thread_id);
+          const recommendedIds = (recommended as any[]).map((r: any) => r.thread_id);
           const { data: recThreadsData, error: recThreadsError } = await supabase
             .from("threads")
             .select(`
@@ -137,8 +137,8 @@ export const ThreadFeed = ({
 
             // Sort by recommendation score
             const sortedRecThreads = recThreadsWithProfiles.sort((a, b) => {
-              const aScore = recommended.find((r: any) => r.thread_id === a.id)?.score || 0;
-              const bScore = recommended.find((r: any) => r.thread_id === b.id)?.score || 0;
+              const aScore = (recommended as any[]).find((r: any) => r.thread_id === a.id)?.score || 0;
+              const bScore = (recommended as any[]).find((r: any) => r.thread_id === b.id)?.score || 0;
               return bScore - aScore;
             });
 

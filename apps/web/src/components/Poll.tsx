@@ -65,7 +65,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
       if (error) throw error;
 
       const resultsMap: Record<string, { votes: number; total_votes: number }> = {};
-      data?.forEach((row: any) => {
+      (data as any[])?.forEach((row: any) => {
         resultsMap[row.option_id] = {
           votes: Number(row.votes),
           total_votes: Number(row.total_votes)

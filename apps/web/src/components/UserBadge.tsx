@@ -21,6 +21,7 @@ interface UserBadgeProps {
   disableHoverCard?: boolean;
   stopPropagationOnClick?: boolean;
   isThreadOpener?: boolean;
+  className?: string;
 }
 
 export const UserBadge = ({
@@ -32,6 +33,7 @@ export const UserBadge = ({
   disableHoverCard = false,
   stopPropagationOnClick = false,
   isThreadOpener,
+  className,
 }: UserBadgeProps) => {
   const [color, setColor] = useState<string>("");
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
@@ -78,7 +80,7 @@ export const UserBadge = ({
   const outlineClass = showOutline ? "drop-shadow-[0_0_1px_rgba(255,255,255,0.8)]" : "";
 
   if (isAnonymous || !userId) {
-    return <span className={`font-bold text-quote ${textSizeClass} ${outlineClass}`}>Аноним</span>;
+    return <span className={`font-bold text-quote ${textSizeClass} ${outlineClass} ${className ?? ""}`}>Аноним</span>;
   }
 
   const colorClasses: Record<string, string> = {
@@ -151,15 +153,11 @@ export const UserBadge = ({
     </span>
   );
 
-  if (disableLink) {
-    return (
-      <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
-        {usernameContent}
-      </ProfileHoverCard>
-    );
-  }
-
-  return (
+  const badgeContent = disableLink ? (
+    <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
+      {usernameContent}
+    </ProfileHoverCard>
+  ) : (
     <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
       <Link
         to={`/profile/${userId}`}
@@ -170,4 +168,8 @@ export const UserBadge = ({
       </Link>
     </ProfileHoverCard>
   );
+
+  return className ? (
+    <span className={className}>{badgeContent}</span>
+  ) : badgeContent;
 };
