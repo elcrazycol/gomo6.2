@@ -242,14 +242,18 @@ func (s *OAuthService) ValidateAuthorizationCode(code, clientID, redirectURI, co
 		return "", nil, "", fmt.Errorf("redirect_uri mismatch")
 	}
 
-	// Verify PKCE code challenge
-	if authCode.CodeChallenge != "" {
-		if codeVerifier == "" {
-			return "", nil, "", fmt.Errorf("code_verifier required")
-		}
-		if err := verifyPKCE(authCode.CodeChallenge, authCode.CodeChallengeMethod, codeVerifier); err != nil {
-			return "", nil, "", err
-		}
+	// Verify PKCE code challenge (S256 only, mandatory)
+	if authCode.CodeChallenge == "" {
+		return "", nil, "", fmt.Errorf("PKCE code_challenge is required")
+	}
+	if authCode.CodeChallengeMethod != CodeChallengeMethodS256 {
+		return "", nil, "", fmt.Errorf("only S256 code_challenge_method is supported")
+	}
+	if codeVerifier == "" {
+		return "", nil, "", fmt.Errorf("code_verifier required")
+	}
+	if err := verifyPKCE(authCode.CodeChallenge, authCode.CodeChallengeMethod, codeVerifier); err != nil {
+		return "", nil, "", err
 	}
 
 	// Mark code as used
@@ -646,7 +650,6 @@ func (s *OAuthService) GetOpenIDConfiguration() *OpenIDConfiguration {
 		IDTokenSigningAlgValuesSupported: []string{"RS256", "HS256"},
 		CodeChallengeMethodsSupported: []string{
 			CodeChallengeMethodS256,
-			CodeChallengeMethodPlain,
 		},
 	}
 }
@@ -954,21 +957,12 @@ func hasScope(scopes []string, target string) bool {
 	return false
 }
 
-// verifyPKCE validates a PKCE code challenge/verifier pair
+// verifyPKCE validates a PKCE S256 code challenge/verifier pair
 func verifyPKCE(codeChallenge, method, codeVerifier string) error {
-	switch method {
-	case CodeChallengeMethodS256:
-		h := sha256.Sum256([]byte(codeVerifier))
-		expected := base64.RawURLEncoding.EncodeToString(h[:])
-		if !hmac.Equal([]byte(expected), []byte(codeChallenge)) {
-			return fmt.Errorf("PKCE verification failed")
-		}
-	case CodeChallengeMethodPlain:
-		if codeVerifier != codeChallenge {
-			return fmt.Errorf("PKCE verification failed")
-		}
-	default:
-		return fmt.Errorf("unsupported code challenge method: %s", method)
+	h := sha256.Sum256([]byte(codeVerifier))
+	expected := base64.RawURLEncoding.EncodeToString(h[:])
+	if !hmac.Equal([]byte(expected), []byte(codeChallenge)) {
+		return fmt.Errorf("PKCE verification failed")
 	}
 	return nil
 }
