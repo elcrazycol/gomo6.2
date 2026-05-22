@@ -59,21 +59,21 @@ type RealtimeEvent struct {
 
 // Hub maintains the set of active clients and broadcasts messages
 type Hub struct {
-	clients        map[*Client]bool
-	broadcast      chan []byte
-	register       chan *Client
-	unregister     chan *Client
-	rooms          map[string]map[*Client]bool
-	presence       map[string]*Client
-	mu             sync.RWMutex
-	redis          *redis.Client
-	db             interface{} // database connection for status updates
-	ctx            context.Context
-	cancel         context.CancelFunc
-	allowedOrigins []string
-	rateLimiter    *RateLimiter
+	clients              map[*Client]bool
+	broadcast            chan []byte
+	register             chan *Client
+	unregister           chan *Client
+	rooms                map[string]map[*Client]bool
+	presence             map[string]*Client
+	mu                   sync.RWMutex
+	redis                *redis.Client
+	db                   interface{} // database connection for status updates
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	allowedOrigins       []string
+	rateLimiter          *RateLimiter
 	statusUpdateDebounce map[string]*time.Timer
-	statusUpdateMu sync.Mutex
+	statusUpdateMu       sync.Mutex
 }
 
 // NewHub creates a new Hub with Redis integration
@@ -83,18 +83,18 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 		allowedOrigins = []string{"http://localhost:5173", "http://localhost:8080"}
 	}
 	return &Hub{
-		clients:        make(map[*Client]bool),
-		broadcast:      make(chan []byte),
-		register:       make(chan *Client),
-		unregister:     make(chan *Client),
-		rooms:          make(map[string]map[*Client]bool),
-		presence:       make(map[string]*Client),
-		redis:          redisClient,
-		db:             nil, // will be set via SetDB method
-		ctx:            ctx,
-		cancel:         cancel,
-		allowedOrigins: allowedOrigins,
-		rateLimiter:    NewRateLimiter(60, time.Minute), // 60 messages per minute
+		clients:              make(map[*Client]bool),
+		broadcast:            make(chan []byte),
+		register:             make(chan *Client),
+		unregister:           make(chan *Client),
+		rooms:                make(map[string]map[*Client]bool),
+		presence:             make(map[string]*Client),
+		redis:                redisClient,
+		db:                   nil, // will be set via SetDB method
+		ctx:                  ctx,
+		cancel:               cancel,
+		allowedOrigins:       allowedOrigins,
+		rateLimiter:          NewRateLimiter(60, time.Minute), // 60 messages per minute
 		statusUpdateDebounce: make(map[string]*time.Timer),
 	}
 }

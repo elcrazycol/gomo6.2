@@ -31,10 +31,10 @@ type oauthTokenBucket struct {
 // window: time window for the limits.
 func NewOAuthRateLimiter(tokenPerWindow, revokePerWindow int, window time.Duration) *OAuthRateLimiter {
 	rl := &OAuthRateLimiter{
-		buckets:    make(map[string]*oauthTokenBucket),
-		maxToken:   tokenPerWindow,
-		maxRevoke:  revokePerWindow,
-		window:     window,
+		buckets:   make(map[string]*oauthTokenBucket),
+		maxToken:  tokenPerWindow,
+		maxRevoke: revokePerWindow,
+		window:    window,
 	}
 
 	go rl.cleanup()

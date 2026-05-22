@@ -389,9 +389,9 @@ func (h *OAuthHandler) Introspect(c *gin.Context) {
 	}
 	h.oauthSvc.LogOAuthAction("", clientID, "", oauth.AuditActionTokenIntrospect,
 		c.ClientIP(), map[string]interface{}{
-			"active":         result.Active,
-			"token_type":     req.TokenTypeHint,
-			"token_prefix":   tokenPrefix,
+			"active":       result.Active,
+			"token_type":   req.TokenTypeHint,
+			"token_prefix": tokenPrefix,
 		})
 
 	c.JSON(http.StatusOK, result)
@@ -419,11 +419,11 @@ func (h *OAuthHandler) AppInfo(c *gin.Context) {
 		"client_id":          app.ClientID,
 		"name":               app.Name,
 		"description":        app.Description,
-		"logo_url":            app.LogoURL,
-		"homepage_url":        app.HomepageURL,
-		"allowed_scopes":      app.AllowedScopes,
-		"scope_descriptions":  oauth.ScopeDescriptions,
-		"scope_labels":        oauth.ScopeLabels,
+		"logo_url":           app.LogoURL,
+		"homepage_url":       app.HomepageURL,
+		"allowed_scopes":     app.AllowedScopes,
+		"scope_descriptions": oauth.ScopeDescriptions,
+		"scope_labels":       oauth.ScopeLabels,
 	})
 }
 
@@ -478,10 +478,10 @@ func (h *OAuthHandler) handleAuthorizationCodeGrant(c *gin.Context, req oauth.To
 	}
 
 	tokenResponse := oauth.TokenResponse{
-		AccessToken:  accessTokenStr,
-		TokenType:    "Bearer",
-		ExpiresIn:    3600,
-		Scope:        oauth.JoinScopes(scopes),
+		AccessToken: accessTokenStr,
+		TokenType:   "Bearer",
+		ExpiresIn:   3600,
+		Scope:       oauth.JoinScopes(scopes),
 	}
 	if refreshTokenStr != "" {
 		tokenResponse.RefreshToken = refreshTokenStr
@@ -490,8 +490,8 @@ func (h *OAuthHandler) handleAuthorizationCodeGrant(c *gin.Context, req oauth.To
 	// Audit log: token exchange
 	h.oauthSvc.LogOAuthAction(userID, req.ClientID, app.Name, oauth.AuditActionTokenExchange,
 		c.ClientIP(), map[string]interface{}{
-			"scopes":        scopes,
-			"has_refresh":   refreshTokenStr != "",
+			"scopes":      scopes,
+			"has_refresh": refreshTokenStr != "",
 		})
 
 	// Generate ID token if openid scope
@@ -569,7 +569,6 @@ func isScopeAllowed(allowedScopes []string, scope string) bool {
 func stringsHasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
-
 
 // OAuthBearerMiddleware validates OAuth access tokens
 func OAuthBearerMiddleware(oauthSvc *oauth.OAuthService) gin.HandlerFunc {

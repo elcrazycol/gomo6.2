@@ -73,11 +73,12 @@ func (h *StorageHandler) UploadAvatar(c *gin.Context) {
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "image/jpeg"
-		if ext == ".png" {
+		switch ext {
+		case ".png":
 			contentType = "image/png"
-		} else if ext == ".gif" {
+		case ".gif":
 			contentType = "image/gif"
-		} else if ext == ".webp" {
+		case ".webp":
 			contentType = "image/webp"
 		}
 	}

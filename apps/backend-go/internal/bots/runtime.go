@@ -29,13 +29,13 @@ type BotRuntime struct {
 
 // BotManager manages all active bots
 type BotManager struct {
-	DB       *sql.DB
-	Redis    *redis.Client
-	WSHub    *websocket.Hub
-	bots     map[string]*BotRuntime
-	mu       sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
+	DB     *sql.DB
+	Redis  *redis.Client
+	WSHub  *websocket.Hub
+	bots   map[string]*BotRuntime
+	mu     sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // BotEvent represents an event that bots can handle
@@ -309,8 +309,8 @@ func (br *BotRuntime) registerBotAPI() {
 	botTable.RawSetString("deleteData", br.VM.NewFunction(br.luaDeleteData))
 
 	// HTTP Requests
-	botTable.RawSetString("httpGet", br.VM.NewFunction(br.luaHttpGet))
-	botTable.RawSetString("httpPost", br.VM.NewFunction(br.luaHttpPost))
+	botTable.RawSetString("httpGet", br.VM.NewFunction(br.luaHTTPGet))
+	botTable.RawSetString("httpPost", br.VM.NewFunction(br.luaHTTPPost))
 
 	// Bot Info
 	botTable.RawSetString("id", lua.LString(br.Bot.ID))

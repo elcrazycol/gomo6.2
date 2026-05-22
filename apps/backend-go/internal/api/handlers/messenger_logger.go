@@ -63,15 +63,15 @@ func (l *MessengerLogger) LogError(operation, error string) {
 
 // MessengerMetrics tracks messenger metrics
 type MessengerMetrics struct {
-	messagesSent      int64
-	messagesDelivered int64
-	messagesRead      int64
+	messagesSent         int64
+	messagesDelivered    int64
+	messagesRead         int64
 	conversationsCreated int64
-	accessDenied      int64
-	rateLimitExceeded int64
-	validationErrors  int64
-	errors            int64
-	lastReset         time.Time
+	accessDenied         int64
+	rateLimitExceeded    int64
+	validationErrors     int64
+	errors               int64
+	lastReset            time.Time
 }
 
 // NewMessengerMetrics creates a new metrics tracker
@@ -124,15 +124,15 @@ func (m *MessengerMetrics) IncrementErrors() {
 // GetMetrics returns current metrics
 func (m *MessengerMetrics) GetMetrics() map[string]interface{} {
 	return map[string]interface{}{
-		"messages_sent":          m.messagesSent,
-		"messages_delivered":     m.messagesDelivered,
-		"messages_read":          m.messagesRead,
-		"conversations_created":  m.conversationsCreated,
-		"access_denied":          m.accessDenied,
-		"rate_limit_exceeded":    m.rateLimitExceeded,
-		"validation_errors":      m.validationErrors,
-		"errors":                 m.errors,
-		"uptime_seconds":         time.Since(m.lastReset).Seconds(),
+		"messages_sent":         m.messagesSent,
+		"messages_delivered":    m.messagesDelivered,
+		"messages_read":         m.messagesRead,
+		"conversations_created": m.conversationsCreated,
+		"access_denied":         m.accessDenied,
+		"rate_limit_exceeded":   m.rateLimitExceeded,
+		"validation_errors":     m.validationErrors,
+		"errors":                m.errors,
+		"uptime_seconds":        time.Since(m.lastReset).Seconds(),
 	}
 }
 

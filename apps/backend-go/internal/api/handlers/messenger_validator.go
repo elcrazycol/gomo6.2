@@ -8,14 +8,14 @@ import (
 
 // MessengerValidator validates messenger data
 type MessengerValidator struct {
-	MaxMessageLength      int
+	MaxMessageLength       int
 	MaxConversationMembers int
 }
 
 // NewMessengerValidator creates a new validator with default limits
 func NewMessengerValidator() *MessengerValidator {
 	return &MessengerValidator{
-		MaxMessageLength:      10000, // 10KB max message
+		MaxMessageLength:       10000, // 10KB max message
 		MaxConversationMembers: 2,     // Direct chats only for now
 	}
 }
@@ -147,8 +147,8 @@ func isValidBase64(s string) bool {
 	}
 	// Base64 characters: A-Z, a-z, 0-9, +, /, =
 	for _, c := range s {
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') || c == '+' || c == '/' || c == '=') {
+		if !(c >= 'A' && c <= 'Z') && !(c >= 'a' && c <= 'z') &&
+			!(c >= '0' && c <= '9') && c != '+' && c != '/' && c != '=' {
 			return false
 		}
 	}

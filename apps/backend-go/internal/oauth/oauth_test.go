@@ -21,12 +21,11 @@ var testDB *sql.DB
 
 // These are populated during TestMain and reused across all tests.
 var (
-	testUserID         string
-	testUsername       = "oauth_test_user"
-	testUserEmail      = "oauth_test@example.com"
-	testAppName        = "Test OAuth App"
-	testRedirectURI    = "http://localhost:3000/callback"
-	testAppClientID    string
+	testUsername    = "oauth_test_user"
+	testUserEmail   = "oauth_test@example.com"
+	testAppName     = "Test OAuth App"
+	testRedirectURI = "http://localhost:3000/callback"
+	testAppClientID string
 )
 
 func TestMain(m *testing.M) {
@@ -126,17 +125,6 @@ func setupTestApp(t *testing.T, svc *OAuthService, userID string) (clientID, cli
 func generatePKCEChallenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(h[:])
-}
-
-// createTestTokenStr creates a JWT token string for testing (not stored in DB).
-// Uses the auth service directly for a simple token.
-func createAuthToken(t *testing.T, authSvc *auth.AuthService, userID, username string) string {
-	t.Helper()
-	token, err := authSvc.GenerateToken(userID, username, "test")
-	if err != nil {
-		t.Fatalf("Failed to generate auth token: %v", err)
-	}
-	return token
 }
 
 // TestOAuthFullFlow tests the complete happy path: authorize → token → userinfo.
@@ -769,9 +757,9 @@ func TestOAuthAuditLog(t *testing.T) {
 // TestOAuthParseAndJoinScopes tests scope parsing utilities.
 func TestOAuthParseAndJoinScopes(t *testing.T) {
 	tests := []struct {
-		input    string
-		parsed   []string
-		joined   string
+		input  string
+		parsed []string
+		joined string
 	}{
 		{"openid profile email", []string{"openid", "profile", "email"}, "openid profile email"},
 		{"openid", []string{"openid"}, "openid"},
@@ -1026,10 +1014,7 @@ func TestOAuthInvalidTokenRejection(t *testing.T) {
 	}
 	t.Logf("Malformed token rejected: %v", err)
 
-
 }
-
-
 
 // TestOAuthHasScope tests the HasScope utility function.
 func TestOAuthHasScope(t *testing.T) {
