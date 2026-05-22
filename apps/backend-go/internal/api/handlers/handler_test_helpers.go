@@ -94,6 +94,46 @@ func setupProfilesHandler(t *testing.T) (*ProfilesHandler, sqlmock.Sqlmock) {
 	return handler, mock
 }
 
+// setupLikesHandler creates a LikesHandler with a mock DB (redis = nil, skips cache/bot paths).
+func setupLikesHandler(t *testing.T) (*LikesHandler, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled mock expectations: %v", err)
+		}
+		db.Close()
+	})
+
+	handler := NewLikesHandler(db, nil) // redis = nil to skip cache/bot paths
+	return handler, mock
+}
+
+// setupNotificationsHandler creates a NotificationsHandler with a mock DB (redis = nil).
+func setupNotificationsHandler(t *testing.T) (*NotificationsHandler, sqlmock.Sqlmock) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to open sqlmock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("unfulfilled mock expectations: %v", err)
+		}
+		db.Close()
+	})
+
+	handler := NewNotificationsHandler(db)
+	return handler, mock
+}
+
 // newGETContext creates a gin test context for a GET request.
 // Returns (context, *httptest.ResponseRecorder).
 func newGETContext(url string, queryParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
