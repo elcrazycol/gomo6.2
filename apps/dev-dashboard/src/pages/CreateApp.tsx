@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/client_simple";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -36,10 +36,10 @@ const CreateApp = () => {
     setLoading(true);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { session } = await api.getSession();
       if (!session) {
         toast.error("Необходимо войти в систему");
-        navigate("/auth");
+        navigate("/login");
         return;
       }
 
@@ -54,12 +54,8 @@ const CreateApp = () => {
         return;
       }
 
-      const res = await fetch("/api/v1/developer/apps", {
+      const res = await api.fetch("/api/v1/developer/apps", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
         body: JSON.stringify({
           name,
           description,
@@ -99,7 +95,7 @@ const CreateApp = () => {
   if (result) {
     return (
       <div className="max-w-2xl mx-auto p-4 sm:p-6 space-y-6">
-        <Button variant="ghost" onClick={() => navigate("/developer/apps")}>
+        <Button variant="ghost" onClick={() => navigate("/apps")}>
           <ArrowLeft className="w-4 h-4 mr-2" /> Назад к приложениям
         </Button>
         <Card>
@@ -130,7 +126,7 @@ const CreateApp = () => {
             </div>
           </CardContent>
           <CardFooter>
-            <Button onClick={() => navigate("/developer/apps")} className="w-full">
+            <Button onClick={() => navigate("/apps")} className="w-full">
               Перейти к списку приложений
             </Button>
           </CardFooter>
@@ -149,7 +145,7 @@ const CreateApp = () => {
 
   return (
     <div className="max-w-2xl mx-auto p-4 sm:p-6 space-y-6">
-      <Button variant="ghost" onClick={() => navigate("/developer/apps")}>
+      <Button variant="ghost" onClick={() => navigate("/apps")}>
         <ArrowLeft className="w-4 h-4 mr-2" /> Назад
       </Button>
 
@@ -164,78 +160,35 @@ const CreateApp = () => {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Название *</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Моё приложение"
-                required
-              />
+              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Моё приложение" required />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="description">Описание</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Краткое описание вашего приложения"
-              />
+              <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Краткое описание вашего приложения" />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="redirectUris">Redirect URIs *</Label>
-              <Textarea
-                id="redirectUris"
-                value={redirectUris}
-                onChange={(e) => setRedirectUris(e.target.value)}
-                placeholder="http://localhost:3000/callback&#10;https://myapp.example.com/callback"
-                className="min-h-[80px]"
-              />
-              <p className="text-xs text-muted-foreground">
-                Каждый URI на новой строке
-              </p>
+              <Textarea id="redirectUris" value={redirectUris} onChange={(e) => setRedirectUris(e.target.value)} placeholder="http://localhost:3000/callback&#10;https://myapp.example.com/callback" className="min-h-[80px]" />
+              <p className="text-xs text-muted-foreground">Каждый URI на новой строке</p>
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="homepageUrl">Сайт приложения</Label>
-              <Input
-                id="homepageUrl"
-                value={homepageUrl}
-                onChange={(e) => setHomepageUrl(e.target.value)}
-                placeholder="https://myapp.example.com"
-              />
+              <Input id="homepageUrl" value={homepageUrl} onChange={(e) => setHomepageUrl(e.target.value)} placeholder="https://myapp.example.com" />
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="logoUrl">URL логотипа</Label>
-              <Input
-                id="logoUrl"
-                value={logoUrl}
-                onChange={(e) => setLogoUrl(e.target.value)}
-                placeholder="https://example.com/logo.png"
-              />
+              <Input id="logoUrl" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" />
             </div>
-
             <div className="flex items-center gap-2">
-              <Switch
-                id="confidential"
-                checked={isConfidential}
-                onCheckedChange={setIsConfidential}
-              />
+              <Switch id="confidential" checked={isConfidential} onCheckedChange={setIsConfidential} />
               <Label htmlFor="confidential">Конфиденциальное приложение (требует client_secret)</Label>
             </div>
-
             <div className="space-y-2">
               <Label>Разрешения (scopes)</Label>
               <div className="space-y-2">
                 {allScopes.map((scope) => (
                   <div key={scope.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`scope-${scope.id}`}
-                      checked={scopes.includes(scope.id)}
-                      onCheckedChange={() => scopeToggle(scope.id)}
-                    />
+                    <Checkbox id={`scope-${scope.id}`} checked={scopes.includes(scope.id)} onCheckedChange={() => scopeToggle(scope.id)} />
                     <Label htmlFor={`scope-${scope.id}`} className="cursor-pointer">
                       <span className="font-mono text-sm">{scope.label}</span>
                       <span className="text-xs text-muted-foreground ml-2">{scope.description}</span>

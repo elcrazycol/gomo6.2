@@ -1,4 +1,4 @@
-import { ReactNode, useState } from 'react'
+import { useState } from 'react'
 
 interface FunctionSignatureProps {
   name: string

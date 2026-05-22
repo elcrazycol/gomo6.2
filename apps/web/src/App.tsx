@@ -41,10 +41,6 @@ const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
 const Bots = lazy(() => import("./pages/Bots"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
-const DeveloperApps = lazy(() => import("./pages/developer/Apps"));
-const DeveloperCreateApp = lazy(() => import("./pages/developer/CreateApp"));
-const DeveloperAppDetail = lazy(() => import("./pages/developer/AppDetail"));
-const DeveloperApiDocs = lazy(() => import("./pages/developer/ApiDocs"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Prefetch critical routes on app start
@@ -140,10 +136,6 @@ const App = () => {
                   {/* Special pages without layout */}
                   <Route path="/auth" element={<LazyPage component={Auth} />} />
                   <Route path="/oauth/consent" element={<LazyPage component={OAuthConsent} />} />
-                  <Route path="/developer/apps" element={<AppLayout><LazyPage component={DeveloperApps} /></AppLayout>} />
-                  <Route path="/developer/apps/create" element={<AppLayout><LazyPage component={DeveloperCreateApp} /></AppLayout>} />
-                  <Route path="/developer/apps/:id" element={<AppLayout><LazyPage component={DeveloperAppDetail} /></AppLayout>} />
-                  <Route path="/developer/docs" element={<AppLayout><LazyPage component={DeveloperApiDocs} /></AppLayout>} />
 
                   {/* Pages with layout */}
                   <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>

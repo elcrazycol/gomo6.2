@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/api/client_simple";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,51 +42,40 @@ const AppDetail = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
-  const [session, setSession] = useState<any>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   useState(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (!session) navigate("/auth?redirect=/developer/apps");
+    api.getSession().then(({ session }) => {
+      if (!session) navigate("/login");
+      setSessionChecked(true);
     });
   });
 
   const { data: app, isLoading } = useQuery({
     queryKey: ["developer-app", id],
     queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-      const res = await fetch(`/api/v1/developer/apps/${id}`, {
-        headers: { "Authorization": `Bearer ${session.access_token}` },
-      });
+      const res = await api.fetch(`/api/v1/developer/apps/${id}`);
       if (!res.ok) throw new Error("Failed to fetch app");
       const json = await res.json();
       return json.data as OAuthApp;
     },
-    enabled: !!session && !!id,
+    enabled: !!sessionChecked && !!id,
   });
 
   const { data: tokens } = useQuery({
     queryKey: ["developer-app-tokens", id],
     queryFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`/api/v1/developer/apps/${id}/tokens`, {
-        headers: { "Authorization": `Bearer ${session!.access_token}` },
-      });
+      const res = await api.fetch(`/api/v1/developer/apps/${id}/tokens`);
       if (!res.ok) return [];
       const json = await res.json();
       return json.data as Token[];
     },
-    enabled: !!session && !!id,
+    enabled: !!sessionChecked && !!id,
   });
 
   const regenerateMutation = useMutation({
     mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`/api/v1/developer/apps/${id}/regenerate-secret`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${session!.access_token}` },
-      });
+      const res = await api.fetch(`/api/v1/developer/apps/${id}/regenerate-secret`, { method: "POST" });
       if (!res.ok) throw new Error("Failed to regenerate secret");
       const json = await res.json();
       return json.data.client_secret as string;
@@ -100,13 +89,8 @@ const AppDetail = () => {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`/api/v1/developer/apps/${id}`, {
+      const res = await api.fetch(`/api/v1/developer/apps/${id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session!.access_token}`,
-        },
         body: JSON.stringify({ is_active: !app?.is_active }),
       });
       if (!res.ok) throw new Error("Failed to update app");
@@ -135,7 +119,7 @@ const AppDetail = () => {
   if (!app) {
     return (
       <div className="max-w-2xl mx-auto p-4">
-        <Button variant="ghost" onClick={() => navigate("/developer/apps")}>
+        <Button variant="ghost" onClick={() => navigate("/apps")}>
           <ArrowLeft className="w-4 h-4 mr-2" /> Назад
         </Button>
         <p className="text-center text-muted-foreground mt-8">Приложение не найдено</p>
@@ -143,9 +127,27 @@ const AppDetail = () => {
     );
   }
 
+  const scopeDescriptions: Record<string, string> = {
+    openid: "OpenID Connect — идентификация учётной записи",
+    profile: "Имя пользователя и аватар",
+    email: "Email адрес",
+    offline_access: "Обновление токенов в фоне",
+  };
+
+  const scopeIcon = (scope: string) => {
+    const cls = "w-4 h-4";
+    switch (scope) {
+      case "openid": return <Fingerprint className={`${cls} text-blue-500`} />;
+      case "profile": return <User className={`${cls} text-emerald-500`} />;
+      case "email": return <Mail className={`${cls} text-amber-500`} />;
+      case "offline_access": return <RefreshCw className={`${cls} text-violet-500`} />;
+      default: return null;
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
-      <Button variant="ghost" onClick={() => navigate("/developer/apps")}>
+      <Button variant="ghost" onClick={() => navigate("/apps")}>
         <ArrowLeft className="w-4 h-4 mr-2" /> Назад
       </Button>
 
@@ -217,9 +219,7 @@ const AppDetail = () => {
             <CardContent>
               <ul className="space-y-1">
                 {app.redirect_uris?.map((uri, i) => (
-                  <li key={i} className="text-sm font-mono bg-muted rounded px-2 py-1">
-                    {uri}
-                  </li>
+                  <li key={i} className="text-sm font-mono bg-muted rounded px-2 py-1">{uri}</li>
                 ))}
               </ul>
             </CardContent>
@@ -228,48 +228,28 @@ const AppDetail = () => {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Разрешения (Scopes)</CardTitle>
-              <CardDescription>
-                Данные, к которым приложение имеет доступ
-              </CardDescription>
+              <CardDescription>Данные, к которым приложение имеет доступ</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {(!app.allowed_scopes || app.allowed_scopes.length === 0) ? (
                   <p className="text-sm text-muted-foreground">Нет разрешений</p>
                 ) : (
-                  app.allowed_scopes.map((s) => {
-                    const descriptions: Record<string, string> = {
-                      openid: "OpenID Connect — идентификация учётной записи",
-                      profile: "Имя пользователя и аватар",
-                      email: "Email адрес",
-                      offline_access: "Обновление токенов в фоне",
-                    };
-                    const scopeIcon = (scope: string) => {
-                      const cls = "w-4 h-4";
-                      switch (scope) {
-                        case "openid": return <Fingerprint className={`${cls} text-blue-500`} />;
-                        case "profile": return <User className={`${cls} text-emerald-500`} />;
-                        case "email": return <Mail className={`${cls} text-amber-500`} />;
-                        case "offline_access": return <RefreshCw className={`${cls} text-violet-500`} />;
-                        default: return null;
-                      }
-                    };
-                    return (
-                      <div key={s} className="flex items-start gap-3 p-3 rounded-lg bg-muted/40 border border-border/30 hover:bg-muted/60 transition-colors">
-                        <div className="w-7 h-7 rounded-md bg-background flex items-center justify-center flex-shrink-0 ring-1 ring-border/30">
-                          {scopeIcon(s)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="font-mono text-xs">{s}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                            {descriptions[s] || s}
-                          </p>
-                        </div>
+                  app.allowed_scopes.map((s) => (
+                    <div key={s} className="flex items-start gap-3 p-3 rounded-lg bg-muted/40 border border-border/30 hover:bg-muted/60 transition-colors">
+                      <div className="w-7 h-7 rounded-md bg-background flex items-center justify-center flex-shrink-0 ring-1 ring-border/30">
+                        {scopeIcon(s)}
                       </div>
-                    );
-                  })
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-xs">{s}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                          {scopeDescriptions[s] || s}
+                        </p>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </CardContent>
@@ -300,9 +280,7 @@ const AppDetail = () => {
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Активные токены</CardTitle>
-              <CardDescription>
-                Всего активных токенов: {tokens?.length || 0}
-              </CardDescription>
+              <CardDescription>Всего активных токенов: {tokens?.length || 0}</CardDescription>
             </CardHeader>
             <CardContent>
               {!tokens || tokens.length === 0 ? (
