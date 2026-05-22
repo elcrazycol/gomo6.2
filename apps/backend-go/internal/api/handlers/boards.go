@@ -29,26 +29,15 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 	var args []interface{}
 	var conditions []string
 
-	// Handle select filter (Supabase style)
-	if selectStr := c.Query("select"); selectStr != "" {
-		// Parse select fields - for now, ignore and return all fields
-	}
-
-	// Handle eq filter (Supabase style)
+	// Handle eq filter (Supabase style) — select filter ignored, all fields returned
 	if slug := c.Query("slug"); slug != "" {
-		s := slug
-		if strings.HasPrefix(s, "eq.") {
-			s = strings.TrimPrefix(s, "eq.")
-		}
+		s := strings.TrimPrefix(slug, "eq.")
 		conditions = append(conditions, "slug = $"+strconv.Itoa(len(args)+1))
 		args = append(args, s)
 	}
 
 	if isGomosub := c.Query("is_gomosub"); isGomosub != "" {
-		v := isGomosub
-		if strings.HasPrefix(v, "eq.") {
-			v = strings.TrimPrefix(v, "eq.")
-		}
+		v := strings.TrimPrefix(isGomosub, "eq.")
 		conditions = append(conditions, "is_gomosub = $"+strconv.Itoa(len(args)+1))
 		args = append(args, strings.EqualFold(v, "true"))
 	}
