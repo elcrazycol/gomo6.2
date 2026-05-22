@@ -542,6 +542,90 @@ func (s *OAuthService) RefreshAccessToken(refreshTokenStr, clientID string) (new
 }
 
 // =============================
+// Token Introspection (RFC 7662)
+// =============================
+
+// IntrospectToken checks the status of a token (access or refresh)
+// Returns an IntrospectResponse with active=true and token metadata if valid.
+func (s *OAuthService) IntrospectToken(tokenStr, tokenTypeHint string) *IntrospectResponse {
+	// Try as access token (JWT) first
+	if tokenTypeHint == "" || tokenTypeHint == "access_token" {
+		// Try to parse as JWT
+		claims := &OAuthClaims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method")
+			}
+			return s.jwtSecret, nil
+		})
+		if err == nil && token.Valid {
+			// Check revocation
+			var revoked bool
+			s.db.QueryRow(`SELECT revoked FROM oauth_access_tokens WHERE token_id = $1`, claims.ID).Scan(&revoked)
+			if revoked {
+				return &IntrospectResponse{Active: false}
+			}
+
+			return &IntrospectResponse{
+				Active:    true,
+				Scope:     strings.Join(claims.Scopes, " "),
+				ClientID:  claims.ClientID,
+				UserID:    claims.UserID,
+				TokenID:   claims.ID,
+				TokenType: "access_token",
+				Exp:       claims.ExpiresAt.Unix(),
+				Iat:       claims.IssuedAt.Unix(),
+				Sub:       claims.UserID,
+				Username:  claims.Username,
+				Aud:       claims.Audience,
+				Iss:       claims.Issuer,
+			}
+		}
+	}
+
+	// Try as refresh token
+	if tokenTypeHint == "" || tokenTypeHint == "refresh_token" {
+		hash := sha256.Sum256([]byte(tokenStr))
+		tokenHash := hex.EncodeToString(hash[:])
+
+		var rt RefreshToken
+		var scopesStr string
+		err := s.db.QueryRow(`
+			SELECT id, client_id, user_id, scopes, expires_at, revoked, created_at
+			FROM oauth_refresh_tokens
+			WHERE token_hash = $1
+		`, tokenHash).Scan(
+			&rt.ID, &rt.ClientID, &rt.UserID, &scopesStr, &rt.ExpiresAt, &rt.Revoked, &rt.CreatedAt,
+		)
+		if err == nil {
+			if rt.Revoked || time.Now().After(rt.ExpiresAt) {
+				return &IntrospectResponse{Active: false}
+			}
+
+			// Parse scopes from PostgreSQL array format
+			scopeStr := strings.Trim(scopesStr, "{}")
+			var scopes []string
+			if scopeStr != "" {
+				scopes = strings.Split(scopeStr, ",")
+			}
+
+			return &IntrospectResponse{
+				Active:    true,
+				Scope:     strings.Join(scopes, " "),
+				ClientID:  rt.ClientID,
+				UserID:    rt.UserID,
+				TokenType: "refresh_token",
+				Exp:       rt.ExpiresAt.Unix(),
+				Iat:       rt.CreatedAt.Unix(),
+				Sub:       rt.UserID,
+			}
+		}
+	}
+
+	return &IntrospectResponse{Active: false}
+}
+
+// =============================
 // Token Revocation
 // =============================
 
@@ -632,6 +716,7 @@ func (s *OAuthService) GetOpenIDConfiguration() *OpenIDConfiguration {
 		TokenEndpoint:          s.issuer + "/oauth/token",
 		UserinfoEndpoint:       s.issuer + "/oauth/userinfo",
 		RevocationEndpoint:     s.issuer + "/oauth/revoke",
+		IntrospectionEndpoint:  s.issuer + "/oauth/introspect",
 		JWKSURI:                s.issuer + "/.well-known/jwks.json",
 		ScopesSupported:        AllSupportedScopes,
 		ResponseTypesSupported: []string{ResponseTypeCode},

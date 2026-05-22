@@ -409,6 +409,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		oauthGroup.POST("/token", middleware.OAuthTokenRateLimitMiddleware(oauthRateLimiter), oauthHandler.Token)
 		// POST /oauth/revoke - revokes a token
 		oauthGroup.POST("/revoke", middleware.OAuthRevokeRateLimitMiddleware(oauthRateLimiter), oauthHandler.Revoke)
+		// POST /oauth/introspect - token introspection (RFC 7662)
+		oauthGroup.POST("/introspect", oauthHandler.Introspect)
 		// GET /oauth/userinfo - requires OAuth Bearer token
 		oauthGroup.GET("/userinfo", handlers.OAuthBearerMiddleware(oauthService), oauthHandler.UserInfo)
 		// GET /oauth/app-info - public app info for consent page

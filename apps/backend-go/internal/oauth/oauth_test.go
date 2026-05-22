@@ -800,6 +800,213 @@ func TestOAuthParseAndJoinScopes(t *testing.T) {
 	t.Log("ParseScopeString and JoinScopes verified")
 }
 
+// TestOAuthIntrospectAccessToken tests introspection of a valid access token.
+func TestOAuthIntrospectAccessToken(t *testing.T) {
+	userID := setupTestUser(t)
+	authSvc := auth.NewAuthService()
+	svc := NewOAuthService(testDB, authSvc)
+	clientID, _ := setupTestApp(t, svc, userID)
+
+	scopes := []string{ScopeOpenID, ScopeProfile}
+
+	at, accessTokenStr, err := svc.GenerateAccessToken(clientID, userID, testUsername, scopes)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+	_ = at
+
+	// Introspect with access_token hint
+	result := svc.IntrospectToken(accessTokenStr, "access_token")
+	if !result.Active {
+		t.Fatal("Expected active=true for valid access token")
+	}
+	if result.TokenType != "access_token" {
+		t.Errorf("Expected token_type 'access_token', got '%s'", result.TokenType)
+	}
+	if result.ClientID != clientID {
+		t.Errorf("Expected client_id %s, got %s", clientID, result.ClientID)
+	}
+	if result.UserID != userID {
+		t.Errorf("Expected user_id %s, got %s", userID, result.UserID)
+	}
+	if result.Sub != userID {
+		t.Errorf("Expected sub %s, got %s", userID, result.Sub)
+	}
+	if result.Username != testUsername {
+		t.Errorf("Expected username %s, got %s", testUsername, result.Username)
+	}
+	if !strings.Contains(result.Scope, "openid") || !strings.Contains(result.Scope, "profile") {
+		t.Errorf("Expected scopes to contain openid and profile, got '%s'", result.Scope)
+	}
+	if result.Exp == 0 {
+		t.Error("Expected non-zero exp")
+	}
+	if result.Iat == 0 {
+		t.Error("Expected non-zero iat")
+	}
+	if len(result.Aud) == 0 || result.Aud[0] != clientID {
+		t.Errorf("Expected aud to include client_id %s, got %v", clientID, result.Aud)
+	}
+	if result.Iss == "" {
+		t.Error("Expected non-empty iss")
+	}
+	t.Logf("Access token introspection: active=%v, scope='%s', exp=%d", result.Active, result.Scope, result.Exp)
+}
+
+// TestOAuthIntrospectRefreshToken tests introspection of a valid refresh token.
+func TestOAuthIntrospectRefreshToken(t *testing.T) {
+	userID := setupTestUser(t)
+	authSvc := auth.NewAuthService()
+	svc := NewOAuthService(testDB, authSvc)
+	clientID, _ := setupTestApp(t, svc, userID)
+
+	scopes := []string{ScopeOpenID, ScopeOfflineAccess}
+
+	at, _, err := svc.GenerateAccessToken(clientID, userID, testUsername, scopes)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	refreshToken, err := svc.GenerateRefreshToken(at.ID, clientID, userID, scopes)
+	if err != nil {
+		t.Fatalf("GenerateRefreshToken failed: %v", err)
+	}
+
+	// Introspect with refresh_token hint
+	result := svc.IntrospectToken(refreshToken, "refresh_token")
+	if !result.Active {
+		t.Fatal("Expected active=true for valid refresh token")
+	}
+	if result.TokenType != "refresh_token" {
+		t.Errorf("Expected token_type 'refresh_token', got '%s'", result.TokenType)
+	}
+	if result.ClientID != clientID {
+		t.Errorf("Expected client_id %s, got %s", clientID, result.ClientID)
+	}
+	if result.UserID != userID {
+		t.Errorf("Expected user_id %s, got %s", userID, result.UserID)
+	}
+	if result.Exp == 0 {
+		t.Error("Expected non-zero exp for refresh token")
+	}
+	t.Logf("Refresh token introspection: active=%v, exp=%d", result.Active, result.Exp)
+
+	// Introspect without hint (should auto-detect refresh token)
+	result = svc.IntrospectToken(refreshToken, "")
+	if !result.Active {
+		t.Fatal("Expected active=true for refresh token without hint")
+	}
+	t.Log("Refresh token introspection without hint also works")
+}
+
+// TestOAuthIntrospectRevokedToken tests that revoked tokens are reported inactive.
+func TestOAuthIntrospectRevokedToken(t *testing.T) {
+	userID := setupTestUser(t)
+	authSvc := auth.NewAuthService()
+	svc := NewOAuthService(testDB, authSvc)
+	clientID, _ := setupTestApp(t, svc, userID)
+
+	scopes := []string{ScopeOpenID}
+
+	_, accessTokenStr, err := svc.GenerateAccessToken(clientID, userID, testUsername, scopes)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	// Revoke the token
+	err = svc.RevokeToken(accessTokenStr, "access_token", clientID)
+	if err != nil {
+		t.Fatalf("RevokeToken failed: %v", err)
+	}
+
+	// Introspect should show inactive
+	result := svc.IntrospectToken(accessTokenStr, "access_token")
+	if result.Active {
+		t.Fatal("Expected active=false for revoked access token")
+	}
+	t.Log("Revoked token correctly reported as inactive")
+}
+
+// TestOAuthIntrospectInvalidToken tests that invalid/malformed tokens are reported inactive.
+func TestOAuthIntrospectInvalidToken(t *testing.T) {
+	authSvc := auth.NewAuthService()
+	svc := NewOAuthService(testDB, authSvc)
+
+	// Empty token
+	result := svc.IntrospectToken("", "access_token")
+	if result.Active {
+		t.Fatal("Expected active=false for empty token")
+	}
+
+	// Malformed token
+	result = svc.IntrospectToken("not-a-token", "")
+	if result.Active {
+		t.Fatal("Expected active=false for malformed token")
+	}
+
+	// Random gibberish
+	result = svc.IntrospectToken("eyJhbGciOiJSUzI1NiIsImtpZCI6InJzYS1rZXktMSJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature", "")
+	if result.Active {
+		t.Fatal("Expected active=false for random JWT")
+	}
+
+	t.Log("All invalid token cases correctly reported as inactive")
+}
+
+// TestOAuthIntrospectWithoutHint tests auto-detection without token_type_hint.
+func TestOAuthIntrospectWithoutHint(t *testing.T) {
+	userID := setupTestUser(t)
+	authSvc := auth.NewAuthService()
+	svc := NewOAuthService(testDB, authSvc)
+	clientID, _ := setupTestApp(t, svc, userID)
+
+	scopes := []string{ScopeOpenID, ScopeProfile}
+
+	_, accessTokenStr, err := svc.GenerateAccessToken(clientID, userID, testUsername, scopes)
+	if err != nil {
+		t.Fatalf("GenerateAccessToken failed: %v", err)
+	}
+
+	// Introspect without hint — should be auto-detected as access token (JWT)
+	result := svc.IntrospectToken(accessTokenStr, "")
+	if !result.Active {
+		t.Fatal("Expected active=true for access token without hint")
+	}
+	if result.TokenType != "access_token" {
+		t.Errorf("Expected token_type 'access_token', got '%s'", result.TokenType)
+	}
+	t.Log("Access token auto-detected without token_type_hint")
+}
+
+// TestOAuthIntrospectExpiredRefreshToken tests that expired refresh tokens are inactive.
+func TestOAuthIntrospectExpiredRefreshToken(t *testing.T) {
+	userID := setupTestUser(t)
+	authSvc := auth.NewAuthService()
+	svc := NewOAuthService(testDB, authSvc)
+	clientID, _ := setupTestApp(t, svc, userID)
+
+	// Manually insert an expired refresh token
+	b := make([]byte, 40)
+	randomToken := base64.RawURLEncoding.EncodeToString(b)
+	hash := sha256.Sum256([]byte(randomToken))
+	tokenHash := hex.EncodeToString(hash[:])
+	scopesArray := "{openid,offline_access}"
+
+	_, err := testDB.Exec(`
+		INSERT INTO oauth_refresh_tokens (token_hash, client_id, user_id, scopes, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, tokenHash, clientID, userID, scopesArray, time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("Failed to insert expired refresh token: %v", err)
+	}
+
+	result := svc.IntrospectToken(randomToken, "refresh_token")
+	if result.Active {
+		t.Fatal("Expected active=false for expired refresh token")
+	}
+	t.Log("Expired refresh token correctly reported as inactive")
+}
+
 // TestOAuthInvalidTokenRejection ensures invalid/malformed tokens are rejected.
 func TestOAuthInvalidTokenRejection(t *testing.T) {
 	authSvc := auth.NewAuthService()

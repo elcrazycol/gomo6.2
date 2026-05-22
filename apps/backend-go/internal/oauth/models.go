@@ -115,6 +115,7 @@ type OpenIDConfiguration struct {
 	TokenEndpoint                     string   `json:"token_endpoint"`
 	UserinfoEndpoint                  string   `json:"userinfo_endpoint"`
 	RevocationEndpoint                string   `json:"revocation_endpoint"`
+	IntrospectionEndpoint             string   `json:"introspection_endpoint"`
 	JWKSURI                           string   `json:"jwks_uri"`
 	ScopesSupported                   []string `json:"scopes_supported"`
 	ResponseTypesSupported            []string `json:"response_types_supported"`
@@ -185,7 +186,32 @@ const (
 	AuditActionAppDeleted        = "app_deleted"
 	AuditActionSecretRegenerated = "secret_regenerated"
 	AuditActionUserTokensRevoked = "user_tokens_revoked"
+	AuditActionTokenIntrospect  = "token_introspect"
 )
+
+// IntrospectRequest for RFC 7662 Token Introspection
+type IntrospectRequest struct {
+	Token         string `json:"token" form:"token"`
+	TokenTypeHint string `json:"token_type_hint" form:"token_type_hint"`
+	ClientID      string `json:"client_id" form:"client_id"`
+	ClientSecret  string `json:"client_secret" form:"client_secret"`
+}
+
+// IntrospectResponse represents the RFC 7662 introspection response
+type IntrospectResponse struct {
+	Active   bool     `json:"active"`
+	Scope    string   `json:"scope,omitempty"`
+	ClientID string   `json:"client_id,omitempty"`
+	UserID   string   `json:"user_id,omitempty"`
+	TokenID  string   `json:"token_id,omitempty"`
+	TokenType string  `json:"token_type,omitempty"`
+	Exp      int64    `json:"exp,omitempty"`
+	Iat      int64    `json:"iat,omitempty"`
+	Sub      string   `json:"sub,omitempty"`
+	Username string   `json:"username,omitempty"`
+	Aud      []string `json:"aud,omitempty"`
+	Iss      string   `json:"iss,omitempty"`
+}
 
 // OAuthError represents an OAuth error response
 type OAuthError struct {
