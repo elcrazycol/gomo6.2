@@ -162,6 +162,12 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 		return
 	}
 
+	// Audit log: user authorized the app
+	h.oauthSvc.LogOAuthAction(claims.UserID, req.ClientID, app.Name, oauth.AuditActionAuthorize,
+		c.ClientIP(), map[string]interface{}{
+			"scopes": oauth.ParseScopeString(req.Scope),
+		})
+
 	// Build redirect URL with code and state
 	redirectURL, _ := url.Parse(req.RedirectURI)
 	q := redirectURL.Query()
@@ -265,6 +271,12 @@ func (h *OAuthHandler) Revoke(c *gin.Context) {
 	if err != nil {
 		log.Printf("Token revocation error: %v", err)
 	}
+
+	// Audit log: token revocation
+	h.oauthSvc.LogOAuthAction("", req.ClientID, "", oauth.AuditActionTokenRevoke,
+		c.ClientIP(), map[string]interface{}{
+			"token_type_hint": req.TokenTypeHint,
+		})
 
 	// RFC 7009: The authorization server responds with HTTP 200 OK
 	c.JSON(http.StatusOK, gin.H{})
@@ -396,6 +408,13 @@ func (h *OAuthHandler) handleAuthorizationCodeGrant(c *gin.Context, req oauth.To
 		tokenResponse.RefreshToken = refreshTokenStr
 	}
 
+	// Audit log: token exchange
+	h.oauthSvc.LogOAuthAction(userID, req.ClientID, app.Name, oauth.AuditActionTokenExchange,
+		c.ClientIP(), map[string]interface{}{
+			"scopes":        scopes,
+			"has_refresh":   refreshTokenStr != "",
+		})
+
 	// Generate ID token if openid scope
 	for _, s := range scopes {
 		if s == oauth.ScopeOpenID {
@@ -427,6 +446,12 @@ func (h *OAuthHandler) handleRefreshTokenGrant(c *gin.Context, req oauth.TokenRe
 		})
 		return
 	}
+
+	// Audit log: token refresh (user & client from the refresh token rotation)
+	h.oauthSvc.LogOAuthAction("", req.ClientID, app.Name, oauth.AuditActionTokenRefresh,
+		c.ClientIP(), map[string]interface{}{
+			"has_new_refresh": newRefreshToken != "",
+		})
 
 	c.JSON(http.StatusOK, oauth.TokenResponse{
 		AccessToken:  newAccessToken,

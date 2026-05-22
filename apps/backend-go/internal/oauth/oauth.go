@@ -934,6 +934,43 @@ func (s *OAuthService) GetTokensByApp(appID, ownerID string) ([]AccessToken, err
 }
 
 // =============================
+// Audit Log
+// =============================
+
+// LogOAuthAction records an OAuth operation in the audit log
+func (s *OAuthService) LogOAuthAction(userID, clientID, appName, action, ipAddress string, details map[string]interface{}) error {
+	var detailsJSON []byte
+	if details != nil {
+		var err error
+		detailsJSON, err = json.Marshal(details)
+		if err != nil {
+			detailsJSON = []byte("{}")
+		}
+	} else {
+		detailsJSON = []byte("{}")
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO oauth_audit_log (user_id, client_id, app_name, action, details, ip_address)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, nullableString(userID), nullableString(clientID), appName, action, string(detailsJSON), ipAddress)
+	if err != nil {
+		log.Printf("Failed to write OAuth audit log: %v", err)
+		return err
+	}
+	return nil
+}
+
+// nullableString returns a *string for SQL NULL handling.
+// If s is empty, returns nil (SQL NULL).
+func nullableString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// =============================
 // Helpers
 // =============================
 

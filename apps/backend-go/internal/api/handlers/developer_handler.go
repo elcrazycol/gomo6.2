@@ -96,6 +96,14 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 		return
 	}
 
+	// Audit log: app created
+	h.oauthSvc.LogOAuthAction(claims.UserID, app.ClientID, app.Name, oauth.AuditActionAppCreated,
+		c.ClientIP(), map[string]interface{}{
+			"scopes":         allowedScopes,
+			"redirect_uris":  req.RedirectURIs,
+			"is_confidential": isConfidential,
+		})
+
 	c.JSON(http.StatusCreated, oauth.CreateAppResponse{
 		App:          *app,
 		ClientSecret: clientSecret,
@@ -155,6 +163,10 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 		return
 	}
 
+	// Audit log: app updated
+	h.oauthSvc.LogOAuthAction(claims.UserID, app.ClientID, app.Name, oauth.AuditActionAppUpdated,
+		c.ClientIP(), nil)
+
 	c.JSON(http.StatusOK, gin.H{
 		"data": app,
 	})
@@ -173,6 +185,10 @@ func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 		return
 	}
 
+	// Audit log: app deleted
+	h.oauthSvc.LogOAuthAction(claims.UserID, "", appID, oauth.AuditActionAppDeleted,
+		c.ClientIP(), nil)
+
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{"ok": true},
 	})
@@ -190,6 +206,16 @@ func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 		})
 		return
 	}
+
+	// Get app name for audit log
+	appName := appID
+	if app, err := h.oauthSvc.GetApplicationByID(appID); err == nil && app != nil {
+		appName = app.Name
+	}
+
+	// Audit log: secret regenerated
+	h.oauthSvc.LogOAuthAction(claims.UserID, "", appName, oauth.AuditActionSecretRegenerated,
+		c.ClientIP(), nil)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
@@ -251,6 +277,12 @@ func (h *DeveloperHandler) RevokeUserTokens(c *gin.Context) {
 		})
 		return
 	}
+
+	// Audit log: user tokens revoked by developer
+	h.oauthSvc.LogOAuthAction(claims.UserID, app.ClientID, app.Name, oauth.AuditActionUserTokensRevoked,
+		c.ClientIP(), map[string]interface{}{
+			"target_user_id": req.UserID,
+		})
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{"ok": true},

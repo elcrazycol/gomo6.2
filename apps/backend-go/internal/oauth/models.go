@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -160,6 +161,31 @@ type CreateAppResponse struct {
 	App          OAuthApplication `json:"app"`
 	ClientSecret string           `json:"client_secret"`
 }
+
+// AuditLogEntry represents a single OAuth audit log entry
+type AuditLogEntry struct {
+	ID        string          `json:"id"`
+	UserID    *string         `json:"user_id,omitempty"`
+	ClientID  *string         `json:"client_id,omitempty"`
+	AppName   string          `json:"app_name,omitempty"`
+	Action    string          `json:"action"`
+	Details   json.RawMessage `json:"details,omitempty"`
+	IPAddress string          `json:"ip_address,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// Audit action constants
+const (
+	AuditActionAuthorize         = "authorize"
+	AuditActionTokenExchange     = "token_exchange"
+	AuditActionTokenRefresh      = "token_refresh"
+	AuditActionTokenRevoke       = "token_revoke"
+	AuditActionAppCreated        = "app_created"
+	AuditActionAppUpdated        = "app_updated"
+	AuditActionAppDeleted        = "app_deleted"
+	AuditActionSecretRegenerated = "secret_regenerated"
+	AuditActionUserTokensRevoked = "user_tokens_revoked"
+)
 
 // OAuthError represents an OAuth error response
 type OAuthError struct {
