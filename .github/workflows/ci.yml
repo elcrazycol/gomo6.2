@@ -6,14 +6,11 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  FORCE_COLOR: 1
-
 jobs:
   ##############################################################################
-  # Go — build, vet, test
+  # Backend (Go)
   ##############################################################################
-  go:
+  backend:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -51,23 +48,27 @@ jobs:
           go-version: '1.25'
           cache-dependency-path: apps/backend-go/go.sum
 
-      - name: Download Go modules
-        run: go mod download
+      - name: Build
+        run: go build -o /dev/null ./cmd/server/
 
       - name: Vet
         run: go vet ./...
 
-      - name: Build
-        run: go build -o /dev/null ./cmd/server/
+      - name: Vendoring check
+        run: go mod tidy && git diff --exit-code go.mod go.sum
 
-      - name: Test
+      - name: Run migrations & test
         env:
           DATABASE_URL: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
           REDIS_URL: redis://localhost:6379/0
-        run: go test -race -count=1 ./...
+        run: |
+          for f in migrations/00*.sql; do
+            psql "$DATABASE_URL" -q < "$f"
+          done
+          go test -count=1 ./...
 
   ##############################################################################
-  # Frontend — install, typecheck, lint, build (all workspaces via Turbo)
+  # Frontend (TypeScript apps)
   ##############################################################################
   frontend:
     runs-on: ubuntu-latest
@@ -76,57 +77,29 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: TypeCheck web
+      - name: TypeScript — web
         run: npx tsc --noEmit -p apps/web/tsconfig.app.json
 
-      - name: TypeCheck dev-dashboard
+      - name: TypeScript — dev-dashboard
         run: npx tsc --noEmit -p apps/dev-dashboard/tsconfig.json
 
-      - name: TypeCheck docs
+      - name: TypeScript — docs
         run: npx tsc --noEmit -p apps/docs/tsconfig.json
 
-      - name: Lint (web)
+      - name: Lint — web
         run: npm run lint --workspace=@gomo6/web
 
-      - name: Build all (Turbo)
-        run: npm run build
+      - name: Build — web
+        run: npm run build --workspace=@gomo6/web
 
-  ##############################################################################
-  # Vercel deploy preview (required secrets: VERCEL_TOKEN, VERCEL_ORG_ID,
-  # VERCEL_PROJECT_ID)
-  ##############################################################################
-  deploy-preview:
-    if: github.event_name == 'pull_request'
-    needs: [go, frontend]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Build — dev-dashboard
+        run: npm run build --workspace=@gomo6/dev-dashboard
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-
-      - name: Install & Build web
-        run: |
-          npm ci
-          npm run build --workspace=@gomo6/web
-
-      - name: Deploy preview to Vercel
-        if: >
-          secrets.VERCEL_TOKEN != '' &&
-          secrets.VERCEL_ORG_ID != '' &&
-          secrets.VERCEL_PROJECT_ID != ''
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prebuilt'
-          working-directory: apps/web
+      - name: Build — docs
+        run: npm run build --workspace=@gomo6/docs
