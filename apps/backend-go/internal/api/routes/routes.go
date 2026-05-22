@@ -32,8 +32,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Initialize OAuth service and handlers
 	oauthService := oauth.NewOAuthService(db, authService)
+
+	// Seed dev-dashboard OAuth app (public client with PKCE)
+	// This ensures the dev-dashboard can authenticate via OAuth
+	handlers.SeedDevDashboardApp(db, oauthService)
+
 	oauthHandler := handlers.NewOAuthHandler(db, oauthService, authService)
 	devHandler := handlers.NewDeveloperHandler(db, oauthService)
+	devDashboardHandler := handlers.NewDevDashboardHandler(db, oauthService)
 
 	// Initialize rate limiters
 	messengerRateLimiter := middleware.NewMessengerRateLimiter()
@@ -420,6 +426,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// OpenID Connect discovery
 	router.GET("/.well-known/openid-configuration", oauthHandler.OpenIDConfiguration)
 	router.GET("/.well-known/jwks.json", oauthHandler.JWKS)
+
+	// Dev dashboard config (no auth needed)
+	api.GET("/dev-dashboard/config", devDashboardHandler.GetConfig)
 
 	// Developer panel (protected by auth middleware)
 	dev := api.Group("/developer")
