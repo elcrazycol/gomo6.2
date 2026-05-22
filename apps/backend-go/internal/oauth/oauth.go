@@ -750,12 +750,12 @@ func (s *OAuthService) GetApplicationByID(id string) (*OAuthApplication, error) 
 	var scopesArray []byte
 
 	err := s.db.QueryRow(`
-		SELECT id, owner_id, name, description, client_id, redirect_uris, allowed_scopes, is_confidential, logo_url, homepage_url, is_active, created_at, updated_at
+		SELECT id, owner_id, name, description, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_confidential, logo_url, homepage_url, is_active, created_at, updated_at
 		FROM oauth_applications
 		WHERE id = $1
 	`, id).Scan(
 		&app.ID, &app.OwnerID, &app.Name, &app.Description, &app.ClientID,
-		&redirectURIsJSON, &scopesArray, &app.IsConfidential,
+		&app.ClientSecretHash, &redirectURIsJSON, &scopesArray, &app.IsConfidential,
 		&app.LogoURL, &app.HomepageURL, &app.IsActive, &app.CreatedAt, &app.UpdatedAt,
 	)
 	if err != nil {
