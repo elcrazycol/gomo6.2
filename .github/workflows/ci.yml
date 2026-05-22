@@ -62,7 +62,7 @@ jobs:
           DATABASE_URL: postgres://gomo6@localhost:5432/gomo6?sslmode=disable
           REDIS_URL: redis://localhost:6379/0
         run: |
-          for f in migrations/00*.sql; do
+          for f in migrations/0*.sql; do
             psql "$DATABASE_URL" -q < "$f"
           done
           go test -count=1 ./...
