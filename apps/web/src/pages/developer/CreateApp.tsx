@@ -25,9 +25,10 @@ const CreateApp = () => {
   const [copied, setCopied] = useState(false);
 
   const allScopes = [
+    { id: "openid", label: "openid", description: "OpenID Connect (аутентификация)" },
     { id: "profile", label: "profile", description: "Имя пользователя и аватар" },
     { id: "email", label: "email", description: "Email адрес" },
-    { id: "openid", label: "openid", description: "OpenID Connect (ID token)" },
+    { id: "offline_access", label: "offline_access", description: "Обновление токенов в фоне (refresh token)" },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
