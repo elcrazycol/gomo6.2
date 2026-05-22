@@ -95,7 +95,10 @@ func corsOrigins() []string {
 	raw := os.Getenv("GARAGE_S3_CORS_ORIGINS")
 	if strings.TrimSpace(raw) == "" {
 		return []string{
+			"http://localhost",
+			"http://localhost:80",
 			"http://localhost:8081",
+			"http://127.0.0.1",
 			"http://127.0.0.1:8081",
 		}
 	}
@@ -107,7 +110,7 @@ func corsOrigins() []string {
 		}
 	}
 	if len(out) == 0 {
-		return []string{"http://localhost:8081"}
+		return []string{"http://localhost"}
 	}
 	return out
 }
