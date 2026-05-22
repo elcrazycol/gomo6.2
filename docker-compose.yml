@@ -96,15 +96,15 @@ services:
           echo "S3 key already exists."
         fi
 
-        # Buckets: создаём если нет, разрешаем доступ всегда
-        for bucket in content post-images; do
+        # Buckets: создаём если нет, разрешаем доступ + owner (для PutBucketCors)
+        for bucket in content post-images avatars uploads; do
           if ! $$G bucket info "$$bucket" 2>/dev/null | grep -q "$$bucket"; then
             echo "Creating bucket: $$bucket"
             $$G bucket create "$$bucket"
           else
             echo "Bucket $$bucket already exists."
           fi
-          $$G bucket allow "$$bucket" --key gomo6-s3 --read --write
+          $$G bucket allow "$$bucket" --key gomo6-s3 --owner
         done
 
         echo "Garage initialized."
