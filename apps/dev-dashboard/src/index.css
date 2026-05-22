@@ -23,7 +23,14 @@
     --border: 40 16% 88%;
     --input: 40 16% 88%;
     --ring: 142 70% 25%;
-    --radius: 0.25rem;
+    --radius: 0.5rem;
+
+    --board-header: 142 70% 25%;
+    --board-header-foreground: 0 0% 98%;
+    --thread-hover: 40 20% 93%;
+    --post-header: 40 16% 92%;
+    --quote-text: 120 100% 25%;
+    --link-text: 240 100% 35%;
   }
 
   .dark {
@@ -46,6 +53,13 @@
     --border: 0 0% 25%;
     --input: 0 0% 25%;
     --ring: 142 70% 35%;
+
+    --board-header: 142 70% 30%;
+    --board-header-foreground: 0 0% 98%;
+    --thread-hover: 0 0% 20%;
+    --post-header: 0 0% 22%;
+    --quote-text: 120 100% 40%;
+    --link-text: 240 100% 60%;
   }
 }
 

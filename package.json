@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "dependencies": {
+    "@radix-ui/react-switch": "^1.2.6",
     "@signalapp/libsignal-client": "^0.90.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
