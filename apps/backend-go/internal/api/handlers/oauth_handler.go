@@ -320,6 +320,83 @@ func (h *OAuthHandler) JWKS(c *gin.Context) {
 	c.JSON(http.StatusOK, jwks)
 }
 
+// POST /oauth/introspect (RFC 7662)
+func (h *OAuthHandler) Introspect(c *gin.Context) {
+	var req oauth.IntrospectRequest
+	if err := c.ShouldBind(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             oauth.ErrorInvalidRequest,
+			"error_description": "Invalid request",
+		})
+		return
+	}
+
+	if req.Token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             oauth.ErrorInvalidRequest,
+			"error_description": "token is required",
+		})
+		return
+	}
+
+	// Authenticate the caller: either client credentials (client_id + client_secret)
+	// or OAuth Bearer token (for resource servers)
+	authHeader := c.GetHeader("Authorization")
+	var authenticated bool
+	var bearerClientID string
+
+	if authHeader != "" && stringsHasPrefix(authHeader, "Bearer ") {
+		tokenParts := splitToken(authHeader)
+		if tokenParts != nil {
+			claims, err := h.oauthSvc.ValidateAccessToken(tokenParts[1])
+			if err == nil {
+				authenticated = true
+				bearerClientID = claims.ClientID
+			}
+		}
+	}
+
+	if !authenticated && req.ClientID != "" {
+		app, err := h.oauthSvc.GetApplicationByClientID(req.ClientID)
+		if err == nil && app != nil && app.IsConfidential {
+			if req.ClientSecret != "" && h.oauthSvc.VerifyClientSecret(req.ClientSecret, app.ClientSecretHash) {
+				authenticated = true
+			}
+		}
+		if err == nil && app != nil && !app.IsConfidential {
+			authenticated = true
+		}
+	}
+
+	if !authenticated {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":             oauth.ErrorInvalidClient,
+			"error_description": "Authentication required (Bearer token or client_id + client_secret)",
+		})
+		return
+	}
+
+	result := h.oauthSvc.IntrospectToken(req.Token, req.TokenTypeHint)
+
+	// Audit log: token introspection
+	clientID := req.ClientID
+	if clientID == "" {
+		clientID = bearerClientID
+	}
+	tokenPrefix := req.Token
+	if len(tokenPrefix) > 16 {
+		tokenPrefix = tokenPrefix[:16]
+	}
+	h.oauthSvc.LogOAuthAction("", clientID, "", oauth.AuditActionTokenIntrospect,
+		c.ClientIP(), map[string]interface{}{
+			"active":         result.Active,
+			"token_type":     req.TokenTypeHint,
+			"token_prefix":   tokenPrefix,
+		})
+
+	c.JSON(http.StatusOK, result)
+}
+
 // GET /oauth/app-info returns public app info for the consent page
 func (h *OAuthHandler) AppInfo(c *gin.Context) {
 	clientID := c.Query("client_id")
@@ -492,6 +569,7 @@ func isScopeAllowed(allowedScopes []string, scope string) bool {
 func stringsHasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
+
 
 // OAuthBearerMiddleware validates OAuth access tokens
 func OAuthBearerMiddleware(oauthSvc *oauth.OAuthService) gin.HandlerFunc {
