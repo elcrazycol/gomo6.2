@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +60,9 @@ func main() {
 
 	// Setup routes with WebSocket Hub and BotManager
 	routes.SetupRoutes(router, db, redisClient, wsHub, botManager)
+
+	// pprof for memory profiling
+	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))
 
 	// Get port from environment
 	port := os.Getenv("SERVER_PORT")
