@@ -88,29 +88,39 @@ services:
           echo "Layout already configured."
         fi
 
-        # S3 Key: создаём только если нет. Если уже существует — читаем креды.
-        # Не пересоздаём, иначе бэкенд с предыдущими кредами получит 403 "No such key".
+        # S3 Key: пишется ТОЛЬКО при первом создании. Никогда не перезаписываем,
+        # иначе credentials в s3.env могут разойтись с тем что в Garage.
         echo "Setting up S3 key..."
         mkdir -p /garage-keys
-        if $$G key info gomo6-s3 >/dev/null 2>&1; then
-          echo "  Key gomo6-s3 already exists, reading credentials..."
+        if [ -f /garage-keys/s3.env ]; then
+          echo "  s3.env already exists, keeping credentials."
+        elif $$G key info gomo6-s3 >/dev/null 2>&1; then
+          echo "  Key exists but no s3.env — recovering from key info..."
           KEY_OUT=$$($$G key info gomo6-s3 2>&1)
           ACCESS_KEY=$$(echo "$$KEY_OUT" | awk '/Key ID:/ {print $$3}')
           SECRET_KEY=$$(echo "$$KEY_OUT" | awk '/Secret key:/ {print $$3}')
+          if [ -n "$$ACCESS_KEY" ] && [ -n "$$SECRET_KEY" ]; then
+            echo "export GARAGE_S3_ACCESS_KEY='$$ACCESS_KEY'" > /garage-keys/s3.env
+            echo "export GARAGE_S3_SECRET_KEY='$$SECRET_KEY'" >> /garage-keys/s3.env
+            echo "  Recovered credentials."
+          else
+            echo "ERROR: could not parse key info output"
+            exit 1
+          fi
         else
           echo "  Creating new key gomo6-s3..."
           KEY_OUT=$$($$G key create gomo6-s3 2>&1)
           echo "$$KEY_OUT"
           ACCESS_KEY=$$(echo "$$KEY_OUT" | awk '/Key ID:/ {print $$3}')
           SECRET_KEY=$$(echo "$$KEY_OUT" | awk '/Secret key:/ {print $$3}')
+          if [ -z "$$ACCESS_KEY" ] || [ -z "$$SECRET_KEY" ]; then
+            echo "ERROR: failed to parse key credentials from key create"
+            exit 1
+          fi
+          echo "export GARAGE_S3_ACCESS_KEY='$$ACCESS_KEY'" > /garage-keys/s3.env
+          echo "export GARAGE_S3_SECRET_KEY='$$SECRET_KEY'" >> /garage-keys/s3.env
+          echo "  Credentials written to /garage-keys/s3.env"
         fi
-        if [ -z "$$ACCESS_KEY" ] || [ -z "$$SECRET_KEY" ]; then
-          echo "ERROR: failed to get S3 key credentials"
-          exit 1
-        fi
-        echo "export GARAGE_S3_ACCESS_KEY='$$ACCESS_KEY'" > /garage-keys/s3.env
-        echo "export GARAGE_S3_SECRET_KEY='$$SECRET_KEY'" >> /garage-keys/s3.env
-        echo "Credentials written to /garage-keys/s3.env (key: $$ACCESS_KEY)"
 
         # Buckets: создаём если нет, всегда даём owner
         for bucket in content post-images avatars uploads emojis; do
