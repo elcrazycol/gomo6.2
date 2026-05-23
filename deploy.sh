@@ -244,7 +244,7 @@ check_dns() {
 
     # Проверяем три домена
     local all_ok=true
-    for sub in "" "docs" "dev" "s3"; do
+    for sub in "" "docs" "dev"; do
         if [ -z "$sub" ]; then
             fqdn="$DOMAIN"
             label="Основной домен"
@@ -272,7 +272,7 @@ check_dns() {
     if [ "$all_ok" = false ]; then
         warn "Некоторые DNS-записи не настроены или указывают на другой IP."
         warn "Это не блокирует развёртывание, но сайты будут недоступны по домену,"
-        warn "пока вы не создадите A-записи для: @ → $SERVER_IP, docs → $SERVER_IP, dev → $SERVER_IP, s3 → $SERVER_IP"
+        warn "пока вы не создадите A-записи для: @ → $SERVER_IP, docs → $SERVER_IP, dev → $SERVER_IP"
         printf "${YELLOW}Продолжить развёртывание? (Y/n):${NC} "
         read -r continue_dns
         case "$continue_dns" in
@@ -293,13 +293,6 @@ create_env() {
         ALLOWED_ORIGINS="http://localhost,http://docs.localhost,http://dev.localhost"
     else
         ALLOWED_ORIGINS="https://${DOMAIN},http://${DOMAIN},https://docs.${DOMAIN},http://docs.${DOMAIN},https://dev.${DOMAIN},http://dev.${DOMAIN}"
-    fi
-
-    # S3 public endpoint (через отдельный subdomain, без манипуляции с путём — S3 подпись должна совпадать)
-    if [ "$DOMAIN" = "localhost" ]; then
-        S3_PUBLIC="http://localhost:3900"
-    else
-        S3_PUBLIC="https://s3.${DOMAIN}"
     fi
 
     # Спрашиваем подтверждение, если .env уже существует
@@ -331,12 +324,6 @@ ENVIRONMENT=${MODE}
 
 # ── Allowed CORS origins ────────────────────────────────────────────────────
 ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
-
-# ── S3 / Garage ─────────────────────────────────────────────────────────────
-# Публичный endpoint для presigned URL.
-# Прод: https://s3.${DOMAIN} (отдельный subdomain, Caddy проксит garage:3900)
-# Локально: http://localhost:3900 (напрямую в Garage)
-GARAGE_S3_PUBLIC_ENDPOINT=${S3_PUBLIC}
 ENVEOF
 
     # Защищаем файл с секретами
@@ -437,7 +424,6 @@ print_summary() {
         printf "  ${BOLD}Основной сайт:${NC}      ${SCHEME}://${DOMAIN}\n"
         printf "  ${BOLD}Документация:${NC}       ${SCHEME}://docs.${DOMAIN}\n"
         printf "  ${BOLD}Dev Dashboard:${NC}      ${SCHEME}://dev.${DOMAIN}\n"
-        printf "  ${BOLD}S3 / Галерея:${NC}       ${SCHEME}://s3.${DOMAIN}\n"
         printf "\n"
         if [ -n "${EMAIL:-}" ]; then
             info "Let's Encrypt сертификаты будут выпущены автоматически при первом запросе."
