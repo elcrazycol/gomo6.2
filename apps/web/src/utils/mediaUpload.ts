@@ -212,6 +212,10 @@ const extractAudioMetadata = async (file: File): Promise<{
               } catch (e) {
                 console.error('Failed to upload cover art:', e);
               }
+            }
+          } catch (e) {
+            // Silently fail cover art upload
+          }
         }
       }
     } catch (mmError) {
