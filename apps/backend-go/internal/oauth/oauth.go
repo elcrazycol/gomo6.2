@@ -37,7 +37,11 @@ type OAuthService struct {
 func NewOAuthService(db *sql.DB, authSvc *auth.AuthService) *OAuthService {
 	issuer := os.Getenv("ISSUER_URL")
 	if issuer == "" {
-		issuer = "http://localhost:8080"
+		domain := os.Getenv("DOMAIN")
+		if domain == "" {
+			domain = "localhost:8080"
+		}
+		issuer = "http://" + domain
 	}
 
 	secret := auth.GetJWTSecret()

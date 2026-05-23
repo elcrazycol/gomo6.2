@@ -17,7 +17,9 @@ export async function fetchOAuthConfig(): Promise<OAuthConfig> {
   if (cachedConfig) return cachedConfig;
   const res = await fetch("/api/v1/dev-dashboard/config");
   if (!res.ok) throw new Error("Failed to fetch OAuth config");
-  const data = await res.json();
+  const json = await res.json();
+  // Response is wrapped in SupabaseResponse { success, data }
+  const data = json.data || json;
   cachedConfig = {
     clientId: data.client_id,
     authorizationUrl: data.authorization_url,
