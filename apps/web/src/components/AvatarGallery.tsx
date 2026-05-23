@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { X, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,14 @@ export const AvatarGallery = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const handlePrevious = useCallback(() => {
+    setCurrentIndex((prev) => (prev === 0 ? avatars.length - 1 : prev - 1));
+  }, [avatars.length]);
+
+  const handleNext = useCallback(() => {
+    setCurrentIndex((prev) => (prev === avatars.length - 1 ? 0 : prev + 1));
+  }, [avatars.length]);
 
   useEffect(() => {
     setCurrentIndex(initialIndex);
@@ -91,15 +99,7 @@ export const AvatarGallery = ({
         document.exitFullscreen().catch(() => {});
       }
     };
-  }, [currentIndex]);
-
-  const handlePrevious = () => {
-    setCurrentIndex((prev) => (prev === 0 ? avatars.length - 1 : prev - 1));
-  };
-
-  const handleNext = () => {
-    setCurrentIndex((prev) => (prev === avatars.length - 1 ? 0 : prev + 1));
-  };
+  }, [currentIndex, onClose, handlePrevious, handleNext]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     setTouchEnd(null);

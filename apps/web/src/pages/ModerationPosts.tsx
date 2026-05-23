@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -60,17 +60,7 @@ const Moderation = () => {
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    if (isModerator) {
-      loadReports();
-    }
-  }, [isModerator]);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     
     if (!user) {
@@ -131,25 +121,28 @@ const Moderation = () => {
         }
       }
     }
-  };
+  }, [navigate]);
 
-  const loadReports = async () => {
-    const { data } = await supabase
-      .from("reports")
-      .select("*")
-      .order("created_at", { ascending: false });
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
-    if (data) {
-      setReports(data);
-      
-      // Load content for each report
-      for (const report of data) {
-        await loadReportContent(report);
-      }
+  const loadReports = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("reports")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setReports(data || []);
+    } catch (error) {
+      console.error("Error loading reports:", error);
+      toast.error("Ошибка загрузки жалоб");
     }
-  };
+  }, []);
 
-  const loadReportContent = async (report: Report) => {
+  const loadReportContent = useCallback(async (report: Report) => {
     const content: ReportedContent = {};
 
     if (report.reported_post_id) {
@@ -199,7 +192,7 @@ const Moderation = () => {
     }
 
     setReportedContent(prev => ({ ...prev, [report.id]: content }));
-  };
+  }, []);
 
   const handleDeletePost = async (postId: string) => {
     const { error } = await supabase

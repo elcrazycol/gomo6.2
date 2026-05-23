@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { formatDistanceToNow } from "date-fns";
@@ -179,21 +179,7 @@ const ThreadCard = ({
   const [recentLikers, setRecentLikers] = useState<{username: string, id: string, avatar_url: string | null, is_anonymous: boolean}[]>([]);
   const [hasOverflowImages, setHasOverflowImages] = useState(false);
 
-  useEffect(() => {
-    loadRecentPosts();
-    loadLikesData();
-    // Reset overflow state when thread changes
-    setHasOverflowImages(false);
-  }, [thread.id]);
-
-  useEffect(() => {
-    // Reset overflow state when expanding images
-    if (imagesExpanded) {
-      setHasOverflowImages(false);
-    }
-  }, [imagesExpanded]);
-
-  const loadRecentPosts = async () => {
+  const loadRecentPosts = useCallback(async () => {
     if (isLoadingPosts) return; // Prevent multiple simultaneous loads
 
     setIsLoadingPosts(true);
@@ -242,9 +228,9 @@ const ThreadCard = ({
     } finally {
       setIsLoadingPosts(false);
     }
-  };
+  }, [isLoadingPosts, thread.id]);
 
-  const loadLikesData = async () => {
+  const loadLikesData = useCallback(async () => {
     try {
       // Get likes count
       const { data: likesData, error: likesError } = await supabase.rpc(
@@ -286,7 +272,21 @@ const ThreadCard = ({
     } catch (error) {
       console.error("Error loading likes data:", error);
     }
-  };
+  }, [currentUserId, thread.id]);
+
+  useEffect(() => {
+    loadRecentPosts();
+    loadLikesData();
+    // Reset overflow state when thread changes
+    setHasOverflowImages(false);
+  }, [thread.id, loadRecentPosts, loadLikesData]);
+
+  useEffect(() => {
+    // Reset overflow state when expanding images
+    if (imagesExpanded) {
+      setHasOverflowImages(false);
+    }
+  }, [imagesExpanded]);
 
   const handleLike = async () => {
     if (!currentUserId) return;

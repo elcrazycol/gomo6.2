@@ -97,7 +97,7 @@ export const ProcessedContent = ({
     };
 
     processContent();
-  }, [content, currentUserId, isAdmin, currentUsername, postAuthorId]);
+  }, [content, currentUserId, isAdmin, currentUsername, postAuthorId, authorUsername]);
 
   // Load author color
   useEffect(() => {

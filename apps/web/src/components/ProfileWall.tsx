@@ -417,11 +417,43 @@ const WallPostCard = ({
   const [repostJson, setRepostJson] = useState<unknown>(EMPTY_EDITOR_STATE);
   const [repostResetKey, setRepostResetKey] = useState(0);
 
+  const loadComments = useCallback(async () => {
+    try {
+      setCommentsLoading(true);
+      const { data, error } = await (supabase as any)
+        .from("profile_wall_post_comments")
+        .select(`
+          id,
+          post_id,
+          user_id,
+          content,
+          content_json,
+          created_at,
+          updated_at,
+          author:profiles!user_id (
+            username,
+            is_anonymous,
+            avatar_url
+          )
+        `)
+        .eq("post_id", post.id)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setComments(((data || []) as any[]).map(normalizeWallComment));
+    } catch (error) {
+      console.error("Error loading wall comments:", error);
+      toast.error("Не удалось загрузить комментарии");
+    } finally {
+      setCommentsLoading(false);
+    }
+  }, [post.id]);
+
   useEffect(() => {
     if (!forceCommentsOpen || commentsOpen) return;
     setCommentsOpen(true);
     void loadComments();
-  }, [forceCommentsOpen, commentsOpen, post.id]);
+  }, [forceCommentsOpen, commentsOpen, post.id, loadComments]);
 
   useEffect(() => {
     const loadInteractionState = async () => {
@@ -464,38 +496,6 @@ const WallPostCard = ({
 
     loadInteractionState();
   }, [currentUserId, post.id]);
-
-  const loadComments = async () => {
-    try {
-      setCommentsLoading(true);
-      const { data, error } = await (supabase as any)
-        .from("profile_wall_post_comments")
-        .select(`
-          id,
-          post_id,
-          user_id,
-          content,
-          content_json,
-          created_at,
-          updated_at,
-          author:profiles!user_id (
-            username,
-            is_anonymous,
-            avatar_url
-          )
-        `)
-        .eq("post_id", post.id)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      setComments(((data || []) as any[]).map(normalizeWallComment));
-    } catch (error) {
-      console.error("Error loading wall comments:", error);
-      toast.error("Не удалось загрузить комментарии");
-    } finally {
-      setCommentsLoading(false);
-    }
-  };
 
   const handleToggleComments = async () => {
     const nextOpen = !commentsOpen;
@@ -1274,6 +1274,10 @@ export const ProfileWall = ({
   const pendingPostTimestampRef = useRef<number | null>(null);
   const processedPostIdsRef = useRef<Set<string>>(new Set());
   
+  // Use ref for currentUsername to avoid stale closures in WebSocket handlers
+  const currentUsernameRef = useRef(currentUsername);
+  currentUsernameRef.current = currentUsername;
+
   const [pendingPostId, setPendingPostId] = useState<string | null>(null);
   const [pendingPostTimestamp, setPendingPostTimestamp] = useState<number | null>(null);
   const activeEditingPost = useMemo(
@@ -1281,147 +1285,7 @@ export const ProfileWall = ({
     [editingPost, posts]
   );
 
-  useEffect(() => {
-    if (showWall) {
-      loadPosts();
-    }
-  }, [profileUserId, showWall]);
-
-  // WebSocket realtime subscription for wall posts
-  useEffect(() => {
-    if (!profileUserId || !currentUserId) return;
-
-    // REMOVED: wsService.connect() - already handled in App.tsx and WebSocketContext
-    // No need to call connect() here, it causes duplicate connections
-
-    // Subscribe to profile wall room
-    const wallRoom = `profile_wall_${profileUserId}`;
-    wsService.subscribe(wallRoom);
-
-    // Listen for new wall posts
-    const unsubscribeNewPost = wsService.on('new_wall_post', (message) => {
-      if (message.data) {
-        try {
-          const postData = typeof message.data === 'string' 
-            ? JSON.parse(message.data) 
-            : message.data;
-          
-          // Validate post data
-          if (!postData.id || !postData.user_id) return;
-          
-          // Only add if it's for this profile wall
-          if (postData.user_id !== profileUserId) {
-            return;
-          }
-          
-          const postId = String(postData.id);
-          const postTimestamp = new Date(postData.created_at).getTime();
-          
-          // Check if we've already processed this post (prevents duplicates from multiple WS messages)
-          if (processedPostIdsRef.current.has(postId)) {
-            return;
-          }
-          
-          // Use refs for current values to avoid stale closure
-          const currentPendingId = pendingPostIdRef.current;
-          const currentPendingTimestamp = pendingPostTimestampRef.current;
-          
-          // Check if this is our own recently created post (within 10 seconds window)
-          const isRecentPost = currentPendingTimestamp && (postTimestamp - currentPendingTimestamp) < 10000;
-          const isPendingPost = currentPendingId && currentPendingId === postId;
-          
-          // Check against current state for deduplication
-          setPosts(prevPosts => {
-            // Check if this post already exists in our state
-            const existingPost = prevPosts.find(p => String(p.id) === postId);
-            
-            if (existingPost) {
-              // Clear pending refs since we found the post
-              pendingPostIdRef.current = null;
-              pendingPostTimestampRef.current = null;
-              setPendingPostId(null);
-              setPendingPostTimestamp(null);
-              return prevPosts;
-            }
-            
-            // If this post was created very recently OR matches pending ID, it's ours
-            if (isRecentPost || isPendingPost) {
-              pendingPostIdRef.current = null;
-              pendingPostTimestampRef.current = null;
-              setPendingPostId(null);
-              setPendingPostTimestamp(null);
-              return prevPosts;
-            }
-            
-            // Mark as processed to prevent future duplicates
-            processedPostIdsRef.current.add(postId);
-            
-            // Add new post at the beginning
-            const newPost = normalizeWallPostRecord(postData, currentUsername);
-            return [newPost, ...prevPosts];
-          });
-          
-        } catch (e) {
-          console.error('[ProfileWall] Error parsing wall post message:', e);
-        }
-      }
-    });
-
-    // Listen for wall post updates
-    const unsubscribeUpdatePost = wsService.on('update_wall_post', (message) => {
-      if (message.data) {
-        try {
-          const postData = typeof message.data === 'string' 
-            ? JSON.parse(message.data) 
-            : message.data;
-          
-          // Validate post data
-          if (!postData.id) return;
-          
-          setPosts(prevPosts => 
-            prevPosts.map(post => 
-              String(post.id) === String(postData.id) 
-                ? normalizeWallPostRecord(postData, currentUsername)
-                : post
-            )
-          );
-        } catch (e) {
-          // Silent error
-        }
-      }
-    });
-
-    // Listen for wall post deletions
-    const unsubscribeDeletePost = wsService.on('delete_wall_post', (message) => {
-      if (message.data) {
-        try {
-          const postData = typeof message.data === 'string' 
-            ? JSON.parse(message.data) 
-            : message.data;
-          
-          // Validate post data
-          if (!postData.id) return;
-          
-          const postId = String(postData.id);
-          
-          setPosts(prevPosts => 
-            prevPosts.filter(post => String(post.id) !== postId)
-          );
-          
-        } catch (e) {
-          console.error('[ProfileWall] Error parsing delete wall post message:', e);
-        }
-      }
-    });
-
-    return () => {
-      unsubscribeNewPost();
-      unsubscribeUpdatePost();
-      unsubscribeDeletePost();
-    };
-  }, [profileUserId, currentUserId]);
-
-  const loadPosts = async () => {
+  const loadPosts = useCallback(async () => {
     try {
       setLoading(true);
       let query = (supabase as any)
@@ -1500,7 +1364,7 @@ export const ProfileWall = ({
 
         originalPostsMap = new Map(
           ((originalPosts || []) as any[]).map((originalPost) => {
-            const normalized = normalizeWallPostRecord(originalPost, currentUsername);
+            const normalized = normalizeWallPostRecord(originalPost, currentUsernameRef.current);
             return [normalized.id, normalized];
           })
         );
@@ -1510,7 +1374,7 @@ export const ProfileWall = ({
         normalizeWallPostRecord({
           ...post,
           original_post: post.repost_of_post_id ? originalPostsMap.get(post.repost_of_post_id) || null : null,
-        }, currentUsername)
+        }, currentUsernameRef.current)
       );
 
       // Merge with existing posts to avoid losing WebSocket-added posts
@@ -1541,7 +1405,147 @@ export const ProfileWall = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [profileUserId, focusedPostId]);
+
+  useEffect(() => {
+    if (showWall) {
+      loadPosts();
+    }
+  }, [profileUserId, showWall, loadPosts]);
+
+  // WebSocket realtime subscription for wall posts
+  useEffect(() => {
+    if (!profileUserId || !currentUserId) return;
+
+    // REMOVED: wsService.connect() - already handled in App.tsx and WebSocketContext
+    // No need to call connect() here, it causes duplicate connections
+
+    // Subscribe to profile wall room
+    const wallRoom = `profile_wall_${profileUserId}`;
+    wsService.subscribe(wallRoom);
+
+    // Listen for new wall posts
+    const unsubscribeNewPost = wsService.on('new_wall_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id || !postData.user_id) return;
+          
+          // Only add if it's for this profile wall
+          if (postData.user_id !== profileUserId) {
+            return;
+          }
+          
+          const postId = String(postData.id);
+          const postTimestamp = new Date(postData.created_at).getTime();
+          
+          // Check if we've already processed this post (prevents duplicates from multiple WS messages)
+          if (processedPostIdsRef.current.has(postId)) {
+            return;
+          }
+          
+          // Use refs for current values to avoid stale closure
+          const currentPendingId = pendingPostIdRef.current;
+          const currentPendingTimestamp = pendingPostTimestampRef.current;
+          
+          // Check if this is our own recently created post (within 10 seconds window)
+          const isRecentPost = currentPendingTimestamp && (postTimestamp - currentPendingTimestamp) < 10000;
+          const isPendingPost = currentPendingId && currentPendingId === postId;
+          
+          // Check against current state for deduplication
+          setPosts(prevPosts => {
+            // Check if this post already exists in our state
+            const existingPost = prevPosts.find(p => String(p.id) === postId);
+            
+            if (existingPost) {
+              // Clear pending refs since we found the post
+              pendingPostIdRef.current = null;
+              pendingPostTimestampRef.current = null;
+              setPendingPostId(null);
+              setPendingPostTimestamp(null);
+              return prevPosts;
+            }
+            
+            // If this post was created very recently OR matches pending ID, it's ours
+            if (isRecentPost || isPendingPost) {
+              pendingPostIdRef.current = null;
+              pendingPostTimestampRef.current = null;
+              setPendingPostId(null);
+              setPendingPostTimestamp(null);
+              return prevPosts;
+            }
+            
+            // Mark as processed to prevent future duplicates
+            processedPostIdsRef.current.add(postId);
+            
+            // Add new post at the beginning
+            const newPost = normalizeWallPostRecord(postData, currentUsernameRef.current);
+            return [newPost, ...prevPosts];
+          });
+          
+        } catch (e) {
+          console.error('[ProfileWall] Error parsing wall post message:', e);
+        }
+      }
+    });
+
+    // Listen for wall post updates
+    const unsubscribeUpdatePost = wsService.on('update_wall_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id) return;
+          
+          setPosts(prevPosts => 
+            prevPosts.map(post => 
+              String(post.id) === String(postData.id) 
+                ? normalizeWallPostRecord(postData, currentUsernameRef.current)
+                : post
+            )
+          );
+        } catch (e) {
+          // Silent error
+        }
+      }
+    });
+
+    // Listen for wall post deletions
+    const unsubscribeDeletePost = wsService.on('delete_wall_post', (message) => {
+      if (message.data) {
+        try {
+          const postData = typeof message.data === 'string' 
+            ? JSON.parse(message.data) 
+            : message.data;
+          
+          // Validate post data
+          if (!postData.id) return;
+          
+          const postId = String(postData.id);
+          
+          setPosts(prevPosts => 
+            prevPosts.filter(post => String(post.id) !== postId)
+          );
+          
+        } catch (e) {
+          console.error('[ProfileWall] Error parsing delete wall post message:', e);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribeNewPost();
+      unsubscribeUpdatePost();
+      unsubscribeDeletePost();
+    };
+  }, [profileUserId, currentUserId]);
 
   const handleDeletePost = async (postId: string) => {
     if (!currentUserId) return;
