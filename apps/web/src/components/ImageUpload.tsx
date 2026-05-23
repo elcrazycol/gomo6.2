@@ -135,8 +135,8 @@ export const ImageUpload = ({
         const randomStr = Math.random().toString(36).substring(2, 9);
         const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from('content')
+        const { error: uploadError } = await (supabase.storage
+          .from('content') as any)
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
