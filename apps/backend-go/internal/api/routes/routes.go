@@ -381,6 +381,16 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				}
 				storageHandler.PresignUpload(c)
 			})
+
+			// Server-side upload: browser sends file to backend, backend uploads to Garage.
+			// Avoids CORS/S3-signature issues with direct browser-to-Garage upload.
+			storageProtected.POST("/upload", func(c *gin.Context) {
+				if storageHandler == nil {
+					c.JSON(http.StatusNotImplemented, gin.H{"success": false, "error": "Storage not available"})
+					return
+				}
+				storageHandler.UploadFileWithKey(c)
+			})
 		}
 	}
 

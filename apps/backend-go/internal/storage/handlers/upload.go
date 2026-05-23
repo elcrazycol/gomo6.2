@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -26,6 +27,40 @@ func NewStorageHandler(client *storage.StorageClient) *StorageHandler {
 	return &StorageHandler{client: client}
 }
 
+// readUploadFile reads and validates a single file from multipart form.
+// Returns file data, original header, and any error.
+func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *multipart.FileHeader, err error) {
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		return nil, nil, fmt.Errorf("No file provided")
+	}
+	defer file.Close()
+
+	if header.Size > maxUploadBytes {
+		return nil, nil, fmt.Errorf("File too large (max 10MB)")
+	}
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	allowedTypes := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
+		".webp": true, ".pdf": true, ".txt": true, ".md": true,
+	}
+	if !allowedTypes[ext] {
+		return nil, nil, fmt.Errorf("File type not allowed")
+	}
+
+	data, err = io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
+	if err != nil {
+		return nil, nil, fmt.Errorf("Failed to read file")
+	}
+	if int64(len(data)) > maxUploadBytes {
+		return nil, nil, fmt.Errorf("File too large (max 10MB)")
+	}
+
+	return data, header, nil
+}
+
+// UploadFile stores a file with an auto-generated MD5-based key.
 func (h *StorageHandler) UploadFile(c *gin.Context) {
 	bucket := strings.TrimSpace(c.PostForm("bucket"))
 	if bucket == "" {
@@ -36,38 +71,13 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	file, header, err := c.Request.FormFile("file")
+	data, header, err := h.readUploadFile(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("No file provided"))
-		return
-	}
-	defer file.Close()
-
-	if header.Size > maxUploadBytes {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("File too large (max 10MB)"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	allowedTypes := map[string]bool{
-		".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
-		".webp": true, ".pdf": true, ".txt": true, ".md": true,
-	}
-	if !allowedTypes[ext] {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("File type not allowed"))
-		return
-	}
-
-	data, err := io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to read file"))
-		return
-	}
-	if int64(len(data)) > maxUploadBytes {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("File too large (max 10MB)"))
-		return
-	}
-
 	hash := fmt.Sprintf("%x", md5.Sum(data))
 	key := fmt.Sprintf("%s%s", hash, ext)
 
@@ -83,6 +93,50 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"file": fileInfo}))
+}
+
+// UploadFileWithKey stores a file with an explicit key from the frontend.
+// Accepts multipart form: file, bucket, key.
+// This is the replacement for presign-upload — browser uploads through backend,
+// avoiding CORS and S3 signature issues with direct Garage access.
+func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
+	bucket := strings.TrimSpace(c.PostForm("bucket"))
+	key := strings.TrimSpace(c.PostForm("key"))
+
+	if bucket == "" || key == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
+		return
+	}
+	if !storage.IsAllowedBucket(bucket) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket not allowed"))
+		return
+	}
+	if err := storage.ValidateObjectKey(key); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	data, header, err := h.readUploadFile(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	fileInfo, err := h.client.UploadFile(bucket, key, data, contentType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"file": fileInfo,
+		"key":  key,
+	}))
 }
 
 func (h *StorageHandler) DownloadFile(c *gin.Context) {

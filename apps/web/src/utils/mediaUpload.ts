@@ -205,27 +205,17 @@ const extractAudioMetadata = async (file: File): Promise<{
               const randomStr = Math.random().toString(36).substring(7);
               const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
 
-              const response = await fetch('/storage/v1/presign-upload', {
+              const coverFormData = new FormData();
+              coverFormData.append('file', coverFile);
+              coverFormData.append('bucket', 'content');
+              coverFormData.append('key', coverKey);
+
+              const uploadResponse = await fetch('/storage/v1/upload', {
                 method: 'POST',
                 headers: {
                   'Authorization': `Bearer ${session.access_token}`,
-                  'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                  bucket: 'content',
-                  key: coverKey,
-                  content_type: picture.format,
-                  expires_seconds: 3600,
-                }),
-              });
-
-              const presignJson = await response.json();
-              const { upload_url } = presignJson.data;
-
-              const uploadResponse = await fetch(upload_url, {
-                method: 'PUT',
-                body: blob,
-                headers: { 'Content-Type': picture.format },
+                body: coverFormData,
               });
 
               if (uploadResponse.ok) {
@@ -415,40 +405,23 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const ext = file.name.split(".").pop() || "bin";
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-    // Get presigned URL from backend
-    const presignResponse = await fetch('/storage/v1/presign-upload', {
+    // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access)
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('bucket', 'content');
+    formData.append('key', key);
+
+    const uploadResponse = await fetch('/storage/v1/upload', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
       },
-      body: JSON.stringify({
-        bucket: 'content',
-        key: key,
-        content_type: file.type,
-        expires_seconds: 3600,
-      }),
-    });
-
-    if (!presignResponse.ok) {
-      const errorData = await presignResponse.json();
-      throw new Error(errorData.error || 'Presign failed');
-    }
-
-    const presignJson = await presignResponse.json();
-    const { upload_url } = presignJson.data;
-
-    // Upload file directly to Garage using presigned URL
-    const uploadResponse = await fetch(upload_url, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': file.type,
-      },
-      body: file,
+      body: formData,
     });
 
     if (!uploadResponse.ok) {
-      throw new Error('Upload failed');
+      const errorData = await uploadResponse.json();
+      throw new Error(errorData.error || 'Upload failed');
     }
 
     results.push({
