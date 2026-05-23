@@ -88,41 +88,29 @@ services:
           echo "Layout already configured."
         fi
 
-        # S3 Key: пишется ТОЛЬКО при первом создании. Никогда не перезаписываем,
-        # иначе credentials в s3.env могут разойтись с тем что в Garage.
-        echo "Setting up S3 key..."
         mkdir -p /garage-keys
-        if [ -f /garage-keys/s3.env ]; then
-          echo "  s3.env already exists, keeping credentials."
-        elif $$G key info gomo6-s3 >/dev/null 2>&1; then
-          echo "  Key exists but no s3.env — recovering from key info..."
-          KEY_OUT=$$($$G key info gomo6-s3 2>&1)
-          ACCESS_KEY=$$(echo "$$KEY_OUT" | awk '/Key ID:/ {print $$3}')
-          SECRET_KEY=$$(echo "$$KEY_OUT" | awk '/Secret key:/ {print $$3}')
-          if [ -n "$$ACCESS_KEY" ] && [ -n "$$SECRET_KEY" ]; then
-            echo "export GARAGE_S3_ACCESS_KEY='$$ACCESS_KEY'" > /garage-keys/s3.env
-            echo "export GARAGE_S3_SECRET_KEY='$$SECRET_KEY'" >> /garage-keys/s3.env
-            echo "  Recovered credentials."
-          else
-            echo "ERROR: could not parse key info output"
-            exit 1
-          fi
-        else
-          echo "  Creating new key gomo6-s3..."
+
+        # S3 Key: создаётся один раз при первом запуске. Если s3.env уже есть —
+        # ключ существует и credentials сохранены, ничего не делаем.
+        # Никакого recovery через key info — это хрупко и было причиной Invalid signature.
+        if [ ! -f /garage-keys/s3.env ]; then
+          echo "Creating S3 key gomo6-s3..."
           KEY_OUT=$$($$G key create gomo6-s3 2>&1)
           echo "$$KEY_OUT"
           ACCESS_KEY=$$(echo "$$KEY_OUT" | awk '/Key ID:/ {print $$3}')
           SECRET_KEY=$$(echo "$$KEY_OUT" | awk '/Secret key:/ {print $$3}')
           if [ -z "$$ACCESS_KEY" ] || [ -z "$$SECRET_KEY" ]; then
-            echo "ERROR: failed to parse key credentials from key create"
+            echo "ERROR: failed to parse key credentials"
             exit 1
           fi
           echo "export GARAGE_S3_ACCESS_KEY='$$ACCESS_KEY'" > /garage-keys/s3.env
           echo "export GARAGE_S3_SECRET_KEY='$$SECRET_KEY'" >> /garage-keys/s3.env
-          echo "  Credentials written to /garage-keys/s3.env"
+          echo "Credentials written to /garage-keys/s3.env"
         fi
 
-        # Buckets: создаём если нет, всегда даём owner
+        # Buckets: создаём если нет, всегда grant owner.
+        # ВАЖНО: bucket allow запускается при каждом старте, чтобы новые бакеты
+        # добавленные в список ниже получали права без down -v.
         for bucket in content post-images avatars uploads emojis; do
           if $$G bucket info "$$bucket" >/dev/null 2>&1; then
             echo "Bucket $$bucket already exists."
@@ -133,11 +121,10 @@ services:
               continue
             }
           fi
-          echo "Granting owner access to bucket: $$bucket"
           if $$G bucket allow "$$bucket" --key gomo6-s3 --read --write --owner 2>&1; then
             echo "  => read+write+owner granted for $$bucket"
           else
-            echo "ERROR: bucket allow failed for $$bucket — PutObject will return 403"
+            echo "ERROR: bucket allow failed for $$bucket"
           fi
         done
 
