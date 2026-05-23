@@ -687,8 +687,8 @@ const Thread = () => {
       const imageUrlForDb = imageUrlsFromAttachments[0] || null;
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
       
-      // Use backend API instead of direct Supabase insertion
-      const response = await fetch('/rest/v1/posts', {
+      // Use RPC backend API instead of REST endpoint
+      const response = await fetch('/rpc/v1/create_post', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -698,7 +698,7 @@ const Thread = () => {
           thread_id: threadId,
           content: content.trim(),
           content_json: contentJson,
-          image_urls: imageUrlsJson, // Backend expects image_urls instead of image_url
+          image_urls: imageUrlsJson,
           attachments: attachments.length > 0 ? attachments : null,
           reply_to: replyingTo,
           is_private: isPrivateMessage,
@@ -711,7 +711,7 @@ const Thread = () => {
         throw new Error(errorData.error || 'Ошибка отправки');
       }
 
-      const data = await response.json();
+      await response.json();
 
       // React Query will automatically update via WebSocket + cache invalidation
       // No need to manually update posts state
