@@ -112,5 +112,21 @@
 
 # ── S3 Object Storage (Garage) — presigned URL через отдельный subdomain ──
 s3.{$DOMAIN:localhost} {
+	# CORS — OPTIONS preflight для S3 presigned PUT (браузер присылает перед загрузкой)
+	@cors_preflight method OPTIONS
+	handle @cors_preflight {
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Methods "*"
+		header Access-Control-Allow-Headers "*"
+		header Access-Control-Max-Age "86400"
+		respond 204
+	}
+
+	# CORS для всех остальных запросов
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "*"
+	header Access-Control-Allow-Headers "*"
+	header Access-Control-Expose-Headers "*"
+
 	reverse_proxy garage:3900
 }
