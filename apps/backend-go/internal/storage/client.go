@@ -93,9 +93,40 @@ func browserReachableS3URL(ep string) (string, error) {
 	return normalizeEndpoint(fmt.Sprintf("http://localhost:%s", port))
 }
 
+// loadEnvFile reads /garage-keys/s3.env and sets environment variables.
+// This avoids shell-sourcing which can fail on special characters in secrets.
+func loadEnvFile() {
+	const path = "/garage-keys/s3.env"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("storage: no env file at %s (%v), falling back to OS env vars", path, err)
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		val = strings.Trim(val, "'\"")
+		if key != "" {
+			os.Setenv(key, val)
+		}
+	}
+	log.Printf("storage: loaded credentials from %s", path)
+}
+
 // NewStorageClient builds an S3 client for Garage. Fails soft on bucket bootstrap
 // (logs only) so the process can still start if Garage is temporarily down.
 func NewStorageClient() (*StorageClient, error) {
+	// Try loading from /garage-keys/s3.env first (Docker shared volume), fallback to OS env
+	loadEnvFile()
 	endpoint := os.Getenv("GARAGE_S3_ENDPOINT")
 	accessKey := os.Getenv("GARAGE_S3_ACCESS_KEY")
 	secretKey := os.Getenv("GARAGE_S3_SECRET_KEY")

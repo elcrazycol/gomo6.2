@@ -108,8 +108,8 @@ services:
           echo "ERROR: failed to get S3 key credentials"
           exit 1
         fi
-        echo "export GARAGE_S3_ACCESS_KEY=$$ACCESS_KEY" > /garage-keys/s3.env
-        echo "export GARAGE_S3_SECRET_KEY=$$SECRET_KEY" >> /garage-keys/s3.env
+        echo "export GARAGE_S3_ACCESS_KEY='$$ACCESS_KEY'" > /garage-keys/s3.env
+        echo "export GARAGE_S3_SECRET_KEY='$$SECRET_KEY'" >> /garage-keys/s3.env
         echo "Credentials written to /garage-keys/s3.env (key: $$ACCESS_KEY)"
 
         # Buckets: создаём если нет, всегда даём owner
@@ -140,7 +140,6 @@ services:
       dockerfile: Dockerfile
     volumes:
       - garage_keys:/garage-keys:ro
-    command: ["/bin/sh", "-c", ". /garage-keys/s3.env && exec ./main"]
     environment:
       DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://redis:6379
