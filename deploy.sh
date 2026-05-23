@@ -182,9 +182,111 @@ configure_deployment() {
     info "Garage S3 использует встроенные ключи. При необходимости замените их в .env."
 }
 
+# ── DNS check ───────────────────────────────────────────────────────────────
+check_dns() {
+    if [ "$DOMAIN" = "localhost" ]; then
+        return
+    fi
+
+    step "5/9" "Проверка DNS-записей"
+
+    info "Проверка DNS для домена: $DOMAIN"
+
+    # Определяем IP сервера
+    SERVER_IP=""
+    for ip_service in "ifconfig.me" "api.ipify.org" "checkip.amazonaws.com"; do
+        SERVER_IP=$(curl -fsS --max-time 5 "$ip_service" 2>/dev/null || true)
+        if [ -n "$SERVER_IP" ] && echo "$SERVER_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            break
+        fi
+        SERVER_IP=""
+    done
+
+    if [ -z "$SERVER_IP" ]; then
+        warn "Не удалось определить внешний IP сервера (проверьте интернет-соединение)"
+        return
+    fi
+    log "Внешний IP сервера: $SERVER_IP"
+
+    # DNS-резолвер на выбор
+    RESOLVE_CMD=""
+    for cmd in "dig" "host" "nslookup"; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            RESOLVE_CMD="$cmd"
+            break
+        fi
+    done
+
+    if [ -z "$RESOLVE_CMD" ]; then
+        warn "Не найден DNS-резолвер (dig/host/nslookup). Установите dnsutils."
+        info "Пропускаю проверку DNS."
+        return
+    fi
+
+    # Функция резолва в зависимости от команды
+    resolve_ip() {
+        local hostname="$1"
+        case "$RESOLVE_CMD" in
+            dig)
+                # Получаем все A-записи и проверяем, есть ли IP сервера среди них (round-robin DNS)
+                local all_a_records
+                all_a_records=$(dig +short "$hostname" A 2>/dev/null)
+                if echo "$all_a_records" | grep -qF "$SERVER_IP"; then
+                    echo "$SERVER_IP"
+                else
+                    echo "$all_a_records" | head -1
+                fi
+                ;;
+            host)   host "$hostname" 2>/dev/null | grep "has address" | head -1 | awk '{print $NF}' ;;
+            nslookup) nslookup "$hostname" 2>/dev/null | grep -E '^Address: ' | tail -1 | awk '{print $2}' ;;
+        esac
+    }
+
+    # Проверяем три домена
+    local all_ok=true
+    for sub in "" "docs" "dev"; do
+        if [ -z "$sub" ]; then
+            fqdn="$DOMAIN"
+            label="Основной домен"
+        else
+            fqdn="$sub.$DOMAIN"
+            label="Поддомен $sub"
+        fi
+
+        local resolved
+        resolved=$(resolve_ip "$fqdn")
+        if [ -z "$resolved" ]; then
+            warn "$label ($fqdn): DNS не найден"
+            all_ok=false
+        elif [ "$resolved" = "$SERVER_IP" ]; then
+            log "$label ($fqdn) → ${SERVER_IP} ✅"
+        elif echo "$resolved" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            warn "$label ($fqdn) → ${resolved} (ожидался ${SERVER_IP})"
+            all_ok=false
+        else
+            warn "$label ($fqdn): неожиданный ответ — ${resolved}"
+            all_ok=false
+        fi
+    done
+
+    if [ "$all_ok" = false ]; then
+        warn "Некоторые DNS-записи не настроены или указывают на другой IP."
+        warn "Это не блокирует развёртывание, но сайты будут недоступны по домену,"
+        warn "пока вы не создадите A-записи для: @ → $SERVER_IP, docs → $SERVER_IP, dev → $SERVER_IP"
+        printf "${YELLOW}Продолжить развёртывание? (Y/n):${NC} "
+        read -r continue_dns
+        case "$continue_dns" in
+            [nN]|[nN][oO]) err "Развёртывание отменено пользователем" ;;
+            *) info "Продолжаем..." ;;
+        esac
+    else
+        log "Все DNS-записи корректны"
+    fi
+}
+
 # ── Create .env ──────────────────────────────────────────────────────────────
 create_env() {
-    step "5/8" "Создание .env файла"
+    step "6/9" "Создание .env файла"
 
     # Build ALLOWED_ORIGINS
     if [ "$DOMAIN" = "localhost" ]; then
@@ -245,7 +347,7 @@ ENVEOF
 
 # ── Build and start ─────────────────────────────────────────────────────────
 start_services() {
-    step "6/8" "Запуск сервисов"
+    step "7/9" "Запуск сервисов"
 
     # ── Configure Caddy for production TLS ────────────────────────────────
     if [ "$DOMAIN" != "localhost" ] && [ -n "${EMAIL:-}" ]; then
@@ -275,7 +377,7 @@ start_services() {
 
 # ── Wait for health ─────────────────────────────────────────────────────────
 wait_for_services() {
-    step "7/8" "Ожидание готовности сервисов"
+    step "8/9" "Ожидание готовности сервисов"
 
     info "Ожидание healthcheck'ов (до 120 секунд)..."
 
@@ -319,7 +421,7 @@ wait_for_services() {
 
 # ── Print summary ───────────────────────────────────────────────────────────
 print_summary() {
-    step "8/8" "Развёртывание завершено!"
+    step "9/9" "Развёртывание завершено!"
 
     header
     if [ "$DOMAIN" = "localhost" ]; then
@@ -377,6 +479,7 @@ main() {
     install_docker
     clone_repo
     configure_deployment
+    check_dns
     create_env
     start_services
     wait_for_services
