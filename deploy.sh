@@ -318,6 +318,8 @@ DOMAIN=${DOMAIN}
 # ── Security ────────────────────────────────────────────────────────────────
 JWT_SECRET=${JWT_SECRET}
 FEDERATION_KEY=${FEDERATION_KEY}
+ACME_EMAIL=${EMAIL}
+
 
 # ── Environment ─────────────────────────────────────────────────────────────
 ENVIRONMENT=${MODE}
@@ -350,21 +352,9 @@ ENVEOF
 start_services() {
     step "7/9" "Запуск сервисов"
 
-    # ── Configure Caddy for production TLS ────────────────────────────────
-    if [ "$DOMAIN" != "localhost" ] && [ -n "${EMAIL:-}" ]; then
-        info "Настройка Caddy для HTTPS (TLS)..."
-        # Включаем auto_https и добавляем email для Let's Encrypt
-        # Удаляем 'auto_https off' — дефолтное поведение Caddy = полный авто-HTTPS
-        if grep -q 'auto_https off' Caddyfile; then
-            sed -i '/auto_https off/d' Caddyfile
-            log "Caddy: auto_https включён (удалён 'off' — Caddy по умолчанию выписывает TLS)"
-        fi
-        # Добавляем email, если его ещё нет
-        if ! grep -q "email " Caddyfile 2>/dev/null; then
-            sed -i "/^{/a\\    email ${EMAIL}" Caddyfile
-            log "Caddy: email $EMAIL добавлен для Let's Encrypt"
-        fi
-    fi
+    # ── Caddy для production TLS — email передаётся через .env → docker-compose
+    # Caddyfile уже содержит email {$ACME_EMAIL: } в глобальном блоке.
+    # Ничего патчить не нужно — Caddy сам прочитает ACME_EMAIL из env.
 
     # Pull images first for faster startup
     info "Загрузка Docker-образов (первый раз может занять время)..."

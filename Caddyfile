@@ -18,6 +18,7 @@
 	# auto_https ON by default (no 'off' = Caddy automatically provisions TLS certs)
 	# Local dev (.localhost TLD): Caddy gracefully falls back to HTTP
 	# Production (real domain): Caddy gets Let's Encrypt certs automatically
+	email {$ACME_EMAIL}
 }
 
 {$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost} {
