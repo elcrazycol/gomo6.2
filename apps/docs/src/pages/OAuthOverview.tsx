@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import { Key, Shield, ExternalLink, ArrowRight, Smartphone, Server } from 'lucide-react'
 
+const rootDomain = typeof window !== 'undefined' ? window.location.hostname.replace(/^(docs|dev|www)\./, '') : 'localhost';
+
 export const OAuthOverview = () => {
   return (
     <div className="text-gray-300 space-y-8">
@@ -25,7 +27,7 @@ export const OAuthOverview = () => {
           <span className="text-sm text-gray-400">Полностью совместимо</span>
         </div>
         <a
-          href="http://localhost:8080/.well-known/openid-configuration"
+          href={window.location.protocol + '//' + window.location.host + '/.well-known/openid-configuration'}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-2 bg-gray-800/50 border border-gray-700/30 rounded-lg px-4 py-2 text-sm text-gray-400 hover:text-white hover:border-gray-600/50 transition-colors"
@@ -72,7 +74,7 @@ export const OAuthOverview = () => {
               <h3 className="text-sm font-medium text-gray-200 mb-1">Создайте приложение</h3>
               <p className="text-xs text-gray-400">
                 Зайдите в{' '}
-                <a href="http://dev.localhost:3002" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                <a href={'//dev.' + rootDomain} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                   Dev Dashboard
                 </a>
                 {' '}→ «Создать приложение». Укажите название и redirect URI.
