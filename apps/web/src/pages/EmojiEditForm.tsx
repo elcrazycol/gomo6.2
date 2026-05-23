@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -53,18 +53,7 @@ const EmojiEditForm = () => {
   // Preview state
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    if (isModerator && emojiId) {
-      loadEmoji();
-      loadGroups();
-    }
-  }, [isModerator, emojiId]);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -125,9 +114,9 @@ const EmojiEditForm = () => {
         }
       }
     }
-  };
+  }, [navigate]);
 
-  const loadEmoji = async () => {
+  const loadEmoji = useCallback(async () => {
     if (!emojiId) return;
 
     try {
@@ -156,9 +145,9 @@ const EmojiEditForm = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [emojiId, navigate]);
 
-  const loadGroups = async () => {
+  const loadGroups = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('emoji_groups')
@@ -171,7 +160,18 @@ const EmojiEditForm = () => {
     } catch (error) {
       console.error('Error loading groups:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (isModerator && emojiId) {
+      loadEmoji();
+      loadGroups();
+    }
+  }, [isModerator, emojiId, loadEmoji, loadGroups]);
 
   const createGroup = async () => {
     if (!newGroupName.trim()) {

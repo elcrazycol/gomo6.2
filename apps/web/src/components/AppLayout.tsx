@@ -220,7 +220,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       playlistIndex: found?.index,
     });
     setProgress({ current: entry.inst.currentTime || 0, duration: entry.inst.duration || 0 });
-  }, [getOrderedIds, nowPlaying?.playlistId, queue, volume]);
+  }, [getOrderedIds, nowPlaying?.playlistId, volume]);
 
   const formatTime = (seconds: number) => {
     if (!Number.isFinite(seconds)) return "0:00";

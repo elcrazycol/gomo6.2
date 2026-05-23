@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -42,12 +42,7 @@ const EmojiCreate = () => {
   // Preview state
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    checkAuth();
-    loadGroups();
-  }, []);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -108,9 +103,9 @@ const EmojiCreate = () => {
         }
       }
     }
-  };
+  }, [navigate]);
 
-  const loadGroups = async () => {
+  const loadGroups = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('emoji_groups')
@@ -124,7 +119,12 @@ const EmojiCreate = () => {
       console.error('Error loading emoji groups:', error);
       toast.error('Ошибка загрузки групп');
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    checkAuth();
+    loadGroups();
+  }, [checkAuth, loadGroups]);
 
   const createGroup = async () => {
     if (!newGroupName.trim()) {

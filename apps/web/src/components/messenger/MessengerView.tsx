@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate, useSearchParams, type NavigateOptions } from "react-router-dom";
 import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -213,6 +213,25 @@ export const MessengerView = () => {
     return () => media.removeEventListener("change", update);
   }, []);
 
+  const updateSearch = useCallback((conversationId: string | null, userId: string | null) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (conversationId) {
+        next.set("conversation", conversationId);
+      } else {
+        next.delete("conversation");
+      }
+
+      if (userId) {
+        next.set("user", userId);
+      } else {
+        next.delete("user");
+      }
+
+      return next;
+    }, { replace: true } as NavigateOptions);
+  }, [setSearchParams]);
+
   useEffect(() => {
     if (!isMobileViewport) return;
     if (targetUserId) return;
@@ -221,7 +240,7 @@ export const MessengerView = () => {
     }
     setSelectedConversationId(null);
     setMobileSidebarOpen(true);
-  }, [isMobileViewport, requestedConversationId, targetUserId]);
+  }, [isMobileViewport, requestedConversationId, targetUserId, updateSearch]);
 
   useEffect(() => {
     if (typeof document === "undefined" || typeof window === "undefined") return;
@@ -235,23 +254,6 @@ export const MessengerView = () => {
       window.dispatchEvent(new CustomEvent("gomo6:messenger-mobile-chat", { detail: false }));
     };
   }, [isMobileViewport, shouldShowMobileChat]);
-
-  const updateSearch = (conversationId: string | null, userId: string | null) => {
-    const next = new URLSearchParams(searchParams);
-    if (conversationId) {
-      next.set("conversation", conversationId);
-    } else {
-      next.delete("conversation");
-    }
-
-    if (userId) {
-      next.set("user", userId);
-    } else {
-      next.delete("user");
-    }
-
-    setSearchParams(next, { replace: true } as NavigateOptions);
-  };
 
   const resizeComposer = () => {
     const composer = composerRef.current;
@@ -321,7 +323,7 @@ export const MessengerView = () => {
     return cryptoState;
   };
 
-  const loadConversations = async (userId: string, options?: { silent?: boolean }) => {
+  const loadConversations = useCallback(async (userId: string, options?: { silent?: boolean }) => {
     if (!options?.silent) {
       setConversationsLoading(true);
     }
@@ -457,9 +459,9 @@ export const MessengerView = () => {
         setConversationsLoading(false);
       }
     }
-  };
+  }, [isMobileViewport, requestedConversationId, targetUserId]);
 
-  const loadMessages = async (conversation: ConversationView, userId: string, incremental = false) => {
+  const loadMessages = useCallback(async (conversation: ConversationView, userId: string, incremental = false) => {
     if (!incremental) {
       setMessagesLoading(true);
     }
@@ -542,9 +544,9 @@ export const MessengerView = () => {
         setMessagesLoading(false);
       }
     }
-  };
+  }, []);
 
-  const ensureConversation = async (userId: string, targetId: string) => {
+  const ensureConversation = useCallback(async (userId: string, targetId: string) => {
     if (targetId === userId) return null;
 
     setStartingConversation(true);
@@ -566,9 +568,9 @@ export const MessengerView = () => {
     } finally {
       setStartingConversation(false);
     }
-  };
+  }, [updateSearch]);
 
-  const markDelivered = async (conversationId: string, latestMessageId: string | null) => {
+  const markDelivered = useCallback(async (conversationId: string, latestMessageId: string | null) => {
     if (!latestMessageId || lastDeliveredMessageIdRef.current === latestMessageId) {
       return;
     }
@@ -583,9 +585,9 @@ export const MessengerView = () => {
       // Silently fail delivery marking
       console.warn("Failed to mark delivered:", error);
     }
-  };
+  }, []);
 
-  const markRead = async (conversationId: string, latestMessageId: string | null) => {
+  const markRead = useCallback(async (conversationId: string, latestMessageId: string | null) => {
     if (!latestMessageId || lastReadMessageIdRef.current === latestMessageId) return;
 
     try {
@@ -609,14 +611,14 @@ export const MessengerView = () => {
     } catch (error) {
       console.warn("Failed to mark read:", error);
     }
-  };
+  }, []);
 
-  const refreshCurrentConversation = async (incremental = true) => {
+  const refreshCurrentConversation = useCallback(async (incremental = true) => {
     const currentMe = meRef.current;
     const currentConversation = selectedConversationRef.current;
     if (!currentMe || !currentConversation) return;
     await loadMessages(currentConversation, currentMe.id, incremental);
-  };
+  }, [loadMessages]);
 
   const sendMessage = async () => {
     if (!me || !selectedConversation || !draft.trim() || sending) return;
@@ -766,7 +768,7 @@ export const MessengerView = () => {
     };
 
     void bootstrap();
-  }, [navigate]);
+  }, [loadConversations, navigate, targetUserId]);
 
   useEffect(() => {
     if (!me || !targetUserId || targetUserId === me.id) return;
@@ -794,7 +796,7 @@ export const MessengerView = () => {
     };
 
     void handleTargetUser();
-  }, [me?.id, targetUserId, conversations]);
+  }, [conversations, ensureConversation, loadConversations, me, targetUserId, updateSearch]);
 
   useEffect(() => {
     if (!me || !selectedConversation) {
@@ -809,14 +811,14 @@ export const MessengerView = () => {
     void loadMessages(selectedConversation, me.id).catch((error) => {
       setErrorMessage(error.message);
     });
-  }, [me?.id, selectedConversationId]);
+  }, [loadMessages, me, selectedConversation]);
 
   useEffect(() => {
     if (!me) return;
     if (selectedConversationId && !conversations.some((conversation) => conversation.id === selectedConversationId)) {
       setSelectedConversationId(conversations[0]?.id ?? null);
     }
-  }, [conversations, me?.id, selectedConversationId]);
+  }, [conversations, me, selectedConversationId]);
 
   useEffect(() => {
     const container = messageScrollRef.current;
@@ -863,7 +865,7 @@ export const MessengerView = () => {
         setErrorMessage(error instanceof Error ? error.message : "Не удалось отметить диалог прочитанным");
       });
     }
-  }, [me?.id, selectedConversation?.id, messages]);
+  }, [markDelivered, markRead, me, messages, selectedConversation]);
 
   // Subscribe to WebSocket updates for current conversation
   useEffect(() => {
@@ -880,7 +882,7 @@ export const MessengerView = () => {
       unsubscribe();
       ws.unsubscribe(chatRoom);
     };
-  }, [selectedConversation?.id, ws]);
+  }, [refreshCurrentConversation, selectedConversation, ws]);
 
   useEffect(() => {
     if (!selectedConversation) return;
@@ -900,7 +902,7 @@ export const MessengerView = () => {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [messages, selectedConversation?.id]);
+  }, [loadConversations, markRead, me, messages, refreshCurrentConversation, selectedConversation]);
 
   if (loading || !me) {
     return (

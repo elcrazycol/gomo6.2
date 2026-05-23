@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -55,22 +55,7 @@ const EmojiEdit = () => {
   const [selectedGroup, setSelectedGroup] = useState<string>("all");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    if (isModerator) {
-      loadEmojis();
-      loadGroups();
-    }
-  }, [isModerator]);
-
-  useEffect(() => {
-    filterEmojis();
-  }, [emojis, searchQuery, selectedGroup]);
-
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -131,7 +116,11 @@ const EmojiEdit = () => {
         }
       }
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const loadEmojis = async () => {
     try {
@@ -161,6 +150,14 @@ const EmojiEdit = () => {
     }
   };
 
+  useEffect(() => {
+    if (isModerator) {
+      loadEmojis();
+      loadGroups();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModerator]);
+
   const loadGroups = async () => {
     try {
       const { data, error } = await supabase
@@ -176,7 +173,7 @@ const EmojiEdit = () => {
     }
   };
 
-  const filterEmojis = () => {
+  const filterEmojis = useCallback(() => {
     let filtered = emojis;
 
     // Filter by search query
@@ -194,7 +191,11 @@ const EmojiEdit = () => {
     }
 
     setFilteredEmojis(filtered);
-  };
+  }, [emojis, searchQuery, selectedGroup]);
+
+  useEffect(() => {
+    filterEmojis();
+  }, [filterEmojis]);
 
   const handleDeleteEmoji = async (emojiId: string, emojiCode: string) => {
     try {

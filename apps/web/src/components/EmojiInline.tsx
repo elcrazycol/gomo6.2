@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/api/client_simple';
 
 interface EmojiInlineProps {
@@ -10,11 +10,7 @@ export const EmojiInline = ({ code, className = "" }: EmojiInlineProps) => {
   const [emoji, setEmoji] = useState<{ image_url: string; name: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadEmoji();
-  }, [code]);
-
-  const loadEmoji = async () => {
+  const loadEmoji = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('emojis')
@@ -32,7 +28,11 @@ export const EmojiInline = ({ code, className = "" }: EmojiInlineProps) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [code]);
+
+  useEffect(() => {
+    loadEmoji();
+  }, [loadEmoji]);
 
   if (loading) {
     return <span className={`inline-block w-4 h-4 bg-muted/30 rounded ${className}`}></span>;

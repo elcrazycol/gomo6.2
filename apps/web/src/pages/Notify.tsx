@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -30,22 +30,7 @@ const Notify = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "unread">("newest");
 
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      
-      if (user) {
-        await loadNotifications(user.id);
-      }
-      
-      setLoading(false);
-    };
-
-    getUser();
-  }, []);
-
-  const loadNotifications = async (userId: string) => {
+  const loadNotifications = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from("notifications")
       .select("*")
@@ -91,7 +76,22 @@ const Notify = () => {
       
       setNotifications(sorted);
     }
-  };
+  }, [sortBy]);
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      
+      if (user) {
+        await loadNotifications(user.id);
+      }
+      
+      setLoading(false);
+    };
+
+    getUser();
+  }, [loadNotifications]);
 
   const markAsRead = async (id: string) => {
     // Immediately update local state
@@ -130,7 +130,7 @@ const Notify = () => {
     if (user) {
       loadNotifications(user.id);
     }
-  }, [sortBy, user]);
+  }, [sortBy, user, loadNotifications]);
 
   if (loading) {
     return (

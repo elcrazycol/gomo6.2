@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,25 @@ interface PrivacySettingsData {
   show_online_status?: boolean;
 }
 
+const defaultSettings: PrivacySettingsData = {
+  visibility_profile: true,
+  hide_messages_from_unregistered: false,
+  hide_threads_from_unregistered: false,
+  block_profile_visits_from_unregistered: false,
+  allow_search_by_username: true,
+  allow_search_by_id: true,
+  allow_search_by_secondary_id: true,
+  allow_private_messages: true,
+  anonymous_mode: false,
+  remove_image_metadata: true,
+  show_threads_tab: true,
+  show_profile_wall: true,
+  allow_wall_posts_from_others: true,
+  show_profile_stats: false,
+  show_detailed_stats: false,
+  show_online_status: true,
+};
+
 const PrivacySettings = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<{ id: string } | null>(null);
@@ -34,24 +53,6 @@ const PrivacySettings = () => {
   const [saving, setSaving] = useState(false);
   const [visibilityExpanded, setVisibilityExpanded] = useState(false);
   const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
-  const defaultSettings: PrivacySettingsData = {
-    visibility_profile: true,
-    hide_messages_from_unregistered: false,
-    hide_threads_from_unregistered: false,
-    block_profile_visits_from_unregistered: false,
-    allow_search_by_username: true,
-    allow_search_by_id: true,
-    allow_search_by_secondary_id: true,
-    allow_private_messages: true,
-    anonymous_mode: false,
-    remove_image_metadata: true,
-    show_threads_tab: true,
-    show_profile_wall: true,
-    allow_wall_posts_from_others: true,
-    show_profile_stats: false,
-    show_detailed_stats: false,
-    show_online_status: true,
-  };
 
   useEffect(() => {
     const getUser = async () => {
@@ -61,34 +62,7 @@ const PrivacySettings = () => {
     getUser();
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      loadPrivacySettings();
-
-      // Set up real-time subscription for privacy settings changes
-      const channel = supabase
-        .channel(`privacy_settings_${user.id}`)
-        .on('postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'privacy_settings',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            // Update local state
-            setSettings(payload.new);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [user]);
-
-  const loadPrivacySettings = async () => {
+  const loadPrivacySettings = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('privacy_settings')
@@ -115,7 +89,13 @@ const PrivacySettings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user) {
+      loadPrivacySettings();
+    }
+  }, [user, loadPrivacySettings]);
 
   const updateSetting = async (key: keyof PrivacySettingsData, value: boolean | Record<string, boolean>) => {
     if (!settings || !user) return;
