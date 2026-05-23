@@ -15,6 +15,12 @@
 | `apps/dev-dashboard` | `@gomo6/dev-dashboard` | 3002 | Dev dashboard для OAuth приложений |
 | `apps/backend-go` | — | 8080 | Go-сервер (REST + WebSocket) |
 
+## 🚀 Развёртывание на сервере
+
+Пошаговое руководство по запуску на VPS / выделенном сервере за 10 минут:
+
+👉 **[DEPLOYMENT.md](DEPLOYMENT.md)** — Docker, Caddy, авто-HTTPS, бэкапы, мониторинг
+
 ## CI / CD
 
 Подробное описание всех GitHub Actions workflow: [`.github/CI_README.md`](.github/CI_README.md)
