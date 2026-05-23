@@ -612,6 +612,9 @@ export const supabase = {
 
         const res = await fetch(`${API_BASE_URL}/storage/v1/upload`, {
           method: "POST",
+          headers: {
+            "apikey": API_KEY,
+          },
           body: formData,
         });
 
