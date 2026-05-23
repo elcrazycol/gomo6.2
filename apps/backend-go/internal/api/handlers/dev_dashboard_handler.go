@@ -31,14 +31,19 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 		clientID = "dev_dashboard"
 	}
 
+	domain := os.Getenv("DOMAIN")
+	if domain == "" {
+		domain = "localhost"
+	}
+
 	baseURL := os.Getenv("ISSUER_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8080"
+		baseURL = "http://" + domain + ":8080"
 	}
 
 	frontendURL := os.Getenv("DEV_DASHBOARD_URL")
 	if frontendURL == "" {
-		frontendURL = "http://dev.localhost:3002"
+		frontendURL = "http://dev." + domain
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
@@ -71,10 +76,17 @@ func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
 
 	// Build redirect URIs from DEV_DASHBOARD_URL env var (supports both dev and production)
 	devDashboardURL := os.Getenv("DEV_DASHBOARD_URL")
+	domain := os.Getenv("DOMAIN")
 	if devDashboardURL == "" {
-		devDashboardURL = "http://dev.localhost:3002"
+		if domain == "" {
+			domain = "localhost"
+		}
+		devDashboardURL = "http://dev." + domain
 	}
-	redirectURIs := fmt.Sprintf(`["%s/callback","http://dev.localhost:3002/callback","http://dev.localhost/callback"]`, devDashboardURL)
+	if domain == "" {
+		domain = "localhost"
+	}
+	redirectURIs := fmt.Sprintf(`["%s/callback","http://dev.%s/callback"]`, devDashboardURL, domain)
 
 	systemUserID := "00000000-0000-0000-0000-000000000000"
 
