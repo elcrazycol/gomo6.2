@@ -93,6 +93,38 @@ for bucket in content post-images; do
   [ "$HTTP_CODE" = "200" ] && pass "CORS $bucket HTTP $HTTP_CODE" || fail "CORS $bucket HTTP $HTTP_CODE"
 done
 
+# ── 10. Create board ──────────────────────────────────────────────────
+echo "=== 10. Create test board ==="
+BOARD_RESP=$(curl -sf -X POST "$BASE/rest/v1/boards" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"slug":"e2e-smoke-board","name":"E2E Smoke Board","description":"Test board for smoke tests"}')
+BOARD_ID=$(echo "$BOARD_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')
+pass "Board created (id: ${BOARD_ID:0:8}...)"
+
+# ── 11. Create thread ─────────────────────────────────────────────────
+echo "=== 11. Create test thread ==="
+THREAD_RESP=$(curl -sf -X POST "$BASE/rest/v1/threads" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"board_id\":\"$BOARD_ID\",\"title\":\"E2E Smoke Thread\",\"content\":\"Thread for smoke test post\"}")
+THREAD_ID=$(echo "$THREAD_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')
+pass "Thread created (id: ${THREAD_ID:0:8}...)"
+
+# ── 12. Create post with attachment ───────────────────────────────────
+echo "=== 12. Create post with attachment ==="
+POST_RESP=$(curl -sf -X POST "$BASE/rest/v1/posts" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d "{\"thread_id\":\"$THREAD_ID\",\"content\":\"Smoke test post with photo\",\"attachments\":[{\"url\":\"e2eci/test-photo.jpg\",\"type\":\"image\",\"mime\":\"image/jpeg\",\"name\":\"test-photo.jpg\",\"size\":631}]}")
+POST_ID=$(echo "$POST_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')
+POST_CONTENT=$(echo "$POST_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["content"])')
+[ "$POST_CONTENT" = "Smoke test post with photo" ] || fail "Post content mismatch: $POST_CONTENT"
+# Verify attachment is present
+ATTACHMENT_COUNT=$(echo "$POST_RESP" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["data"]["attachments"]))')
+[ "$ATTACHMENT_COUNT" = "1" ] || fail "Expected 1 attachment, got $ATTACHMENT_COUNT"
+pass "Post created with attachment (id: ${POST_ID:0:8}...)"
+
 # ── Done ────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════${NC}"

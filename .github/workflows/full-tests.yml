@@ -318,6 +318,60 @@ jobs:
           fi
           echo "Presigned URL host correct: $HOST"
 
+      - name: Create test board
+        id: create_board
+        env:
+          TOKEN: ${{ steps.login.outputs.TOKEN }}
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST http://localhost/rest/v1/boards \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d '{"slug":"e2e-smoke-board","name":"E2E Smoke Board","description":"Test board for smoke tests"}')
+          BOARD_ID=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')
+          echo "BOARD_ID=${BOARD_ID}" >> $GITHUB_OUTPUT
+          echo "Board created: ${BOARD_ID:0:8}..."
+
+      - name: Create test thread
+        id: create_thread
+        env:
+          TOKEN: ${{ steps.login.outputs.TOKEN }}
+          BOARD_ID: ${{ steps.create_board.outputs.BOARD_ID }}
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST http://localhost/rest/v1/threads \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"board_id\":\"$BOARD_ID\",\"title\":\"E2E Smoke Thread\",\"content\":\"Thread for smoke test post\"}")
+          THREAD_ID=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')
+          echo "THREAD_ID=${THREAD_ID}" >> $GITHUB_OUTPUT
+          echo "Thread created: ${THREAD_ID:0:8}..."
+
+      - name: Create post with attachment
+        id: create_post
+        env:
+          TOKEN: ${{ steps.login.outputs.TOKEN }}
+          THREAD_ID: ${{ steps.create_thread.outputs.THREAD_ID }}
+        run: |
+          set -euo pipefail
+          RESP=$(curl -sf -X POST http://localhost/rest/v1/posts \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"thread_id\":\"$THREAD_ID\",\"content\":\"Smoke test post with photo\",\"attachments\":[{\"url\":\"e2eci/test-photo.jpg\",\"type\":\"image\",\"mime\":\"image/jpeg\",\"name\":\"test-photo.jpg\",\"size\":631}]}")
+          POST_ID=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["id"])')
+          POST_CONTENT=$(echo "$RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["content"])')
+          ATTACHMENT_COUNT=$(echo "$RESP" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["data"]["attachments"]))')
+          if [ "$POST_CONTENT" != "Smoke test post with photo" ]; then
+            echo "Post content mismatch: expected 'Smoke test post with photo', got '$POST_CONTENT'"
+            exit 1
+          fi
+          if [ "$ATTACHMENT_COUNT" != "1" ]; then
+            echo "Expected 1 attachment, got $ATTACHMENT_COUNT"
+            exit 1
+          fi
+          echo "Post created with attachment: ${POST_ID:0:8}..."
+          echo "POST_ID=${POST_ID}" >> $GITHUB_OUTPUT
+
       - name: Dump logs on failure
         if: failure()
         run: |
