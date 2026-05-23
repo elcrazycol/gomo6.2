@@ -62,16 +62,10 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 
 // SeedDevDashboardApp creates or ensures the dev-dashboard OAuth app exists
 // It first ensures a system user exists to satisfy the owner_id FK constraint.
-func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
+func SeedDevDashboardApp(db *sql.DB) {
 	clientID := os.Getenv("DEV_DASHBOARD_CLIENT_ID")
 	if clientID == "" {
 		clientID = "dev_dashboard"
-	}
-
-	// Check if the app already exists
-	existing, err := oauthSvc.GetApplicationByClientID(clientID)
-	if err == nil && existing != nil {
-		return // Already seeded
 	}
 
 	// Build redirect URIs from DEV_DASHBOARD_URL env var (supports both dev and production)
@@ -89,26 +83,42 @@ func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
 	redirectURIs := fmt.Sprintf(`["%s/callback","http://dev.%s/callback"]`, devDashboardURL, domain)
 
 	systemUserID := "00000000-0000-0000-0000-000000000000"
+	systemDomain := os.Getenv("DOMAIN")
+	if systemDomain == "" {
+		systemDomain = "localhost:8080"
+	}
 
 	// First ensure a system user exists to satisfy the owner_id FK constraint
 	_, _ = db.Exec(`
 		INSERT INTO users (id, username, email, password_hash, domain)
 		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT (id) DO UPDATE SET
+			username = EXCLUDED.username,
+			email = EXCLUDED.email,
+			domain = EXCLUDED.domain
 	`,
 		systemUserID,
 		"__system__",
 		"system@gomo6.local",
 		"",
-		"localhost:8080",
+		systemDomain,
 	)
 
-	// Create the dev-dashboard as a system app (public client with PKCE)
-	_, err = db.Exec(`
+	// Create or update the dev-dashboard as a system app (public client with PKCE)
+	_, err := db.Exec(`
 		INSERT INTO oauth_applications 
 			(owner_id, name, description, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_confidential, logo_url, homepage_url, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-		ON CONFLICT (client_id) DO NOTHING
+		ON CONFLICT (client_id) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			redirect_uris = EXCLUDED.redirect_uris,
+			allowed_scopes = EXCLUDED.allowed_scopes,
+			is_confidential = EXCLUDED.is_confidential,
+			logo_url = EXCLUDED.logo_url,
+			homepage_url = EXCLUDED.homepage_url,
+			is_active = EXCLUDED.is_active,
+			updated_at = NOW()
 	`,
 		systemUserID,
 		"gomo6 Dev Dashboard",
@@ -124,6 +134,6 @@ func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
 	)
 
 	if err != nil {
-		return // silent fail, might already exist
+		return
 	}
 }

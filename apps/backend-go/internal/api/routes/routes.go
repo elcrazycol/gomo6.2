@@ -35,7 +35,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Seed dev-dashboard OAuth app (public client with PKCE)
 	// This ensures the dev-dashboard can authenticate via OAuth
-	handlers.SeedDevDashboardApp(db, oauthService)
+	handlers.SeedDevDashboardApp(db)
 
 	oauthHandler := handlers.NewOAuthHandler(db, oauthService, authService)
 	devHandler := handlers.NewDeveloperHandler(db, oauthService)
