@@ -330,9 +330,10 @@ ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
 # POSTGRES_PASSWORD=gomo6password
 
 # ── S3 / Garage ─────────────────────────────────────────────────────────────
-# При необходимости замените на свои ключи:
-# GARAGE_S3_ACCESS_KEY=GK3515373e4c851ebaad366558
-# GARAGE_S3_SECRET_KEY=7d37d093435a41f2aab8f13c19ba067d9776c90215f56614adad6ece597dbb34
+# Ключи для Garage S3 заданы в docker-compose.yml.
+# При необходимости переопределите здесь:
+# GARAGE_S3_ACCESS_KEY=
+# GARAGE_S3_SECRET_KEY=
 GARAGE_S3_PUBLIC_ENDPOINT=http://${DOMAIN}:3900
 ENVEOF
 
