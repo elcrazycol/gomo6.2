@@ -393,8 +393,8 @@ const Profile = () => {
 
       if (error) throw error;
 
-      setAvatarHistory(data || []);
-      return data || [];
+      setAvatarHistory((data || []) as any[]);
+      return (data || []) as any[];
     } catch (error) {
       console.error('Error loading avatar history:', error);
       return [];
@@ -835,7 +835,7 @@ const Profile = () => {
           user_uuid: userId
         });
 
-        if (!historyData || historyData.length === 0) {
+        if (!historyData || (historyData as any[]).length === 0) {
           setShowAvatarGallery(false);
         }
       } else {
