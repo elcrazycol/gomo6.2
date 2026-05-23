@@ -327,6 +327,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/delete_avatar_from_history", rpcHandler.DeleteAvatarFromHistory)
 			protected.POST("/toggle_achievement_pin", rpcHandler.ToggleAchievementPin)
 
+			// GomoSub RPC functions
+			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
+
 			// Messenger RPC functions
 			protected.POST("/get_or_create_direct_chat", rpcHandler.GetOrCreateDirectChat)
 			protected.POST("/chat_mark_delivered", rpcHandler.ChatMarkDelivered)
