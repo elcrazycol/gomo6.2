@@ -104,9 +104,13 @@
 			reverse_proxy web:80
 		}
 	}
-
 	# ── Fallback ─────────────────────────────────────────────────────────
 	handle {
 		respond "Not Found" 404
 	}
+}
+
+# ── S3 Object Storage (Garage) — presigned URL через отдельный subdomain ──
+s3.{$DOMAIN:localhost} {
+	reverse_proxy garage:3900
 }
