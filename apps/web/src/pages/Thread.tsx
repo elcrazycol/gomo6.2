@@ -251,7 +251,7 @@ const Thread = () => {
     if (!text) return [];
 
     // Process ||spoiler|| format first (simple inline spoilers)
-    let processedText = text;
+    const processedText = text;
     const elements: React.ReactNode[] = [];
     let key = 0;
 
@@ -856,7 +856,7 @@ const Thread = () => {
 
   const renderContent = (text: string) => {
     const elements: React.ReactNode[] = [];
-    let currentIndex = 0;
+    const currentIndex = 0;
     let key = 0;
 
     // Process spoilers first

@@ -133,7 +133,7 @@ export const supabase = {
 
   // Database - simplified but complete implementation
   from: (table: string) => {
-    let queryState: any = {
+    const queryState: any = {
       select: '*',
       selectOptions: null as null | { count?: string; head?: boolean },
       filters: [] as Array<{ type: string; column: string; value: any; operator?: string }>,
