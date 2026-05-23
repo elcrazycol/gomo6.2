@@ -14,6 +14,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { FileUpload } from "@/components/FileUpload";
 import { Settings, ArrowLeft, Plus, CheckCircle, Loader2 } from "lucide-react";
+import { uploadFile, getPublicUrl, removeFile } from "@/utils/storage";
 
 interface EmojiGroup {
   id: string;
@@ -291,27 +292,19 @@ const EmojiEditForm = () => {
         // Get file extension from original file
         const originalExtension = selectedFile.name.split('.').pop() || 'png';
         const fileName = `emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
-        const { error: uploadError } = await supabase.storage
-          .from('emojis')
-          .upload(fileName, compressedFile);
-
-        if (uploadError) throw uploadError;
+        await uploadFile('emojis', fileName, compressedFile);
 
         // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('emojis')
-          .getPublicUrl(fileName);
+        const { publicUrl } = getPublicUrl('emojis', fileName);
 
         imageUrl = publicUrl;
 
-        // Old image will be overwritten by new one
+        // Delete old image — use proper S3-compatible removeFile
         if (emoji.image_url !== imageUrl) {
-          const oldFileName = emoji.image_url.split('/').pop();
-          if (oldFileName) {
+          const oldKey = emoji.image_url.split('/').pop();
+          if (oldKey) {
             try {
-              // Delete old image — best effort
-              const { data: { publicUrl: oldUrl } } = supabase.storage.from('emojis').getPublicUrl(oldFileName);
-              await fetch(oldUrl, { method: 'DELETE' });
+              await removeFile('emojis', oldKey);
             } catch {
               // best-effort deletion, ignore errors
             }
