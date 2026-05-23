@@ -34,6 +34,7 @@ chmod +x deploy.sh && sudo ./deploy.sh
 - ✅ Установит Docker и Docker Compose (если не установлены)
 - ✅ Запросит домен (Enter = localhost для dev) и email для Let's Encrypt
 - ✅ Сгенерирует JWT_SECRET и FEDERATION_KEY
+- ✅ Проверит DNS A-записи для домена и поддоменов (только для продакшна)
 - ✅ Создаст `.env` с защитой `chmod 600`
 - ✅ Настроит Caddy для авто-HTTPS (при наличии email)
 - ✅ Соберёт и запустит все 8 контейнеров
