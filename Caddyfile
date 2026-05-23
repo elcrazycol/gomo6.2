@@ -15,10 +15,12 @@
 # =============================================================================
 
 {
-	auto_https off
+	# auto_https ON by default (no 'off' = Caddy automatically provisions TLS certs)
+	# Local dev (.localhost TLD): Caddy gracefully falls back to HTTP
+	# Production (real domain): Caddy gets Let's Encrypt certs automatically
 }
 
-:80 {
+{$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost} {
 	# ── Security headers ──────────────────────────────────────────────────
 	header {
 		X-Content-Type-Options "nosniff"
@@ -30,6 +32,37 @@
 	log {
 		output stdout
 		format json
+	}
+
+	# ── Documentation (docs.* subdomain) ──────────────────────────────────
+	@docs host docs.{$DOMAIN:localhost}
+	handle @docs {
+		handle /api/* {
+			reverse_proxy backend:8080
+		}
+		handle /oauth/* {
+			reverse_proxy backend:8080
+		}
+		handle /.well-known/* {
+			reverse_proxy backend:8080
+		}
+		handle {
+			reverse_proxy docs:80
+		}
+	}
+
+	# ── Dev Dashboard (dev.* subdomain) ───────────────────────────────────
+	@dev host dev.{$DOMAIN:localhost}
+	handle @dev {
+		handle /api/* {
+			reverse_proxy backend:8080
+		}
+		handle /oauth/* {
+			reverse_proxy backend:8080
+		}
+		handle {
+			reverse_proxy dev-dashboard:80
+		}
 	}
 
 	# ── Main Web App (localhost or custom domain) ─────────────────────────
@@ -68,37 +101,6 @@
 		}
 		handle {
 			reverse_proxy web:80
-		}
-	}
-
-	# ── Documentation (docs.* subdomain) ──────────────────────────────────
-	@docs host docs.{$DOMAIN:localhost}
-	handle @docs {
-		handle /api/* {
-			reverse_proxy backend:8080
-		}
-		handle /oauth/* {
-			reverse_proxy backend:8080
-		}
-		handle /.well-known/* {
-			reverse_proxy backend:8080
-		}
-		handle {
-			reverse_proxy docs:80
-		}
-	}
-
-	# ── Dev Dashboard (dev.* subdomain) ───────────────────────────────────
-	@dev host dev.{$DOMAIN:localhost}
-	handle @dev {
-		handle /api/* {
-			reverse_proxy backend:8080
-		}
-		handle /oauth/* {
-			reverse_proxy backend:8080
-		}
-		handle {
-			reverse_proxy dev-dashboard:80
 		}
 	}
 
