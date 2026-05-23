@@ -8,14 +8,30 @@ CREATE TABLE IF NOT EXISTS gomosub_rules_acceptance (
     PRIMARY KEY (user_id, board_id)
 );
 
--- Add foreign key constraints
-ALTER TABLE gomosub_rules_acceptance 
-    ADD CONSTRAINT fk_gomosub_rules_acceptance_user_id 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+-- Add foreign key constraints (IF NOT EXISTS — PostgreSQL has no ALTER TABLE ADD CONSTRAINT IF NOT EXISTS)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_gomosub_rules_acceptance_user_id'
+    ) THEN
+        ALTER TABLE gomosub_rules_acceptance 
+            ADD CONSTRAINT fk_gomosub_rules_acceptance_user_id 
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
+END;
+$$;
 
-ALTER TABLE gomosub_rules_acceptance 
-    ADD CONSTRAINT fk_gomosub_rules_acceptance_board_id 
-    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_gomosub_rules_acceptance_board_id'
+    ) THEN
+        ALTER TABLE gomosub_rules_acceptance 
+            ADD CONSTRAINT fk_gomosub_rules_acceptance_board_id 
+            FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE;
+    END IF;
+END;
+$$;
 
 -- Add indexes
 CREATE INDEX IF NOT EXISTS idx_gomosub_rules_acceptance_user_id ON gomosub_rules_acceptance(user_id);
@@ -31,6 +47,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_gomosub_rules_acceptance_updated_at ON gomosub_rules_acceptance;
 CREATE TRIGGER update_gomosub_rules_acceptance_updated_at 
     BEFORE UPDATE ON gomosub_rules_acceptance 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
