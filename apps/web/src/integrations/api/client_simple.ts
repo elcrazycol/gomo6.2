@@ -603,39 +603,20 @@ export const supabase = {
       upload: async (path: string, file: File) => {
         const safeBucket = bucket;
         const safeKey = path.replace(/^\/+/, "");
-        const presignRes = await fetch(`${API_BASE_URL}/storage/v1/presign-upload`, {
+
+        // Upload through backend server-side (avoids CORS/S3-signature issues)
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('bucket', safeBucket);
+        formData.append('key', safeKey);
+
+        const res = await fetch(`${API_BASE_URL}/storage/v1/upload`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": API_KEY,
-          },
-          body: JSON.stringify({
-            bucket: safeBucket,
-            key: safeKey,
-            content_type: file.type || "application/octet-stream",
-            expires_seconds: 3600,
-          }),
+          body: formData,
         });
 
-        if (!presignRes.ok) {
-          return { data: null, error: { message: `Presign failed: ${presignRes.status}` } };
-        }
-
-        const presign = await presignRes.json();
-        if (!presign?.success || !presign?.data?.upload_url) {
-          return { data: null, error: { message: presign?.error || "Presign failed" } };
-        }
-
-        const putRes = await fetch(presign.data.upload_url, {
-          method: "PUT",
-          headers: {
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        });
-
-        if (!putRes.ok) {
-          return { data: null, error: { message: `PUT failed: ${putRes.status}` } };
+        if (!res.ok) {
+          return { data: null, error: { message: `Upload failed: ${res.status}` } };
         }
 
         return { data: { path: safeKey }, error: null };
