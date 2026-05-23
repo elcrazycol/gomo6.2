@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -693,5 +694,260 @@ func TestToggleAchievementPin_MaxPinned(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── CreateGomoSub ───────────────────────────────────────────────────────────
+
+func TestCreateGomoSub_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	// Slug uniqueness check — no existing row
+	mock.ExpectQuery(`(?s).*SELECT id FROM boards WHERE slug = \$1`).
+		WithArgs("my-test").
+		WillReturnError(sql.ErrNoRows)
+
+	// INSERT + RETURNING
+	now := time.Now()
+	mock.ExpectQuery(`(?s).*INSERT INTO boards.*RETURNING.*`).
+		WithArgs("my-test", "My Test", "A test gomosub",
+			"u1", nil, nil, "[]", nil).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "slug", "name", "description", "is_gomosub", "is_rules_board", "owner_id",
+			"gomosub_avatar_url", "cover_image_url", "gomosub_tags", "rules_markdown", "rules_updated_at", "created_at",
+		}).AddRow("board-1", "my-test", "My Test", "A test gomosub", true, false,
+			"u1", nil, nil, "[]", nil, nil, now))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"slug":        "my-test",
+		"name":        "My Test",
+		"description": "A test gomosub",
+	}, claims)
+	h.CreateGomoSub(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.SupabaseResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %v", resp.Error)
+	}
+
+	// Verify the response contains expected fields
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("failed to marshal response data: %v", err)
+	}
+	var board models.Board
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatalf("response data is not a valid Board: %v", err)
+	}
+	if board.Slug != "my-test" {
+		t.Fatalf("expected slug 'my-test', got %q", board.Slug)
+	}
+	if board.Name != "My Test" {
+		t.Fatalf("expected name 'My Test', got %q", board.Name)
+	}
+	if !board.IsGomosub {
+		t.Fatal("expected is_gomosub = true")
+	}
+	if board.OwnerID == nil || *board.OwnerID != "u1" {
+		t.Fatalf("expected owner_id 'u1', got %v", board.OwnerID)
+	}
+}
+
+func TestCreateGomoSub_Unauthenticated(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"slug":        "my-test",
+		"name":        "My Test",
+		"description": "A test gomosub",
+	}, nil)
+	h.CreateGomoSub(c)
+	_ = mock
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateGomoSub_MissingFields(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	tests := []struct {
+		name string
+		body map[string]interface{}
+	}{
+		{"empty slug", map[string]interface{}{"slug": "", "name": "Name", "description": "Desc"}},
+		{"empty name", map[string]interface{}{"slug": "my-test", "name": "", "description": "Desc"}},
+		{"empty description", map[string]interface{}{"slug": "my-test", "name": "Name", "description": ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := newRPCPostContext(tt.body, claims)
+			h.CreateGomoSub(c)
+			_ = mock
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateGomoSub_InvalidSlug(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	tests := []struct {
+		name string
+		slug string
+	}{
+		{"starts with hyphen", "-test"},
+		{"starts with underscore", "_test"},
+		{"too short (single char)", "a"},
+		{"has spaces", "my test"},
+		{"cyrillic", "тест"},
+		{"contains dot", "test.slug"},
+		{"too long (26 chars)", "abcdefghijklmnopqrstuvwxyz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := newRPCPostContext(map[string]interface{}{
+				"slug":        tt.slug,
+				"name":        "Name",
+				"description": "Desc",
+			}, claims)
+			h.CreateGomoSub(c)
+			_ = mock
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for slug=%q, got %d: %s", tt.slug, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateGomoSub_ReservedSlug(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	reserved := []string{"rules", "g", "admin", "a", "tech", "news"}
+
+	for _, slug := range reserved {
+		t.Run(slug, func(t *testing.T) {
+			c, w := newRPCPostContext(map[string]interface{}{
+				"slug":        slug,
+				"name":        "Name",
+				"description": "Desc",
+			}, claims)
+			h.CreateGomoSub(c)
+			_ = mock
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for reserved slug=%q, got %d: %s", slug, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateGomoSub_SlugTaken(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	// Slug uniqueness check — existing row found
+	mock.ExpectQuery(`(?s).*SELECT id FROM boards WHERE slug = \$1`).
+		WithArgs("taken-slug").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("existing-board-id"))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"slug":        "taken-slug",
+		"name":        "Name",
+		"description": "Desc",
+	}, claims)
+	h.CreateGomoSub(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateGomoSub_DBErrorOnSelect(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	mock.ExpectQuery(`(?s).*SELECT id FROM boards WHERE slug = \$1`).
+		WithArgs("my-test").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"slug":        "my-test",
+		"name":        "My Test",
+		"description": "A test gomosub",
+	}, claims)
+	h.CreateGomoSub(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateGomoSub_DBErrorOnInsert(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	mock.ExpectQuery(`(?s).*SELECT id FROM boards WHERE slug = \$1`).
+		WithArgs("my-test").
+		WillReturnError(sql.ErrNoRows)
+
+	mock.ExpectQuery(`(?s).*INSERT INTO boards.*RETURNING.*`).
+		WithArgs("my-test", "My Test", "A test gomosub",
+			"u1", nil, nil, "[]", nil).
+		WillReturnError(sqlmock.ErrCancelled)
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"slug":        "my-test",
+		"name":        "My Test",
+		"description": "A test gomosub",
+	}, claims)
+	h.CreateGomoSub(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	mock.ExpectQuery(`(?s).*SELECT id FROM boards WHERE slug = \$1`).
+		WithArgs("my-test").
+		WillReturnError(sql.ErrNoRows)
+
+	// INSERT returns duplicate key error (race condition — was created between SELECT and INSERT)
+	mock.ExpectQuery(`(?s).*INSERT INTO boards.*RETURNING.*`).
+		WithArgs("my-test", "My Test", "A test gomosub",
+			"u1", nil, nil, "[]", nil).
+		WillReturnError(errors.New("duplicate key value violates unique constraint"))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"slug":        "my-test",
+		"name":        "My Test",
+		"description": "A test gomosub",
+	}, claims)
+	h.CreateGomoSub(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 }

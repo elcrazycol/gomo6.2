@@ -180,32 +180,31 @@ const GomoSubCreate = () => {
 
     setCreating(true);
     try {
-      const { data: existing } = await supabase
-        .from("boards")
-        .select("id")
-        .eq("slug", slug)
-        .maybeSingle();
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
 
-      if (existing) {
-        toast.error("Такой слаг уже занят");
-        return;
-      }
-
-      const { error } = await supabase
-        .from("boards")
-        .insert({
+      const res = await fetch('/rpc/v1/create_gomosub', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
           slug,
           name: form.name.trim(),
           description: form.description.trim(),
-          owner_id: user.id,
-          is_gomosub: true,
+          rules_markdown: buildRulesMarkdown(),
           cover_image_url: coverImages[0] ?? null,
           gomosub_avatar_url: avatarImages[0] ?? null,
-          rules_markdown: buildRulesMarkdown(),
-          gomosub_tags: []
-        });
+          gomosub_tags: [],
+        }),
+      });
 
-      if (error) throw error;
+      const data = await res.json();
+
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
 
       toast.success("G-саб создан");
       navigate(`/g/${slug}`);
