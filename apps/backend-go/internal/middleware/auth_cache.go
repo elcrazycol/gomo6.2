@@ -68,7 +68,7 @@ func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Clien
 			return
 		}
 
-		// Cache the validated claims in Redis (30 second TTL)
+		// Cache the validated claims in Redis (5 minute TTL)
 		if redisClient != nil {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -76,7 +76,7 @@ func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Clien
 
 				claimsJSON, err := json.Marshal(claims)
 				if err == nil {
-					err = redisClient.Set(ctx, cacheKey, claimsJSON, 30*time.Second).Err()
+					err = redisClient.Set(ctx, cacheKey, claimsJSON, 2*time.Minute).Err()
 					if err != nil {
 						log.Printf("[AuthCache] Failed to cache token: %v", err)
 					}

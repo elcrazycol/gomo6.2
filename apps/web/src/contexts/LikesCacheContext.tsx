@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
 import { supabase } from '@/integrations/api/client_simple';
 
 interface LikeData {
@@ -21,7 +21,7 @@ const MAX_CACHE_SIZE = 200;
 
 export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
   const [cache, setCache] = useState<Map<string, LikeData>>(new Map());
-  const [pendingRequests, setPendingRequests] = useState<Map<string, Promise<LikeData>>>(new Map());
+  const pendingRequests = useRef(new Map<string, Promise<LikeData>>());
 
   const getCacheKey = (postId: string, isThread: boolean) => `${isThread ? 'thread' : 'post'}:${postId}`;
 
@@ -56,7 +56,7 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
     if (cached) return cached;
 
     // Check if request is already pending
-    const pending = pendingRequests.get(key);
+    const pending = pendingRequests.current.get(key);
     if (pending) return pending;
 
     // Create new request
@@ -107,15 +107,11 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
         return likeData;
       } finally {
         // Remove from pending
-        setPendingRequests(prev => {
-          const next = new Map(prev);
-          next.delete(key);
-          return next;
-        });
+        pendingRequests.current.delete(key);
       }
     })();
 
-    setPendingRequests(prev => new Map(prev).set(key, request));
+    pendingRequests.current.set(key, request);
     return request;
   }, [getLikeData, pendingRequests]);
 
@@ -139,7 +135,7 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
 
   const clearCache = useCallback(() => {
     setCache(new Map());
-    setPendingRequests(new Map());
+    pendingRequests.current.clear();
   }, []);
 
   return (

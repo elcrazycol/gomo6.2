@@ -40,6 +40,18 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 
 	// Add foreign keys based on table
 	switch tableName {
+	case "profiles":
+		if username, ok := result["username"].(string); ok && username != "" {
+			values["username"] = username
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating profile cache: id=%s, username=%s\n", values["id"], values["username"])
+		cache.InvalidateForProfile(h.redis, values["id"], values["username"])
+	case "boards":
+		if slug, ok := result["slug"].(string); ok && slug != "" {
+			values["slug"] = slug
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating board cache: id=%s, slug=%s\n", values["id"], values["slug"])
+		cache.InvalidateForBoard(h.redis, values["id"], values["slug"])
 	case "posts":
 		if threadID, ok := result["thread_id"].(string); ok && threadID != "" {
 			values["thread_id"] = threadID
@@ -716,6 +728,13 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		// Invalidate cache for this user's wall
 		if userID, ok := result["user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+		}
+
+		// Cascade: invalidate comments and likes for this post
+		if postID, ok := result["id"].(string); ok && h.redis != nil {
+			cache.InvalidateForTable(h.redis, "profile_wall_post_comments", map[string]string{"post_id": postID})
+			cache.InvalidateForTable(h.redis, "profile_wall_post_likes", map[string]string{"post_id": postID})
+			cache.InvalidateForTable(h.redis, "profile_wall_post_reposts", map[string]string{"post_id": postID})
 		}
 
 		if h.hub != nil {

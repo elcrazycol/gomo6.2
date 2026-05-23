@@ -143,8 +143,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Supabase compatibility routes
 	rest := router.Group("/rest/v1")
 	{
-		// Apply data caching middleware for GET requests (30 second TTL)
-		rest.Use(middleware.DataCacheMiddleware(redis, 30*time.Second))
+		// Apply data caching middleware for GET requests (2 minute TTL)
+		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
 
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)
