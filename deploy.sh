@@ -317,11 +317,7 @@ DOMAIN=${DOMAIN}
 
 # ── Security ────────────────────────────────────────────────────────────────
 JWT_SECRET=${JWT_SECRET}
-FEDERATION_KEY=${FEDERATION_KEY}
-ACME_EMAIL=${EMAIL}
-
-
-# ── Environment ─────────────────────────────────────────────────────────────
+FEDERATION_KEY=${FEDERATION_KEY}# ── Environment ─────────────────────────────────────────────────────────────
 ENVIRONMENT=${MODE}
 
 # ── Allowed CORS origins ────────────────────────────────────────────────────
@@ -352,9 +348,9 @@ ENVEOF
 start_services() {
     step "7/9" "Запуск сервисов"
 
-    # ── Caddy для production TLS — email передаётся через .env → docker-compose
-    # Caddyfile уже содержит email {$ACME_EMAIL: } в глобальном блоке.
-    # Ничего патчить не нужно — Caddy сам прочитает ACME_EMAIL из env.
+    # ── Caddy для production TLS
+    # Caddy по умолчанию включает auto_https для реальных доменов.
+    # Let's Encrypt выдаёт сертификаты без email. Ничего патчить не нужно.
 
     # Pull images first for faster startup
     info "Загрузка Docker-образов (первый раз может занять время)..."
