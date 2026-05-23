@@ -38,7 +38,7 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 
 	baseURL := os.Getenv("ISSUER_URL")
 	if baseURL == "" {
-		baseURL = "http://" + domain + ":8080"
+		baseURL = "http://" + domain
 	}
 
 	frontendURL := os.Getenv("DEV_DASHBOARD_URL")

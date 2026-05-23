@@ -38,6 +38,10 @@
 		handle /api/* {
 			reverse_proxy backend:8080
 		}
+		# /oauth/consent is a frontend SPA route, not a backend API
+		handle /oauth/consent* {
+			reverse_proxy web:80
+		}
 		handle /oauth/* {
 			reverse_proxy backend:8080
 		}
