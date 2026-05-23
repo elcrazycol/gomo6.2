@@ -25,5 +25,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Environment files
+.env
+.env.local
+.env.production
+
 # Test coverage
 *.out

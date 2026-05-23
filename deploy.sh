@@ -297,11 +297,11 @@ create_env() {
 
     # Спрашиваем подтверждение, если .env уже существует
     if [ -f .env ]; then
-        printf "${YELLOW}.env уже существует. Перезаписать? (y/N):${NC} "
+        printf "${YELLOW}.env уже существует. Перезаписать? (Y/n):${NC} "
         read -r overwrite
         case "$overwrite" in
-            [yY]|[yY][eE][sS]) : ;;
-            *) info ".env оставлен без изменений"; return ;;
+            [nN]|[nN][oO]) info ".env оставлен без изменений"; return ;;
+            *) : ;;
         esac
     fi
 
