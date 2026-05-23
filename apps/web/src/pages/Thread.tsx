@@ -1048,10 +1048,10 @@ const Thread = () => {
                   <div>
                     <UserBadge
                       userId={thread.user_id}
-                      username={(thread as any).username || "Аноним"}
-                      isAnonymous={false}
-                      showOutline={false}
-                      isThreadOpener={true}
+                    username={(thread as any).username || "Аноним"}
+                    isAnonymous={false}
+                    showOutline={false}
+                    isThreadOpener={true}
                     />
                     <div className="text-muted-foreground">
                       {formatDistanceToNow(new Date(thread.created_at), {
@@ -1068,7 +1068,7 @@ const Thread = () => {
                   {" · "}
                   <UserBadge
                     userId={thread.user_id}
-                    username={thread.username || "Аноним"}
+                    username={(thread as any).username || "Аноним"}
                     isAnonymous={false}
                     showOutline={false}
                   />

@@ -19,7 +19,7 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-type AudioInstance = (HTMLMediaElement & { playing?: boolean; media?: HTMLMediaElement; on?: (event: string, handler: (...args: any[]) => void) => void }) | { play: () => void; pause: () => void; media?: HTMLMediaElement; on?: (event: string, handler: (...args: any[]) => void) => void; muted?: boolean; paused?: boolean; currentTime?: number; duration?: number; volume?: number | (() => number) };
+type AudioInstance = (HTMLMediaElement & { playing?: boolean; media?: HTMLMediaElement; on?: (event: string, handler: (...args: any[]) => void) => void }) | { play: () => Promise<void>; pause: () => void; media?: HTMLMediaElement; on?: (event: string, handler: (...args: any[]) => void) => void; muted?: boolean; paused?: boolean; ended?: boolean; currentTime?: number; duration?: number; volume?: number | (() => number) };
 type PlaylistEntry = { id: string; title: string; src?: string; index: number };
 
 type NowPlayingState = {

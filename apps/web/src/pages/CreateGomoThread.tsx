@@ -32,13 +32,9 @@ const CreateGomoThread = () => {
   const [contentJson, setContentJson] = useState<unknown>(null);
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
 
-  // CreateAttachmentMeta can accept either a value or a function
-  const onAttachmentsChange = (value: AttachmentMeta[] | ((prev: AttachmentMeta[]) => AttachmentMeta[])) => {
-    if (typeof value === "function") {
-      setAttachments(value);
-    } else {
-      setAttachments(value);
-    }
+  // Adapter to match AttachmentUpload's expected onChange type
+  const onAttachmentsChange = (attachments: AttachmentMeta[]) => {
+    setAttachments(attachments);
   };
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const editorRef = useRef<GomoRichEditorHandle | null>(null);

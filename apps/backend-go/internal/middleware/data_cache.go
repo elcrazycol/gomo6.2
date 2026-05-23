@@ -12,9 +12,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// DataCacheMiddleware provides Redis-based caching for GET requests
-// Caches response data to reduce database load
-// DefaultDataCacheTTL is the default TTL for data cache entries
+// DefaultDataCacheTTL is the default TTL for data cache entries.
+// Caches response data to reduce database load.
 const DefaultDataCacheTTL = 2 * time.Minute
 
 func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.HandlerFunc {

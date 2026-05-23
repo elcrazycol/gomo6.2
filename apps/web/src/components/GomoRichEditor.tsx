@@ -497,7 +497,7 @@ const Toolbar = ({
         node.setStyle(nextStyle);
       });
 
-      selection.setStyle("");
+      (selection as any).setStyle("");
     });
 
     window.requestAnimationFrame(() => {
@@ -533,7 +533,7 @@ const Toolbar = ({
     withSavedSelection((selection) => {
       $patchStyleText(selection, { color: nextColor });
       if (!nextColor) {
-        selection.setStyle("");
+        (selection as any).setStyle("");
       }
     });
     setIsColorDialogOpen(false);

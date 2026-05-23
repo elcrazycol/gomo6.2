@@ -93,7 +93,7 @@ export const ThreadFeed = ({
           }
         );
 
-        if (!recError && recommended && recommended.length > 0) {
+        if (!recError && recommended && (recommended as any[]).length > 0) {
           // Get full thread data for recommendations
           const recommendedIds = (recommended as any[]).map((r: any) => r.thread_id);
           const { data: recThreadsData, error: recThreadsError } = await supabase

@@ -154,7 +154,7 @@ export const legacyContentToLexicalJson = (content: string): LexicalEditorStateJ
       } else {
         root.append(...nodes);
       }
-      json = editor.getEditorState().toJSON() as LexicalEditorStateJson;
+      json = editor.getEditorState().toJSON() as unknown as LexicalEditorStateJson;
     });
 
     return json;
@@ -231,8 +231,8 @@ const ensureNonEmptyEditorState = (state: LexicalEditorStateJson): LexicalEditor
       type: "root",
       version: state.root.version ?? 1,
       direction: ("direction" in state.root ? (state.root as Record<string, unknown>).direction : null) as string | null | undefined,
-      format: "format" in state.root ? (state.root as Record<string, unknown>).format : 0,
-      indent: "indent" in state.root ? (state.root as Record<string, unknown>).indent : 0,
+      format: ("format" in state.root ? (state.root as Record<string, unknown>).format : 0) as number,
+      indent: ("indent" in state.root ? (state.root as Record<string, unknown>).indent : 0) as number,
       children: [EMPTY_PARAGRAPH_NODE],
     },
   };

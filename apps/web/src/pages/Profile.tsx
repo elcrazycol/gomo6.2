@@ -370,7 +370,7 @@ const Profile = () => {
       const { data: likesData } = await supabase.rpc('get_user_likes_received_count', {
         user_uuid: userId
       });
-      setLikesReceived(likesData || 0);
+      setLikesReceived((likesData as number) || 0);
     }
   };
 
@@ -816,13 +816,13 @@ const Profile = () => {
         const historyResult = await loadAvatarHistory();
 
         // Update avatar URL from history - find the current one
-        if (historyResult && historyResult.length > 0) {
-          const currentAvatar = historyResult.find((a: any) => a.is_current);
+        if (historyResult && (historyResult as any[]).length > 0) {
+          const currentAvatar = (historyResult as any[]).find((a: any) => a.is_current);
           if (currentAvatar) {
             setAvatarUrl(currentAvatar.avatar_url);
-          } else if (historyResult.length > 0) {
+          } else if ((historyResult as any[]).length > 0) {
             // If no current avatar marked, use the most recent one
-            setAvatarUrl(historyResult[0].avatar_url);
+            setAvatarUrl((historyResult as any[])[0].avatar_url);
           } else {
             setAvatarUrl(null);
           }
