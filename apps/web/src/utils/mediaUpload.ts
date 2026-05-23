@@ -219,18 +219,17 @@ const extractAudioMetadata = async (file: File): Promise<{
                 }),
               });
 
-              if (response.ok) {
-                const { upload_url } = await response.json();
+              const presignJson = await response.json();
+              const { upload_url } = presignJson.data;
 
-                const uploadResponse = await fetch(upload_url, {
-                  method: 'PUT',
-                  body: blob,
-                  headers: { 'Content-Type': picture.format },
-                });
+              const uploadResponse = await fetch(upload_url, {
+                method: 'PUT',
+                body: blob,
+                headers: { 'Content-Type': picture.format },
+              });
 
-                if (uploadResponse.ok) {
-                  coverArt = coverKey;
-                }
+              if (uploadResponse.ok) {
+                coverArt = coverKey;
               }
             }
           } catch (e) {
@@ -436,7 +435,8 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       throw new Error(errorData.error || 'Presign failed');
     }
 
-    const { upload_url } = await presignResponse.json();
+    const presignJson = await presignResponse.json();
+    const { upload_url } = presignJson.data;
 
     // Upload file directly to Garage using presigned URL
     const uploadResponse = await fetch(upload_url, {

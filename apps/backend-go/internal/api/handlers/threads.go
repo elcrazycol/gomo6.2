@@ -147,9 +147,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -169,9 +167,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		if avatarURL.Valid {
@@ -195,10 +191,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	}
 
 	threadCount := len(threads)
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data:  threads,
-		Count: &threadCount,
-	})
+	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: threads, Count: &threadCount})
 }
 
 func (h *ThreadsHandler) GetThread(c *gin.Context) {
@@ -207,9 +200,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	// Parse and validate UUID
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid thread ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
@@ -239,14 +230,10 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("Thread not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -268,26 +255,20 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		IsRulesBoard: boardIsRulesBoard,
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: thread,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(thread))
 }
 
 func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 	var req models.CreateThreadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Get user ID from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -296,9 +277,7 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 	// Validate board_id UUID
 	_, err := uuid.Parse(req.BoardID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid board ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid board ID format"))
 		return
 	}
 
@@ -306,9 +285,7 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 	var boardExists bool
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1)", req.BoardID).Scan(&boardExists)
 	if err != nil || !boardExists {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Board not found"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
 		return
 	}
 
@@ -348,9 +325,7 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if len(retContentJSON) > 0 {
@@ -376,9 +351,7 @@ func (h *ThreadsHandler) CreateThread(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusCreated, models.SupabaseResponse{
-		Data: thread,
-	})
+	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
 }
 
 func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
@@ -388,9 +361,7 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		id = strings.TrimPrefix(id, "eq.")
 	}
 	if id == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Thread id is required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Thread id is required"))
 		return
 	}
 
@@ -398,30 +369,22 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	err := h.db.QueryRow(`SELECT user_id FROM threads WHERE id = $1`, id).Scan(&ownerID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("Thread not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	result, err := h.db.Exec("DELETE FROM threads WHERE id = $1", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, models.SupabaseResponse{
-			Error: stringPtr("Thread not found"),
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 		return
 	}
 
@@ -432,9 +395,7 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		middleware.InvalidateCacheForThread(h.redis, id)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"deleted": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
 // UpdateThread updates thread body (OP text); only the author may edit.
@@ -442,17 +403,13 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid thread ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -460,21 +417,15 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	var ownerID sql.NullString
 	err = h.db.QueryRow(`SELECT user_id FROM threads WHERE id = $1`, id.String()).Scan(&ownerID)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.SupabaseResponse{
-			Error: stringPtr("Thread not found"),
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if !ownerID.Valid || ownerID.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Only the author can edit this thread"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the author can edit this thread"))
 		return
 	}
 
@@ -483,9 +434,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		ContentJSON *json.RawMessage `json:"content_json"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -510,9 +459,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		thread.ContentJSON = json.RawMessage(retJSON)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -521,7 +468,5 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		middleware.InvalidateCacheForThread(h.redis, thread.ID)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: thread,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(thread))
 }

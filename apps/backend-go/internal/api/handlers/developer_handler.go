@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/oauth"
 )
 
@@ -27,9 +28,7 @@ func (h *DeveloperHandler) ListApps(c *gin.Context) {
 
 	apps, err := h.oauthSvc.GetApplicationsByOwner(claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch applications",
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch applications"))
 		return
 	}
 
@@ -37,9 +36,7 @@ func (h *DeveloperHandler) ListApps(c *gin.Context) {
 		apps = []oauth.OAuthApplication{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": apps,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(apps))
 }
 
 // POST /api/v1/developer/apps
@@ -48,23 +45,17 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 
 	var req oauth.CreateAppRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request: "+err.Error()))
 		return
 	}
 
 	if req.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "name is required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("name is required"))
 		return
 	}
 
 	if len(req.RedirectURIs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "At least one redirect_uri is required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("At least one redirect_uri is required"))
 		return
 	}
 
@@ -90,9 +81,7 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 		req.HomepageURL,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to create application: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create application: "+err.Error()))
 		return
 	}
 
@@ -104,10 +93,10 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 			"is_confidential": isConfidential,
 		})
 
-	c.JSON(http.StatusCreated, oauth.CreateAppResponse{
+	c.JSON(http.StatusCreated, models.SuccessResponse(oauth.CreateAppResponse{
 		App:          *app,
 		ClientSecret: clientSecret,
-	})
+	}))
 }
 
 // GET /api/v1/developer/apps/:id
@@ -117,22 +106,16 @@ func (h *DeveloperHandler) GetApp(c *gin.Context) {
 
 	app, err := h.oauthSvc.GetApplicationByID(appID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch application",
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch application"))
 		return
 	}
 
 	if app == nil || app.OwnerID != claims.UserID {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Application not found",
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Application not found"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": app,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(app))
 }
 
 // PUT /api/v1/developer/apps/:id
@@ -142,24 +125,18 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 
 	var req oauth.UpdateAppRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid request: " + err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request: "+err.Error()))
 		return
 	}
 
 	app, err := h.oauthSvc.UpdateApplication(appID, claims.UserID, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to update application: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to update application: "+err.Error()))
 		return
 	}
 
 	if app == nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Application not found",
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Application not found"))
 		return
 	}
 
@@ -167,9 +144,7 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 	h.oauthSvc.LogOAuthAction(claims.UserID, app.ClientID, app.Name, oauth.AuditActionAppUpdated,
 		c.ClientIP(), nil)
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": app,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(app))
 }
 
 // DELETE /api/v1/developer/apps/:id
@@ -179,9 +154,7 @@ func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 
 	err := h.oauthSvc.DeleteApplication(appID, claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to delete application: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to delete application: "+err.Error()))
 		return
 	}
 
@@ -189,9 +162,7 @@ func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 	h.oauthSvc.LogOAuthAction(claims.UserID, "", appID, oauth.AuditActionAppDeleted,
 		c.ClientIP(), nil)
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{"ok": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
 // POST /api/v1/developer/apps/:id/regenerate-secret
@@ -201,9 +172,7 @@ func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 
 	newSecret, err := h.oauthSvc.RegenerateClientSecret(appID, claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to regenerate secret: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to regenerate secret: "+err.Error()))
 		return
 	}
 
@@ -217,11 +186,9 @@ func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 	h.oauthSvc.LogOAuthAction(claims.UserID, "", appName, oauth.AuditActionSecretRegenerated,
 		c.ClientIP(), nil)
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{
-			"client_secret": newSecret,
-		},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"client_secret": newSecret,
+	}))
 }
 
 // GET /api/v1/developer/apps/:id/tokens
@@ -231,9 +198,7 @@ func (h *DeveloperHandler) ListTokens(c *gin.Context) {
 
 	tokens, err := h.oauthSvc.GetTokensByApp(appID, claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch tokens: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch tokens: "+err.Error()))
 		return
 	}
 
@@ -241,9 +206,7 @@ func (h *DeveloperHandler) ListTokens(c *gin.Context) {
 		tokens = []oauth.AccessToken{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": tokens,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(tokens))
 }
 
 // POST /api/v1/developer/apps/:id/revoke-user-tokens
@@ -255,26 +218,20 @@ func (h *DeveloperHandler) RevokeUserTokens(c *gin.Context) {
 		UserID string `json:"user_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "user_id is required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_id is required"))
 		return
 	}
 
 	// Get the app's client_id
 	app, err := h.oauthSvc.GetApplicationByID(appID)
 	if err != nil || app == nil || app.OwnerID != claims.UserID {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": "Application not found",
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Application not found"))
 		return
 	}
 
 	err = h.oauthSvc.RevokeAllUserTokens(app.ClientID, req.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to revoke tokens: " + err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to revoke tokens: "+err.Error()))
 		return
 	}
 
@@ -284,7 +241,5 @@ func (h *DeveloperHandler) RevokeUserTokens(c *gin.Context) {
 			"target_user_id": req.UserID,
 		})
 
-	c.JSON(http.StatusOK, gin.H{
-		"data": gin.H{"ok": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
