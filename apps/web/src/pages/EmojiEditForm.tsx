@@ -312,7 +312,9 @@ const EmojiEditForm = () => {
               // Delete old image — best effort
               const { data: { publicUrl: oldUrl } } = supabase.storage.from('emojis').getPublicUrl(oldFileName);
               await fetch(oldUrl, { method: 'DELETE' });
-            } catch {}
+            } catch {
+              // best-effort deletion, ignore errors
+            }
           }
         }
       }

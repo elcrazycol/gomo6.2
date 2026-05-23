@@ -66,7 +66,7 @@ interface AchievementCardProps {
   isEditing: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 const formatGarmaLabel = (value: number) => {
   const abs = Math.abs(value);
   const mod10 = abs % 10;

@@ -115,7 +115,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         setUsers([]);
         searchCache.set(query, []);
       } else {
-        let usersData = (data || []).map(user => ({
+        const usersData = (data || []).map(user => ({
           id: user.id,
           username: user.username,
           account_number: user.account_number,
@@ -269,7 +269,11 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     if (atIndex !== -1) {
       // Replace @query with @username
       const newText = textBeforeCursor.substring(0, atIndex) + `@${user.username} ` + text.substring(cursorPos);
-      (setContent ? setContent(newText) : onContentChange(newText));
+      if (setContent) {
+        setContent(newText);
+      } else {
+        onContentChange(newText);
+      }
 
       // Set cursor after the mention
       setTimeout(() => {
@@ -399,7 +403,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
                 </div>
                 <div className="text-xs text-muted-foreground truncate">
                   {user.post_count || 0} постов • ID: {user.id.slice(0, 8)}
-                  {user.account_number && ` (${user.account_number})`}
+                  {user.account_number ? ` (${user.account_number})` : null}
                 </div>
               </div>
             </button>

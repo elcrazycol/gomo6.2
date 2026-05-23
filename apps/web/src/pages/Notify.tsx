@@ -77,7 +77,7 @@ const Notify = () => {
       );
       
       // Sort notifications
-      let sorted = [...notificationsWithSlugs];
+      const sorted = [...notificationsWithSlugs];
       if (sortBy === "oldest") {
         sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       } else if (sortBy === "unread") {

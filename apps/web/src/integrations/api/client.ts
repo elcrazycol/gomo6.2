@@ -159,36 +159,32 @@ class ApiClient {
       ...options.headers,
     };
 
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      });
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
 
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
-      let data;
-      
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        // For non-JSON responses, create error object
-        const text = await response.text();
-        data = { error: text || `HTTP ${response.status}` };
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
-      }
-
-      // Check unified {success, data} format
-      if (data.success === false) {
-        throw new Error(data.error || 'Request failed');
-      }
-      return data;
-    } catch (error) {
-      throw error;
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    let data;
+    
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      // For non-JSON responses, create error object
+      const text = await response.text();
+      data = { error: text || `HTTP ${response.status}` };
     }
+
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+
+    // Check unified {success, data} format
+    if (data.success === false) {
+      throw new Error(data.error || 'Request failed');
+    }
+    return data;
   }
 
   // Public method for compatibility layer

@@ -134,8 +134,6 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
 
   const activeImages = useMemo(() => localImages, [localImages]);
 
-  if (activeImages.length === 0) return null;
-
   const currentSrc = activeImages[currentIndex];
 
   const computeRenderRect = () => {
@@ -262,6 +260,8 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
   useEffect(() => {
     drawEditor();
   }, [drawEditor]);
+
+  if (activeImages.length === 0) return null;
 
   const applyEdit = async () => {
     try {

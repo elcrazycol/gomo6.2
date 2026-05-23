@@ -136,11 +136,7 @@ const Board = () => {
   const [membershipLoading, setMembershipLoading] = useState(false);
   
   useSessionTime(user?.id);
-
-  // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
-  if (slug === "gomosubs") {
-    return <Navigate to="/g" replace />;
-  }
+  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -209,8 +205,6 @@ const Board = () => {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const loadBoard = async () => {
@@ -357,6 +351,11 @@ const Board = () => {
       supabase.removeChannel(channel);
     };
   }, [board]);
+
+  // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
+  if (slug === "gomosubs") {
+    return <Navigate to="/g" replace />;
+  }
 
   const loadThreads = async (boardId: string) => {
     const contentFilter = searchParams.get('content');
