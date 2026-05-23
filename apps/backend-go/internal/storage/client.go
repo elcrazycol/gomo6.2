@@ -203,8 +203,6 @@ func (s *StorageClient) bootstrapBucketsBestEffort() {
 	}
 }
 
-
-
 // UploadFile stores an object. Bucket must be allowlisted.
 func (s *StorageClient) UploadFile(bucket, key string, data []byte, contentType string) (*FileInfo, error) {
 	if !IsAllowedBucket(bucket) {

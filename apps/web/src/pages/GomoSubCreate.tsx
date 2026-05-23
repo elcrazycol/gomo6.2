@@ -51,7 +51,9 @@ const GomoSubCreate = () => {
     if (!profileCreatedAt) return false;
     return Date.now() - new Date(profileCreatedAt).getTime() >= 14 * 24 * 60 * 60 * 1000;
   }, [profileCreatedAt]);
-  const canProceed = garmaOk && ageOk && guideRead;
+  // TODO: uncomment to restore garma (&gt;=10) and account age (&gt;2 weeks) checks
+  // const canProceed = garmaOk && ageOk && guideRead;
+  const canProceed = guideRead;
 
   useEffect(() => {
     const load = async () => {
@@ -167,10 +169,11 @@ const GomoSubCreate = () => {
       navigate("/auth");
       return;
     }
-    if (!(garmaOk && ageOk)) {
-      toast.error("Для создания нужно >=10 gармы и аккаунт старше 2 недель");
-      return;
-    }
+    // TODO: uncomment to restore garma & age checks
+    // if (!(garmaOk && ageOk)) {
+    //   toast.error("Для создания нужно >=10 gармы и аккаунт старше 2 недель");
+    //   return;
+    // }
 
     const slug = validate();
     if (!slug) return;
