@@ -330,6 +330,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// GomoSub RPC functions
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
 
+			// Thread/Post RPC functions
+			protected.POST("/create_thread", rpcHandler.CreateThreadRPC)
+			protected.POST("/create_post", rpcHandler.CreatePostRPC)
+
 			// Messenger RPC functions
 			protected.POST("/get_or_create_direct_chat", rpcHandler.GetOrCreateDirectChat)
 			protected.POST("/chat_mark_delivered", rpcHandler.ChatMarkDelivered)

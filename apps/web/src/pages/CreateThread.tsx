@@ -259,7 +259,7 @@ const CreateThread = () => {
         .filter(att => att.type === 'image')
         .map(att => att.url);
 
-      // Use backend API instead of direct Supabase insertion
+      // Use RPC backend API
       const threadPayload: any = {
         board_id: board.id,
         title: title.trim(),
@@ -283,7 +283,7 @@ const CreateThread = () => {
         };
       }
 
-      const response = await fetch('/rest/v1/threads', {
+      const response = await fetch('/rpc/v1/create_thread', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -298,38 +298,11 @@ const CreateThread = () => {
       }
 
       const responseData = await response.json();
-      // Backend returns { data: thread } wrapped in SupabaseResponse
+      // Backend returns { success: true, data: thread }
       const threadData = responseData.data || responseData;
 
       if (!threadData || !threadData.id) {
         throw new Error('Не удалось получить ID созданного треда');
-      }
-
-      // Auto-subscribe to thread notifications (still use Supabase for this)
-      const { error: subscriptionError } = await supabase
-        .from('thread_subscriptions')
-        .insert({
-          user_id: user.id,
-          thread_id: threadData.id
-        });
-
-      if (subscriptionError && subscriptionError.code !== '23505') { // Ignore duplicate key error
-        console.error('Error subscribing to thread:', subscriptionError);
-        // Don't fail creation if subscription fails
-      }
-
-      // Process ephemeral thread after creation
-      if (tags.flag === 'ephemeral') {
-        const { error: ephemeralError } = await supabase.rpc('process_ephemeral_thread', {
-          p_thread_id: threadData.id,
-          p_ephemeral_type: ephemeralSettings.type,
-          p_ephemeral_value: ephemeralSettings.value
-        });
-
-        if (ephemeralError) {
-          console.error('Error processing ephemeral thread:', ephemeralError);
-          // Don't fail the creation, just log the error
-        }
       }
 
       toast.success('Тред создан!');
