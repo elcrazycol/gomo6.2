@@ -374,14 +374,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		storageProtected := storage.Group("")
 		storageProtected.Use(middleware.SupabaseAuthMiddleware(authService))
 		{
-			storageProtected.POST("/presign-upload", func(c *gin.Context) {
-				if storageHandler == nil {
-					c.JSON(http.StatusNotImplemented, gin.H{"success": false, "error": "Storage not available"})
-					return
-				}
-				storageHandler.PresignUpload(c)
-			})
-
 			// Server-side upload: browser sends file to backend, backend uploads to Garage.
 			// Avoids CORS/S3-signature issues with direct browser-to-Garage upload.
 			storageProtected.POST("/upload", func(c *gin.Context) {
@@ -390,6 +382,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 					return
 				}
 				storageHandler.UploadFileWithKey(c)
+			})
+
+			// Delete object: backend removes file from Garage (S3 DeleteObject).
+			storageProtected.DELETE("/object/:bucket/*key", func(c *gin.Context) {
+				if storageHandler == nil {
+					c.JSON(http.StatusNotImplemented, gin.H{"success": false, "error": "Storage not available"})
+					return
+				}
+				storageHandler.DeleteFile(c)
 			})
 		}
 	}

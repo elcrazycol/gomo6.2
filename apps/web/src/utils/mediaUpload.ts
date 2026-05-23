@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/api/client_simple";
+import { uploadFile } from "@/utils/storage";
 import { compressImageWithMetadataRemoval } from "@/lib/imageProcessing";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toast } from "sonner";
@@ -205,26 +206,12 @@ const extractAudioMetadata = async (file: File): Promise<{
               const randomStr = Math.random().toString(36).substring(7);
               const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
 
-              const coverFormData = new FormData();
-              coverFormData.append('file', coverFile);
-              coverFormData.append('bucket', 'content');
-              coverFormData.append('key', coverKey);
-
-              const uploadResponse = await fetch('/storage/v1/upload', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${session.access_token}`,
-                },
-                body: coverFormData,
-              });
-
-              if (uploadResponse.ok) {
+              try {
+                await uploadFile('content', coverKey, coverFile);
                 coverArt = coverKey;
+              } catch (e) {
+                console.error('Failed to upload cover art:', e);
               }
-            }
-          } catch (e) {
-            console.error('Failed to upload cover art:', e);
-          }
         }
       }
     } catch (mmError) {
@@ -344,7 +331,6 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user) throw new Error("Нужно войти для загрузки");
   const user = session.user;
-  const accessToken = session.access_token;
 
   const results: AttachmentMeta[] = [];
 
@@ -408,23 +394,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
     // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access)
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('bucket', 'content');
-    formData.append('key', key);
-
-    const uploadResponse = await fetch('/storage/v1/upload', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: formData,
-    });
-
-    if (!uploadResponse.ok) {
-      const errorData = await uploadResponse.json();
-      throw new Error(errorData.error || 'Upload failed');
-    }
+    await uploadFile('content', key, file, session.access_token);
 
     results.push({
       url: key,
