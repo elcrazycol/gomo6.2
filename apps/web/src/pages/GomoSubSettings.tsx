@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, uploadFile } from "@/utils/storage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -228,8 +228,7 @@ const GomoSubSettings = () => {
 
       const ext = file.name.split(".").pop() || "jpg";
       const fileName = `${user.id}/${Date.now()}_${kind}.${ext}`;
-      const { error } = await supabase.storage.from("post-images").upload(fileName, file);
-      if (error) throw error;
+      await uploadFile("post-images", fileName, file);
 
       if (kind === "avatar") {
         setForm((prev) => ({ ...prev, gomosub_avatar_url: fileName }));

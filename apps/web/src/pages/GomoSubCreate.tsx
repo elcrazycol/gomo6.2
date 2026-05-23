@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, uploadFile } from "@/utils/storage";
 import { Loader2, CheckCircle2, XCircle, Plus } from "lucide-react";
 
 const RESERVED_SLUGS = [
@@ -147,8 +147,7 @@ const GomoSubCreate = () => {
 
       const ext = file.name.split(".").pop() || "jpg";
       const fileName = `${user.id}/${Date.now()}_${kind}.${ext}`;
-      const { error } = await supabase.storage.from("post-images").upload(fileName, file);
-      if (error) throw error;
+      await uploadFile("post-images", fileName, file);
 
       if (kind === "avatar") setAvatarImages([fileName]);
       else setCoverImages([fileName]);

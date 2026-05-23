@@ -14,6 +14,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { FileUpload } from "@/components/FileUpload";
 import { Settings, ArrowLeft, Plus, CheckCircle } from "lucide-react";
+import { uploadFile, getPublicUrl } from "@/utils/storage";
 
 interface EmojiGroup {
   id: string;
@@ -240,16 +241,10 @@ const EmojiCreate = () => {
       // Get file extension from original file
       const originalExtension = selectedFile.name.split('.').pop() || 'png';
       const fileName = `emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
-      const { error: uploadError } = await supabase.storage
-        .from('emojis')
-        .upload(fileName, compressedFile);
-
-      if (uploadError) throw uploadError;
+      await uploadFile('emojis', fileName, compressedFile);
 
       // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('emojis')
-        .getPublicUrl(fileName);
+      const { publicUrl } = getPublicUrl('emojis', fileName);
 
       // Save to database
       const { error: dbError } = await supabase

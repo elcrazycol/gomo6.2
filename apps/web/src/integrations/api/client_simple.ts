@@ -1,5 +1,6 @@
 // Simple API Client for Go Backend
 import { apiClient, API_BASE_URL, API_KEY, getDeviceId } from './client';
+import { uploadFile as storageUploadFile, getPublicUrl as storageGetPublicUrl, removeFile as storageRemoveFile } from '@/utils/storage';
 
 // Direct Supabase replacement - simplified version
 export const supabase = {
@@ -597,51 +598,34 @@ export const supabase = {
     return executeRpc();
   },
 
-  // Storage
+  // Storage — delegates to pure S3-compatible storage.ts utilities.
+  // Keeps supabase.storage.from().upload() / getPublicUrl() / remove() API for backward compat.
+  // Prefer using uploadFile() / getPublicUrl() / removeFile() from @/utils/storage directly in new code.
   storage: {
-    from: (bucket: string) => ({
-      upload: async (path: string, file: File) => {
-        const safeBucket = bucket;
-        const safeKey = path.replace(/^\/+/, "");
-
-        // Upload through backend server-side (avoids CORS/S3-signature issues)
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('bucket', safeBucket);
-        formData.append('key', safeKey);
-
-        // Send Bearer token if available (apikey fallback for legacy compat)
-        const token = localStorage.getItem('auth_token');
-        const headers: Record<string, string> = { apikey: API_KEY };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const res = await fetch(`${API_BASE_URL}/storage/v1/upload`, {
-          method: "POST",
-          headers,
-          body: formData,
-        });
-
-        if (!res.ok) {
-          return { data: null, error: { message: `Upload failed: ${res.status}` } };
-        }
-
-        return { data: { path: safeKey }, error: null };
-      },
-      getPublicUrl: (path: string) => {
-        const safePath = path.replace(/^\/+/, "");
-        const encodedKey = safePath
-          .split("/")
-          .map((seg) => encodeURIComponent(seg))
-          .join("/");
-        return {
-          data: {
-            publicUrl: `${API_BASE_URL}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedKey}`,
-          },
-        };
-      }
-    })
+    from: (bucket: string) => {
+      const token = localStorage.getItem("auth_token") || undefined;
+      return {
+        upload: async (path: string, file: File) => {
+          try {
+            const result = await storageUploadFile(bucket, path, file, token);
+            return { data: { path: result.path }, error: null };
+          } catch (error) {
+            return { data: null, error: { message: (error as Error).message } };
+          }
+        },
+        getPublicUrl: (path: string) => ({
+          data: storageGetPublicUrl(bucket, path),
+        }),
+        remove: async (paths: string[]) => {
+          try {
+            await Promise.all(paths.map((p) => storageRemoveFile(bucket, p, token)));
+            return { data: null, error: null };
+          } catch (error) {
+            return { data: null, error: { message: (error as Error).message } };
+          }
+        },
+      };
+    },
   }
 };
 

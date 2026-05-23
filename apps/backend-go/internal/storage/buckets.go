@@ -8,7 +8,7 @@ import (
 )
 
 // DefaultBuckets is aligned with docker-compose garage-init (content, post-images) plus app buckets.
-const defaultBuckets = "content,post-images,avatars,uploads"
+const defaultBuckets = "content,post-images,avatars,uploads,emojis"
 
 var (
 	allowedBucketsOnce sync.Once

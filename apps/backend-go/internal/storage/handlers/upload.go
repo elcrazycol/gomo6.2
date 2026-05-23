@@ -199,49 +199,6 @@ func (h *StorageHandler) GetPresignedURL(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"url": url}))
 }
 
-func (h *StorageHandler) PresignUpload(c *gin.Context) {
-	var req storage.PresignUploadRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
-		return
-	}
-
-	req.Bucket = strings.TrimSpace(req.Bucket)
-	req.Key = strings.TrimSpace(req.Key)
-	if req.Bucket == "" || req.Key == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
-		return
-	}
-	if !storage.IsAllowedBucket(req.Bucket) {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket not allowed"))
-		return
-	}
-	if err := storage.ValidateObjectKey(req.Key); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	expiresSeconds := req.Expires
-	if expiresSeconds <= 0 {
-		expiresSeconds = 3600
-	}
-	if req.ContentType == "" {
-		req.ContentType = "application/octet-stream"
-	}
-
-	uploadURL, err := h.client.GetPresignedPutURL(req.Bucket, req.Key, req.ContentType, time.Duration(expiresSeconds)*time.Second)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"upload_url": uploadURL,
-		"bucket":     req.Bucket,
-		"key":        req.Key,
-	}))
-}
-
 // ServeObject streams an object from Garage through the API (same origin as the web app).
 func (h *StorageHandler) ServeObject(c *gin.Context) {
 	bucket := strings.TrimSpace(c.Param("bucket"))

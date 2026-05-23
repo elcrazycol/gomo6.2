@@ -11,7 +11,7 @@ import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-reac
 import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
 import { AttachmentMeta } from "@/types/forum";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
-import { storageUrl } from "@/utils/storage";
+import { storageUrl, uploadFile } from "@/utils/storage";
 
 interface Board {
   id: string;
@@ -446,13 +446,9 @@ const CreateThread = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const { data, error } = await supabase.storage
-                          .from('content')
-                          .upload(`threads/${Date.now()}-${file.name}`, file);
-
-                        if (error) throw error;
-
-                        setThreadImageUrl(data.path);
+                        const imageKey = `threads/${Date.now()}-${file.name}`;
+                        await uploadFile('content', imageKey, file);
+                        setThreadImageUrl(imageKey);
                       } catch (error) {
                         console.error('Error uploading thread image:', error);
                         toast.error('Ошибка загрузки изображения');
