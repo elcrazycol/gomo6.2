@@ -354,9 +354,10 @@ start_services() {
     if [ "$DOMAIN" != "localhost" ] && [ -n "${EMAIL:-}" ]; then
         info "Настройка Caddy для HTTPS (TLS)..."
         # Включаем auto_https и добавляем email для Let's Encrypt
+        # Удаляем 'auto_https off' — дефолтное поведение Caddy = полный авто-HTTPS
         if grep -q 'auto_https off' Caddyfile; then
-            sed -i 's/auto_https off/auto_https on/' Caddyfile
-            log "Caddy: auto_https включён"
+            sed -i '/auto_https off/d' Caddyfile
+            log "Caddy: auto_https включён (удалён 'off' — Caddy по умолчанию выписывает TLS)"
         fi
         # Добавляем email, если его ещё нет
         if ! grep -q "email " Caddyfile 2>/dev/null; then
