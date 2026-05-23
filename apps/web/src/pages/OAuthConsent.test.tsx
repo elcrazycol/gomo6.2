@@ -5,6 +5,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import OAuthConsent from "./OAuthConsent";
 
+const { mockNavigate } = vi.hoisted(() => ({
+  mockNavigate: vi.fn(),
+}));
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
 const mockGetSession = vi.fn();
@@ -119,15 +130,13 @@ describe("OAuthConsent", () => {
 
   it("redirects to /auth when not logged in", async () => {
     mockGetSession.mockResolvedValue({ data: { session: null } });
-    // Mock window.location.href for the redirect
-    delete (window as any).location;
-    delete (window as any).location;
-    window.location = { href: "", assign: vi.fn() } as any;
 
     renderComponent("?client_id=app-1");
 
     await waitFor(() => {
-      expect(window.location.href).toContain("/auth?redirect=");
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.stringContaining("/auth?redirect=")
+      );
     });
   });
 
@@ -202,7 +211,8 @@ describe("OAuthConsent", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("example.com")).toBeInTheDocument();
+      expect(screen.getByText(/Будет перенаправлено на/)).toBeInTheDocument();
+      expect(screen.getAllByText("example.com").length).toBeGreaterThanOrEqual(1);
     });
   });
 
