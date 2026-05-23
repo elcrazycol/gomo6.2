@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -37,7 +38,7 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 
 	frontendURL := os.Getenv("DEV_DASHBOARD_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3002"
+		frontendURL = "http://dev.localhost:3002"
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
@@ -68,6 +69,13 @@ func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
 		return // Already seeded
 	}
 
+	// Build redirect URIs from DEV_DASHBOARD_URL env var (supports both dev and production)
+	devDashboardURL := os.Getenv("DEV_DASHBOARD_URL")
+	if devDashboardURL == "" {
+		devDashboardURL = "http://dev.localhost:3002"
+	}
+	redirectURIs := fmt.Sprintf(`["%s/callback","http://dev.localhost:3002/callback","http://dev.localhost/callback"]`, devDashboardURL)
+
 	systemUserID := "00000000-0000-0000-0000-000000000000"
 
 	// First ensure a system user exists to satisfy the owner_id FK constraint
@@ -95,11 +103,11 @@ func SeedDevDashboardApp(db *sql.DB, oauthSvc *oauth.OAuthService) {
 		"Управление OAuth-приложениями и интеграциями gomo6",
 		clientID,
 		"", // no client_secret needed (public client with PKCE)
-		`["http://localhost:3002/callback","http://localhost:8082/callback"]`,
+		redirectURIs,
 		"{openid,profile,email}",
 		false, // public client (PKCE only)
 		"",
-		"http://localhost:3002",
+		devDashboardURL,
 		true,
 	)
 
