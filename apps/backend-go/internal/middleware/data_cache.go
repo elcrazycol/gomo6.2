@@ -14,6 +14,9 @@ import (
 
 // DataCacheMiddleware provides Redis-based caching for GET requests
 // Caches response data to reduce database load
+// DefaultDataCacheTTL is the default TTL for data cache entries
+const DefaultDataCacheTTL = 2 * time.Minute
+
 func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Only cache GET requests
@@ -125,10 +128,10 @@ func InvalidateCacheForProfile(redisClient *redis.Client, userID string) {
 
 // InvalidateCacheForBoard invalidates all cache entries related to a board
 func InvalidateCacheForBoard(redisClient *redis.Client, boardID string) {
-	// Use wildcard patterns to invalidate ALL queries for this board
+	// Use wildcard patterns scoped to this specific board
 	patterns := []string{
 		fmt.Sprintf("data:/rest/v1/threads*board_id=eq.%s*", boardID),
-		fmt.Sprintf("data:/rest/v1/boards*%s*", boardID),
+		fmt.Sprintf("data:/rest/v1/boards*id=eq.%s*", boardID),
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -137,19 +140,13 @@ func InvalidateCacheForBoard(redisClient *redis.Client, boardID string) {
 
 // InvalidateCacheForProfileWall invalidates all cache entries related to a user's profile wall
 func InvalidateCacheForProfileWall(redisClient *redis.Client, userID string) {
-	// Use wildcard patterns to invalidate ALL queries for this user's wall
-	// This covers queries with different select, order, limit params
+	// Use wildcard patterns scoped to this specific user only (NOT global)
 	patterns := []string{
 		fmt.Sprintf("data:/rest/v1/profile_wall_posts*user_id=eq.%s*", userID),
-		"data:/rest/v1/profile_wall_posts*",
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
 	}
-	// Also invalidate comments, likes, reposts
-	cache.InvalidateForTable(redisClient, "profile_wall_post_comments", map[string]string{})
-	cache.InvalidateForTable(redisClient, "profile_wall_post_likes", map[string]string{})
-	cache.InvalidateForTable(redisClient, "profile_wall_post_reposts", map[string]string{})
 }
 
 // InvalidateCacheForWallPost invalidates cache for a specific wall post and its comments, likes, reposts

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/api/client_simple';
 
 interface ProfileData {
@@ -28,7 +28,7 @@ interface CacheEntry {
 
 export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cache, setCache] = useState<Map<string, CacheEntry>>(new Map());
-  const loadingRequests = new Map<string, Promise<ProfileData>>();
+  const loadingRequests = useRef(new Map<string, Promise<ProfileData>>());
 
   // Cleanup old cache entries periodically
   useEffect(() => {
@@ -67,7 +67,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const loadProfile = useCallback(async (userId: string): Promise<ProfileData> => {
     // Check if already loading
-    const existingRequest = loadingRequests.get(userId);
+    const existingRequest = loadingRequests.current.get(userId);
     if (existingRequest) {
       return existingRequest;
     }
@@ -142,17 +142,17 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         return profileData;
       } finally {
-        loadingRequests.delete(userId);
+        loadingRequests.current.delete(userId);
       }
     })();
 
-    loadingRequests.set(userId, loadPromise);
+    loadingRequests.current.set(userId, loadPromise);
     return loadPromise;
   }, [getProfile]);
 
   const clearCache = useCallback(() => {
     setCache(new Map());
-    loadingRequests.clear();
+    loadingRequests.current.clear();
   }, []);
 
   return (
