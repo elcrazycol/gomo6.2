@@ -432,7 +432,7 @@ func TestUniversalPost_UpsertGomosubRules(t *testing.T) {
 func TestUniversalPost_UpsertWallPostLikes(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_likes.*VALUES.*ON CONFLICT.*DO NOTHING.*RETURNING \*`).
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_likes.*VALUES.*ON CONFLICT.*DO UPDATE SET user_id = EXCLUDED.user_id.*RETURNING \*`).
 		WithArgs("post1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id"}).
 			AddRow("1", "post1", "u1"))
