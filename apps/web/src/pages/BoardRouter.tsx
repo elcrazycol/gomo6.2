@@ -280,26 +280,34 @@ const Board = () => {
     const imageUrlForDb = imageUrls.length > 0 ? imageUrls[0] : null;
     const imageUrlsJson = imageUrls.length > 0 ? imageUrls : null;
 
-    const { error } = await supabase.from("threads").insert({
-      board_id: board!.id,
-      user_id: user.id,
-      title: title.trim(),
-      content: content.trim(),
-      content_json: contentJson,
-      image_url: imageUrlForDb, // Keep for backward compatibility
-      image_urls: imageUrlsJson, // New field for multiple images
+    const response = await fetch('/rest/v1/threads', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      },
+      body: JSON.stringify({
+        board_id: board!.id,
+        user_id: user.id,
+        title: title.trim(),
+        content: content.trim(),
+        content_json: contentJson,
+        image_url: imageUrlForDb, // Keep for backward compatibility
+        image_urls: imageUrlsJson, // New field for multiple images
+      }),
     });
 
     setLoading(false);
 
-    if (error) {
-      toast.error("Ошибка создания треда");
+    if (!response.ok) {
+      const errorData = await response.json();
+      toast.error(errorData.error || 'Ошибка создания треда');
       return;
     }
 
-    toast.success("Тред создан");
-    setTitle("");
-    setContent("");
+    toast.success('Тред создан');
+    setTitle('');
+    setContent('');
     setContentJson(null);
     setImageUrls([]);
     setShowNewThread(false);

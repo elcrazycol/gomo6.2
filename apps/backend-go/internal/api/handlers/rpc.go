@@ -1126,13 +1126,13 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	}
 
 	var req struct {
-		Slug            string   `json:"slug"`
-		Name            string   `json:"name"`
-		Description     string   `json:"description"`
-		RulesMarkdown   *string  `json:"rules_markdown"`
-		CoverImageURL   *string  `json:"cover_image_url"`
-		GomosubAvatarURL *string `json:"gomosub_avatar_url"`
-		GomosubTags     []string `json:"gomosub_tags"`
+		Slug             string   `json:"slug"`
+		Name             string   `json:"name"`
+		Description      string   `json:"description"`
+		RulesMarkdown    *string  `json:"rules_markdown"`
+		CoverImageURL    *string  `json:"cover_image_url"`
+		GomosubAvatarURL *string  `json:"gomosub_avatar_url"`
+		GomosubTags      []string `json:"gomosub_tags"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1218,6 +1218,273 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
+}
+
+// CreatePostRPC creates a new post with full field support (is_private, private_recipient_id).
+// POST /rpc/v1/create_post — protected, requires auth.
+func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
+	var req struct {
+		ThreadID           string          `json:"thread_id"`
+		Content            string          `json:"content"`
+		ContentJSON        json.RawMessage `json:"content_json"`
+		ImageURLs          []string        `json:"image_urls"`
+		Attachments        json.RawMessage `json:"attachments"`
+		ReplyTo            *string         `json:"reply_to"`
+		IsPrivate          bool            `json:"is_private"`
+		PrivateRecipientID *string         `json:"private_recipient_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	if req.ThreadID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_id is required"))
+		return
+	}
+	if req.Content == "" && len(req.Attachments) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Post cannot be empty"))
+		return
+	}
+
+	// Validate UUID
+	if _, err := uuid.Parse(req.ThreadID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread_id format"))
+		return
+	}
+
+	// Check thread exists
+	var threadExists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1)", req.ThreadID).Scan(&threadExists)
+	if err != nil || !threadExists {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Thread not found"))
+		return
+	}
+
+	// Build image_urls
+	var imageURLs models.JSONB
+	if len(req.ImageURLs) > 0 {
+		imageURLs = make(models.JSONB, len(req.ImageURLs))
+		for i, url := range req.ImageURLs {
+			imageURLs[i] = url
+		}
+	}
+
+	// First image as legacy image_url
+	var imageURL *string
+	if len(req.ImageURLs) > 0 {
+		imageURL = &req.ImageURLs[0]
+	}
+
+	// Build content_json
+	var insertContentJSON interface{}
+	if len(req.ContentJSON) > 0 {
+		insertContentJSON = []byte(req.ContentJSON)
+	}
+
+	// Build attachments
+	var insertAttachments interface{}
+	if len(req.Attachments) > 0 {
+		insertAttachments = []byte(req.Attachments)
+	}
+
+	query := `
+		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls,
+		                  attachments, reply_to, is_private, private_recipient_id, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls,
+		          attachments, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
+	`
+
+	var post models.Post
+	var retContentJSON []byte
+	err = h.db.QueryRow(query,
+		req.ThreadID, claims.UserID, req.Content, insertContentJSON, imageURL,
+		imageURLs, insertAttachments, req.ReplyTo, req.IsPrivate, req.PrivateRecipientID,
+		"localhost:8080",
+	).Scan(
+		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retContentJSON,
+		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
+		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	if len(retContentJSON) > 0 {
+		post.ContentJSON = json.RawMessage(retContentJSON)
+	}
+
+	// Update thread post_count and updated_at
+	_, err = h.db.Exec("UPDATE threads SET post_count = post_count + 1, updated_at = NOW() WHERE id = $1", req.ThreadID)
+	if err != nil {
+		log.Printf("ERROR: Failed to update thread post count: %v\n", err)
+	}
+
+	// Recompute user stats
+	RecomputeUserProfileStats(h.db, claims.UserID)
+
+	c.JSON(http.StatusCreated, models.SuccessResponse(post))
+}
+
+// CreateThreadRPC creates a new thread with optional poll.
+// POST /rpc/v1/create_thread — protected, requires auth.
+func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
+	type PollOption struct {
+		ID   string `json:"id"`
+		Text string `json:"text"`
+	}
+
+	type PollRequest struct {
+		Question        string       `json:"question"`
+		Options         []PollOption `json:"options"`
+		AllowMultiple   bool         `json:"allow_multiple"`
+		ShowResults     bool         `json:"show_results"`
+		AllowChangeVote bool         `json:"allow_change_vote"`
+	}
+
+	var req struct {
+		BoardID     string          `json:"board_id"`
+		Title       string          `json:"title"`
+		Content     string          `json:"content"`
+		ContentJSON json.RawMessage `json:"content_json"`
+		ImageURLs   []string        `json:"image_urls"`
+		Attachments json.RawMessage `json:"attachments"`
+		Poll        *PollRequest    `json:"poll"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	if req.BoardID == "" || req.Title == "" || req.Content == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("board_id, title, and content are required"))
+		return
+	}
+
+	// Validate UUID
+	if _, err := uuid.Parse(req.BoardID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid board_id format"))
+		return
+	}
+
+	// Check board exists
+	var boardExists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1)", req.BoardID).Scan(&boardExists)
+	if err != nil || !boardExists {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
+		return
+	}
+
+	// Build image_urls
+	var imageURLs models.JSONB
+	if len(req.ImageURLs) > 0 {
+		imageURLs = make(models.JSONB, len(req.ImageURLs))
+		for i, url := range req.ImageURLs {
+			imageURLs[i] = url
+		}
+	}
+
+	var imageURL *string
+	if len(req.ImageURLs) > 0 {
+		imageURL = &req.ImageURLs[0]
+	}
+
+	var insertContentJSON interface{}
+	if len(req.ContentJSON) > 0 {
+		insertContentJSON = []byte(req.ContentJSON)
+	}
+
+	var insertAttachments interface{}
+	if len(req.Attachments) > 0 {
+		insertAttachments = []byte(req.Attachments)
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	defer tx.Rollback()
+
+	// Insert thread
+	var thread models.Thread
+	var retContentJSON []byte
+	err = tx.QueryRow(`
+		INSERT INTO threads (board_id, user_id, title, content, content_json, image_url, image_urls,
+		                    attachments, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls,
+		          attachments, post_count, server_domain, created_at, updated_at, is_remote
+	`, req.BoardID, claims.UserID, req.Title, req.Content, insertContentJSON,
+		imageURL, imageURLs, insertAttachments, "localhost:8080",
+	).Scan(
+		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
+		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
+		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	if len(retContentJSON) > 0 {
+		thread.ContentJSON = json.RawMessage(retContentJSON)
+	}
+
+	// Create poll if provided
+	if req.Poll != nil && req.Poll.Question != "" && len(req.Poll.Options) >= 2 {
+		// Build options JSON array
+		type optionEntry struct {
+			ID   string `json:"id"`
+			Text string `json:"text"`
+		}
+		var options []optionEntry
+		for _, opt := range req.Poll.Options {
+			if opt.Text != "" {
+				options = append(options, optionEntry{ID: opt.ID, Text: opt.Text})
+			}
+		}
+
+		optionsJSON, err := json.Marshal(options)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Invalid poll options"))
+			return
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO polls (thread_id, question, options, multiple_choice, show_results, allow_change_vote)
+			VALUES ($1, $2, $3::jsonb, $4, $5, $6)
+		`, thread.ID, req.Poll.Question, string(optionsJSON),
+			req.Poll.AllowMultiple, req.Poll.ShowResults, req.Poll.AllowChangeVote)
+		if err != nil {
+			log.Printf("Error creating poll for thread %s: %v", thread.ID, err)
+			// Don't fail the thread creation if poll fails
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	RecomputeUserProfileStats(h.db, claims.UserID)
+
+	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
 }
 
 // ToggleAchievementPin toggles the pin status of an achievement
