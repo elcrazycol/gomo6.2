@@ -422,6 +422,16 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
+
+		// Invalidate cache for upsert tables that need it
+		if tableName == "profile_wall_post_likes" {
+			if postID, ok := result["post_id"].(string); ok && h.redis != nil {
+				middleware.InvalidateCacheForWallPost(h.redis, postID)
+				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/rest/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
+				cache.InvalidateByPattern(h.redis, "data:/rest/v1/profile_wall_post_likes*")
+			}
+		}
+
 		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return
 	}
@@ -492,15 +502,6 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Publish event to bots
 		if h.botEventPublisher != nil {
 			h.botEventPublisher.PublishWallComment(result)
-		}
-	}
-
-	if tableName == "profile_wall_post_likes" {
-		// Invalidate cache for the post and its likes
-		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
-			middleware.InvalidateCacheForWallPost(h.redis, postID)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/rest/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
-			cache.InvalidateByPattern(h.redis, "data:/rest/v1/profile_wall_post_likes*")
 		}
 	}
 
