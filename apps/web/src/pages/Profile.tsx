@@ -966,7 +966,7 @@ const Profile = () => {
                 >
                   {avatarUrl ? (
                     <img
-                      src={`${storageUrl("post-images", avatarUrl) || avatarUrl}?t=${Date.now()}`}
+                      src={storageUrl("post-images", avatarUrl) || avatarUrl}
                       alt="Avatar"
                       className="w-full h-full object-cover"
                     />
