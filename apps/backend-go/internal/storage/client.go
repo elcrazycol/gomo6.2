@@ -264,7 +264,7 @@ func (s *StorageClient) UploadFile(bucket, key string, data []byte, contentType 
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("upload: %w", err)
+		return nil, fmt.Errorf("upload %s/%s (%d bytes): %w", bucket, key, len(data), err)
 	}
 
 	return &FileInfo{

@@ -341,8 +341,10 @@ const inferType = (file: File): AttachmentType => {
 };
 
 export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("Нужно войти для загрузки");
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) throw new Error("Нужно войти для загрузки");
+  const user = session.user;
+  const accessToken = session.access_token;
 
   const results: AttachmentMeta[] = [];
 
@@ -414,7 +416,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const uploadResponse = await fetch('/storage/v1/upload', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        'Authorization': `Bearer ${accessToken}`,
       },
       body: formData,
     });

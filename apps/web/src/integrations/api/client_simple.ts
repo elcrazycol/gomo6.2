@@ -610,11 +610,16 @@ export const supabase = {
         formData.append('bucket', safeBucket);
         formData.append('key', safeKey);
 
+        // Send Bearer token if available (apikey fallback for legacy compat)
+        const token = localStorage.getItem('auth_token');
+        const headers: Record<string, string> = { apikey: API_KEY };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const res = await fetch(`${API_BASE_URL}/storage/v1/upload`, {
           method: "POST",
-          headers: {
-            "apikey": API_KEY,
-          },
+          headers,
           body: formData,
         });
 
