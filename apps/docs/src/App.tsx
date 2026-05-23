@@ -149,14 +149,15 @@ function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-[var(--sidebar-border)]">
-        <a
-          href="/dev"
-          className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-[var(--sidebar-hover)] transition-all duration-150"
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-          <span>Dev Dashboard</span>
-        </a>
+      <div className="p-3 border-t border-[var(--sidebar-border)]">            <a
+              href={`//dev.${window.location.hostname}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-[var(--sidebar-hover)] transition-all duration-150"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Dev Dashboard</span>
+            </a>
       </div>
     </aside>
   )
@@ -251,7 +252,7 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter basename="/docs">
+      <BrowserRouter>
         <AppContent />
       </BrowserRouter>
     </ThemeProvider>

@@ -72,7 +72,7 @@ export const OAuthOverview = () => {
               <h3 className="text-sm font-medium text-gray-200 mb-1">Создайте приложение</h3>
               <p className="text-xs text-gray-400">
                 Зайдите в{' '}
-                <a href="http://localhost:3002" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                <a href="http://dev.localhost:3002" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                   Dev Dashboard
                 </a>
                 {' '}→ «Создать приложение». Укажите название и redirect URI.

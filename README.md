@@ -8,12 +8,15 @@
 
 Проект — монорепозиторий (npm workspaces + Turbo):
 
-| Приложение | Пакет | Порт | Назначение |
-|---|---|---|---|
-| `apps/web` | `@gomo6/web` | 8081 | Основной сайт |
-| `apps/docs` | `@gomo6/docs` | 3001 | Документация (боты + OAuth API) |
-| `apps/dev-dashboard` | `@gomo6/dev-dashboard` | 3002 | Dev dashboard для OAuth приложений |
-| `apps/backend-go` | — | 8080 | Go-сервер (REST + WebSocket) |
+| Приложение | Пакет | Поддомен | Порт (dev) | Назначение |
+|---|---|---|---|---|
+| `apps/web` | `@gomo6/web` | `DOMAIN` | 8081 | Основной сайт |
+| `apps/docs` | `@gomo6/docs` | `docs.DOMAIN` | 3001 | Документация (боты + OAuth API) |
+| `apps/dev-dashboard` | `@gomo6/dev-dashboard` | `dev.DOMAIN` | 3002 | Dev dashboard для OAuth приложений |
+| `apps/backend-go` | — | — | 8080 | Go-сервер (REST + WebSocket) |
+
+> **Поддомены:** локально — `docs.localhost`, `dev.localhost`; на сервере — `docs.ваш-домен.ru`, `dev.ваш-домен.ru`.
+> Настраиваются автоматически через переменную `DOMAIN` в `.env`.
 
 ## 🚀 Развёртывание на сервере
 

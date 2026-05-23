@@ -396,10 +396,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			if authHeader == "" {
 				// No auth header — redirect to frontend consent page
 				// The frontend will add the Authorization header and call this endpoint
-				frontendURL := os.Getenv("FRONTEND_URL")
-				if frontendURL == "" {
-					frontendURL = "http://localhost:8081"
-				}
+			frontendURL := os.Getenv("FRONTEND_URL")
+			if frontendURL == "" {
+				frontendURL = "http://localhost:8081"
+			}
 				consentURL := frontendURL + "/oauth/consent?" + c.Request.URL.RawQuery
 				log.Printf("Redirecting to consent page: %s", consentURL)
 				c.Redirect(http.StatusTemporaryRedirect, consentURL)
