@@ -67,14 +67,14 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
 		log.Println("DEBUG: getUserIDFromContext failed:", err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "HANDLER: Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("HANDLER: Unauthorized"))
 		return
 	}
 	log.Println("DEBUG: userID from context:", userID)
 
 	var req models.CreateBotRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -82,11 +82,11 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 	var botCount int
 	err = h.DB.QueryRow("SELECT COUNT(*) FROM bots WHERE owner_id = $1", userID).Scan(&botCount)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check bot count"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to check bot count"))
 		return
 	}
 	if botCount >= 5 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Maximum 5 bots per user"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 5 bots per user"))
 		return
 	}
 
@@ -100,24 +100,24 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 	var exists bool
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE username = $1)", botUsername).Scan(&exists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check username"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to check username"))
 		return
 	}
 	if exists {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Username already taken"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Username already taken"))
 		return
 	}
 
 	// Check Lua code size (max 10KB)
 	if len(req.LuaCode) > 10240 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Lua code too large (max 10KB)"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Lua code too large (max 10KB)"))
 		return
 	}
 
 	// Generate bot token
 	token, err := generateBotToken()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 		&bot.Description, &bot.LuaCode, &bot.Token, &bot.IsActive, &bot.CreatedAt, &bot.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create bot"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create bot"))
 		return
 	}
 
@@ -185,7 +185,7 @@ func (h *BotHandler) CreateBot(c *gin.Context) {
 func (h *BotHandler) GetBots(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *BotHandler) GetBots(c *gin.Context) {
 		ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bots"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch bots"))
 		return
 	}
 	defer rows.Close()
@@ -221,7 +221,7 @@ func (h *BotHandler) GetBots(c *gin.Context) {
 func (h *BotHandler) GetBot(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -237,11 +237,11 @@ func (h *BotHandler) GetBot(c *gin.Context) {
 		&bot.Description, &bot.LuaCode, &bot.Token, &bot.IsActive, &bot.CreatedAt, &bot.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bot"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch bot"))
 		return
 	}
 
@@ -252,7 +252,7 @@ func (h *BotHandler) GetBot(c *gin.Context) {
 func (h *BotHandler) UpdateBot(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -260,7 +260,7 @@ func (h *BotHandler) UpdateBot(c *gin.Context) {
 
 	var req models.UpdateBotRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -268,13 +268,13 @@ func (h *BotHandler) UpdateBot(c *gin.Context) {
 	var exists bool
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE id = $1 AND owner_id = $2)", botID, userID).Scan(&exists)
 	if err != nil || !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 
 	// Check Lua code size if provided
 	if req.LuaCode != nil && len(*req.LuaCode) > 10240 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Lua code too large (max 10KB)"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Lua code too large (max 10KB)"))
 		return
 	}
 
@@ -322,7 +322,7 @@ func (h *BotHandler) UpdateBot(c *gin.Context) {
 		&bot.Description, &bot.LuaCode, &bot.Token, &bot.IsActive, &bot.CreatedAt, &bot.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update bot"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to update bot"))
 		return
 	}
 
@@ -344,7 +344,7 @@ func (h *BotHandler) UpdateBot(c *gin.Context) {
 func (h *BotHandler) DeleteBot(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -352,13 +352,13 @@ func (h *BotHandler) DeleteBot(c *gin.Context) {
 
 	result, err := h.DB.Exec("DELETE FROM bots WHERE id = $1 AND owner_id = $2", botID, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete bot"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to delete bot"))
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 
@@ -370,14 +370,14 @@ func (h *BotHandler) DeleteBot(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Bot deleted successfully"})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "Bot deleted successfully"}))
 }
 
 // ToggleBot toggles bot active status
 func (h *BotHandler) ToggleBot(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -394,11 +394,11 @@ func (h *BotHandler) ToggleBot(c *gin.Context) {
 		&bot.Description, &bot.LuaCode, &bot.Token, &bot.IsActive, &bot.CreatedAt, &bot.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to toggle bot"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to toggle bot"))
 		return
 	}
 
@@ -427,7 +427,7 @@ func (h *BotHandler) ToggleBot(c *gin.Context) {
 func (h *BotHandler) GetBotLogs(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -439,7 +439,7 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE id = $1 AND owner_id = $2)", botID, userID).Scan(&exists)
 	if err != nil || !exists {
 		log.Printf("[GetBotLogs] Bot not found or doesn't belong to user: bot_id=%s, user_id=%s, err=%v", botID, userID, err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 
@@ -455,7 +455,7 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 	`, botID)
 	if err != nil {
 		log.Printf("[GetBotLogs] Query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch logs"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch logs"))
 		return
 	}
 	defer rows.Close()
@@ -488,7 +488,7 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 func (h *BotHandler) GetBotStats(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -498,7 +498,7 @@ func (h *BotHandler) GetBotStats(c *gin.Context) {
 	var exists bool
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE id = $1 AND owner_id = $2)", botID, userID).Scan(&exists)
 	if err != nil || !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 
@@ -510,7 +510,7 @@ func (h *BotHandler) GetBotStats(c *gin.Context) {
 		ORDER BY date DESC
 	`, botID, time.Now().AddDate(0, 0, -30))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stats"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch stats"))
 		return
 	}
 	defer rows.Close()
@@ -533,7 +533,7 @@ func (h *BotHandler) GetBotStats(c *gin.Context) {
 func (h *BotHandler) ClearBotLogs(c *gin.Context) {
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Unauthorized"))
 		return
 	}
 
@@ -543,15 +543,15 @@ func (h *BotHandler) ClearBotLogs(c *gin.Context) {
 	var exists bool
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE id = $1 AND owner_id = $2)", botID, userID).Scan(&exists)
 	if err != nil || !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
 
 	_, err = h.DB.Exec("DELETE FROM bot_logs WHERE bot_id = $1", botID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear logs"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to clear logs"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Logs cleared successfully"})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "Logs cleared successfully"}))
 }

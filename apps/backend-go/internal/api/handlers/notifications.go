@@ -31,9 +31,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -71,9 +69,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -87,19 +83,14 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 			&notification.RelatedPostID, &notification.IsRead, &notification.CreatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		notifications = append(notifications, notification)
 	}
 
 	notificationCount := len(notifications)
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data:  notifications,
-		Count: &notificationCount,
-	})
+	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: notifications, Count: &notificationCount})
 }
 
 func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
@@ -108,18 +99,14 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 	// Validate UUID
 	_, err := uuid.Parse(notificationID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid notification ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid notification ID format"))
 		return
 	}
 
 	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -134,17 +121,13 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 
 	result, err := h.db.Exec(query, notificationID, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, models.SupabaseResponse{
-			Error: stringPtr("Notification not found"),
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Notification not found"))
 		return
 	}
 
@@ -153,18 +136,14 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 		middleware.InvalidateCacheForNotification(h.redis, userClaims.UserID)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"updated": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
 func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -175,9 +154,7 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 
 	_, err := h.db.Exec(query, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -186,18 +163,14 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 		middleware.InvalidateCacheForNotification(h.redis, userClaims.UserID)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"updated": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
 func (h *NotificationsHandler) GetUnreadCount(c *gin.Context) {
 	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -208,13 +181,9 @@ func (h *NotificationsHandler) GetUnreadCount(c *gin.Context) {
 		userClaims.UserID).Scan(&count)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"unread_count": count},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"unread_count": count}))
 }

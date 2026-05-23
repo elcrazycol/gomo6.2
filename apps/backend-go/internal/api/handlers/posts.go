@@ -154,9 +154,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -174,9 +172,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			&username, &avatarURL,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		if username.Valid {
@@ -197,10 +193,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	}
 
 	postCount := len(posts)
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data:  posts,
-		Count: &postCount,
-	})
+	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: posts, Count: &postCount})
 }
 
 func (h *PostsHandler) GetPost(c *gin.Context) {
@@ -228,14 +221,10 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("Post not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if username.Valid {
@@ -253,9 +242,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: post,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(post))
 }
 
 func (h *PostsHandler) DeletePost(c *gin.Context) {
@@ -265,9 +252,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	}
 	id = strings.TrimPrefix(id, "eq.")
 	if id == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Post id is required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Post id is required"))
 		return
 	}
 
@@ -275,14 +260,10 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	err := h.db.QueryRow(`SELECT user_id, thread_id FROM posts WHERE id = $1`, id).Scan(&authorID, &threadID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("Post not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -290,17 +271,13 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 
 	result, err := h.db.Exec(query, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, models.SupabaseResponse{
-			Error: stringPtr("Post not found"),
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 		return
 	}
 
@@ -314,34 +291,26 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		middleware.InvalidateCacheForThread(h.redis, threadID)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"deleted": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
 func (h *PostsHandler) CreatePost(c *gin.Context) {
 	var req models.CreatePostRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Validate that content is not empty
 	if req.Content == "" && len(req.Attachments) == 0 {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Пост не может быть пустым"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Пост не может быть пустым"))
 		return
 	}
 
 	// Get user ID from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -350,9 +319,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	// Validate thread_id UUID
 	_, err := uuid.Parse(req.ThreadID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid thread ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
@@ -360,9 +327,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	var threadExists bool
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1)", req.ThreadID).Scan(&threadExists)
 	if err != nil || !threadExists {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Thread not found"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Thread not found"))
 		return
 	}
 
@@ -404,9 +369,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if len(retContentJSON) > 0 {
@@ -463,9 +426,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusCreated, models.SupabaseResponse{
-		Data: post,
-	})
+	c.JSON(http.StatusCreated, models.SuccessResponse(post))
 }
 
 // UpdatePost updates reply body; only the author may edit.
@@ -473,17 +434,13 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid post ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))
 		return
 	}
 
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -491,21 +448,15 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	var authorID sql.NullString
 	err = h.db.QueryRow(`SELECT user_id FROM posts WHERE id = $1`, id.String()).Scan(&authorID)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.SupabaseResponse{
-			Error: stringPtr("Post not found"),
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if !authorID.Valid || authorID.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Only the author can edit this post"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the author can edit this post"))
 		return
 	}
 
@@ -514,9 +465,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		ContentJSON *json.RawMessage `json:"content_json"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -538,9 +487,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if len(retJSON) > 0 {
@@ -552,7 +499,5 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		middleware.InvalidateCacheForPost(h.redis, post.ID, post.ThreadID)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: post,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(post))
 }
