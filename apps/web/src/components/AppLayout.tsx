@@ -486,7 +486,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       setNowPlaying({ id, title, instance: detail.instance, playlistId, playlistIndex });
       setVolume(targetVolume);
       if (typeof detail.instance?.volume === "function") {
-        detail.instance.volume(targetVolume);
+        (detail.instance.volume as (v: number) => void)(targetVolume);
       } else if (detail.instance) {
         detail.instance.volume = targetVolume;
       }
@@ -508,7 +508,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
           if (storedVolumeRef.current !== null) {
             // honor stored volume; keep instance aligned
             const v = storedVolumeRef.current;
-            if (typeof inst.volume === "function") inst.volume(v);
+            if (typeof inst.volume === "function") (inst.volume as (v: number) => void)(v);
             else inst.volume = v;
           }
 
@@ -1234,7 +1234,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                             const inst = nowPlaying?.instance;
                             if (!inst) return;
                             if (typeof inst.volume === "function") {
-                              inst.volume(clamped);
+                              (inst.volume as (v: number) => void)(clamped);
                             } else {
                               inst.volume = clamped;
                             }

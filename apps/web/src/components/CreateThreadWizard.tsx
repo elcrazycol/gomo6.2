@@ -482,7 +482,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
 
           <div className="text-sm break-words">
             {content ? (
-              <div dangerouslySetInnerHTML={{ __html: renderPreviewContent(content, 'thread') }} />
+              <div>{renderPreviewContent(content, 'thread')}</div>
             ) : (
               <span className="text-muted-foreground">Содержание треда...</span>
             )}

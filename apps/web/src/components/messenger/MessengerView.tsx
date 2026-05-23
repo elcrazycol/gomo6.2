@@ -553,10 +553,10 @@ export const MessengerView = () => {
         target_user_id: targetId,
       });
 
-      const cleanId = typeof result === 'string' ? (result as string).replace(/^"|"$/g, '') : result;
+      const cleanId = typeof result === 'string' ? (result as string).replace(/^"|"$/g, '') : String(result ?? '');
 
       updateSearch(cleanId, targetId);
-      setSelectedConversationId(cleanId);
+      setSelectedConversationId(cleanId as string);
       setMobileSidebarOpen(false);
       return cleanId;
     } catch (error) {
