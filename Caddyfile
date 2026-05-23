@@ -3,6 +3,15 @@
 # =============================================================================
 # Set DOMAIN env var (e.g., example.com) for production with auto HTTPS.
 # Without DOMAIN, defaults to localhost (HTTP only).
+#
+# Subdomains (automatically derived from $DOMAIN):
+#   docs.{$DOMAIN}  → Documentation site
+#   dev.{$DOMAIN}   → Dev Dashboard (OAuth app management)
+#
+# Local development with `.localhost` TLD works out of the box:
+#   localhost       → Main site
+#   docs.localhost  → Documentation
+#   dev.localhost   → Dev Dashboard
 # =============================================================================
 
 # ── Disable auto HTTPS for local development (no -k flag needed for curl) ─
@@ -11,12 +20,14 @@
 	auto_https off
 }
 
-http://{$DOMAIN:localhost} {
+# ── Main Web App ────────────────────────────────────────────────────────────
+{$DOMAIN:localhost} {
 	# ── Security headers (applied to ALL responses) ────────────────────────
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Access-Control-Allow-Origin "{http://dev.{$DOMAIN:localhost},http://docs.{$DOMAIN:localhost}}"
 	}
 
 	# ── Logging ────────────────────────────────────────────────────────────
@@ -55,19 +66,65 @@ http://{$DOMAIN:localhost} {
 		reverse_proxy backend:8080
 	}
 
-	# ── Docs (sub-path /docs, prefix stripped before proxy) ────────────────
-	handle_path /docs/* {
-		reverse_proxy docs:80
-	}
-
-	# ── Dev Dashboard (sub-path /dev, prefix stripped before proxy) ────────
-	handle_path /dev/* {
-		reverse_proxy dev-dashboard:80
-	}
-
-
-	# ── Main Web App (catch-all, must be last) ─────────────────────────────
+	# ── Main Web App (catch-all) ───────────────────────────────────────────
 	handle {
 		reverse_proxy web:80
+	}
+}
+
+# ── Documentation (docs.* subdomain) ────────────────────────────────────────
+docs.{$DOMAIN:localhost} {
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output stdout
+		format json
+	}
+
+	# Proxy API calls so docs can reach backend
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+	handle /oauth/* {
+		reverse_proxy backend:8080
+	}
+	handle /.well-known/* {
+		reverse_proxy backend:8080
+	}
+
+	# ── Docs SPA ───────────────────────────────────────────────────────────
+	handle {
+		reverse_proxy docs:80
+	}
+}
+
+# ── Dev Dashboard (dev.* subdomain) ─────────────────────────────────────────
+dev.{$DOMAIN:localhost} {
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output stdout
+		format json
+	}
+
+	# Proxy API calls so Dev Dashboard can reach backend
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+	handle /oauth/* {
+		reverse_proxy backend:8080
+	}
+
+	# ── Dev Dashboard SPA ──────────────────────────────────────────────────
+	handle {
+		reverse_proxy dev-dashboard:80
 	}
 }

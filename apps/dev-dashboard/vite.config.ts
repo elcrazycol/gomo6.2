@@ -3,12 +3,12 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
 export default defineConfig({
-  // Base path for production Docker deployment behind Caddy's /dev/* route.
-  // In local dev (npm run dev) this is overridden to '/' by the dev server.
-  base: process.env.NODE_ENV === 'production' ? '/dev/' : '/',
+  // Dev Dashboard is served on dev.* subdomain in both dev and production.
+  // Base is always '/' — no subpath prefix needed.
   server: {
     host: "::",
     port: 3002,
+    allowedHosts: true,
     proxy: {
       "/api": {
         target: "http://localhost:8080",

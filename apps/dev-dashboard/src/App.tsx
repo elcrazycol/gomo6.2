@@ -93,7 +93,7 @@ function Header() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => window.open("/docs/oauth", "_blank")}
+                  onClick={() => window.open(`//docs.${window.location.host}/oauth`, "_blank")}
                   className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
@@ -149,7 +149,7 @@ function Header() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => window.open("/docs/oauth", "_blank")}
+                  onClick={() => window.open(`//docs.${window.location.host}/oauth`, "_blank")}
                   className="text-xs px-2 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
                 >
                   <BookOpen className="w-4 h-4" />
@@ -189,7 +189,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
             </p>
             <span className="text-muted-foreground/30">·</span>
             <a
-              href="/docs/oauth"
+              href={`//docs.${window.location.host}/oauth`}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               OAuth API Docs
@@ -213,7 +213,7 @@ const App = () => {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <Toaster richColors position="top-right" />
-        <BrowserRouter basename="/dev">
+        <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/callback" element={<Callback />} />
