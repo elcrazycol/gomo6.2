@@ -10,14 +10,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 )
 
@@ -34,10 +32,9 @@ type FileInfo struct {
 // presigned URLs for browsers use GARAGE_S3_PUBLIC_ENDPOINT when set (required when
 // the API runs in Docker and the browser cannot resolve docker hostnames).
 type StorageClient struct {
-	s3             *s3.Client
-	presigner      *s3.PresignClient
-	ctx            context.Context
-	corsConfigured sync.Map // bucket -> configured
+	s3        *s3.Client
+	presigner *s3.PresignClient
+	ctx       context.Context
 }
 
 func buildS3Client(endpoint, region, accessKey, secretKey string) (*s3.Client, error) {
@@ -94,27 +91,6 @@ func browserReachableS3URL(ep string) (string, error) {
 		port = "3900"
 	}
 	return normalizeEndpoint(fmt.Sprintf("http://localhost:%s", port))
-}
-
-func corsOrigins() []string {
-	raw := os.Getenv("GARAGE_S3_CORS_ORIGINS")
-	if strings.TrimSpace(raw) == "" {
-		// Garage v1.x возвращает ВСЕ origins в одном заголовке
-		// Access-Control-Allow-Origin через запятую. Это невалидный CORS.
-		// Используем "*" — для presigned URL это безопасно (credentials в query string).
-		return []string{"*"}
-	}
-	var out []string
-	for _, p := range strings.Split(raw, ",") {
-		o := strings.TrimSpace(p)
-		if o != "" {
-			out = append(out, o)
-		}
-	}
-	if len(out) == 0 {
-		return []string{"*"}
-	}
-	return out
 }
 
 // NewStorageClient builds an S3 client for Garage. Fails soft on bucket bootstrap
@@ -183,67 +159,20 @@ func NewStorageClient() (*StorageClient, error) {
 	return s, nil
 }
 
+// bootstrapBucketsBestEffort verifies that all allowed buckets exist.
+// Buckets are created by garage-init at container startup — the backend only checks.
 func (s *StorageClient) bootstrapBucketsBestEffort() {
 	for bucket := range loadAllowedBuckets() {
-		if err := s.ensureBucket(bucket); err != nil {
-			log.Printf("storage: bootstrap bucket %q (will retry on write): %v", bucket, err)
+		_, err := s.s3.HeadBucket(s.ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
+		if err != nil {
+			log.Printf("storage: bucket %q not found (did garage-init create it?): %v", bucket, err)
+		} else {
+			log.Printf("storage: bucket %q OK", bucket)
 		}
 	}
 }
 
-func (s *StorageClient) ensureBucket(bucket string) error {
-	_, err := s.s3.HeadBucket(s.ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
-	if err == nil {
-		return s.ensureBucketCORS(bucket)
-	}
 
-	_, createErr := s.s3.CreateBucket(s.ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
-	if createErr != nil {
-		return createErr
-	}
-	return s.ensureBucketCORS(bucket)
-}
-
-func (s *StorageClient) ensureBucketCORS(bucket string) error {
-	if _, loaded := s.corsConfigured.LoadOrStore(bucket, struct{}{}); loaded {
-		return nil
-	}
-
-	origins := corsOrigins()
-	_, err := s.s3.PutBucketCors(s.ctx, &s3.PutBucketCorsInput{
-		Bucket: aws.String(bucket),
-		CORSConfiguration: &s3types.CORSConfiguration{
-			CORSRules: []s3types.CORSRule{
-				{
-					AllowedOrigins: origins,
-					AllowedMethods: []string{"GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"},
-					AllowedHeaders: []string{
-						"Origin",
-						"Access-Control-Request-Method",
-						"Access-Control-Request-Headers",
-						"content-type",
-						"Content-Type",
-					},
-					MaxAgeSeconds: aws.Int32(3600),
-				},
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("put bucket CORS: %w", err)
-	}
-
-	out, err := s.s3.GetBucketCors(s.ctx, &s3.GetBucketCorsInput{
-		Bucket: aws.String(bucket),
-	})
-	if err != nil {
-		return fmt.Errorf("get bucket CORS after put: %w", err)
-	}
-	if out == nil || len(out.CORSRules) == 0 {
-		return fmt.Errorf("bucket CORS empty after put")
-	}
-	return nil
-}
 
 // UploadFile stores an object. Bucket must be allowlisted.
 func (s *StorageClient) UploadFile(bucket, key string, data []byte, contentType string) (*FileInfo, error) {
@@ -253,10 +182,6 @@ func (s *StorageClient) UploadFile(bucket, key string, data []byte, contentType 
 	if err := ValidateObjectKey(key); err != nil {
 		return nil, err
 	}
-	if err := s.ensureBucket(bucket); err != nil {
-		return nil, fmt.Errorf("ensure bucket %s: %w", bucket, err)
-	}
-
 	out, err := s.s3.PutObject(s.ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(bucket),
 		Key:         aws.String(key),
@@ -410,10 +335,6 @@ func (s *StorageClient) GetPresignedPutURL(bucket, key string, contentType strin
 	if err := ValidateObjectKey(key); err != nil {
 		return "", err
 	}
-	if err := s.ensureBucket(bucket); err != nil {
-		return "", fmt.Errorf("ensure bucket %s: %w", bucket, err)
-	}
-
 	out, err := s.presigner.PresignPutObject(s.ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(bucket),
 		Key:         aws.String(key),
