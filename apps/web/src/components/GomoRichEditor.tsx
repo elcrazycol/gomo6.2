@@ -676,7 +676,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const initialState = useMemo(
     () => normalizeLexicalContent(contentJson, legacyContent),
-    [contentJson, legacyContent, resetKey]
+    [contentJson, legacyContent]
   );
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
 

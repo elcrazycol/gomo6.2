@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/api/client_simple";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,34 +24,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const [showCard, setShowCard] = useState(false);
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    loadNotifications();
-
-    const channel = supabase
-      .channel('notifications-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          loadNotifications();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-      if (closeTimeoutRef.current) {
-        clearTimeout(closeTimeoutRef.current);
-      }
-    };
-  }, [userId]);
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     const { data } = await supabase
       .from("notifications")
       .select("*")
@@ -87,7 +60,34 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
       setNotifications(notificationsWithSlugs);
       setUnreadCount(notificationsWithSlugs.filter(n => !n.is_read).length);
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    loadNotifications();
+
+    const channel = supabase
+      .channel('notifications-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current);
+      }
+    };
+  }, [userId, loadNotifications]);
 
 
   const handleClick = () => {

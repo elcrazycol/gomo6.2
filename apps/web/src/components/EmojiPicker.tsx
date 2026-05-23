@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '@/integrations/api/client_simple';
 import { Button } from '@/components/ui/button';
@@ -52,6 +52,47 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  const updatePosition = useCallback(() => {
+    if (triggerRef?.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      let currentPanelHeight = panelHeight; // Use measured height, fallback to initial estimate
+
+      // If panel exists, use its actual height
+      if (panelRef.current) {
+        currentPanelHeight = panelRef.current.offsetHeight;
+      }
+
+      // Always position above button
+      const top = rect.top - currentPanelHeight;
+
+      // Center panel horizontally relative to button
+      const panelWidth = 320;
+      const buttonCenter = rect.left + rect.width / 2;
+      const panelLeft = buttonCenter - panelWidth / 2;
+
+      // Ensure panel stays within viewport bounds
+      const clampedLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
+
+      setPosition({
+        top,
+        left: clampedLeft
+      });
+    }
+  }, [triggerRef, panelHeight]);
+
+  const groupEmojis = useCallback(() => {
+    const grouped = emojis.reduce((acc, emoji) => {
+      const groupId = emoji.group_id;
+      if (!acc[groupId]) {
+        acc[groupId] = [];
+      }
+      acc[groupId].push(emoji);
+      return acc;
+    }, {} as Record<string, Emoji[]>);
+
+    setGroupedEmojis(grouped);
+  }, [emojis]);
+
   useEffect(() => {
     if (open) {
       loadEmojis();
@@ -77,7 +118,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         }
       });
     }
-  }, [open]);
+  }, [open, triggerRef, updatePosition]);
 
   useEffect(() => {
     if (open && panelRef.current) {
@@ -85,7 +126,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       setPanelHeight(height);
       updatePosition();
     }
-  }, [open, loading]); // Re-measure when content loads
+  }, [open, loading, updatePosition]); // Re-measure when content loads
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -122,7 +163,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       }
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [isMobile, open]);
+  }, [isMobile, open, closeTimeout, triggerRef]);
 
   const openPicker = () => {
     if (closeTimeout) {
@@ -155,34 +196,6 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
     setOpen(false);
   };
 
-  const updatePosition = () => {
-    if (triggerRef?.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      let currentPanelHeight = panelHeight; // Use measured height, fallback to initial estimate
-
-      // If panel exists, use its actual height
-      if (panelRef.current) {
-        currentPanelHeight = panelRef.current.offsetHeight;
-      }
-
-      // Always position above button
-      const top = rect.top - currentPanelHeight;
-
-      // Center panel horizontally relative to button
-      const panelWidth = 320;
-      const buttonCenter = rect.left + rect.width / 2;
-      const panelLeft = buttonCenter - panelWidth / 2;
-
-      // Ensure panel stays within viewport bounds
-      const clampedLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
-
-      setPosition({
-        top,
-        left: clampedLeft
-      });
-    }
-  };
-
   useEffect(() => {
     if (emojis.length > 0) {
       groupEmojis();
@@ -190,7 +203,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         setSelectedGroup(groups[0].id);
       }
     }
-  }, [emojis, groups]);
+  }, [emojis, groups, groupEmojis, selectedGroup]);
 
   const loadEmojis = async () => {
     try {
@@ -206,19 +219,6 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
     } finally {
       setLoading(false);
     }
-  };
-
-  const groupEmojis = () => {
-    const grouped = emojis.reduce((acc, emoji) => {
-      const groupId = emoji.group_id;
-      if (!acc[groupId]) {
-        acc[groupId] = [];
-      }
-      acc[groupId].push(emoji);
-      return acc;
-    }, {} as Record<string, Emoji[]>);
-
-    setGroupedEmojis(grouped);
   };
 
   const scrollToGroup = (groupId: string) => {

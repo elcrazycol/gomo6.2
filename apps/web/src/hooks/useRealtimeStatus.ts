@@ -1,5 +1,5 @@
 // Hook for real-time online status updates via WebSocket
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { wsService } from '@/services/websocket';
 
@@ -15,6 +15,9 @@ interface UserStatus {
  */
 export function useRealtimeOnlineStatus(userIds: string[]) {
   const [statuses, setStatuses] = useState<Map<string, UserStatus>>(new Map());
+
+  // Memoize the joined string to use as a stable dependency
+  const userIdsKey = useMemo(() => userIds.join(','), [userIds]);
 
   useEffect(() => {
     if (!userIds.length) return;
@@ -68,7 +71,8 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
       unsubscribeOnline();
       unsubscribeOffline();
     };
-  }, [userIds.join(',')]); // Re-subscribe when user list changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userIdsKey]); // Re-subscribe when user list changes (userIds captured via userIdsKey)
 
   return statuses;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { toast } from "sonner";
@@ -77,71 +77,27 @@ const CustomProfile = () => {
   const [badgeCustomCss, setBadgeCustomCss] = useState("");
   const [badgeCssMode, setBadgeCssMode] = useState<"constructor" | "manual">("constructor");
 
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-      
-      if (user) {
-        // Load current user profile
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username, avatar_url")
-          .eq("id", user.id)
-          .single();
-
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-          setAvatarUrl(storageUrl("post-images", profile.avatar_url));
-        }
-
-
-        // Load customization
-        await loadCustomization(user.id);
+  const parseTextShadows = (shadowStr: string): TextShadow[] => {
+    const shadows: TextShadow[] = [];
+    const shadowParts = shadowStr.split(',').map(s => s.trim());
+    
+    shadowParts.forEach((part, index) => {
+      const values = part.match(/(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(.+)/);
+      if (values) {
+        shadows.push({
+          id: `shadow-${index}`,
+          x: parseFloat(values[1]),
+          y: parseFloat(values[2]),
+          blur: parseFloat(values[3]),
+          color: values[4].trim()
+        });
       }
-      
-      setLoading(false);
-    };
+    });
 
-    getUser();
-  }, []);
-
-  const loadCustomization = async (userId: string) => {
-    const { data, error } = await supabase
-      .from("profile_customization")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error("Error loading customization:", error);
-      return;
-    }
-
-    if (data) {
-      // Parse username CSS
-      if (data.username_css) {
-        parseUsernameCss(data.username_css);
-        setUsernameCustomCss(data.username_css);
-        setUsernameCssMode("manual");
-      }
-
-      // Load icon
-      if (data.username_icon_svg) setIconSvg(data.username_icon_svg);
-      if (data.username_icon_fill) setIconFill(data.username_icon_fill);
-      if (data.username_icon_stroke) setIconStroke(data.username_icon_stroke);
-
-      // Parse badge CSS
-      if (data.profile_badge_text) setBadgeText(data.profile_badge_text);
-      if (data.profile_badge_css) {
-        parseBadgeCss(data.profile_badge_css);
-        setBadgeCustomCss(data.profile_badge_css);
-        setBadgeCssMode("manual");
-      }
-    }
+    return shadows;
   };
 
-  const parseUsernameCss = (css: string) => {
+  const parseUsernameCss = useCallback((css: string) => {
     setUsernameTextShadows([]);
     setUsernameBorderRadius(0);
     setUsernameBackgroundColor("");
@@ -186,15 +142,14 @@ const CustomProfile = () => {
       setUsernameBackgroundClip(true);
     }
 
-    // Parse text shadows
     const shadowMatch = css.match(/text-shadow:\s*([^;]+)/);
     if (shadowMatch) {
       const shadows = parseTextShadows(shadowMatch[1].trim());
       setUsernameTextShadows(shadows);
     }
-  };
+  }, []);
 
-  const parseBadgeCss = (css: string) => {
+  const parseBadgeCss = useCallback((css: string) => {
     setBadgeTextShadows([]);
     setBadgeBoxShadows([]);
 
@@ -224,30 +179,70 @@ const CustomProfile = () => {
       const shadows = parseTextShadows(boxShadowMatch[1].trim());
       setBadgeBoxShadows(shadows);
     }
-  };
+  }, []);
 
-  const parseTextShadows = (shadowStr: string): TextShadow[] => {
-    // Parse multiple shadows like "0px -1px 1px #fff,0px -2px 1px #c000ff"
-    const shadows: TextShadow[] = [];
-    const shadowParts = shadowStr.split(',').map(s => s.trim());
-    
-    shadowParts.forEach((part, index) => {
-      const values = part.match(/(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(-?\d+(?:\.\d+)?)px\s+(.+)/);
-      if (values) {
-        shadows.push({
-          id: `shadow-${index}`,
-          x: parseFloat(values[1]),
-          y: parseFloat(values[2]),
-          blur: parseFloat(values[3]),
-          color: values[4].trim()
-        });
+  const loadCustomization = useCallback(async (userId: string) => {
+    const { data, error } = await supabase
+      .from("profile_customization")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error("Error loading customization:", error);
+      return;
+    }
+
+    if (data) {
+      if (data.username_css) {
+        parseUsernameCss(data.username_css);
+        setUsernameCustomCss(data.username_css);
+        setUsernameCssMode("manual");
       }
-    });
 
-    return shadows;
-  };
+      if (data.username_icon_svg) setIconSvg(data.username_icon_svg);
+      if (data.username_icon_fill) setIconFill(data.username_icon_fill);
+      if (data.username_icon_stroke) setIconStroke(data.username_icon_stroke);
 
-  const generateUsernameCssFromConstructor = (): string => {
+      if (data.profile_badge_text) setBadgeText(data.profile_badge_text);
+      if (data.profile_badge_css) {
+        parseBadgeCss(data.profile_badge_css);
+        setBadgeCustomCss(data.profile_badge_css);
+        setBadgeCssMode("manual");
+      }
+    }
+  }, [parseBadgeCss, parseUsernameCss]);
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      
+      if (user) {
+        // Load current user profile
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("username, avatar_url")
+          .eq("id", user.id)
+          .single();
+
+        if (profile) {
+          setCurrentUserUsername(profile.username);
+          setAvatarUrl(storageUrl("post-images", profile.avatar_url));
+        }
+
+
+        // Load customization
+        await loadCustomization(user.id);
+      }
+      
+      setLoading(false);
+    };
+
+    getUser();
+  }, [loadCustomization]);
+
+  const generateUsernameCssFromConstructor = useCallback((): string => {
 
     const styles: string[] = [];
 
@@ -292,31 +287,21 @@ const CustomProfile = () => {
     }
 
     return styles.join(';');
-  };
+  }, [usernameGradientType, usernameGradient, usernameBackgroundClip, usernameColor, usernameBackgroundColor, usernameBackgroundImage, usernameBorderRadius, usernameTextShadows]);
 
   useEffect(() => {
     if (usernameCssMode !== "constructor") return;
     setUsernameCustomCss(generateUsernameCssFromConstructor());
   }, [
     usernameCssMode,
-    usernameColor,
-    usernameGradient,
-    usernameGradientType,
-    usernameGradientStart,
-    usernameGradientEnd,
-    usernameGradientDirection,
-    usernameTextShadows,
-    usernameBorderRadius,
-    usernameBackgroundColor,
-    usernameBackgroundImage,
-    usernameBackgroundClip,
+    generateUsernameCssFromConstructor,
   ]);
 
   const generateBadgeCss = (): string => {
     return badgeCustomCss || generateBadgeCssFromConstructor();
   };
 
-  const generateBadgeCssFromConstructor = (): string => {
+  const generateBadgeCssFromConstructor = useCallback((): string => {
     const styles: string[] = [];
 
     // Background (gradient or solid)
@@ -347,21 +332,14 @@ const CustomProfile = () => {
     }
 
     return styles.join(';');
-  };
+  }, [badgeGradientType, badgeGradient, badgeColor, badgeTextShadows, badgeBoxShadows]);
 
   useEffect(() => {
     if (badgeCssMode !== "constructor") return;
     setBadgeCustomCss(generateBadgeCssFromConstructor());
   }, [
     badgeCssMode,
-    badgeColor,
-    badgeGradient,
-    badgeGradientType,
-    badgeGradientStart,
-    badgeGradientEnd,
-    badgeGradientDirection,
-    badgeTextShadows,
-    badgeBoxShadows,
+    generateBadgeCssFromConstructor,
   ]);
 
   const handleUsernameCssChange = (value: string) => {

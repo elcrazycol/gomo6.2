@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { toast } from "sonner";
@@ -58,37 +58,7 @@ const Bots = () => {
 end`,
   });
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
-  useEffect(() => {
-    if (editingBot && showLogs) {
-      loadLogs(editingBot.id);
-      const interval = setInterval(() => loadLogs(editingBot.id), 5000); // Увеличил с 3 до 5 секунд
-      return () => clearInterval(interval);
-    }
-  }, [editingBot, showLogs]);
-
-  useEffect(() => {
-    if (showLogs && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [logs]);
-
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      navigate("/auth");
-      return;
-    }
-
-    setUser(session.user);
-    await loadBots(session.user.id);
-    setLoading(false);
-  };
-
-  const loadBots = async (userId: string) => {
+  const loadBots = useCallback(async (userId: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
@@ -106,7 +76,23 @@ end`,
     } catch (error) {
       console.error("Failed to load bots:", error);
     }
-  };
+  }, []);
+
+  const checkAuth = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate("/auth");
+      return;
+    }
+
+    setUser(session.user);
+    await loadBots(session.user.id);
+    setLoading(false);
+  }, [navigate, loadBots]);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
   const createBot = async () => {
     try {
@@ -218,7 +204,7 @@ end`,
     }
   };
 
-  const loadLogs = async (botId: string) => {
+  const loadLogs = useCallback(async (botId: string) => {
     try {
       setLogsLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
@@ -248,7 +234,21 @@ end`,
     } finally {
       setLogsLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (editingBot && showLogs) {
+      loadLogs(editingBot.id);
+      const interval = setInterval(() => loadLogs(editingBot.id), 5000);
+      return () => clearInterval(interval);
+    }
+  }, [editingBot, showLogs, loadLogs]);
+
+  useEffect(() => {
+    if (showLogs && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, showLogs]);
 
   const clearLogs = async (botId: string) => {
     try {

@@ -44,6 +44,39 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
     setLocalImages(images);
   }, [initialIndex, images]);
 
+  const handlePrevious = useCallback(() => {
+    setCurrentIndex((prev) => (prev === 0 ? localImages.length - 1 : prev - 1));
+  }, [localImages.length]);
+
+  const handleNext = useCallback(() => {
+    setCurrentIndex((prev) => (prev === localImages.length - 1 ? 0 : prev + 1));
+  }, [localImages.length]);
+
+  const computeRenderRect = useCallback(() => {
+    if (!containerRef.current || !imgRef.current) return null;
+    const cw = containerRef.current.clientWidth;
+    const ch = containerRef.current.clientHeight;
+    const iw = imgRef.current.naturalWidth;
+    const ih = imgRef.current.naturalHeight;
+    if (!iw || !ih) return null;
+    // Keep maximum usable canvas area in edit mode so the image never shrinks too much.
+    const topInset = 0;
+    const availableHeight = Math.max(1, ch - topInset);
+    const scale = Math.min(cw / iw, availableHeight / ih);
+    const w = iw * scale;
+    const h = ih * scale;
+    const x = (cw - w) / 2;
+    const y = topInset + (availableHeight - h) / 2;
+    return { x, y, w, h };
+  }, []);
+
+  const refreshRenderRect = useCallback(() => {
+    const rect = computeRenderRect();
+    if (rect) {
+      setRenderRect(rect);
+    }
+  }, [computeRenderRect]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -84,22 +117,14 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
         document.exitFullscreen().catch(() => {});
       }
     };
-  }, [currentIndex]);
+  }, [currentIndex, onClose, handlePrevious, handleNext]);
 
   useEffect(() => {
     refreshRenderRect();
     const handleResize = () => refreshRenderRect();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [currentIndex, images, isFullscreen, isEditing, showControls, isTouch]);
-
-  const handlePrevious = () => {
-    setCurrentIndex((prev) => (prev === 0 ? localImages.length - 1 : prev - 1));
-  };
-
-  const handleNext = () => {
-    setCurrentIndex((prev) => (prev === localImages.length - 1 ? 0 : prev + 1));
-  };
+  }, [currentIndex, images, isFullscreen, isEditing, showControls, isTouch, refreshRenderRect]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (isEditing) return;
@@ -135,31 +160,6 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
   const activeImages = useMemo(() => localImages, [localImages]);
 
   const currentSrc = activeImages[currentIndex];
-
-  const computeRenderRect = () => {
-    if (!containerRef.current || !imgRef.current) return null;
-    const cw = containerRef.current.clientWidth;
-    const ch = containerRef.current.clientHeight;
-    const iw = imgRef.current.naturalWidth;
-    const ih = imgRef.current.naturalHeight;
-    if (!iw || !ih) return null;
-    // Keep maximum usable canvas area in edit mode so the image never shrinks too much.
-    const topInset = 0;
-    const availableHeight = Math.max(1, ch - topInset);
-    const scale = Math.min(cw / iw, availableHeight / ih);
-    const w = iw * scale;
-    const h = ih * scale;
-    const x = (cw - w) / 2;
-    const y = topInset + (availableHeight - h) / 2;
-    return { x, y, w, h };
-  };
-
-  const refreshRenderRect = () => {
-    const rect = computeRenderRect();
-    if (rect) {
-      setRenderRect(rect);
-    }
-  };
 
   const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
@@ -255,7 +255,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
         );
       }
     }
-  }, [cropBox, currentSrc, draftRedact, isEditing, isTouch, redacts, renderRect, tool]);
+  }, [cropBox, draftRedact, isEditing, isTouch, redacts, renderRect, tool]);
 
   useEffect(() => {
     drawEditor();

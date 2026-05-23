@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +37,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
   const [results, setResults] = useState<Record<string, { votes: number; total_votes: number }>>({});
 
   // Load user votes
-  const loadUserVotes = async () => {
+  const loadUserVotes = useCallback(async () => {
     if (!currentUserId) return;
 
     try {
@@ -56,10 +56,10 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
     } catch (error) {
       console.error('Error loading user votes:', error);
     }
-  };
+  }, [currentUserId, poll.id]);
 
   // Load poll results
-  const loadResults = async () => {
+  const loadResults = useCallback(async () => {
     try {
       const { data, error } = await supabase.rpc('get_poll_results', { poll_uuid: poll.id });
       if (error) throw error;
@@ -75,7 +75,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
     } catch (error) {
       console.error('Error loading poll results:', error);
     }
-  };
+  }, [poll.id]);
 
   // Load user votes and results on mount
   useEffect(() => {
@@ -83,14 +83,14 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
     if (poll.show_results) {
       loadResults();
     }
-  }, [poll.id, currentUserId]);
+  }, [poll.id, currentUserId, poll.show_results, loadUserVotes, loadResults]);
 
   // Load results when user has voted or when results become public
   useEffect(() => {
     if (hasVoted && poll.show_results) {
       loadResults();
     }
-  }, [hasVoted, poll.show_results]);
+  }, [hasVoted, poll.show_results, loadResults]);
 
   const handleVote = async (optionId: string) => {
     if (!currentUserId) {

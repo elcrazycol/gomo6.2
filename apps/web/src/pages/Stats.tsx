@@ -178,7 +178,7 @@ export default function Stats() {
     };
 
     load();
-  }, [navigate]);
+  }, [navigate, searchParams]);
 
   const applyWeight = (points: StatPoint[], weight: number) =>
     points.map((p) => ({ ...p, value: p.value * weight }));

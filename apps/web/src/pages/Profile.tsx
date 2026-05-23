@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
@@ -277,9 +277,8 @@ const Profile = () => {
       };
       loadAll();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-
-  // Realtime updates for online status of viewed profile
   useEffect(() => {
     if (!userId) return;
 
@@ -306,7 +305,7 @@ const Profile = () => {
   // Update online status for current user
   useOnlineStatus(currentUser?.id);
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     const { data } = await supabase
       .from("profiles")
       .select("*")
@@ -372,7 +371,7 @@ const Profile = () => {
       });
       setLikesReceived((likesData as number) || 0);
     }
-  };
+  }, [userId]);
 
   // Set default tab based on wall visibility
   useEffect(() => {
@@ -401,7 +400,7 @@ const Profile = () => {
     }
   };
 
-  const loadUserThreads = async () => {
+  const loadUserThreads = useCallback(async () => {
     if (!userId) return;
 
     setThreadsLoading(true);
@@ -470,13 +469,13 @@ const Profile = () => {
     } finally {
       setThreadsLoading(false);
     }
-  };
+  }, [userId]);
 
   useEffect(() => {
     if (activeTab === 'threads' && userThreads.length === 0) {
       loadUserThreads();
     }
-  }, [activeTab, userId]);
+  }, [activeTab, userId, userThreads.length, loadUserThreads]);
 
   const toggleAchievementPin = async (achievementId: string) => {
     try {

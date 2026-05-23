@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { Button } from "@/components/ui/button";
@@ -206,6 +206,82 @@ const Board = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  const loadThreads = useCallback(async (boardId: string) => {
+    const contentFilter = searchParams.get('content');
+    const formatFilter = searchParams.get('format');
+    const atmosphereFilter = searchParams.get('atmosphere');
+    const flagFilter = searchParams.get('flag');
+
+    let query = supabase
+      .from("threads")
+      .select("*")
+      .eq("board_id", boardId);
+
+    if (!isGomoRoute) {
+      if (contentFilter) {
+        query = query.eq("tags->>content", contentFilter);
+      }
+      if (formatFilter) {
+        query = query.eq("tags->>format", formatFilter);
+      }
+      if (atmosphereFilter) {
+        query = query.eq("tags->>atmosphere", atmosphereFilter);
+      }
+      if (flagFilter) {
+        query = query.eq("tags->>flag", flagFilter);
+      }
+      if (!contentFilter && !formatFilter && !atmosphereFilter && !flagFilter) {
+        const oldTagFilter = searchParams.get('tag');
+        if (oldTagFilter) {
+          query = query.or(`tag.eq.${oldTagFilter},tags->>content.eq.${oldTagFilter}`);
+        }
+      }
+    }
+
+    const { data: threadsData } = await query.order("updated_at", { ascending: false });
+
+    if (threadsData) {
+      const threadsWithData = await Promise.all(
+        threadsData.map(async (thread) => {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("username, is_anonymous")
+            .eq("id", thread.user_id!)
+            .maybeSingle();
+          
+          const { data: latestPost } = await supabase
+            .from("posts")
+            .select("content, created_at, is_private, user_id")
+            .eq("thread_id", thread.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          let latestPostWithProfile = latestPost;
+          if (latestPost && latestPost.user_id) {
+            const { data: postProfile } = await supabase
+              .from("profiles")
+              .select("username, is_anonymous")
+              .eq("id", latestPost.user_id)
+              .maybeSingle();
+
+            latestPostWithProfile = {
+              ...latestPost,
+              profiles: postProfile
+            };
+          }
+
+          return {
+            ...thread,
+            profiles: profile,
+            latest_post: latestPostWithProfile,
+          };
+        })
+      );
+      setThreads(threadsWithData);
+    }
+  }, [searchParams, isGomoRoute]);
+
   useEffect(() => {
     const loadBoard = async () => {
       if (isGomoRoute && !authResolved) {
@@ -292,7 +368,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute, authResolved]);
+  }, [slug, user, searchParams, isGomoRoute, authResolved, loadThreads]);
 
   useEffect(() => {
     const loadMembership = async () => {
@@ -350,94 +426,12 @@ const Board = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [board]);
+  }, [board, loadThreads]);
 
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
   if (slug === "gomosubs") {
     return <Navigate to="/g" replace />;
   }
-
-  const loadThreads = async (boardId: string) => {
-    const contentFilter = searchParams.get('content');
-    const formatFilter = searchParams.get('format');
-    const atmosphereFilter = searchParams.get('atmosphere');
-    const flagFilter = searchParams.get('flag');
-
-    let query = supabase
-      .from("threads")
-      .select("*")
-      .eq("board_id", boardId);
-
-    if (!isGomoRoute) {
-      // Filter by new tag system
-      if (contentFilter) {
-        query = query.eq("tags->>content", contentFilter);
-      }
-      if (formatFilter) {
-        query = query.eq("tags->>format", formatFilter);
-      }
-      if (atmosphereFilter) {
-        query = query.eq("tags->>atmosphere", atmosphereFilter);
-      }
-      if (flagFilter) {
-        query = query.eq("tags->>flag", flagFilter);
-      }
-
-      // Backward compatibility: filter by old tag field if no new filters
-      if (!contentFilter && !formatFilter && !atmosphereFilter && !flagFilter) {
-        const oldTagFilter = searchParams.get('tag');
-        if (oldTagFilter) {
-          query = query.or(`tag.eq.${oldTagFilter},tags->>content.eq.${oldTagFilter}`);
-        }
-      }
-    }
-
-    const { data: threadsData } = await query.order("updated_at", { ascending: false });
-
-    if (threadsData) {
-      const threadsWithData = await Promise.all(
-        threadsData.map(async (thread) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username, is_anonymous")
-            .eq("id", thread.user_id!)
-            .maybeSingle();
-          
-          // Get latest post
-          const { data: latestPost } = await supabase
-            .from("posts")
-            .select("content, created_at, is_private, user_id")
-            .eq("thread_id", thread.id)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          // Get profile for latest post if it exists
-          let latestPostWithProfile = latestPost;
-          if (latestPost && latestPost.user_id) {
-            const { data: postProfile } = await supabase
-              .from("profiles")
-              .select("username, is_anonymous")
-              .eq("id", latestPost.user_id)
-              .maybeSingle();
-
-            latestPostWithProfile = {
-              ...latestPost,
-              profiles: postProfile
-            };
-          }
-
-          return {
-            ...thread,
-            profiles: profile,
-            latest_post: latestPostWithProfile,
-          };
-        })
-      );
-      setThreads(threadsWithData);
-    }
-  };
-
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

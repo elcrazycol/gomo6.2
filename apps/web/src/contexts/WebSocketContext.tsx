@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from "react";
 import { supabase } from "@/integrations/api/client_simple";
 
 type WebSocketMessage = {
@@ -35,7 +35,7 @@ export const WebSocketProvider = ({ children }: Props) => {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
 
-  const connect = async () => {
+  const connect = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
@@ -90,7 +90,7 @@ export const WebSocketProvider = ({ children }: Props) => {
     } catch (error) {
       console.error("[WebSocket] Connection error:", error);
     }
-  };
+  }, []);
 
   const subscribe = (room: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -138,7 +138,7 @@ export const WebSocketProvider = ({ children }: Props) => {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [connect]);
 
   return (
     <WebSocketContext.Provider value={{ isConnected, subscribe, unsubscribe, on }}>

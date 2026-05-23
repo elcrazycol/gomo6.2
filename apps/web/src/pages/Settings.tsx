@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { toast } from "sonner";
@@ -176,7 +176,7 @@ const Settings = () => {
     getUser();
   }, []);
 
-  const loadPrivacySettings = async () => {
+  const loadPrivacySettings = useCallback(async () => {
     // Always try to load from database first for consistency across devices
     try {
       const { data, error } = await (supabase as any)
@@ -242,7 +242,7 @@ const Settings = () => {
 
     // Last resort: use hardcoded defaults
     setPrivacySettings(defaultPrivacySettings);
-  };
+  }, [user?.id]);
 
   const updatePrivacySetting = async (key: string, value: boolean | Record<string, boolean>) => {
     if (!privacySettings || !user) return;
@@ -469,7 +469,7 @@ const Settings = () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [user]);
+  }, [user, loadPrivacySettings]);
 
   if (loading) {
     return (

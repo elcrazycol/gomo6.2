@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/api/client_simple";
 import { User } from "lucide-react";
@@ -218,46 +218,10 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         textarea.removeEventListener('click', handleInput);
       }
     };
-  }, [textareaRef.current, content, getContent, getCursorPos, getCursorRect]); // Depend on either textarea or external providers
-
-  // Handle keyboard navigation
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea || !showMentions) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!showMentions || users.length === 0) return;
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedIndex(prev => prev < users.length - 1 ? prev + 1 : 0);
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedIndex(prev => prev > 0 ? prev - 1 : users.length - 1);
-      } else if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        if (users[selectedIndex]) {
-          selectUser(users[selectedIndex]);
-        }
-      } else if (e.key === 'Escape') {
-        setShowMentions(false);
-      }
-    };
-
-    textarea.addEventListener('keydown', handleKeyDown);
-    return () => textarea.removeEventListener('keydown', handleKeyDown);
-  }, [showMentions, users, selectedIndex, textareaRef]);
-
-  // Reset selectedIndex when users list changes
-  useEffect(() => {
-    if (users.length > 0 && selectedIndex >= users.length) {
-      setSelectedIndex(0);
-    }
-  }, [users.length, selectedIndex]);
-
+  }, [textareaRef, content, getContent, getCursorPos, getCursorRect, showMentions]); // Depend on either textarea or external providers
 
   // Select user and insert mention
-  const selectUser = (user: User) => {
+  const selectUser = useCallback((user: User) => {
     const textarea = textareaRef.current;
     const text = getContent ? getContent() : (textarea?.value ?? content);
     const cursorPos = getCursorPos ? getCursorPos() : (textarea?.selectionStart ?? 0);
@@ -289,7 +253,35 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
 
     setShowMentions(false);
     setUsers([]);
-  };
+  }, [textareaRef, content, getContent, getCursorPos, onContentChange, setContent, focusInput, setCursorPos]);
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || !showMentions) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!showMentions || users.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => prev < users.length - 1 ? prev + 1 : 0);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => prev > 0 ? prev - 1 : users.length - 1);
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (users[selectedIndex]) {
+          selectUser(users[selectedIndex]);
+        }
+      } else if (e.key === 'Escape') {
+        setShowMentions(false);
+      }
+    };
+
+    textarea.addEventListener('keydown', handleKeyDown);
+    return () => textarea.removeEventListener('keydown', handleKeyDown);
+  }, [showMentions, users, selectedIndex, textareaRef, selectUser]);
 
   // Update position when mentions panel is shown
   useEffect(() => {
@@ -317,7 +309,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
       clearTimeout(timeout);
       cancelAnimationFrame(raf);
     };
-  }, [showMentions, getCursorRect]);
+  }, [showMentions, getCursorRect, textareaRef]);
 
   // Hide mentions when clicking outside
   useEffect(() => {
@@ -338,7 +330,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [getEditorEl]);
+  }, [getEditorEl, textareaRef]);
 
   if (!showMentions || (users.length === 0 && !loading)) return null;
 
