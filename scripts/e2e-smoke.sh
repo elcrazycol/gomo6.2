@@ -57,7 +57,7 @@ CONTENT_URL=$(curl -sf -X POST "$BASE/storage/v1/presign-upload" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"bucket":"content","key":"e2eci/test-photo.jpg","content_type":"image/jpeg"}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["upload_url"])')
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["upload_url"])')
 HOST=$(echo "$CONTENT_URL" | python3 -c 'import sys; from urllib.parse import urlparse; print(urlparse(sys.stdin.read().strip()).netloc)')
 pass "Presigned URL host: $HOST"
 [ "$HOST" = "localhost:3900" ] || fail "Expected localhost:3900, got $HOST"
@@ -74,7 +74,7 @@ AVATAR_URL=$(curl -sf -X POST "$BASE/storage/v1/presign-upload" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"bucket":"post-images","key":"e2eci/avatar.jpg","content_type":"image/jpeg"}' \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["upload_url"])')
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"]["upload_url"])')
 pass "Avatar presigned URL obtained"
 
 # ── 8. Upload avatar ───────────────────────────────────────────────

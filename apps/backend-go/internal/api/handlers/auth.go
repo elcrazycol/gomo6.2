@@ -31,18 +31,14 @@ func NewAuthHandler(db *sql.DB) *AuthHandler {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to hash password"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to hash password"))
 		return
 	}
 
@@ -58,27 +54,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		&user.ID, &user.Username, &user.Email, &user.Domain, &user.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to create user"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create user"))
 		return
 	}
 
 	// Generate JWT token
 	token, err := h.authService.GenerateToken(user.ID, user.Username, user.Domain)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to generate token"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
 
-	c.JSON(http.StatusCreated, models.SupabaseResponse{
-		Data: gin.H{
-			"user":  user,
-			"token": token,
-		},
-	})
+	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
+		"user":  user,
+		"token": token,
+	}))
 }
 
 // Login checks password and returns either a full token (no 2FA) or
@@ -91,9 +81,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		DeviceID string `json:"device_id,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -115,23 +103,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-				Error: stringPtr("Invalid credentials"),
-			})
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Database error"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
 		return
 	}
 
 	// Check password
 	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Invalid credentials"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
 		return
 	}
 
@@ -146,19 +128,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 						// Device is trusted, skip 2FA
 						token, err := h.authService.GenerateToken(user.ID, user.Username, user.Domain)
 						if err != nil {
-							c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-								Error: stringPtr("Failed to generate token"),
-							})
+							c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 							return
 						}
 
-						c.JSON(http.StatusOK, models.SupabaseResponse{
-							Data: gin.H{
-								"user":      user,
-								"token":     token,
-								"needs_2fa": false,
-							},
-						})
+						c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+							"user":      user,
+							"token":     token,
+							"needs_2fa": false,
+						}))
 						return
 					}
 				}
@@ -168,38 +146,30 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		// Generate a partial token (short-lived, marks that password was verified)
 		partialToken, err := h.authService.GeneratePartialToken(user.ID, user.Username, user.Domain)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr("Failed to generate partial token"),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate partial token"))
 			return
 		}
 
-		c.JSON(http.StatusOK, models.SupabaseResponse{
-			Data: gin.H{
-				"user":      user,
-				"token":     partialToken,
-				"needs_2fa": true,
-			},
-		})
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+			"user":      user,
+			"token":     partialToken,
+			"needs_2fa": true,
+		}))
 		return
 	}
 
 	// No 2FA, generate full token directly
 	token, err := h.authService.GenerateToken(user.ID, user.Username, user.Domain)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to generate token"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{
-			"user":      user,
-			"token":     token,
-			"needs_2fa": false,
-		},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"user":      user,
+		"token":     token,
+		"needs_2fa": false,
+	}))
 }
 
 // Verify2FA validates a TOTP code after password login.
@@ -213,18 +183,14 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		TrustDevice bool   `json:"trust_device,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Validate the partial token
 	claims, err := h.authService.ValidateToken(req.Token)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Invalid or expired token"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired token"))
 		return
 	}
 
@@ -235,27 +201,21 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		`SELECT totp_secret, totp_enabled FROM users WHERE id = $1`, claims.UserID,
 	).Scan(&totpSecret, &totpEnabled)
 	if err != nil || !totpEnabled || totpSecret == nil || *totpSecret == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("2FA is not enabled for this account"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("2FA is not enabled for this account"))
 		return
 	}
 
 	// Validate TOTP code
 	valid, err := h.validateTOTP(*totpSecret, req.Code)
 	if err != nil || !valid {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Invalid 2FA code"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid 2FA code"))
 		return
 	}
 
 	// Generate full token
 	token, err := h.authService.GenerateToken(claims.UserID, claims.Username, claims.Domain)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to generate token"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
 
@@ -264,20 +224,16 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		h.trustDevice(claims.UserID, req.DeviceID)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{
-			"token": token,
-		},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"token": token,
+	}))
 }
 
 // SetupTOTP generates a new TOTP secret for the authenticated user and returns the provisioning URI.
 func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -288,9 +244,7 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 		AccountName: userClaims.Username,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to generate TOTP secret"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate TOTP secret"))
 		return
 	}
 
@@ -300,27 +254,21 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 		key.Secret(), userClaims.UserID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to store TOTP secret"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to store TOTP secret"))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{
-			"secret": key.Secret(),
-			"uri":    key.URL(),
-		},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"secret": key.Secret(),
+		"uri":    key.URL(),
+	}))
 }
 
 // VerifyAndEnableTOTP verifies the TOTP code and enables 2FA for the user.
 func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -329,9 +277,7 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 		Code string `json:"code"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -341,18 +287,14 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 		`SELECT totp_secret FROM users WHERE id = $1`, userClaims.UserID,
 	).Scan(&totpSecret)
 	if err != nil || totpSecret == nil || *totpSecret == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("TOTP not set up. Call setup first."),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("TOTP not set up. Call setup first."))
 		return
 	}
 
 	// Validate the TOTP code
 	valid, err := h.validateTOTP(*totpSecret, req.Code)
 	if err != nil || !valid {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid code. Please try again."),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid code. Please try again."))
 		return
 	}
 
@@ -362,30 +304,24 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 		userClaims.UserID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to enable 2FA"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to enable 2FA"))
 		return
 	}
 
 	// Generate recovery codes (5 codes)
 	recoveryCodes := h.generateRecoveryCodes(userClaims.UserID)
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{
-			"enabled":        true,
-			"recovery_codes": recoveryCodes,
-		},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"enabled":        true,
+		"recovery_codes": recoveryCodes,
+	}))
 }
 
 // DisableTOTP disables 2FA for the authenticated user.
 func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -395,24 +331,18 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 		userClaims.UserID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to disable 2FA"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to disable 2FA"))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"ok": true},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
 // Get2FAStatus returns the current 2FA status for the authenticated user.
 func (h *AuthHandler) Get2FAStatus(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -423,20 +353,16 @@ func (h *AuthHandler) Get2FAStatus(c *gin.Context) {
 		`SELECT totp_enabled, totp_secret FROM users WHERE id = $1`, userClaims.UserID,
 	).Scan(&totpEnabled, &totpSecret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to get 2FA status"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get 2FA status"))
 		return
 	}
 
 	hasPendingSecret := !totpEnabled && totpSecret != nil && *totpSecret != ""
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{
-			"enabled":            totpEnabled,
-			"has_pending_secret": hasPendingSecret,
-		},
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"enabled":            totpEnabled,
+		"has_pending_secret": hasPendingSecret,
+	}))
 }
 
 // internal helpers
@@ -498,9 +424,7 @@ func (h *AuthHandler) validateRecoveryCode(secret, code string) (bool, error) {
 func (h *AuthHandler) GetMe(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -523,24 +447,18 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 		&user.CreatedAt, &user.IsRemote,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("User not found"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("User not found"))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: user,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(user))
 }
 
 // UpdatePassword sets a new password for the authenticated user (Supabase auth.updateUser compatibility).
 func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -549,35 +467,23 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || len(body.Password) < 6 {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Password must be at least 6 characters"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Password must be at least 6 characters"))
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to hash password"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to hash password"))
 		return
 	}
 
 	_, err = h.db.Exec(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, string(hashedPassword), userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: gin.H{"ok": true},
-	})
-}
-
-func stringPtr(s string) *string {
-	return &s
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
 func randomHex(length int) string {

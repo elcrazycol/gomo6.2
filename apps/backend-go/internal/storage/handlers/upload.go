@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/storage"
 )
 
@@ -31,28 +32,19 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 		bucket = "uploads"
 	}
 	if !storage.IsAllowedBucket(bucket) {
-		c.JSON(http.StatusBadRequest, storage.UploadResponse{
-			Success: false,
-			Error:   "Bucket not allowed",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket not allowed"))
 		return
 	}
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, storage.UploadResponse{
-			Success: false,
-			Error:   "No file provided",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("No file provided"))
 		return
 	}
 	defer file.Close()
 
 	if header.Size > maxUploadBytes {
-		c.JSON(http.StatusBadRequest, storage.UploadResponse{
-			Success: false,
-			Error:   "File too large (max 10MB)",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("File too large (max 10MB)"))
 		return
 	}
 
@@ -62,26 +54,17 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 		".webp": true, ".pdf": true, ".txt": true, ".md": true,
 	}
 	if !allowedTypes[ext] {
-		c.JSON(http.StatusBadRequest, storage.UploadResponse{
-			Success: false,
-			Error:   "File type not allowed",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("File type not allowed"))
 		return
 	}
 
 	data, err := io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, storage.UploadResponse{
-			Success: false,
-			Error:   "Failed to read file",
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to read file"))
 		return
 	}
 	if int64(len(data)) > maxUploadBytes {
-		c.JSON(http.StatusBadRequest, storage.UploadResponse{
-			Success: false,
-			Error:   "File too large (max 10MB)",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("File too large (max 10MB)"))
 		return
 	}
 
@@ -95,17 +78,11 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 
 	fileInfo, err := h.client.UploadFile(bucket, key, data, contentType)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, storage.UploadResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, storage.UploadResponse{
-		Success: true,
-		File:    fileInfo,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"file": fileInfo}))
 }
 
 func (h *StorageHandler) DownloadFile(c *gin.Context) {
@@ -113,19 +90,13 @@ func (h *StorageHandler) DownloadFile(c *gin.Context) {
 	key := c.Param("key")
 
 	if bucket == "" || key == "" {
-		c.JSON(http.StatusBadRequest, storage.DownloadResponse{
-			Success: false,
-			Error:   "Bucket and key are required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
 		return
 	}
 
 	data, contentType, err := h.client.GetFile(bucket, key)
 	if err != nil {
-		c.JSON(http.StatusNotFound, storage.DownloadResponse{
-			Success: false,
-			Error:   "File not found",
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("File not found"))
 		return
 	}
 
@@ -137,22 +108,16 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	key := c.Param("key")
 
 	if bucket == "" || key == "" {
-		c.JSON(http.StatusBadRequest, storage.DeleteResponse{
-			Success: false,
-			Error:   "Bucket and key are required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
 		return
 	}
 
 	if err := h.client.DeleteFile(bucket, key); err != nil {
-		c.JSON(http.StatusInternalServerError, storage.DeleteResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, storage.DeleteResponse{Success: true})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
 func (h *StorageHandler) GetPresignedURL(c *gin.Context) {
@@ -160,10 +125,7 @@ func (h *StorageHandler) GetPresignedURL(c *gin.Context) {
 	key := c.Param("key")
 
 	if bucket == "" || key == "" {
-		c.JSON(http.StatusBadRequest, storage.PresignedURLResponse{
-			Success: false,
-			Error:   "Bucket and key are required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
 		return
 	}
 
@@ -176,50 +138,32 @@ func (h *StorageHandler) GetPresignedURL(c *gin.Context) {
 
 	url, err := h.client.GetPresignedURL(bucket, key, time.Duration(expires)*time.Second)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, storage.PresignedURLResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, storage.PresignedURLResponse{
-		Success: true,
-		URL:     url,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"url": url}))
 }
 
 func (h *StorageHandler) PresignUpload(c *gin.Context) {
 	var req storage.PresignUploadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, storage.PresignUploadResponse{
-			Success: false,
-			Error:   "Invalid request body",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	req.Bucket = strings.TrimSpace(req.Bucket)
 	req.Key = strings.TrimSpace(req.Key)
 	if req.Bucket == "" || req.Key == "" {
-		c.JSON(http.StatusBadRequest, storage.PresignUploadResponse{
-			Success: false,
-			Error:   "Bucket and key are required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
 		return
 	}
 	if !storage.IsAllowedBucket(req.Bucket) {
-		c.JSON(http.StatusBadRequest, storage.PresignUploadResponse{
-			Success: false,
-			Error:   "Bucket not allowed",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket not allowed"))
 		return
 	}
 	if err := storage.ValidateObjectKey(req.Key); err != nil {
-		c.JSON(http.StatusBadRequest, storage.PresignUploadResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -233,19 +177,15 @@ func (h *StorageHandler) PresignUpload(c *gin.Context) {
 
 	uploadURL, err := h.client.GetPresignedPutURL(req.Bucket, req.Key, req.ContentType, time.Duration(expiresSeconds)*time.Second)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, storage.PresignUploadResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, storage.PresignUploadResponse{
-		Success:   true,
-		UploadURL: uploadURL,
-		Bucket:    req.Bucket,
-		Key:       req.Key,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"upload_url": uploadURL,
+		"bucket":     req.Bucket,
+		"key":        req.Key,
+	}))
 }
 
 // ServeObject streams an object from Garage through the API (same origin as the web app).
@@ -255,24 +195,15 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 	key = strings.TrimPrefix(key, "/")
 
 	if bucket == "" || key == "" {
-		c.JSON(http.StatusBadRequest, storage.PresignedURLResponse{
-			Success: false,
-			Error:   "Bucket and key are required",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
 		return
 	}
 	if !storage.IsAllowedBucket(bucket) {
-		c.JSON(http.StatusBadRequest, storage.PresignedURLResponse{
-			Success: false,
-			Error:   "Bucket not allowed",
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket not allowed"))
 		return
 	}
 	if err := storage.ValidateObjectKey(key); err != nil {
-		c.JSON(http.StatusBadRequest, storage.PresignedURLResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -309,13 +240,10 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 				c.Data(http.StatusOK, "image/svg+xml", []byte(storage.AvatarPlaceholderSVG))
 				return
 			}
-			c.JSON(http.StatusNotFound, storage.PresignedURLResponse{
-				Success: false,
-				Error:   "Object not found",
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Object not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load object"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load object"))
 		return
 	}
 	defer out.Body.Close()

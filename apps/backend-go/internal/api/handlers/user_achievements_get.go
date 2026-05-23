@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/models"
 )
 
 // handleUserAchievementsGet returns rows shaped like PostgREST embeds: nested "achievements" object.
@@ -86,7 +87,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -100,7 +101,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		row := make(map[string]interface{})
@@ -118,7 +119,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 		}
 		results = append(results, row)
 	}
-	c.JSON(http.StatusOK, gin.H{"data": results})
+	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
 func decodeJSONColumn(val interface{}) map[string]interface{} {

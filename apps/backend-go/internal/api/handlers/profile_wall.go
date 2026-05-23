@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/models"
 )
 
 const profileWallAuthorJSON = `COALESCE(
@@ -101,7 +102,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -115,7 +116,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		row := make(map[string]interface{})
@@ -137,7 +138,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		}
 		results = append(results, row)
 	}
-	c.JSON(http.StatusOK, gin.H{"data": results})
+	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
 func decodeMaybeJSONB(val interface{}) interface{} {
@@ -239,9 +240,9 @@ func (h *UniversalHandler) tryRespondProfileWallEnriched(c *gin.Context, tableNa
 		row, err = h.fetchProfileWallCommentWithAuthor(idStr)
 	}
 	if err != nil || row == nil {
-		c.JSON(http.StatusOK, gin.H{"data": result})
+		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return true
 	}
-	c.JSON(http.StatusOK, gin.H{"data": row})
+	c.JSON(http.StatusOK, models.SuccessResponse(row))
 	return true
 }

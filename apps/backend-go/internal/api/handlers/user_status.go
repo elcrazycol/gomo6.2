@@ -33,10 +33,7 @@ type UserStatusResponse struct {
 func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 	onlineUserIDs := h.hub.GetOnlineUsers()
 
-	c.JSON(http.StatusOK, gin.H{
-		"online_users": onlineUserIDs,
-		"count":        len(onlineUserIDs),
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"online_users": onlineUserIDs, "count": len(onlineUserIDs)}))
 }
 
 // GetUserStatus returns the online status of a specific user
@@ -66,14 +63,10 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("User not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -95,22 +88,18 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	if len(request.UserIDs) == 0 {
-		c.JSON(http.StatusOK, gin.H{"statuses": []UserStatusResponse{}})
+		c.JSON(http.StatusOK, models.SuccessResponse([]UserStatusResponse{}))
 		return
 	}
 
 	// Limit to 100 users per request
 	if len(request.UserIDs) > 100 {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Maximum 100 user IDs allowed per request"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 100 user IDs allowed per request"))
 		return
 	}
 
@@ -125,9 +114,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 
 	rows, err := h.db.Query(query, request.UserIDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -159,5 +146,5 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 		statuses = append(statuses, status)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"statuses": statuses})
+	c.JSON(http.StatusOK, models.SuccessResponse(statuses))
 }

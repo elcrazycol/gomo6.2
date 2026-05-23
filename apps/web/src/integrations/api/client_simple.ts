@@ -622,11 +622,11 @@ export const supabase = {
         }
 
         const presign = await presignRes.json();
-        if (!presign?.success || !presign?.upload_url) {
+        if (!presign?.success || !presign?.data?.upload_url) {
           return { data: null, error: { message: presign?.error || "Presign failed" } };
         }
 
-        const putRes = await fetch(presign.upload_url, {
+        const putRes = await fetch(presign.data.upload_url, {
           method: "PUT",
           headers: {
             "Content-Type": file.type || "application/octet-stream",

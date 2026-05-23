@@ -121,9 +121,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -139,9 +137,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			&profile.IsRemote, &profile.IsAnonymous,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		if bioJSON.Valid && len(bioJSON.String) > 0 {
@@ -151,10 +147,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	}
 
 	profileCount := len(profiles)
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data:  profiles,
-		Count: &profileCount,
-	})
+	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: profiles, Count: &profileCount})
 }
 
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
@@ -181,14 +174,10 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("Profile not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -196,9 +185,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		profile.BioJSON = json.RawMessage([]byte(bioJSON.String))
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: profile,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(profile))
 }
 
 func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
@@ -207,9 +194,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	// Get user ID from context
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -217,9 +202,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	// Check if user is updating their own profile
 	if userClaims.UserID != id {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Can only update your own profile"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Can only update your own profile"))
 		return
 	}
 
@@ -232,9 +215,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&updates); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -283,9 +264,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	_, err := h.db.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 

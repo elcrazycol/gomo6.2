@@ -12,6 +12,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -123,7 +124,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	}
 
 	if tableName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Table name required"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Table name required"))
 		return
 	}
 
@@ -156,7 +157,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	}
 
 	if !allowedTables[tableName] {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Table not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Table not found"))
 		return
 	}
 
@@ -170,7 +171,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	case "DELETE":
 		h.handleDelete(c, tableName)
 	default:
-		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "Method not allowed"})
+		c.JSON(http.StatusMethodNotAllowed, models.ErrorResponse("Method not allowed"))
 	}
 }
 
@@ -261,7 +262,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -276,7 +277,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -293,7 +294,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		results = append(results, row)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": results})
+	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
 // upsertInsertQuery returns INSERT ... ON CONFLICT for tables the frontend calls via .upsert().
@@ -391,11 +392,11 @@ func scanRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
 func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 	if err := normalizeJSONValuesForDB(data); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -408,20 +409,20 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	if upsertQuery, upsertArgs, useUpsert := upsertInsertQuery(tableName, data); useUpsert {
 		rows, err := h.db.Query(upsertQuery, upsertArgs...)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		defer rows.Close()
 		if !rows.Next() {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "No rows returned"})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("No rows returned"))
 			return
 		}
 		result, err := scanRowToMap(rows)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": result})
+		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return
 	}
 
@@ -443,19 +444,19 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "No rows returned"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("No rows returned"))
 		return
 	}
 
 	result, err := scanRowToMap(rows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -526,17 +527,17 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// Invalidate cache for the created record
 	h.invalidateCacheForTableResult(tableName, result)
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
 
 func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 	if err := normalizeJSONValuesForDB(data); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -568,7 +569,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	if len(clauses) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one filter is required for PUT operation"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("At least one filter is required for PUT operation"))
 		return
 	}
 
@@ -576,13 +577,13 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Record not found"))
 		return
 	}
 
@@ -594,7 +595,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	if err := rows.Scan(valuePtrs...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -646,7 +647,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	// Invalidate cache for the updated record
 	h.invalidateCacheForTableResult(tableName, result)
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
 
 func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
@@ -669,20 +670,20 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	}
 
 	if len(clauses) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one filter is required for DELETE operation"})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("At least one filter is required for DELETE operation"))
 		return
 	}
 
 	query += " WHERE " + strings.Join(clauses, " AND ") + " RETURNING *"
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Record not found"))
 		return
 	}
 
@@ -694,7 +695,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	}
 
 	if err := rows.Scan(valuePtrs...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -755,7 +756,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	// Invalidate cache for the deleted record
 	h.invalidateCacheForTableResult(tableName, result)
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
 
 func joinStrings(strs []string, sep string) string {
@@ -870,13 +871,13 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 	// Get authenticated user
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authentication required"))
 		return
 	}
 
 	claims, ok := claimsInterface.(*auth.Claims)
 	if !ok || claims == nil || claims.UserID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid authentication"))
 		return
 	}
 
@@ -934,7 +935,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		argIndex++
 
 	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied"))
 		return
 	}
 
@@ -980,7 +981,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -995,7 +996,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -1012,7 +1013,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		results = append(results, row)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": results})
+	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
 // handleMessengerTablePost handles POST requests for messenger tables with access control
@@ -1020,13 +1021,13 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 	// Get authenticated user
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authentication required"))
 		return
 	}
 
 	claims, ok := claimsInterface.(*auth.Claims)
 	if !ok || claims == nil || claims.UserID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication"})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid authentication"))
 		return
 	}
 
@@ -1038,7 +1039,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 	case "chat_messages":
 		// Validate message data
 		if err := validator.ValidateMessageData(data); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -1054,12 +1055,12 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		`, conversationID, claims.UserID).Scan(&isMember)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
 		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: not a member of this conversation"})
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied: not a member of this conversation"))
 			return
 		}
 
@@ -1070,7 +1071,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		// Check if user is a member of the conversation containing this message
 		messageID, ok := data["message_id"].(string)
 		if !ok || messageID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "message_id is required"})
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("message_id is required"))
 			return
 		}
 
@@ -1084,12 +1085,12 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		`, messageID, claims.UserID).Scan(&isMember)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
 		if !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied: not a member of this conversation"})
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied: not a member of this conversation"))
 			return
 		}
 
@@ -1098,11 +1099,11 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 
 	case "chat_conversations", "chat_conversation_members":
 		// These should be created via RPC functions only
-		c.JSON(http.StatusForbidden, gin.H{"error": "Use RPC function get_or_create_direct_chat to create conversations"})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Use RPC function get_or_create_direct_chat to create conversations"))
 		return
 
 	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied"))
 		return
 	}
 
@@ -1124,19 +1125,19 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "No rows returned"})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("No rows returned"))
 		return
 	}
 
 	result, err := scanRowToMap(rows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -1166,5 +1167,5 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }

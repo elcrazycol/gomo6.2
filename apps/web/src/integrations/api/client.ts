@@ -116,8 +116,9 @@ export interface TwoFAStatus {
   has_pending_secret: boolean;
 }
 
-// Supabase-like Response Format
+// Unified API Response Format ({success: bool, data: T})
 export interface ApiResponse<T> {
+  success: boolean;
   data: T | T[] | null;
   count?: number;
   error?: string | null;
@@ -180,6 +181,10 @@ class ApiClient {
         throw new Error(data.error || `HTTP ${response.status}`);
       }
 
+      // Check unified {success, data} format
+      if (data.success === false) {
+        throw new Error(data.error || 'Request failed');
+      }
       return data;
     } catch (error) {
       throw error;

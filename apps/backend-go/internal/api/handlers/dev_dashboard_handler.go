@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/oauth"
 )
 
@@ -39,7 +40,7 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 		frontendURL = "http://localhost:3002"
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"client_id":         clientID,
 		"authorization_url": baseURL + "/oauth/authorize",
 		"token_url":         baseURL + "/oauth/token",
@@ -50,7 +51,7 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 		"scopes":            []string{"openid", "profile", "email"},
 		"app_name":          "gomo6 Dev Dashboard",
 		"app_description":   "Управление OAuth-приложениями и интеграциями gomo6",
-	})
+	}))
 }
 
 // SeedDevDashboardApp creates or ensures the dev-dashboard OAuth app exists

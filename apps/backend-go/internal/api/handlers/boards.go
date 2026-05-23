@@ -89,9 +89,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -106,19 +104,14 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 			&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		boards = append(boards, board)
 	}
 
 	boardCount := len(boards)
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data:  boards,
-		Count: &boardCount,
-	})
+	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: boards, Count: &boardCount})
 }
 
 func (h *BoardsHandler) GetBoard(c *gin.Context) {
@@ -141,37 +134,27 @@ func (h *BoardsHandler) GetBoard(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, models.SupabaseResponse{
-				Error: stringPtr("Board not found"),
-			})
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: board,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(board))
 }
 
 func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 	var board models.Board
 	if err := c.ShouldBindJSON(&board); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Get user ID from context (from JWT middleware)
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 
@@ -193,15 +176,11 @@ func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusCreated, models.SupabaseResponse{
-		Data: board,
-	})
+	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }
 
 // UpdateBoard updates a board; only the owner may change it (gomosub settings, etc.).
@@ -210,9 +189,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 
 	claims, exists := c.Get("claims")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Not authenticated"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
 		return
 	}
 	userClaims := claims.(*auth.Claims)
@@ -220,21 +197,15 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	var ownerID sql.NullString
 	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, id).Scan(&ownerID)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, models.SupabaseResponse{
-			Error: stringPtr("Board not found"),
-		})
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	if !ownerID.Valid || ownerID.String != userClaims.UserID {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Only the board owner can update settings"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Only the board owner can update settings"))
 		return
 	}
 
@@ -247,9 +218,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 		GomosubTags      *json.RawMessage `json:"gomosub_tags"`
 	}
 	if err := c.ShouldBindJSON(&updates); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -297,9 +266,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	}
 
 	if len(sets) == 0 {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("no fields to update"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("no fields to update"))
 		return
 	}
 
@@ -308,9 +275,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 
 	_, err = h.db.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -326,13 +291,9 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 		&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: board,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(board))
 }

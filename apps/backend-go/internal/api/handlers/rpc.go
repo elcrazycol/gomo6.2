@@ -38,65 +38,49 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 	postID := c.Query("post_uuid")
 	if postID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("post_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("post_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(postID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid post ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))
 		return
 	}
 
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE post_id = $1", postID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: count,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(count))
 }
 
 func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
 	threadID := c.Query("thread_uuid")
 	if threadID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("thread_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(threadID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid thread ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE thread_id = $1", threadID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: count,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(count))
 }
 
 func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
@@ -104,26 +88,20 @@ func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 	userID := c.Query("user_uuid")
 
 	if postID == "" || userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("post_uuid and user_uuid parameters required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("post_uuid and user_uuid parameters required"))
 		return
 	}
 
 	// Validate UUIDs
 	_, err := uuid.Parse(postID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid post ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))
 		return
 	}
 
 	_, err = uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -131,15 +109,11 @@ func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)",
 		postID, userID).Scan(&exists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: exists,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(exists))
 }
 
 func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
@@ -147,26 +121,20 @@ func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 	userID := c.Query("user_uuid")
 
 	if threadID == "" || userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("thread_uuid and user_uuid parameters required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_uuid and user_uuid parameters required"))
 		return
 	}
 
 	// Validate UUIDs
 	_, err := uuid.Parse(threadID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid thread ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
 	_, err = uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -174,64 +142,48 @@ func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)",
 		threadID, userID).Scan(&exists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: exists,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(exists))
 }
 
 func (h *RPCHandler) GetUserLikesGivenCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE user_id = $1", userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: count,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(count))
 }
 
 func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -242,64 +194,48 @@ func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 		WHERE p.user_id = $1
 	`, userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: count,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(count))
 }
 
 func (h *RPCHandler) GetUserThreadLikesGivenCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE user_id = $1", userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: count,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(count))
 }
 
 func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -310,15 +246,11 @@ func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 		WHERE t.user_id = $1
 	`, userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: count,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(count))
 }
 
 func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
@@ -326,18 +258,14 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	limit := 10
 
 	if postID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("post_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("post_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(postID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid post ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))
 		return
 	}
 
@@ -358,9 +286,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 
 	rows, err := h.db.Query(query, postID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -383,9 +309,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 
 		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -396,9 +320,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 		likers = append(likers, liker)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: likers,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(likers))
 }
 
 func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
@@ -406,18 +328,14 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	limit := 10
 
 	if threadID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("thread_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	_, err := uuid.Parse(threadID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid thread ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
 		return
 	}
 
@@ -438,9 +356,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 
 	rows, err := h.db.Query(query, threadID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -463,9 +379,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 
 		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -476,31 +390,23 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 		likers = append(likers, liker)
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{
-		Data: likers,
-	})
+	c.JSON(http.StatusOK, models.SuccessResponse(likers))
 }
 
 // GetUserPostLikesReceivedTimestamps returns created_at for each like on posts authored by user_uuid (Stats page).
 func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 	if _, err := uuid.Parse(userID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
 	if _, ok := bearerClaims(c); !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization Bearer token required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization Bearer token required"))
 		return
 	}
 
@@ -512,9 +418,7 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 		ORDER BY pl.created_at ASC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -523,36 +427,28 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
 	}
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
+	c.JSON(http.StatusOK, models.SuccessResponse(out))
 }
 
 // GetUserThreadLikesReceivedTimestamps returns created_at for each like on threads authored by user_uuid.
 func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 	if _, err := uuid.Parse(userID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
 	if _, ok := bearerClaims(c); !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization Bearer token required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization Bearer token required"))
 		return
 	}
 
@@ -564,9 +460,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 		ORDER BY tl.created_at ASC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -575,36 +469,28 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
 	}
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
+	c.JSON(http.StatusOK, models.SuccessResponse(out))
 }
 
 // GetUserThreadReplyTimestamps returns created_at for posts on threads owned by user_uuid written by others.
 func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 	if _, err := uuid.Parse(userID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
 	if _, ok := bearerClaims(c); !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization Bearer token required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization Bearer token required"))
 		return
 	}
 
@@ -616,9 +502,7 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 		ORDER BY p.created_at ASC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -627,14 +511,12 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
 	}
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: out})
+	c.JSON(http.StatusOK, models.SuccessResponse(out))
 }
 
 // ToggleWallPostPin toggles the pin status of a wall post
@@ -643,26 +525,20 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	userID := c.Query("_user_id")
 
 	if postID == "" || userID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("_post_id and _user_id parameters required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("_post_id and _user_id parameters required"))
 		return
 	}
 
 	// Validate UUIDs
 	_, err := uuid.Parse(postID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid post ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))
 		return
 	}
 
 	_, err = uuid.Parse(userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -672,18 +548,16 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	err = h.db.QueryRow("SELECT user_id, is_pinned FROM profile_wall_posts WHERE id = $1", postID).Scan(&postOwner, &currentPinned)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Only the wall owner can pin posts
 	if postOwner != userID {
-		c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+		c.JSON(http.StatusOK, models.SuccessResponse(false))
 		return
 	}
 
@@ -709,13 +583,11 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
+	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }
 
 // Messenger RPC functions
@@ -724,9 +596,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
 	}
 
@@ -735,32 +605,24 @@ func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid request body"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	if req.TargetUserID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("target_user_id is required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("target_user_id is required"))
 		return
 	}
 
 	// Validate UUID
 	if _, err := uuid.Parse(req.TargetUserID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid target_user_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid target_user_id format"))
 		return
 	}
 
 	// Cannot create conversation with yourself
 	if claims.UserID == req.TargetUserID {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Cannot create conversation with yourself"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot create conversation with yourself"))
 		return
 	}
 
@@ -785,9 +647,7 @@ func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 	}
 
 	if err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -795,9 +655,7 @@ func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 	conversationID = uuid.New().String()
 	tx, err := h.db.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer tx.Rollback()
@@ -807,9 +665,7 @@ func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 		VALUES ($1, NOW(), NOW())
 	`, conversationID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -818,16 +674,12 @@ func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 		VALUES ($1, $2, NOW(), NOW()), ($1, $3, NOW(), NOW())
 	`, conversationID, claims.UserID, req.TargetUserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -838,9 +690,7 @@ func (h *RPCHandler) GetOrCreateDirectChat(c *gin.Context) {
 func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
 	}
 
@@ -850,30 +700,22 @@ func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid request body"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	if req.TargetConversationID == "" || req.TargetMessageID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("target_conversation_id and target_message_id are required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("target_conversation_id and target_message_id are required"))
 		return
 	}
 
 	// Validate UUIDs
 	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid conversation_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id format"))
 		return
 	}
 	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid message_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid message_id format"))
 		return
 	}
 
@@ -887,16 +729,12 @@ func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 	`, req.TargetConversationID, claims.UserID).Scan(&isMember)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	if !isMember {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Access denied: not a member of this conversation"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied: not a member of this conversation"))
 		return
 	}
 
@@ -907,9 +745,7 @@ func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -926,9 +762,7 @@ func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 	`, claims.UserID, req.TargetConversationID, sentAt)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -939,9 +773,7 @@ func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
 	}
 
@@ -952,32 +784,24 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("ChatMarkRead: Error binding JSON: %v", err)
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid request body"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	log.Printf("ChatMarkRead: user=%s, conversation=%s, message=%s", claims.UserID, req.TargetConversationID, req.TargetMessageID)
 
 	if req.TargetConversationID == "" || req.TargetMessageID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("target_conversation_id and target_message_id are required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("target_conversation_id and target_message_id are required"))
 		return
 	}
 
 	// Validate UUIDs
 	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid conversation_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id format"))
 		return
 	}
 	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid message_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid message_id format"))
 		return
 	}
 
@@ -991,16 +815,12 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 	`, req.TargetConversationID, claims.UserID).Scan(&isMember)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	if !isMember {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Access denied: not a member of this conversation"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied: not a member of this conversation"))
 		return
 	}
 
@@ -1011,17 +831,13 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer tx.Rollback()
@@ -1042,9 +858,7 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 
 	if err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -1061,16 +875,12 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 
 	if err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -1084,24 +894,18 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid request body"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	if req.UserUUID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("user_uuid parameter required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_uuid parameter required"))
 		return
 	}
 
 	// Validate UUID
 	if _, err := uuid.Parse(req.UserUUID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user ID format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -1112,9 +916,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		ORDER BY uploaded_at DESC
 	`, req.UserUUID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer rows.Close()
@@ -1126,9 +928,7 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		var isCurrent bool
 
 		if err := rows.Scan(&id, &avatarURL, &uploadedAt, &isCurrent); err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -1144,16 +944,14 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		avatars = []map[string]interface{}{}
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: avatars})
+	c.JSON(http.StatusOK, models.SuccessResponse(avatars))
 }
 
 // DeleteAvatarFromHistory deletes an avatar from history
 func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, models.SupabaseResponse{
-			Error: stringPtr("Authorization required"),
-		})
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
 		return
 	}
 
@@ -1163,38 +961,28 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid request body"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	if req.AvatarID == "" || req.RequestingUserID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("avatar_id and requesting_user_id are required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("avatar_id and requesting_user_id are required"))
 		return
 	}
 
 	// Validate UUIDs
 	if _, err := uuid.Parse(req.AvatarID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid avatar_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid avatar_id format"))
 		return
 	}
 	if _, err := uuid.Parse(req.RequestingUserID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid requesting_user_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid requesting_user_id format"))
 		return
 	}
 
 	// Check that requesting user matches authenticated user
 	if claims.UserID != req.RequestingUserID {
-		c.JSON(http.StatusForbidden, models.SupabaseResponse{
-			Error: stringPtr("Access denied"),
-		})
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied"))
 		return
 	}
 
@@ -1209,26 +997,22 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
 	// Check ownership
 	if avatarUserID != req.RequestingUserID {
-		c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+		c.JSON(http.StatusOK, models.SuccessResponse(false))
 		return
 	}
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 	defer tx.Rollback()
@@ -1236,9 +1020,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 	// Delete the avatar
 	_, err = tx.Exec("DELETE FROM avatar_history WHERE id = $1", req.AvatarID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -1247,9 +1029,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		// Mark all as not current first
 		_, err = tx.Exec("UPDATE avatar_history SET is_current = FALSE WHERE user_id = $1", avatarUserID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -1263,9 +1043,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		`, avatarUserID).Scan(&prevAvatarURL)
 
 		if err != nil && err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -1278,9 +1056,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 			`, avatarUserID, prevAvatarURL.String)
 
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-					Error: stringPtr(err.Error()),
-				})
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 				return
 			}
 		}
@@ -1288,9 +1064,7 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		// Disable trigger temporarily to prevent duplicate
 		_, err = tx.Exec("SET session_replication_role = replica")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
@@ -1302,30 +1076,24 @@ func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 		}
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
 		// Re-enable trigger
 		_, err = tx.Exec("SET session_replication_role = DEFAULT")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
+	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }
 
 // ToggleAchievementPin toggles the pin status of an achievement
@@ -1336,24 +1104,18 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid request body"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
 	if req.UserID == "" || req.AchievementID == "" {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("_user_id and _achievement_id are required"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("_user_id and _achievement_id are required"))
 		return
 	}
 
 	// Validate UUIDs
 	if _, err := uuid.Parse(req.UserID); err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Invalid user_id format"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user_id format"))
 		return
 	}
 
@@ -1367,12 +1129,10 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusOK, models.SupabaseResponse{Data: false})
+			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
@@ -1389,16 +1149,12 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 		`, req.UserID).Scan(&pinnedCount)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-				Error: stringPtr(err.Error()),
-			})
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
 
 		if pinnedCount >= 4 {
-			c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-				Error: stringPtr("Maximum 4 achievements can be pinned"),
-			})
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Maximum 4 achievements can be pinned"))
 			return
 		}
 
@@ -1433,11 +1189,9 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr(err.Error()),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SupabaseResponse{Data: true})
+	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }

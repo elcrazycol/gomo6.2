@@ -23,9 +23,7 @@ func NewAudioHandler() *AudioHandler {
 func (h *AudioHandler) ExtractAudioMetadata(c *gin.Context) {
 	file, header, err := c.Request.FormFile("audio")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, models.SupabaseResponse{
-			Error: stringPtr("Failed to get audio file"),
-		})
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Failed to get audio file"))
 		return
 	}
 	defer file.Close()
@@ -33,9 +31,7 @@ func (h *AudioHandler) ExtractAudioMetadata(c *gin.Context) {
 	// Create temporary file
 	tempFile, err := os.CreateTemp("", "audio-*.tmp")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to create temp file"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create temp file"))
 		return
 	}
 	defer os.Remove(tempFile.Name())
@@ -44,9 +40,7 @@ func (h *AudioHandler) ExtractAudioMetadata(c *gin.Context) {
 	// Copy uploaded file to temp
 	_, err = io.Copy(tempFile, file)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.SupabaseResponse{
-			Error: stringPtr("Failed to save temp file"),
-		})
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to save temp file"))
 		return
 	}
 
