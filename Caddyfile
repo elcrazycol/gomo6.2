@@ -14,20 +14,16 @@
 #   dev.localhost   → Dev Dashboard
 # =============================================================================
 
-# ── Disable auto HTTPS for local development (no -k flag needed for curl) ─
-#     Remove this block for production deployment with a real domain.
 {
 	auto_https off
 }
 
-# ── Main Web App ────────────────────────────────────────────────────────────
-{$DOMAIN:localhost} {
-	# ── Security headers (applied to ALL responses) ────────────────────────
+:80 {
+	# ── Security headers ──────────────────────────────────────────────────
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Access-Control-Allow-Origin "{http://dev.{$DOMAIN:localhost},http://docs.{$DOMAIN:localhost}}"
 	}
 
 	# ── Logging ────────────────────────────────────────────────────────────
@@ -36,95 +32,74 @@
 		format json
 	}
 
-	# ── Backend API (WebSocket auto-upgraded by Caddy) ─────────────────────
-	handle /api/* {
-		reverse_proxy backend:8080
-	}
-	handle /oauth/* {
-		reverse_proxy backend:8080
-	}
-	handle /rest/* {
-		reverse_proxy backend:8080
-	}
-	handle /rpc/* {
-		reverse_proxy backend:8080
-	}
-	handle /.well-known/* {
-		reverse_proxy backend:8080
-	}
-	handle /federation/* {
-		reverse_proxy backend:8080
-	}
-	# /ws, /ws?token=..., /ws/sub — WebSocket connections
-	handle /ws {
-		reverse_proxy backend:8080
-	}
-	handle /storage/* {
-		reverse_proxy backend:8080
-	}
-	handle /health {
-		reverse_proxy backend:8080
+	# ── Main Web App (localhost or custom domain) ─────────────────────────
+	@main host {$DOMAIN:localhost}
+	handle @main {
+		handle /api/* {
+			reverse_proxy backend:8080
+		}
+		handle /oauth/* {
+			reverse_proxy backend:8080
+		}
+		handle /rest/* {
+			reverse_proxy backend:8080
+		}
+		handle /rpc/* {
+			reverse_proxy backend:8080
+		}
+		handle /.well-known/* {
+			reverse_proxy backend:8080
+		}
+		handle /federation/* {
+			reverse_proxy backend:8080
+		}
+		handle /ws {
+			reverse_proxy backend:8080
+		}
+		handle /storage/* {
+			reverse_proxy backend:8080
+		}
+		handle /health {
+			reverse_proxy backend:8080
+		}
+		handle {
+			reverse_proxy web:80
+		}
 	}
 
-	# ── Main Web App (catch-all) ───────────────────────────────────────────
+	# ── Documentation (docs.* subdomain) ──────────────────────────────────
+	@docs host docs.{$DOMAIN:localhost}
+	handle @docs {
+		handle /api/* {
+			reverse_proxy backend:8080
+		}
+		handle /oauth/* {
+			reverse_proxy backend:8080
+		}
+		handle /.well-known/* {
+			reverse_proxy backend:8080
+		}
+		handle {
+			reverse_proxy docs:80
+		}
+	}
+
+	# ── Dev Dashboard (dev.* subdomain) ───────────────────────────────────
+	@dev host dev.{$DOMAIN:localhost}
+	handle @dev {
+		handle /api/* {
+			reverse_proxy backend:8080
+		}
+		handle /oauth/* {
+			reverse_proxy backend:8080
+		}
+		handle {
+			reverse_proxy dev-dashboard:80
+		}
+	}
+
+	# ── Fallback ─────────────────────────────────────────────────────────
 	handle {
-		reverse_proxy web:80
-	}
-}
-
-# ── Documentation (docs.* subdomain) ────────────────────────────────────────
-docs.{$DOMAIN:localhost} {
-	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
-	}
-
-	log {
-		output stdout
-		format json
-	}
-
-	# Proxy API calls so docs can reach backend
-	handle /api/* {
-		reverse_proxy backend:8080
-	}
-	handle /oauth/* {
-		reverse_proxy backend:8080
-	}
-	handle /.well-known/* {
-		reverse_proxy backend:8080
-	}
-
-	# ── Docs SPA ───────────────────────────────────────────────────────────
-	handle {
-		reverse_proxy docs:80
-	}
-}
-
-# ── Dev Dashboard (dev.* subdomain) ─────────────────────────────────────────
-dev.{$DOMAIN:localhost} {
-	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
-	}
-
-	log {
-		output stdout
-		format json
-	}
-
-	# Proxy API calls so Dev Dashboard can reach backend
-	handle /api/* {
-		reverse_proxy backend:8080
-	}
-	handle /oauth/* {
-		reverse_proxy backend:8080
-	}
-
-	# ── Dev Dashboard SPA ──────────────────────────────────────────────────
-	handle {
-		reverse_proxy dev-dashboard:80
+		respond "Not Found" 404
 	}
 }
