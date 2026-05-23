@@ -553,7 +553,7 @@ export const MessengerView = () => {
         target_user_id: targetId,
       });
 
-      const cleanId = typeof result === 'string' ? result.replace(/^"|"$/g, '') : result;
+      const cleanId = typeof result === 'string' ? (result as string).replace(/^"|"$/g, '') : result;
 
       updateSearch(cleanId, targetId);
       setSelectedConversationId(cleanId);

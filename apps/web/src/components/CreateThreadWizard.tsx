@@ -290,7 +290,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
                 <div className="border rounded-lg p-3 min-h-[300px] max-h-[300px] overflow-y-auto bg-muted/20">
                   <div className="text-sm break-words">
                     {content ? (
-                      <div dangerouslySetInnerHTML={{ __html: renderPreviewContent(content, 'thread') as string }} />
+                      <div>{renderPreviewContent(content, 'thread')}</div>
                     ) : (
                       <span className="text-muted-foreground">Начните писать...</span>
                     )}
@@ -302,7 +302,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
             <div>
               <label className="text-sm font-medium mb-2 block">Дополнительные изображения</label>
               <ImageUpload
-                onImagesChange={setImageUrls}
+                onImagesUploaded={setImageUrls}
                 maxImages={10}
               />
             </div>

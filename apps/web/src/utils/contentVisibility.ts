@@ -111,7 +111,7 @@ export const processVisibilityTags = async (
     /\[adm\]/g,
     /\[\/adm\]/g,
     async () => options.isAdmin || options.currentUserId === options.postAuthorId,
-    (hidden) => {
+    (hidden, _value) => {
       if (hidden && !(options.isAdmin || options.currentUserId === options.postAuthorId)) {
         isHidden = true;
         hiddenReason = 'adm';
