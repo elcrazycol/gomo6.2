@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 
 interface VisibilityOptions {
   currentUserId: string | null;

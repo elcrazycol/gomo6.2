@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 
 export const useOnlineStatus = (userId: string | undefined) => {
   useEffect(() => {
