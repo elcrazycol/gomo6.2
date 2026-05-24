@@ -146,37 +146,24 @@ const Board = () => {
         setUser(sessionUser);
 
         if (sessionUser) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", sessionUser.id);
+        const [rolesResponse, profileResponse, achievementsResponse] = await Promise.all([
+          fetch(`/rest/v1/user_roles?user_id=eq.${sessionUser.id}`).then(r => r.json()),
+          fetch(`/rest/v1/profiles?id=eq.${sessionUser.id}`).then(r => r.json()),
+          fetch(`/rest/v1/user_achievements?user_id=eq.${sessionUser.id}`).then(r => r.json()),
+        ]);
         
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        const roles: any[] = rolesResponse.data || [];
+        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", sessionUser.id)
-          .single();
-
+        // Load current user profile
+        const profile = profilesResponse.data?.[0];
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", sessionUser.id);
-
-        if (achievements) {
+        const achievements: any[] = achievementsResponse.data || [];
+        if (achievements.length) {
           const colorRewards = achievements
             .filter((a: any) => a.achievements?.reward_type === "username_color")
             .map((a: any) => a.achievements.reward_value);
@@ -211,75 +198,93 @@ const Board = () => {
     const formatFilter = searchParams.get('format');
     const atmosphereFilter = searchParams.get('atmosphere');
     const flagFilter = searchParams.get('flag');
+    const oldTagFilter = searchParams.get('tag');
 
-    let query = supabase
-      .from("threads")
-      .select("*")
-      .eq("board_id", boardId);
+    // Fetch threads from Go backend
+    const threadsResponse = await fetch(`/rest/v1/threads?board_id=eq.${boardId}&order=updated_at.desc&limit=100`);
+    const threadsResult = await threadsResponse.json();
+    let threadsData: any[] = threadsResult.data || [];
 
-    if (!isGomoRoute) {
-      if (contentFilter) {
-        query = query.eq("tags->>content", contentFilter);
-      }
-      if (formatFilter) {
-        query = query.eq("tags->>format", formatFilter);
-      }
-      if (atmosphereFilter) {
-        query = query.eq("tags->>atmosphere", atmosphereFilter);
-      }
-      if (flagFilter) {
-        query = query.eq("tags->>flag", flagFilter);
-      }
-      if (!contentFilter && !formatFilter && !atmosphereFilter && !flagFilter) {
-        const oldTagFilter = searchParams.get('tag');
-        if (oldTagFilter) {
-          query = query.or(`tag.eq.${oldTagFilter},tags->>content.eq.${oldTagFilter}`);
-        }
-      }
-    }
-
-    const { data: threadsData } = await query.order("updated_at", { ascending: false });
-
-    if (threadsData) {
-      const threadsWithData = await Promise.all(
-        threadsData.map(async (thread) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username, is_anonymous")
-            .eq("id", thread.user_id!)
-            .maybeSingle();
-          
-          const { data: latestPost } = await supabase
-            .from("posts")
-            .select("content, created_at, is_private, user_id")
-            .eq("thread_id", thread.id)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          let latestPostWithProfile = latestPost;
-          if (latestPost && latestPost.user_id) {
-            const { data: postProfile } = await supabase
-              .from("profiles")
-              .select("username, is_anonymous")
-              .eq("id", latestPost.user_id)
-              .maybeSingle();
-
-            latestPostWithProfile = {
-              ...latestPost,
-              profiles: postProfile
-            };
+    // Client-side tag filtering (Go backend doesn't support JSON ->> operators)
+    if (!isGomoRoute && threadsData.length) {
+      const hasTagFilter = contentFilter || formatFilter || atmosphereFilter || flagFilter;
+      if (hasTagFilter) {
+        threadsData = threadsData.filter((t: any) => {
+          let tags: any = {};
+          if (t.tags) {
+            try { tags = typeof t.tags === 'string' ? JSON.parse(t.tags) : t.tags; } catch {}
           }
-
-          return {
-            ...thread,
-            profiles: profile,
-            latest_post: latestPostWithProfile,
-          };
-        })
-      );
-      setThreads(threadsWithData);
+          if (contentFilter && tags.content !== contentFilter) return false;
+          if (formatFilter && tags.format !== formatFilter) return false;
+          if (atmosphereFilter && tags.atmosphere !== atmosphereFilter) return false;
+          if (flagFilter && tags.flag !== flagFilter) return false;
+          return true;
+        });
+      } else if (oldTagFilter) {
+        threadsData = threadsData.filter((t: any) => {
+          let tags: any = {};
+          if (t.tags) {
+            try { tags = typeof t.tags === 'string' ? JSON.parse(t.tags) : t.tags; } catch {}
+          }
+          return tags.content === oldTagFilter;
+        });
+      }
     }
+
+    if (!threadsData.length) {
+      setThreads([]);
+      return;
+    }
+
+    // Collect all user IDs for batch profile fetch
+    const userIds = new Set<string>();
+    threadsData.forEach((t: any) => { if (t.user_id) userIds.add(t.user_id); });
+
+    // Fetch latest post for each thread in parallel
+    const postsPromises = threadsData.map(async (thread: any) => {
+      const postResponse = await fetch(`/rest/v1/posts?thread_id=eq.${thread.id}&order=created_at.desc&limit=1`);
+      const postResult = await postResponse.json();
+      return { threadId: thread.id, posts: (postResult.data || []) as any[] };
+    });
+    const postsResults = await Promise.all(postsPromises);
+
+    // Collect post author IDs
+    postsResults.forEach(({ posts }) => {
+      posts.forEach((p: any) => { if (p.user_id) userIds.add(p.user_id); });
+    });
+
+    // Batch fetch all profiles (for is_anonymous + username)
+    const profilesMap = new Map<string, any>();
+    const userIdArray = [...userIds];
+    if (userIdArray.length > 0) {
+      const profilesResponse = await fetch(`/rest/v1/profiles?id=in.(${userIdArray.join(',')})`);
+      const profilesResult = await profilesResponse.json();
+      (profilesResult.data || []).forEach((p: any) => profilesMap.set(p.id, p));
+    }
+
+    // Build result with profiles and latest posts
+    const postsByThread = new Map(postsResults.map(r => [r.threadId, r.posts]));
+
+    const threadsWithData = threadsData.map((thread: any) => {
+      const profile = profilesMap.get(thread.user_id);
+      const posts = postsByThread.get(thread.id) || [];
+      const post = posts[0];
+      const postProfile = post ? profilesMap.get(post.user_id) : null;
+
+      return {
+        ...thread,
+        profiles: profile ? { username: profile.username, is_anonymous: profile.is_anonymous } : null,
+        latest_post: post ? {
+          content: post.content,
+          created_at: post.created_at,
+          is_private: post.is_private,
+          user_id: post.user_id,
+          profiles: postProfile ? { username: postProfile.username, is_anonymous: postProfile.is_anonymous } : null,
+        } : undefined,
+      };
+    });
+
+    setThreads(threadsWithData);
   }, [searchParams, isGomoRoute]);
 
   useEffect(() => {
@@ -296,12 +301,10 @@ const Board = () => {
       setHasAcceptedRules(!isGomoRoute);
       setCheckingRules(isGomoRoute);
 
-      const { data: boardData } = await supabase
-        .from("boards")
-        .select("*")
-        .eq("slug", slug)
-        .eq("is_gomosub", isGomoRoute)
-        .single();
+      // Fetch board by slug
+      const boardResponse = await fetch(`/rest/v1/boards/${slug}`);
+      const boardResult = await boardResponse.json();
+      const boardData = boardResult.data;
 
       if (boardData) {
         setRulesConfirmed(false);
@@ -312,12 +315,9 @@ const Board = () => {
           let accepted = false;
 
           if (user?.id) {
-            const { data: acceptance } = await supabase
-              .from("gomosub_rules_acceptance")
-              .select("accepted_at")
-              .eq("user_id", user.id)
-              .eq("board_id", boardData.id)
-              .maybeSingle();
+            const acceptanceResponse = await fetch(`/rest/v1/gomosub_rules_acceptance?user_id=eq.${user.id}&board_id=eq.${boardData.id}`);
+            const acceptanceResult = await acceptanceResponse.json();
+            const acceptance = acceptanceResult.data?.[0];
 
             if (acceptance?.accepted_at) {
               accepted = !boardData.rules_updated_at || new Date(acceptance.accepted_at) >= new Date(boardData.rules_updated_at);
@@ -351,10 +351,11 @@ const Board = () => {
             
             // Award incel achievement
             if (user) {
-              supabase.rpc("award_achievement", {
-                _user_id: user.id,
-                _achievement_id: "incel",
-              });
+              fetch('/rpc/v1/award_achievement', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
+              }).catch(() => {});
             }
           }
         } else {
@@ -378,54 +379,32 @@ const Board = () => {
         return;
       }
 
-      const { count } = await supabase
-        .from("gomosub_memberships")
-        .select("*", { count: "exact", head: true })
-        .eq("board_id", board.id);
-
-      setMembersCount(count ?? 0);
+      // Count members
+      const allMembersResponse = await fetch(`/rest/v1/gomosub_memberships?board_id=eq.${board.id}`);
+      const allMembersResult = await allMembersResponse.json();
+      const allMembers = allMembersResult.data || [];
+      setMembersCount(allMembers.length);
 
       if (!user?.id) {
         setIsJoined(false);
         return;
       }
 
-      const { data: membership } = await supabase
-        .from("gomosub_memberships")
-        .select("id")
-        .eq("board_id", board.id)
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      setIsJoined(Boolean(membership));
+      const membershipResponse = await fetch(`/rest/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`);
+      const membershipResult = await membershipResponse.json();
+      setIsJoined((membershipResult.data || []).length > 0);
     };
 
     loadMembership();
   }, [board?.id, board?.is_gomosub, user?.id]);
 
+  // Poll for new threads every 30s (replaces supabase realtime)
   useEffect(() => {
     if (!board) return;
-
-    // Set up realtime subscription for new threads
-    const channel = supabase
-      .channel(`board-${board.id}-threads`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'threads',
-          filter: `board_id=eq.${board.id}`,
-        },
-        () => {
-          loadThreads(board.id);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const interval = setInterval(() => {
+      loadThreads(board.id);
+    }, 30000);
+    return () => clearInterval(interval);
   }, [board, loadThreads]);
 
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
@@ -451,10 +430,11 @@ const Board = () => {
       
       // Award incel achievement
       if (user) {
-        await supabase.rpc("award_achievement", {
-          _user_id: user.id,
-          _achievement_id: "incel",
-        });
+        fetch('/rpc/v1/award_achievement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
+        }).catch(() => {});
       }
     }
   };
@@ -481,18 +461,18 @@ const Board = () => {
     const rulesVersion = board.rules_updated_at || "v1";
 
     if (user?.id) {
-      const { error } = await supabase
-        .from("gomosub_rules_acceptance")
-        .upsert(
-          {
-            user_id: user.id,
-            board_id: board.id,
-            accepted_at: new Date().toISOString(),
-          },
-          { onConflict: "user_id,board_id" }
-        );
+      const response = await fetch('/rest/v1/gomosub_rules_acceptance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.id,
+          board_id: board.id,
+          accepted_at: new Date().toISOString(),
+        }),
+      });
+      const result = await response.json();
 
-      if (error) {
+      if (!result.success) {
         toast.error("Не удалось сохранить согласие с правилами");
         return;
       }
@@ -522,14 +502,13 @@ const Board = () => {
 
     setMembershipLoading(true);
     if (isJoined) {
-      const { error } = await supabase
-        .from("gomosub_memberships")
-        .delete()
-        .eq("board_id", board.id)
-        .eq("user_id", user.id);
+      const response = await fetch(`/rest/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`, {
+        method: 'DELETE',
+      });
+      const result = await response.json();
 
       setMembershipLoading(false);
-      if (error) {
+      if (!result.success) {
         toast.error("Не удалось выйти из саба");
         return;
       }
@@ -539,12 +518,15 @@ const Board = () => {
       return;
     }
 
-    const { error } = await supabase
-      .from("gomosub_memberships")
-      .insert({ board_id: board.id, user_id: user.id });
+    const response = await fetch('/rest/v1/gomosub_memberships', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board_id: board.id, user_id: user.id }),
+    });
+    const result = await response.json();
 
     setMembershipLoading(false);
-    if (error) {
+    if (!result.success) {
       toast.error("Не удалось вступить в саб");
       return;
     }

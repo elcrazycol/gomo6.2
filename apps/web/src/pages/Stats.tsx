@@ -127,6 +127,7 @@ export default function Stats() {
     const load = async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const self = sessionData.session?.user.id;
+      const token = sessionData.session?.access_token;
       if (!self) {
         navigate("/auth");
         return;
@@ -137,36 +138,36 @@ export default function Stats() {
 
       setLoading(true);
 
+      const rpcHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+
       const [profileRes, postsRes, threadsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
-        supabase.from("profiles").select("username, garma, post_count, thread_count").eq("id", targetUserId).single(),
-        supabase.from("posts").select("created_at").eq("user_id", targetUserId).order("created_at", { ascending: true }),
-        supabase.from("threads").select("created_at").eq("user_id", targetUserId).order("created_at", { ascending: true }),
-        supabase.rpc("get_user_post_likes_received_timestamps", { user_uuid: targetUserId }),
-        supabase.rpc("get_user_thread_likes_received_timestamps", { user_uuid: targetUserId }),
-        supabase.rpc("get_user_thread_reply_timestamps", { user_uuid: targetUserId }),
-        supabase
-          .from("user_session_time")
-          .select("total_minutes, last_updated")
-          .eq("user_id", targetUserId)
-          .maybeSingle(),
-        supabase
-          .from("privacy_settings")
-          .select("show_profile_stats, show_detailed_stats, stats_visibility")
-          .eq("user_id", targetUserId)
-          .maybeSingle(),
+        fetch(`/rest/v1/profiles?id=eq.${targetUserId}`).then(r => r.json()),
+        fetch(`/rest/v1/posts?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
+        fetch(`/rest/v1/threads?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
+        fetch(`/rpc/v1/get_user_post_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/rpc/v1/get_user_thread_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/rpc/v1/get_user_thread_reply_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/rest/v1/user_session_time?user_id=eq.${targetUserId}`).then(r => r.json()),
+        fetch(`/rest/v1/privacy_settings?user_id=eq.${targetUserId}`).then(r => r.json()),
       ]);
 
-      if (profileRes.data) setProfile(profileRes.data);
-      if (privacyRes.data) {
+      // Go backend wraps in {data: [...], success: true} — always array
+      const profileData: any = profileRes.data?.[0];
+      if (profileData) setProfile(profileData);
+
+      const privacyData: any = privacyRes.data?.[0];
+      if (privacyData) {
         setPrivacy({
-          show_profile_stats: privacyRes.data.show_profile_stats ?? false,
-          show_detailed_stats: privacyRes.data.show_detailed_stats ?? false,
-          stats_visibility: privacyRes.data.stats_visibility || {},
+          show_profile_stats: privacyData.show_profile_stats ?? false,
+          show_detailed_stats: privacyData.show_detailed_stats ?? false,
+          stats_visibility: privacyData.stats_visibility || {},
         });
       } else {
         setPrivacy({ show_profile_stats: false, show_detailed_stats: false, stats_visibility: {} });
       }
-      if (timeRes.data) setTimeStats(timeRes.data);
+
+      const timeData: any = timeRes.data?.[0];
+      if (timeData) setTimeStats(timeData);
 
       setPostsTs((postsRes.data as any[])?.map((p: any) => p.created_at) || []);
       setThreadsTs((threadsRes.data as any[])?.map((t: any) => t.created_at) || []);

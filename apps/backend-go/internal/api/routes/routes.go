@@ -337,6 +337,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/get_avatar_history", rpcHandler.GetAvatarHistory)
 			protected.POST("/delete_avatar_from_history", rpcHandler.DeleteAvatarFromHistory)
 			protected.POST("/toggle_achievement_pin", rpcHandler.ToggleAchievementPin)
+			protected.POST("/award_achievement", rpcHandler.AwardAchievement)
 
 			// GomoSub RPC functions
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
