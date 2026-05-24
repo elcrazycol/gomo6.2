@@ -135,6 +135,8 @@ services:
     build:
       context: ./apps/backend-go
       dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
     volumes:
       - garage_keys:/garage-keys:ro
     environment:
@@ -144,7 +146,7 @@ services:
       SERVER_DOMAIN: ${DOMAIN:-localhost}
       FEDERATION_KEY: ${FEDERATION_KEY:-your-federation-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
       ISSUER_URL: http://${DOMAIN:-localhost}
       FRONTEND_URL: http://${DOMAIN:-localhost}
       DEV_DASHBOARD_URL: http://dev.${DOMAIN:-localhost}
