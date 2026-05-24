@@ -109,6 +109,7 @@ type ThreadWithBoards struct {
 	ImageURL     *string         `json:"image_url" db:"image_url"`
 	ImageURLs    JSONB           `json:"image_urls" db:"image_urls"`
 	Attachments  JSONB           `json:"attachments" db:"attachments"` // Added for full attachment support
+	Tags         json.RawMessage `json:"tags" db:"tags"`
 	PostCount    int             `json:"post_count" db:"post_count"`
 	ServerDomain string          `json:"server_domain" db:"server_domain"`
 	CreatedAt    time.Time       `json:"created_at" db:"created_at"`

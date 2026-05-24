@@ -1586,3 +1586,60 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 
 	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }
+
+// AwardAchievement awards an achievement to a user (idempotent).
+// POST /rpc/v1/award_achievement — protected, requires auth.
+func (h *RPCHandler) AwardAchievement(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
+	var req struct {
+		UserID        string `json:"_user_id"`
+		AchievementID string `json:"_achievement_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	if req.UserID == "" || req.AchievementID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("_user_id and _achievement_id are required"))
+		return
+	}
+
+	// Allow users to award themselves only
+	if claims.UserID != req.UserID {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You can only award achievements to yourself"))
+		return
+	}
+
+	// Check achievement exists
+	var achExists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM achievements WHERE id = $1)", req.AchievementID).Scan(&achExists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	if !achExists {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Achievement not found"))
+		return
+	}
+
+	// Idempotent insert — ignore if already awarded
+	_, err = h.db.Exec(`
+		INSERT INTO user_achievements (user_id, achievement_id, level, is_pinned, pinned_order)
+		VALUES ($1, $2, 1, FALSE, NULL)
+		ON CONFLICT (user_id, achievement_id) DO NOTHING
+	`, req.UserID, req.AchievementID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(true))
+}

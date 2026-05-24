@@ -82,6 +82,13 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 	}
 
+	// Handle user_id filter (eq.uuid)
+	if userID := c.Query("user_id"); userID != "" {
+		uid := strings.TrimPrefix(userID, "eq.")
+		conditions = append(conditions, "p.user_id = $"+strconv.Itoa(len(args)+1))
+		args = append(args, uid)
+	}
+
 	// Handle id filter
 	if id := c.Query("id"); id != "" {
 		if strings.HasPrefix(id, "eq.") {

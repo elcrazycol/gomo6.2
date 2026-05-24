@@ -4,6 +4,11 @@ import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/api/client_simple";
 import { ProfileWall } from "@/components/ProfileWall";
 
+async function getToken(): Promise<string | undefined> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token;
+}
+
 const WallPost = () => {
   const { userId, postId } = useParams();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -17,26 +22,24 @@ const WallPost = () => {
         const [{ data: authData }, profileResult] = await Promise.all([
           supabase.auth.getUser(),
           userId
-            ? supabase.from("profiles").select("username").eq("id", userId).maybeSingle()
-            : Promise.resolve({ data: null, error: null } as any),
+            ? fetch(`/rest/v1/profiles?id=eq.${userId}`).then(r => r.json())
+            : Promise.resolve({ success: true, data: [] }),
         ]);
 
         const authUser = authData.user;
         setCurrentUserId(authUser?.id || null);
 
         if (authUser?.id) {
-          const { data: currentProfile } = await supabase
-            .from("profiles")
-            .select("username")
-            .eq("id", authUser.id)
-            .maybeSingle();
-
+          const currResponse = await fetch(`/rest/v1/profiles?id=eq.${authUser.id}`);
+          const currResult = await currResponse.json();
+          const currentProfile = currResult.data?.[0] || null;
           setCurrentUsername(currentProfile?.username || "");
         } else {
           setCurrentUsername("");
         }
 
-        setProfileUsername(profileResult?.data?.username || "");
+        const profileData = profileResult.data?.[0] || null;
+        setProfileUsername(profileData?.username || "");
       } finally {
         setLoading(false);
       }
