@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -125,7 +125,7 @@ export default function Stats() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: sessionData } = await api.auth.getSession();
       const self = sessionData.session?.user.id;
       const token = sessionData.session?.access_token;
       if (!self) {

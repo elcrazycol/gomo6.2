@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,7 +55,7 @@ const EmojiEditForm = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const checkAuth = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
 
     if (!user) {
       navigate("/auth");
@@ -64,7 +64,7 @@ const EmojiEditForm = () => {
 
     setUser(user);
 
-    const { data: roles } = await supabase
+    const { data: roles } = await api
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id);
@@ -80,7 +80,7 @@ const EmojiEditForm = () => {
     setIsModerator(true);
 
     // Load current user profile and color
-    const { data: profile } = await supabase
+    const { data: profile } = await api
       .from("profiles")
       .select("username")
       .eq("id", user.id)
@@ -91,7 +91,7 @@ const EmojiEditForm = () => {
     }
 
     // Load current user color
-    const { data: achievements } = await supabase
+    const { data: achievements } = await api
       .from("user_achievements")
       .select(`
         achievement_id,
@@ -121,7 +121,7 @@ const EmojiEditForm = () => {
     if (!emojiId) return;
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emojis')
         .select('*')
         .eq('id', emojiId)
@@ -150,7 +150,7 @@ const EmojiEditForm = () => {
 
   const loadGroups = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emoji_groups')
         .select('id, name')
         .order('name');
@@ -181,7 +181,7 @@ const EmojiEditForm = () => {
     }
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emoji_groups')
         .insert({ name: newGroupName.trim() })
         .select()
@@ -313,7 +313,7 @@ const EmojiEditForm = () => {
       }
 
       // Check if code is unique (excluding current emoji)
-      const { data: existingEmoji } = await supabase
+      const { data: existingEmoji } = await api
         .from('emojis')
         .select('id')
         .eq('code', cleanCode)
@@ -326,7 +326,7 @@ const EmojiEditForm = () => {
       }
 
       // Update emoji in database
-      const { error: updateError } = await supabase
+      const { error: updateError } = await api
         .from('emojis')
         .update({
           group_id: selectedGroup,

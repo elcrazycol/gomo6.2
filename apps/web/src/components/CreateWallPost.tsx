@@ -5,7 +5,7 @@ import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRich
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AttachmentMeta } from "@/types/forum";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { ImageIcon, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
@@ -132,7 +132,7 @@ export const CreateWallPost = ({
       };
 
       if (isEditing) {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await (api as any)
           .from("profile_wall_posts")
           .update(postData)
           .eq("id", editingPost.id)
@@ -163,7 +163,7 @@ export const CreateWallPost = ({
         onPostUpdated?.(data as WallPost);
         toast.success("Пост обновлен");
       } else {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await (api as any)
           .from("profile_wall_posts")
           .insert([postData])
           .select(`

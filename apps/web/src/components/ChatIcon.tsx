@@ -2,7 +2,7 @@ import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 export const ChatIcon = ({ userId }: { userId: string }) => {
   const navigate = useNavigate();
@@ -12,7 +12,7 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
     let mounted = true;
 
     const loadUnread = async () => {
-      const { count } = await supabase
+      const { count } = await api
         .from("notifications")
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId)
@@ -26,7 +26,7 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
 
     void loadUnread();
 
-    const channel = supabase
+    const channel = api
       .channel(`messenger-notifications-${userId}`)
       .on(
         "postgres_changes",
@@ -42,7 +42,7 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
 
     return () => {
       mounted = false;
-      supabase.removeChannel(channel);
+      api.removeChannel(channel);
     };
   }, [userId]);
 

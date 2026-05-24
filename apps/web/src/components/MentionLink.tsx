@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
@@ -44,7 +44,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
 
     const checkUserExists = async () => {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await api
           .from('profiles')
           .select('id, username, is_anonymous, avatar_url')
           .eq('username', username)
@@ -60,7 +60,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           setAvatarUrl(resolvedAvatar);
 
           // Load color from achievements
-          const { data: achievements } = await supabase
+          const { data: achievements } = await api
             .from("user_achievements")
             .select(`
               achievement_id,

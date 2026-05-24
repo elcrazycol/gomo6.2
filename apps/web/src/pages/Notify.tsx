@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -31,7 +31,7 @@ const Notify = () => {
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "unread">("newest");
 
   const loadNotifications = useCallback(async (userId: string) => {
-    const { data } = await supabase
+    const { data } = await api
       .from("notifications")
       .select("*")
       .eq("user_id", userId)
@@ -41,14 +41,14 @@ const Notify = () => {
       const notificationsWithSlugs = await Promise.all(
         data.map(async (notif) => {
           if (notif.related_thread_id) {
-            const { data: threadData } = await supabase
+            const { data: threadData } = await api
               .from("threads")
               .select("board_id")
               .eq("id", notif.related_thread_id)
               .single();
             
             if (threadData) {
-              const { data: boardData } = await supabase
+              const { data: boardData } = await api
                 .from("boards")
                 .select("slug")
                 .eq("id", threadData.board_id)
@@ -80,7 +80,7 @@ const Notify = () => {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       setUser(user);
       
       if (user) {
@@ -100,7 +100,7 @@ const Notify = () => {
     );
 
     // Update database
-    await supabase
+    await api
       .from("notifications")
       .update({ is_read: true })
       .eq("id", id);
@@ -118,7 +118,7 @@ const Notify = () => {
     );
 
     // Update database
-    await supabase
+    await api
       .from("notifications")
       .update({ is_read: true })
       .eq("user_id", user.id)

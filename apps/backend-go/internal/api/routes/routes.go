@@ -146,7 +146,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		}
 	}
 
-	// Supabase compatibility routes
+	// REST compatibility routes
 	rest := router.Group("/api/v1")
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
@@ -316,7 +316,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		}
 	}
 
-	// RPC functions (Supabase compatibility)
+	// RPC functions
 	rpc := router.Group("/api/rpc")
 	{
 		// Public RPC functions

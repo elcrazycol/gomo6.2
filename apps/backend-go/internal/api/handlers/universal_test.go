@@ -568,7 +568,7 @@ func TestUniversalPost_ChatReceiptsUnauthenticated(t *testing.T) {
 }
 
 // helper test
-func TestUniversal_ParseSupabaseOrder(t *testing.T) {
+func TestUniversal_ParseAPIOrder(t *testing.T) {
 	var result strings.Builder
 	h, mock := setupUniversalHandler(t)
 	_ = h

@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 export type SearchUser = {
   id: string;
@@ -60,30 +60,30 @@ export const searchGlobal = async (
   const like = `%${term}%`;
 
   const [usersRes, gomosubsNameRes, gomosubsSlugRes, threadsByTitleRes, threadsByContentRes] = await Promise.all([
-    supabase
+    api
       .from("profiles")
       .select("id, username, avatar_url")
       .ilike("username", like)
       .limit(userLimit),
-    supabase
+    api
       .from("boards")
       .select("id, slug, name, description, cover_image_url")
       .eq("is_gomosub", true)
       .ilike("name", like)
       .limit(gomosubLimit),
-    supabase
+    api
       .from("boards")
       .select("id, slug, name, description, cover_image_url")
       .eq("is_gomosub", true)
       .ilike("slug", like)
       .limit(gomosubLimit),
-    supabase
+    api
       .from("threads")
       .select("id, title, content, created_at, updated_at, board_id, boards!inner(slug, name, is_gomosub)")
       .ilike("title", like)
       .order("updated_at", { ascending: false })
       .limit(threadLimit),
-    supabase
+    api
       .from("threads")
       .select("id, title, content, created_at, updated_at, board_id, boards!inner(slug, name, is_gomosub)")
       .ilike("content", like)

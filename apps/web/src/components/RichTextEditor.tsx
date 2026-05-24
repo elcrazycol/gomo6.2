@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 interface RichTextEditorProps {
   value: string;
@@ -151,7 +151,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     // load emoji index once (code -> image_url)
     const load = async () => {
       // NOTE: schema types may lag behind migrations in some environments; keep this runtime-safe.
-      const { data, error } = await (supabase as any).from("emojis").select("code,image_url").limit(5000);
+      const { data, error } = await (api as any).from("emojis").select("code,image_url").limit(5000);
       if (error) return;
       const idx: EmojiIndex = {};
       for (const e of (data ?? []) as any[]) idx[e.code] = e.image_url;
@@ -164,7 +164,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     if (!code) return;
     if (emojiIndexRef.current[code]) return;
 
-    const { data, error } = await (supabase as any)
+    const { data, error } = await (api as any)
       .from("emojis")
       .select("code,image_url")
       .eq("code", code)

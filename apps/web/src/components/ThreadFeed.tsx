@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { ThreadCard } from "@/components/ThreadCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
@@ -56,7 +56,7 @@ export const ThreadFeed = ({
       }
 
       // Get threads without profiles first
-      const { data: threadsData, error } = await supabase
+      const { data: threadsData, error } = await api
         .from("threads")
         .select(`
           id,
@@ -84,7 +84,7 @@ export const ThreadFeed = ({
 
       // If user is logged in, try to get recommendations first
       if (currentUserId && !isLoadMore) {
-        const { data: recommended, error: recError } = await supabase.rpc(
+        const { data: recommended, error: recError } = await api.rpc(
           "get_recommended_threads",
           {
             user_uuid: currentUserId,
@@ -96,7 +96,7 @@ export const ThreadFeed = ({
         if (!recError && recommended && (recommended as any[]).length > 0) {
           // Get full thread data for recommendations
           const recommendedIds = (recommended as any[]).map((r: any) => r.thread_id);
-          const { data: recThreadsData, error: recThreadsError } = await supabase
+          const { data: recThreadsData, error: recThreadsError } = await api
             .from("threads")
             .select(`
               id,
@@ -124,7 +124,7 @@ export const ThreadFeed = ({
           if (!recThreadsError && recThreadsData && recThreadsData.length > 0) {
             // Get profiles separately
             const userIds = recThreadsData.map(thread => thread.user_id).filter(Boolean);
-            const { data: profilesData } = await supabase
+            const { data: profilesData } = await api
               .from("profiles")
               .select("id, username, is_anonymous, avatar_url")
               .in("id", userIds);
@@ -160,7 +160,7 @@ export const ThreadFeed = ({
       if (threadsData && threadsData.length > 0) {
         // Get profiles separately
         const userIds = threadsData.map(thread => thread.user_id).filter(Boolean);
-        const { data: profilesData } = await supabase
+        const { data: profilesData } = await api
           .from("profiles")
           .select("id, username, is_anonymous, avatar_url")
           .in("id", userIds);

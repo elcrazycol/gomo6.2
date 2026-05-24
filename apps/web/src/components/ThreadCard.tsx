@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { UserBadge } from "@/components/UserBadge";
@@ -185,7 +185,7 @@ const ThreadCard = ({
     setIsLoadingPosts(true);
     try {
       // Get posts first
-      const { data: postsData, error: postsError } = await supabase
+      const { data: postsData, error: postsError } = await api
         .from("posts")
         .select(`
           id,
@@ -205,7 +205,7 @@ const ThreadCard = ({
 
       // Get profiles separately
       const userIds = postsData.map(post => post.user_id).filter(Boolean);
-      const { data: profilesData } = await supabase
+      const { data: profilesData } = await api
         .from("profiles")
         .select("id, username, is_anonymous, avatar_url")
         .in("id", userIds);
@@ -233,7 +233,7 @@ const ThreadCard = ({
   const loadLikesData = useCallback(async () => {
     try {
       // Get likes count
-      const { data: likesData, error: likesError } = await supabase.rpc(
+      const { data: likesData, error: likesError } = await api.rpc(
         "get_thread_likes_count",
         { thread_uuid: thread.id }
       );
@@ -243,7 +243,7 @@ const ThreadCard = ({
       }
 
       // Get recent likers for tooltip (always load, even if no likes yet)
-      const { data: likersData, error: likersError } = await supabase.rpc(
+      const { data: likersData, error: likersError } = await api.rpc(
         "get_recent_thread_likers",
         {
           thread_uuid: thread.id,
@@ -257,7 +257,7 @@ const ThreadCard = ({
 
       // Check if current user liked this thread
       if (currentUserId) {
-        const { data: likedData, error: likedError } = await supabase.rpc(
+        const { data: likedData, error: likedError } = await api.rpc(
           "has_user_liked_thread",
           {
             thread_uuid: thread.id,
@@ -297,7 +297,7 @@ const ThreadCard = ({
     try {
       if (userLiked) {
         // Unlike
-        const { error } = await supabase
+        const { error } = await api
           .from("thread_likes")
           .delete()
           .eq("thread_id", thread.id)
@@ -309,7 +309,7 @@ const ThreadCard = ({
         }
       } else {
         // Like
-        const { error } = await supabase
+        const { error } = await api
           .from("thread_likes")
           .insert({
             thread_id: thread.id,

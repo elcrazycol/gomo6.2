@@ -36,7 +36,7 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 	return &RPCHandler{db: db}
 }
 
-// Supabase-compatible RPC functions
+// RPC functions
 
 func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 	postID := c.Query("post_uuid")

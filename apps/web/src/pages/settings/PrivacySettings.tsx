@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, ChevronDown, HelpCircle, AlertTriangle } from "lucide-react";
@@ -56,7 +56,7 @@ const PrivacySettings = () => {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       setUser(user);
     };
     getUser();
@@ -64,7 +64,7 @@ const PrivacySettings = () => {
 
   const loadPrivacySettings = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('privacy_settings')
         .select('*')
         .eq('user_id', user.id)
@@ -125,7 +125,7 @@ const PrivacySettings = () => {
         show_online_status: updatedSettings.show_online_status ?? true,
       };
 
-      const { error } = await supabase
+      const { error } = await api
         .from('privacy_settings')
         .upsert({
           user_id: user.id,

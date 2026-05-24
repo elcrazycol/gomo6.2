@@ -41,7 +41,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 
 	// Handle id filter
 	if id := c.Query("id"); id != "" {
-		// Support Supabase-style filters: eq.<uuid> and in.(uuid1,uuid2)
+		// Support filters: eq.<uuid> and in.(uuid1,uuid2)
 		if strings.HasPrefix(id, "eq.") {
 			id = id[3:]
 			conditions = append(conditions, "id = $"+strconv.Itoa(len(args)+1))

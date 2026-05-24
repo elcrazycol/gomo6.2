@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -119,13 +119,13 @@ const GomoSubSettings = () => {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         navigate("/auth");
         return;
       }
 
-      const { data: board } = await supabase
+      const { data: board } = await api
         .from("boards")
         .select("id, name, description, rules_markdown, gomosub_avatar_url, cover_image_url, owner_id, gomosub_tags, is_gomosub")
         .eq("slug", slug)
@@ -220,7 +220,7 @@ const GomoSubSettings = () => {
     else setUploadingCover(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         toast.error("Нужно войти в аккаунт");
         return;
@@ -256,7 +256,7 @@ const GomoSubSettings = () => {
     }
 
     setSaving(true);
-    const { error } = await supabase
+    const { error } = await api
       .from("boards")
       .update({
         name: form.name.trim(),

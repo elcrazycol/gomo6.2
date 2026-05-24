@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 export interface ProfileCustomization {
   username_css: string | null;
@@ -18,7 +18,7 @@ export const getProfileCustomization = async (userId: string): Promise<ProfileCu
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from("profile_customization")
       .select("*")
       .eq("user_id", userId)

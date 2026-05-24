@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
@@ -25,7 +25,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadNotifications = useCallback(async () => {
-    const { data } = await supabase
+    const { data } = await api
       .from("notifications")
       .select("*")
       .eq("user_id", userId)
@@ -37,14 +37,14 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
       const notificationsWithSlugs = await Promise.all(
         data.map(async (notif) => {
           if (notif.related_thread_id) {
-            const { data: threadData } = await supabase
+            const { data: threadData } = await api
               .from("threads")
               .select("board_id")
               .eq("id", notif.related_thread_id)
               .single();
             
             if (threadData) {
-              const { data: boardData } = await supabase
+              const { data: boardData } = await api
                 .from("boards")
                 .select("slug")
                 .eq("id", threadData.board_id)
@@ -65,7 +65,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   useEffect(() => {
     loadNotifications();
 
-    const channel = supabase
+    const channel = api
       .channel('notifications-changes')
       .on(
         'postgres_changes',
@@ -82,7 +82,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.removeChannel(channel);
       if (closeTimeoutRef.current) {
         clearTimeout(closeTimeoutRef.current);
       }
@@ -170,7 +170,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
                           // Update unread count immediately
                           setUnreadCount(prev => Math.max(0, prev - 1));
                           // Mark as read in database (async)
-                          supabase
+                          api
                             .from('notifications')
                             .update({ is_read: true })
                             .eq('id', notif.id)

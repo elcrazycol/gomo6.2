@@ -1,4 +1,4 @@
-// RPC module — supabase.rpc() compatibility backed by Go backend
+// RPC module — api.rpc() compatibility backed by Go backend
 import { apiClient } from './client';
 
 export const rpc = (functionName: string, params?: any) => {

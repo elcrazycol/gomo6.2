@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,7 +45,7 @@ const CreateGomoThread = () => {
   useEffect(() => {
     const loadBoard = async () => {
       setLoadingBoard(true);
-      const { data } = await supabase
+      const { data } = await api
         .from("boards")
         .select("id, slug, name, description, gomosub_tags")
         .eq("slug", slug)
@@ -112,7 +112,7 @@ const CreateGomoThread = () => {
     }
 
     setCreating(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
     if (!user) {
       setCreating(false);
       toast.error("Нужно войти в аккаунт");
@@ -120,7 +120,7 @@ const CreateGomoThread = () => {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from("threads")
       .insert({
         board_id: board.id,

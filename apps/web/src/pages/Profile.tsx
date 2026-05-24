@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,11 +205,11 @@ const Profile = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       setCurrentUser(user);
       
       if (user) {
-        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        const token = (await api.auth.getSession()).data.session?.access_token;
         const headers = { 'Authorization': `Bearer ${token}` };
 
         // Load roles
@@ -249,7 +249,7 @@ const Profile = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event, session) => {
         setCurrentUser(session?.user ?? null);
       }
@@ -272,7 +272,7 @@ const Profile = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-  // Realtime status polling for profile (Go backend doesn't support Supabase realtime yet)
+  // Realtime status polling for profile
   useEffect(() => {
     if (!userId) return;
     // Poll profile status every 10 seconds
@@ -296,7 +296,7 @@ const Profile = () => {
   useOnlineStatus(currentUser?.id);
 
   const loadProfile = useCallback(async () => {
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
     const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`);
@@ -382,7 +382,7 @@ const Profile = () => {
     if (!userId) return [];
 
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
       const res = await fetch('/api/rpc/get_avatar_history', {
@@ -462,7 +462,7 @@ const Profile = () => {
 
   const toggleAchievementPin = async (achievementId: string) => {
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
       const res = await fetch('/api/rpc/toggle_achievement_pin', {
@@ -662,7 +662,7 @@ const Profile = () => {
   const handleSave = async () => {
     if (!currentUser || currentUser.id !== userId) return;
 
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     // Сохраняем профиль
@@ -684,7 +684,7 @@ const Profile = () => {
 
     // Смена пароля, если поле заполнено
     if (newPassword) {
-      const { error: passwordError } = await supabase.auth.updateUser({
+      const { error: passwordError } = await api.auth.updateUser({
         password: newPassword,
       });
 
@@ -703,7 +703,7 @@ const Profile = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
   };
 
@@ -743,7 +743,7 @@ const Profile = () => {
 
       await uploadFile('post-images', fileName, croppedFile);
 
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
       const updateRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
@@ -774,7 +774,7 @@ const Profile = () => {
     if (!currentUser || currentUser.id !== userId) return;
 
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
       const res = await fetch('/api/rpc/delete_avatar_from_history', {
@@ -841,7 +841,7 @@ const Profile = () => {
 
   const handleSaveAndExit = async () => {
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
       const prevBioJson = profile.bio_json ?? null;
@@ -912,7 +912,7 @@ const Profile = () => {
     }
 
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
       const res = await fetch(`/api/v1/profiles?id=eq.${userId}`, {

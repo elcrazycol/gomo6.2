@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -18,7 +18,7 @@ const EmojiModeration = () => {
   const [currentUserColor, setCurrentUserColor] = useState("");
 
   const checkAuth = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
 
     if (!user) {
       navigate("/auth");
@@ -27,7 +27,7 @@ const EmojiModeration = () => {
 
     setUser(user);
 
-    const { data: roles } = await supabase
+    const { data: roles } = await api
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id);
@@ -43,7 +43,7 @@ const EmojiModeration = () => {
     setIsModerator(true);
 
     // Load current user profile and color
-    const { data: profile } = await supabase
+    const { data: profile } = await api
       .from("profiles")
       .select("username")
       .eq("id", user.id)
@@ -54,7 +54,7 @@ const EmojiModeration = () => {
     }
 
     // Load current user color
-    const { data: achievements } = await supabase
+    const { data: achievements } = await api
       .from("user_achievements")
       .select(`
         achievement_id,

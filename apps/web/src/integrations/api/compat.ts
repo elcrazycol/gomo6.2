@@ -1,13 +1,13 @@
-// Re-export module — combines auth.ts, query-builder.ts, rpc.ts, and storage.ts
-// Keeps the familiar `supabase.auth.getSession()` / `supabase.from()` API
+// API compatibility module — combines auth.ts, query-builder.ts, rpc.ts, and storage.ts
+// Keeps the familiar `api.auth.getSession()` / `api.from()` API
 // while cleanly separating auth logic from data access.
-import { supabaseAuth } from './auth';
+import { apiAuth } from './auth';
 import { from, channel, removeChannel } from './query-builder';
 import { rpc } from './rpc';
 import { storage } from './storage';
 
-export const supabase = {
-  auth: supabaseAuth,
+export const api = {
+  auth: apiAuth,
   from,
   rpc,
   storage,

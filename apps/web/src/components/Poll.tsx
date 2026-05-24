@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle, Circle } from "lucide-react";
@@ -41,7 +41,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
     if (!currentUserId) return;
 
     try {
-      const { data: userVote, error } = await supabase
+      const { data: userVote, error } = await api
         .from('poll_votes')
         .select('option_ids')
         .eq('poll_id', poll.id)
@@ -61,7 +61,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
   // Load poll results
   const loadResults = useCallback(async () => {
     try {
-      const { data, error } = await supabase.rpc('get_poll_results', { poll_uuid: poll.id });
+      const { data, error } = await api.rpc('get_poll_results', { poll_uuid: poll.id });
       if (error) throw error;
 
       const resultsMap: Record<string, { votes: number; total_votes: number }> = {};
@@ -120,7 +120,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
 
         if (newVotes.length === 0 && hasVoted) {
           // Remove all votes
-          const { error } = await supabase
+          const { error } = await api
             .from('poll_votes')
             .delete()
             .eq('poll_id', poll.id)
@@ -132,7 +132,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
           setHasVoted(false);
         } else {
           // First try to update existing vote
-          const { data: existingVote } = await supabase
+          const { data: existingVote } = await api
             .from('poll_votes')
             .select('id')
             .eq('poll_id', poll.id)
@@ -144,7 +144,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
 
           if (existingVote) {
             // Update existing vote
-            const { error } = await supabase
+            const { error } = await api
               .from('poll_votes')
               .update({ option_ids: cleanVotes })
               .eq('id', existingVote.id);
@@ -152,7 +152,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
             if (error) throw error;
           } else {
             // Insert new vote
-            const { error } = await supabase
+            const { error } = await api
               .from('poll_votes')
               .insert({
                 poll_id: poll.id,
@@ -170,7 +170,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
         // Single choice logic
         if (userVotes.includes(optionId)) {
           // Remove vote
-          const { error } = await supabase
+          const { error } = await api
             .from('poll_votes')
             .delete()
             .eq('poll_id', poll.id)
@@ -182,7 +182,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
           setHasVoted(false);
         } else {
           // First try to update existing vote
-          const { data: existingVote } = await supabase
+          const { data: existingVote } = await api
             .from('poll_votes')
             .select('id')
             .eq('poll_id', poll.id)
@@ -197,7 +197,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
 
           if (existingVote) {
             // Update existing vote
-            const { error } = await supabase
+            const { error } = await api
               .from('poll_votes')
               .update({ option_ids: [optionId.trim()] })
               .eq('id', existingVote.id);
@@ -205,7 +205,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
             if (error) throw error;
           } else {
             // Insert new vote
-            const { error } = await supabase
+            const { error } = await api
               .from('poll_votes')
               .insert({
                 poll_id: poll.id,

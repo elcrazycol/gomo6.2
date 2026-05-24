@@ -119,7 +119,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 	}
 
-	// Handle ordering (Supabase format: column.asc/column.desc) — supports multiple order params
+	// Handle ordering (format: column.asc/column.desc) — supports multiple order params
 	if orders := c.QueryArray("order"); len(orders) > 0 {
 		joined := ""
 		for i, o := range orders {

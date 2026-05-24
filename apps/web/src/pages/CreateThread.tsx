@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -158,7 +158,7 @@ const CreateThread = () => {
   useEffect(() => {
     // Load available boards for picker
     const loadBoards = async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("boards")
         .select("id, slug, name, description, is_gomosub")
         .eq("is_rules_board", false)
@@ -187,7 +187,7 @@ const CreateThread = () => {
         return;
       }
 
-      const { data: boardData } = await supabase
+      const { data: boardData } = await api
         .from("boards")
         .select("*")
         .eq("slug", boardSlug)
@@ -249,7 +249,7 @@ const CreateThread = () => {
 
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         toast.error('Необходимо войти в систему');
         return;
@@ -287,7 +287,7 @@ const CreateThread = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          'Authorization': `Bearer ${(await api.auth.getSession()).data.session?.access_token}`,
         },
         body: JSON.stringify(threadPayload),
       });

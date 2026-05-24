@@ -634,7 +634,7 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(user))
 }
 
-// UpdatePassword sets a new password for the authenticated user (Supabase auth.updateUser compatibility).
+// UpdatePassword sets a new password for the authenticated user (auth.updateUser compatibility).
 func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

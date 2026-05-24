@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -57,9 +57,9 @@ const GomoSubCreate = () => {
 
   useEffect(() => {
     const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session?.user) return;
-      const { data } = await supabase
+      const { data } = await api
         .from("profiles")
         .select("garma, created_at")
         .eq("id", session.user.id)
@@ -141,7 +141,7 @@ const GomoSubCreate = () => {
     else setUploadingCover(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         toast.error("Нужно войти в аккаунт");
         return;
@@ -163,7 +163,7 @@ const GomoSubCreate = () => {
   };
 
   const handleCreate = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
     if (!user) {
       toast.error("Войдите, чтобы создать g-саб");
       navigate("/auth");
@@ -180,7 +180,7 @@ const GomoSubCreate = () => {
 
     setCreating(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       const token = session?.access_token;
 
       const res = await fetch('/api/rpc/create_gomosub', {

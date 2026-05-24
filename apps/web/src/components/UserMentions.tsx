@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
 
 // Cache for user search results
@@ -84,7 +84,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     }
 
     try {
-      let queryBuilder = supabase
+      let queryBuilder = api
         .from('profiles')
         .select('id, username, account_number, post_count')
         .not('username', 'is', null)

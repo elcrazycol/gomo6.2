@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 type WebSocketMessage = {
   type: string;
@@ -37,7 +37,7 @@ export const WebSocketProvider = ({ children }: Props) => {
 
   const connect = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session?.access_token) {
         return;
       }

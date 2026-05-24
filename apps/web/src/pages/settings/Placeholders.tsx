@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { storageUrl } from "@/utils/storage";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -57,7 +57,7 @@ const Placeholders = () => {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         navigate("/auth");
         return;
@@ -65,7 +65,7 @@ const Placeholders = () => {
       setUser(user);
 
       // Load placeholders
-      const { data: placeholders } = await supabase
+      const { data: placeholders } = await api
         .from("user_placeholders")
         .select("*")
         .eq("user_id", user.id)
@@ -80,7 +80,7 @@ const Placeholders = () => {
       }
 
       // Load profile for preview
-      const { data: profileData } = await supabase
+      const { data: profileData } = await api
         .from("profiles")
         .select("*")
         .eq("id", user.id)
@@ -105,7 +105,7 @@ const Placeholders = () => {
 
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await api
         .from("user_placeholders")
         .upsert({
           user_id: user.id,

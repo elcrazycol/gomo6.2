@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Menu, User, Settings, Hammer, LogOut, Grid3X3, Search, Users } from "lucide-react";
@@ -37,7 +37,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
     // Always load own user profile
     if (user) {
       const loadProfile = async () => {
-        const { data } = await supabase
+        const { data } = await api
           .from("profiles")
           .select("username, is_anonymous, account_number, avatar_url")
           .eq("id", user.id)
@@ -58,14 +58,14 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
     if (!user?.id) return;
 
     const loadSubSections = async () => {
-      const { data: memberships } = await supabase
+      const { data: memberships } = await api
         .from("gomosub_memberships")
         .select("board_id")
         .eq("user_id", user.id);
       const joinedBoardIds = (memberships ?? []).map((m) => m.board_id);
 
       if (joinedBoardIds.length > 0) {
-        const { data } = await supabase
+        const { data } = await api
           .from("boards")
           .select("id, slug, name")
           .in("id", joinedBoardIds)
@@ -76,7 +76,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
         setJoinedSubs([]);
       }
 
-      const { data: allGSubs } = await supabase
+      const { data: allGSubs } = await api
         .from("boards")
         .select("id, slug, name")
         .eq("is_gomosub", true)
@@ -94,7 +94,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   }, [user?.id, open]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
     setOpen(false);
   };

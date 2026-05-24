@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 interface ProfileData {
   username: string;
@@ -83,16 +83,16 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         // Load all data in parallel
         const [profileRes, achievementsRes, rolesRes, customizationRes] = await Promise.all([
-          supabase.from('profiles').select('username, avatar_url').eq('id', userId).single(),
-          supabase.from('user_achievements').select(`
+          api.from('profiles').select('username, avatar_url').eq('id', userId).single(),
+          api.from('user_achievements').select(`
             achievement_id,
             achievements (
               reward_type,
               reward_value
             )
           `).eq('user_id', userId),
-          supabase.from('user_roles').select('role').eq('user_id', userId),
-          supabase.from('profile_customization').select('*').eq('user_id', userId).single(),
+          api.from('user_roles').select('role').eq('user_id', userId),
+          api.from('profile_customization').select('*').eq('user_id', userId).single(),
         ]);
 
         // Process color from achievements

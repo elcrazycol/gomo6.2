@@ -1,4 +1,4 @@
-// Query builder module — supabase.from() compatibility backed by Go backend
+// Query builder module — api.from() compatibility backed by Go backend
 // Provides the fluent query builder API: .select(), .eq(), .order(), .single(), etc.
 import { apiClient } from './client';
 

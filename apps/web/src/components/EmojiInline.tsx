@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 interface EmojiInlineProps {
   code: string;
@@ -12,7 +12,7 @@ export const EmojiInline = ({ code, className = "" }: EmojiInlineProps) => {
 
   const loadEmoji = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emojis')
         .select('image_url, name')
         .eq('code', code)

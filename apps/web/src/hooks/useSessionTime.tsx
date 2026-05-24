@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 export function useSessionTime(userId: string | null) {
   const accumulatedSeconds = useRef(0);
@@ -21,7 +21,7 @@ export function useSessionTime(userId: string | null) {
 
     const registerDailyVisit = async () => {
       try {
-        const { error } = await supabase
+        const { error } = await api
           .from("user_daily_visits")
           .upsert(
             {
@@ -70,7 +70,7 @@ export function useSessionTime(userId: string | null) {
         return;
       }
 
-      const { data: sessionData, error: fetchError } = await supabase
+      const { data: sessionData, error: fetchError } = await api
         .from("user_session_time")
         .select("id, total_minutes")
         .eq("user_id", userId)
@@ -93,11 +93,11 @@ export function useSessionTime(userId: string | null) {
 
       const sessionRowId = sessionData?.id;
       const { error: upsertError } = sessionRowId
-        ? await supabase
+        ? await api
             .from("user_session_time")
             .update(updatePayload)
             .eq("id", sessionRowId)
-        : await supabase.from("user_session_time").insert({
+        : await api.from("user_session_time").insert({
             user_id: userId,
             ...updatePayload,
             session_date: new Date().toISOString().split("T")[0],

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 export interface Profile {
   id: string;
@@ -28,7 +28,7 @@ export function useProfile(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return null;
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('profiles')
         .select('*')
         .eq('id', userId)
@@ -54,7 +54,7 @@ export function useProfiles(userIds: string[]) {
     queryFn: async () => {
       if (userIds.length === 0) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('profiles')
         .select('*')
         .in('id', userIds);
@@ -76,7 +76,7 @@ export function useUpdateProfile() {
 
   return useMutation({
     mutationFn: async ({ userId, updates }: { userId: string; updates: Partial<Profile> }) => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('profiles')
         .update(updates)
         .eq('id', userId)
@@ -105,7 +105,7 @@ export function useAchievements(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('user_achievements')
         .select(`
           level,
@@ -144,7 +144,7 @@ export function useUserThreads(userId: string | undefined, options?: { enabled?:
     queryFn: async () => {
       if (!userId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('threads')
         .select(`
           id,

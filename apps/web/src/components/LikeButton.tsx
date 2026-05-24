@@ -1,6 +1,6 @@
 import { useState, useEffect, memo } from "react";
 import { Heart } from "lucide-react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import {
   Tooltip,
   TooltipContent,
@@ -55,7 +55,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
 
       try {
         const likersFunction = isThread ? 'get_recent_thread_likers' : 'get_recent_post_likers';
-        const { data: likers } = await supabase.rpc(likersFunction, {
+        const { data: likers } = await api.rpc(likersFunction, {
           [isThread ? 'thread_uuid' : 'post_uuid']: postId,
           limit_count: 3
         });
@@ -74,11 +74,11 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
 
       if (achievementType === 'likes_given') {
         const countFunction = isThread ? 'get_user_thread_likes_given_count' : 'get_user_likes_given_count';
-        const { data } = await supabase.rpc(countFunction, { user_uuid: userId });
+        const { data } = await api.rpc(countFunction, { user_uuid: userId });
         count = (data as number) || 0;
       } else if (achievementType === 'likes_received') {
         const countFunction = isThread ? 'get_user_thread_likes_received_count' : 'get_user_likes_received_count';
-        const { data } = await supabase.rpc(countFunction, { user_uuid: userId });
+        const { data } = await api.rpc(countFunction, { user_uuid: userId });
         count = (data as number) || 0;
       }
 
@@ -95,7 +95,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
 
       if (level > 0) {
         // Award achievement using the RPC function
-        await supabase.rpc('award_achievement_with_level', {
+        await api.rpc('award_achievement_with_level', {
           _user_id: userId,
           _achievement_type: achievementType,
           _level: level
@@ -116,7 +116,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
     try {
       if (isLiked) {
         // Remove like
-        const { error } = await supabase
+        const { error } = await api
           .from(isThread ? 'thread_likes' : 'post_likes')
           .delete()
           .eq(isThread ? 'thread_id' : 'post_id', postId)
@@ -137,7 +137,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
         }
       } else {
         // Add like
-        const { error } = await supabase
+        const { error } = await api
           .from(isThread ? 'thread_likes' : 'post_likes')
           .insert({
             [isThread ? 'thread_id' : 'post_id']: postId,

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 
 async function getToken(): Promise<string | undefined> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await api.auth.getSession();
   return session?.access_token;
 }
 
@@ -20,7 +20,7 @@ const WallPost = () => {
     const loadPageContext = async () => {
       try {
         const [{ data: authData }, profileResult] = await Promise.all([
-          supabase.auth.getUser(),
+          api.auth.getUser(),
           userId
             ? fetch(`/api/v1/profiles?id=eq.${userId}`).then(r => r.json())
             : Promise.resolve({ success: true, data: [] }),

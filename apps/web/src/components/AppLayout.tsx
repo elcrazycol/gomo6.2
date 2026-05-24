@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -774,7 +774,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       }
 
       // Load user role
-      const { data: roles } = await supabase
+      const { data: roles } = await api
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id);
@@ -782,7 +782,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
 
       // Load current user profile and color
-      const { data: profile } = await supabase
+      const { data: profile } = await api
         .from("profiles")
         .select("username")
         .eq("id", user.id)
@@ -793,7 +793,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       }
 
       // Load current user color
-      const { data: achievements } = await supabase
+      const { data: achievements } = await api
         .from("user_achievements")
         .select(`
           achievement_id,

@@ -38,7 +38,7 @@ export function useAuth() {
 
 /**
  * Hook for getting current user session with caching
- * Compatible with Supabase-style auth
+ * Compatible with API-style auth
  */
 export function useSession() {
   const queryClient = useQueryClient();

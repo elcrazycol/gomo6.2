@@ -23,13 +23,13 @@ func NewBoardsHandler(db *sql.DB) *BoardsHandler {
 }
 
 func (h *BoardsHandler) GetBoards(c *gin.Context) {
-	// Support Supabase filtering
+	// Support filtering
 	query := "SELECT id, slug, name, description, is_gomosub, is_rules_board, owner_id, gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown, rules_updated_at, created_at FROM boards"
 
 	var args []interface{}
 	var conditions []string
 
-	// Handle eq filter (Supabase style) — select filter ignored, all fields returned
+	// Handle eq filter (query style) — select filter ignored, all fields returned
 	if slug := c.Query("slug"); slug != "" {
 		s := strings.TrimPrefix(slug, "eq.")
 		conditions = append(conditions, "slug = $"+strconv.Itoa(len(args)+1))
