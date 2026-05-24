@@ -13,9 +13,15 @@
 
 <!-- ── Coverage ── -->
 <p align="center">
-  <strong>Coverage</strong><br>
-  <a href="https://codecov.io/gh/scramble22/gomo6.2"><img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=go" alt="Go coverage"></a>
-  <a href="https://codecov.io/gh/scramble22/gomo6.2"><img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=frontend" alt="Frontend coverage"></a>
+  <strong>📊 Code Coverage</strong><br>
+  <a href="https://codecov.io/gh/scramble22/gomo6.2">
+    <img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=backend" alt="Go coverage">
+  </a>
+  <a href="https://codecov.io/gh/scramble22/gomo6.2">
+    <img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=frontend" alt="Frontend coverage">
+  </a>
+  <br>
+  <sub>Backend (Go) &nbsp;·&nbsp; Frontend (TypeScript)</sub>
 </p>
 
 <p align="center">
