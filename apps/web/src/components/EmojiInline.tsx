@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/integrations/api/client_simple';
+import { supabase } from '@/integrations/api/supabaseCompat';
 
 interface EmojiInlineProps {
   code: string;

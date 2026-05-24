@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, type NavigateOptions } from "react-router
 import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { storageUrl } from "@/utils/storage";
 import {
   createClientMessageId,

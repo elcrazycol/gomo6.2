@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibility";
 import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";

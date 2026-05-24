@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from "react";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 
 type WebSocketMessage = {
   type: string;

@@ -1,7 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWallPost, type WallPost } from "@/components/CreateWallPost";

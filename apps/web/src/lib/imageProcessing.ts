@@ -35,7 +35,7 @@ export const removeExifData = (file: File): Promise<File> => {
 
 // Функция для получения настроек приватности пользователя
 export const getUserPrivacySettings = async (userId: string) => {
-  const { supabase } = await import('@/integrations/api/client_simple');
+  const { supabase } = await import('@/integrations/api/supabaseCompat');
 
   const { data, error } = await supabase
     .from('privacy_settings')

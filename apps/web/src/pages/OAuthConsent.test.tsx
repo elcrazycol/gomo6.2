@@ -21,7 +21,7 @@ vi.mock("react-router-dom", async () => {
 const mockGetSession = vi.fn();
 const mockGetUser = vi.fn();
 
-vi.mock("@/integrations/api/client_simple", () => ({
+vi.mock("@/integrations/api/supabaseCompat", () => ({
   supabase: {
     auth: {
       getSession: () => mockGetSession(),

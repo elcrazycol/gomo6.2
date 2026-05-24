@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { storageUrl } from "@/utils/storage";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";

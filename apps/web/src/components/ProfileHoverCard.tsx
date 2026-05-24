@@ -1,6 +1,6 @@
 import { useState, cloneElement } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { User } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";

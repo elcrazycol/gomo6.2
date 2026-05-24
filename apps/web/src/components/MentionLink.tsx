@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { Link } from "react-router-dom";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
