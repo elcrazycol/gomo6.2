@@ -12,7 +12,7 @@
 # =============================================================================
 set -euo pipefail
 
-PROJECT_DIR="/opt/gomo6"
+PROJECT_DIR="$HOME/gomo6"
 cd "$PROJECT_DIR"
 
 echo "=== Deploy started at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
