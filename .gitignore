@@ -30,6 +30,9 @@ dist-ssr
 .env.local
 .env.production
 
+# Keys / secrets
+*.key
+
 # Test coverage
 *.out
 coverage/

@@ -190,11 +190,14 @@ docker compose up -d
 ## 📚 Документация
 
 - **[CHANGELOG.md](CHANGELOG.md)** — история всех релизов
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — развёртывание на VPS
+- **[DOCKER_SETUP.md](DOCKER_SETUP.md)** — Docker deployment с Caddy
+- **[OAUTH_API.md](OAUTH_API.md)** — OAuth 2.0 API reference
+- **[BOT_SYSTEM_ARCHITECTURE.md](BOT_SYSTEM_ARCHITECTURE.md)** — архитектура системы ботов
+- **[BOT_EXAMPLES.md](BOT_EXAMPLES.md)** — примеры ботов на Lua
+- **[MESSENGER_SECURITY.md](MESSENGER_SECURITY.md)** — безопасность мессенджера
 - **[docs/REALTIME_WEBSOCKET_PATTERN.md](docs/REALTIME_WEBSOCKET_PATTERN.md)** — паттерны WebSocket
 - **[docs/THREAD_ATTACHMENTS_GUIDE.md](docs/THREAD_ATTACHMENTS_GUIDE.md)** — работа с вложениями
-- **[OAUTH_API.md](OAUTH_API.md)** — OAuth 2.0 API reference
-- **[BOT_DOCS_UPDATE_SUMMARY.md](BOT_DOCS_UPDATE_SUMMARY.md)** — документация по ботам
-- **[QUICK_START.md](QUICK_START.md)** — быстрый старт для разработчиков
 
 ---
 <p align="center">
