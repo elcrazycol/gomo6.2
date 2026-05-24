@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -12,8 +13,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
@@ -29,11 +33,21 @@ func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
 }
 
 type RPCHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	redis *redis.Client
+	wsHub interface{}
 }
 
 func NewRPCHandler(db *sql.DB) *RPCHandler {
 	return &RPCHandler{db: db}
+}
+
+func (h *RPCHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
+}
+
+func (h *RPCHandler) SetWebSocketHub(hub interface{}) {
+	h.wsHub = hub
 }
 
 // RPC functions
@@ -1331,6 +1345,28 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	// Recompute user stats
 	RecomputeUserProfileStats(h.db, claims.UserID)
+
+	// Invalidate Redis cache for this thread's posts
+	if h.redis != nil {
+		middleware.InvalidateCacheForThread(h.redis, req.ThreadID)
+	}
+
+	// Publish WebSocket realtime event
+	if h.wsHub != nil {
+		if hub, ok := h.wsHub.(*websocket.Hub); ok {
+			postData := map[string]interface{}{
+				"id":         post.ID,
+				"thread_id":  post.ThreadID,
+				"user_id":    post.UserID,
+				"created_at": post.CreatedAt,
+			}
+			if err := hub.PublishNewPost(postData); err != nil {
+				fmt.Printf("[WebSocket] Error publishing new post event: %v\n", err)
+			} else {
+				fmt.Printf("[WebSocket] Published new post event for post %s\n", post.ID)
+			}
+		}
+	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(post))
 }

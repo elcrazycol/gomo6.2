@@ -71,6 +71,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	notificationsHandler.SetRedis(redis)
 	rpcHandler := handlers.NewRPCHandler(db)
+	rpcHandler.SetRedis(redis)
+	rpcHandler.SetWebSocketHub(wsHub)
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)
 	universalHandler.SetBotEventPublisher(botEventPublisher)
 	universalHandler.SetRedis(redis)

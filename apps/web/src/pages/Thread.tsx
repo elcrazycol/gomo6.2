@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -191,6 +192,7 @@ const Thread = () => {
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // Use React Query hooks instead of manual state management
   useWebSocketSync(); // Sync WebSocket events with React Query cache
@@ -707,8 +709,9 @@ const Thread = () => {
 
       await response.json();
 
-      // React Query will automatically update via WebSocket + cache invalidation
-      // No need to manually update posts state
+      // Invalidate React Query cache so the thread page shows the new post immediately
+      queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
+      queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
 
       // Start clearing mode
       setIsClearing(true);
