@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/lib/pq"
 )
 
 type UserStatusHandler struct {
@@ -112,7 +113,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 		WHERE u.id = ANY($1)
 	`
 
-	rows, err := h.db.Query(query, request.UserIDs)
+	rows, err := h.db.Query(query, pq.Array(request.UserIDs))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
