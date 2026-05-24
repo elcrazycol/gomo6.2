@@ -134,13 +134,33 @@ func TestUniversalGet_MessengerMessages(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec(`(?s).*set_config.*`).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(`(?s).*SELECT m\.\* FROM chat_messages m.*WHERE m\.conversation_id IN \(.*SELECT conversation_id FROM chat_conversation_members.*WHERE user_id = \$1 AND archived_at IS NULL.*\)`).
+	mock.ExpectQuery(`(?s).*SELECT m\.\* FROM chat_messages m.*WHERE m\.conversation_id IN \(.*SELECT conversation_id FROM chat_conversation_members.*WHERE user_id = \$1 AND archived_at IS NULL.*\).*ORDER BY.*sent_at.*ASC.*LIMIT 50`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "ciphertext"}).
 			AddRow("msg1", "conv1", "encrypted_data"))
 	mock.ExpectCommit()
 
 	c, w := newUniversalRequestContext("GET", "/api/v1/chat_messages", nil, claims)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalGet_MessengerMessagesWithCursor(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s).*set_config.*`).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`(?s).*SELECT m\.\* FROM chat_messages m.*WHERE m\.conversation_id IN \(.*SELECT conversation_id FROM chat_conversation_members.*WHERE user_id = \$1 AND archived_at IS NULL.*\) AND sent_at > \$2.*ORDER BY.*sent_at.*ASC.*LIMIT 50`).
+		WithArgs("u1", "2025-01-01T00:00:00Z").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "ciphertext", "sent_at"}).
+			AddRow("msg2", "conv1", "encrypted", "2025-01-02T00:00:00Z"))
+	mock.ExpectCommit()
+
+	c, w := newUniversalRequestContext("GET", "/api/v1/chat_messages?sent_at=gt.2025-01-01T00:00:00Z", nil, claims)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -563,6 +583,34 @@ func TestUniversalGet_BuildFilterClause_PlainValue(t *testing.T) {
 func TestUniversalGet_BuildFilterClause_NotOp(t *testing.T) {
 	clause, args, next := buildFilterClause("user_id", "not.eq.u1", 1)
 	if clause != "NOT (user_id = $1)" || len(args) != 1 || next != 2 {
+		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
+	}
+}
+
+func TestUniversalGet_BuildFilterClause_GtOp(t *testing.T) {
+	clause, args, next := buildFilterClause("sent_at", "gt.2025-01-01T00:00:00Z", 1)
+	if clause != "sent_at > $1" || len(args) != 1 || args[0] != "2025-01-01T00:00:00Z" || next != 2 {
+		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
+	}
+}
+
+func TestUniversalGet_BuildFilterClause_LtOp(t *testing.T) {
+	clause, args, next := buildFilterClause("sent_at", "lt.2025-06-01T00:00:00Z", 1)
+	if clause != "sent_at < $1" || len(args) != 1 || args[0] != "2025-06-01T00:00:00Z" || next != 2 {
+		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
+	}
+}
+
+func TestUniversalGet_BuildFilterClause_GteOp(t *testing.T) {
+	clause, args, next := buildFilterClause("sent_at", "gte.2025-01-01T00:00:00Z", 1)
+	if clause != "sent_at >= $1" || len(args) != 1 || args[0] != "2025-01-01T00:00:00Z" || next != 2 {
+		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
+	}
+}
+
+func TestUniversalGet_BuildFilterClause_LteOp(t *testing.T) {
+	clause, args, next := buildFilterClause("sent_at", "lte.2025-06-01T00:00:00Z", 1)
+	if clause != "sent_at <= $1" || len(args) != 1 || args[0] != "2025-06-01T00:00:00Z" || next != 2 {
 		t.Fatalf("unexpected: %s, %v, %d", clause, args, next)
 	}
 }
