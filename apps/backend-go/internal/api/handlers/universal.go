@@ -577,6 +577,15 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	var clauses []string
+
+	// Extract optional record ID from URL path (e.g., /rest/v1/user_session_time/abc-123).
+	// Frontend sends PUT /table/:id — the filter is embedded in the path, not query params.
+	if recordID := extractRecordID(c.Request.URL.Path, tableName); recordID != "" {
+		clauses = append(clauses, "id = $"+strconv.Itoa(argIndex))
+		args = append(args, recordID)
+		argIndex++
+	}
+
 	for key, values := range c.Request.URL.Query() {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
@@ -678,6 +687,15 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	var args []interface{}
 	var clauses []string
 	argIndex := 1
+
+	// Extract optional record ID from URL path (e.g., /rest/v1/user_session_time/abc-123).
+	// Frontend sends DELETE /table/:id — the filter is embedded in the path, not query params.
+	if recordID := extractRecordID(c.Request.URL.Path, tableName); recordID != "" {
+		clauses = append(clauses, "id = $"+strconv.Itoa(argIndex))
+		args = append(args, recordID)
+		argIndex++
+	}
+
 	for key, values := range c.Request.URL.Query() {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
@@ -883,6 +901,16 @@ func splitCSV(input string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+// extractRecordID extracts the record ID from a URL path like /rest/v1/table_name/abc-123.
+// Returns empty string if no ID is present or path contains multiple sub-paths.
+func extractRecordID(urlPath string, tableName string) string {
+	trimmed := strings.TrimPrefix(urlPath, "/rest/v1/"+tableName+"/")
+	if trimmed == "" || strings.Contains(trimmed, "/") {
+		return ""
+	}
+	return trimmed
 }
 
 // isMessengerTable checks if table is a messenger table requiring access control
