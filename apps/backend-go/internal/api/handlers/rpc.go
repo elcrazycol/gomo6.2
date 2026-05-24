@@ -1258,6 +1258,8 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_id is required"))
 		return
 	}
+	req.Content = strings.TrimSpace(req.Content)
+
 	if req.Content == "" && len(req.Attachments) == 0 {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Пост не может быть пустым"))
 		return
@@ -1385,6 +1387,9 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
+
+	req.Title = strings.TrimSpace(req.Title)
+	req.Content = strings.TrimSpace(req.Content)
 
 	if req.BoardID == "" || req.Title == "" || req.Content == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("board_id, title, and content are required"))
