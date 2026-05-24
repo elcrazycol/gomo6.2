@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -675,5 +678,331 @@ func TestLogout_NoExpiry(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 even without expiry, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Login — wrong password ───────────────────────────────────────────────────
+
+func TestLogin_WrongPassword(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to generate bcrypt hash: %v", err)
+	}
+
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE email.*`).
+		WithArgs("test@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
+			AddRow("u1", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), false, nil, nil, time.Now()))
+
+	c, w := newPOSTContext("/auth/v1/login", map[string]string{
+		"email":    "test@example.com",
+		"password": "wrongpassword",
+	}, nil, nil)
+	h.Login(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong password, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Login — with 2FA (no trusted device) ────────────────────────────────────
+
+func TestLogin_With2FA_NoTrustedDevice(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to generate bcrypt hash: %v", err)
+	}
+
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE email.*`).
+		WithArgs("test@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
+			AddRow("u1", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, nil, time.Now()))
+
+	c, w := newPOSTContext("/auth/v1/login", map[string]string{
+		"email":    "test@example.com",
+		"password": "secret123",
+	}, nil, nil)
+	h.Login(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Needs2FA bool   `json:"needs_2fa"`
+			Token    string `json:"token"`
+			User     struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Data.Needs2FA {
+		t.Fatal("expected needs_2fa=true for 2FA-enabled login without trusted device")
+	}
+	if resp.Data.Token == "" {
+		t.Fatal("expected non-empty partial token")
+	}
+}
+
+// ─── Login — with 2FA (trusted device) ───────────────────────────────────────
+
+func TestLogin_With2FA_TrustedDevice(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to generate bcrypt hash: %v", err)
+	}
+
+	// Trust this device for 30 days from now
+	futureExpiry := time.Now().Add(30 * 24 * time.Hour).Unix()
+	trustedDevices := map[string]int64{"my-device-1": futureExpiry}
+	trustedJSON, _ := json.Marshal(trustedDevices)
+	trustedStr := string(trustedJSON)
+
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE email.*`).
+		WithArgs("test@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
+			AddRow("u1", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now()))
+
+	c, w := newPOSTContext("/auth/v1/login", map[string]string{
+		"email":     "test@example.com",
+		"password":  "secret123",
+		"device_id": "my-device-1",
+	}, nil, nil)
+	h.Login(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Needs2FA bool   `json:"needs_2fa"`
+			Token    string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.Data.Needs2FA {
+		t.Fatal("expected needs_2fa=false for trusted device")
+	}
+	if resp.Data.Token == "" {
+		t.Fatal("expected non-empty full token")
+	}
+}
+
+// ─── Login — with 2FA (expired trusted device) ───────────────────────────────
+
+func TestLogin_With2FA_ExpiredTrustedDevice(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to generate bcrypt hash: %v", err)
+	}
+
+	// Device was trusted but expired
+	expiredExpiry := time.Now().Add(-1 * time.Hour).Unix()
+	trustedDevices := map[string]int64{"old-device": expiredExpiry}
+	trustedJSON, _ := json.Marshal(trustedDevices)
+	trustedStr := string(trustedJSON)
+
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE email.*`).
+		WithArgs("test@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "domain", "password_hash", "totp_enabled", "totp_secret", "trusted_devices", "created_at"}).
+			AddRow("u1", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now()))
+
+	c, w := newPOSTContext("/auth/v1/login", map[string]string{
+		"email":     "test@example.com",
+		"password":  "secret123",
+		"device_id": "old-device",
+	}, nil, nil)
+	h.Login(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Needs2FA bool   `json:"needs_2fa"`
+			Token    string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Data.Needs2FA {
+		t.Fatal("expected needs_2fa=true for expired trusted device")
+	}
+	if resp.Data.Token == "" {
+		t.Fatal("expected non-empty partial token")
+	}
+}
+
+// ─── Verify2FA — TOTP not enabled ────────────────────────────────────────────
+
+func TestVerify2FA_No2FAEnabled(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	partialToken, err := h.authService.GeneratePartialToken("u1", "testuser", "localhost:8080")
+	if err != nil {
+		t.Fatalf("failed to generate partial token: %v", err)
+	}
+
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"totp_secret", "totp_enabled"}).
+			AddRow(nil, false))
+
+	c, w := newPOSTContext("/auth/v1/verify-2fa", map[string]string{
+		"token": partialToken,
+		"code":  "123456",
+	}, nil, nil)
+	h.Verify2FA(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Verify2FA — with recovery code ──────────────────────────────────────────
+
+func TestVerify2FA_WithRecoveryCode(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	partialToken, err := h.authService.GeneratePartialToken("u1", "testuser", "localhost:8080")
+	if err != nil {
+		t.Fatalf("failed to generate partial token: %v", err)
+	}
+
+	recoveryCode := "abcd-ef01-2345-test" // > 10 chars → recovery code path
+	codeHashBytes := sha256.Sum256([]byte(recoveryCode))
+	codeHash := hex.EncodeToString(codeHashBytes[:])
+
+	secret := "JBSWY3DPEHPK3PXP"
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"totp_secret", "totp_enabled"}).
+			AddRow(secret, true))
+
+	// Mock recovery code found
+	mock.ExpectQuery(`(?s).*UPDATE user_recovery_codes.*RETURNING id.*`).
+		WithArgs("u1", codeHash).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("rc-1"))
+
+	c, w := newPOSTContext("/auth/v1/verify-2fa", map[string]string{
+		"token": partialToken,
+		"code":  recoveryCode,
+	}, nil, nil)
+	h.Verify2FA(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Token        string `json:"token"`
+			RefreshToken string `json:"refresh_token"`
+			ExpiresIn    int64  `json:"expires_in"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.Data.Token == "" {
+		t.Fatal("expected non-empty access token")
+	}
+	if resp.Data.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh token")
+	}
+	if resp.Data.ExpiresIn != 3600 {
+		t.Fatalf("expected expires_in=3600, got %d", resp.Data.ExpiresIn)
+	}
+}
+
+// ─── VerifyAndEnableTOTP — success ───────────────────────────────────────────
+
+func TestVerifyAndEnableTOTP_Success(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	secret := "JBSWY3DPEHPK3PXP"
+	// Generate a valid TOTP code for this secret
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("failed to generate TOTP code: %v", err)
+	}
+
+	// Mock: get stored secret
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"totp_secret"}).AddRow(secret))
+
+	// Mock: enable 2FA
+	mock.ExpectExec(`(?s).*UPDATE users SET totp_enabled.*WHERE id.*`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Mock: 8 recovery code INSERTs
+	for i := 0; i < 8; i++ {
+		mock.ExpectExec(`(?s).*INSERT INTO user_recovery_codes.*`).
+			WithArgs("u1", sqlmock.AnyArg()).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+
+	c, w := newPOSTContext("/auth/v1/verify-enable-totp", map[string]string{
+		"code": code,
+	}, claims, nil)
+	h.VerifyAndEnableTOTP(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			Enabled       bool     `json:"enabled"`
+			RecoveryCodes []string `json:"recovery_codes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Data.Enabled {
+		t.Fatal("expected enabled=true")
+	}
+	if len(resp.Data.RecoveryCodes) != 8 {
+		t.Fatalf("expected 8 recovery codes, got %d", len(resp.Data.RecoveryCodes))
+	}
+}
+
+// ─── VerifyAndEnableTOTP — invalid code ──────────────────────────────────────
+
+func TestVerifyAndEnableTOTP_InvalidCode(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	secret := "JBSWY3DPEHPK3PXP"
+	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"totp_secret"}).AddRow(secret))
+
+	c, w := newPOSTContext("/auth/v1/verify-enable-totp", map[string]string{
+		"code": "000000",
+	}, claims, nil)
+	h.VerifyAndEnableTOTP(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid code, got %d: %s", w.Code, w.Body.String())
 	}
 }
