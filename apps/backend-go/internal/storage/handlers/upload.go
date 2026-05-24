@@ -37,7 +37,7 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 	defer file.Close()
 
 	if header.Size > maxUploadBytes {
-		return nil, nil, fmt.Errorf("File too large (max 10MB)")
+		return nil, nil, fmt.Errorf("file too large (max 10MB)")
 	}
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
@@ -51,7 +51,7 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 
 	data, err = io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
 	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to read file")
+		return nil, nil, fmt.Errorf("failed to read file")
 	}
 	if int64(len(data)) > maxUploadBytes {
 		return nil, nil, fmt.Errorf("file too large (max 10MB)")
