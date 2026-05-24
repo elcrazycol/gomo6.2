@@ -1029,7 +1029,8 @@ func TestCreateGomoSub_DBErrorOnInsert(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}}
+	}
+}
 
 func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
 	h, mock := setupRPCHandler(t)
@@ -1058,10 +1059,20 @@ func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
 	}
 }
 
+// setupRPCHandlerWithSyncStats creates an RPCHandler where recomputeStatsFn runs synchronously.
+// This avoids flaky time.Sleep calls in tests that need mock expectations for RecomputeUserProfileStats.
+func setupRPCHandlerWithSyncStats(t *testing.T) (*RPCHandler, sqlmock.Sqlmock) {
+	h, mock := setupRPCHandler(t)
+	h.recomputeStatsFn = func(db *sql.DB, userID string) {
+		db.Exec(`UPDATE users u SET post_count = s.pc, thread_count = s.tc, garma = s.g, updated_at = NOW() FROM (SELECT $1 AS id) s WHERE u.id = $1`, userID)
+	}
+	return h, mock
+}
+
 // ─── CreatePostRPC ────────────────────────────────────────────────────────────
 
 func TestCreatePostRPC_Success(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1073,7 +1084,6 @@ func TestCreatePostRPC_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// INSERT post + RETURNING
-	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
 	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
 		WithArgs(threadID, "u1", "Test post content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
@@ -1092,7 +1102,7 @@ func TestCreatePostRPC_Success(t *testing.T) {
 		WithArgs(threadID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// RecomputeUserProfileStats — runs in goroutine, needs time to execute
+	// RecomputeUserProfileStats — runs synchronously via recomputeStatsFn
 	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1102,9 +1112,6 @@ func TestCreatePostRPC_Success(t *testing.T) {
 		"content":   "Test post content",
 	}, claims)
 	h.CreatePostRPC(c)
-
-	// Give RecomputeUserProfileStats goroutine time to execute
-	time.Sleep(5 * time.Millisecond)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -1199,7 +1206,7 @@ func TestCreatePostRPC_WhitespaceOnly(t *testing.T) {
 }
 
 func TestCreatePostRPC_AttachmentsOnly(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1229,7 +1236,7 @@ func TestCreatePostRPC_AttachmentsOnly(t *testing.T) {
 		WithArgs(threadID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// RecomputeUserProfileStats — runs in goroutine
+	// RecomputeUserProfileStats — runs synchronously via recomputeStatsFn
 	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1242,9 +1249,6 @@ func TestCreatePostRPC_AttachmentsOnly(t *testing.T) {
 		},
 	}, claims)
 	h.CreatePostRPC(c)
-
-	// Give RecomputeUserProfileStats goroutine time to execute
-	time.Sleep(5 * time.Millisecond)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -1275,7 +1279,7 @@ func TestCreatePostRPC_AttachmentsOnly(t *testing.T) {
 }
 
 func TestCreatePostRPC_MissingThreadID(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	c, w := newRPCPostContext(map[string]interface{}{
@@ -1290,7 +1294,7 @@ func TestCreatePostRPC_MissingThreadID(t *testing.T) {
 }
 
 func TestCreatePostRPC_InvalidThreadID(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	c, w := newRPCPostContext(map[string]interface{}{
@@ -1306,7 +1310,7 @@ func TestCreatePostRPC_InvalidThreadID(t *testing.T) {
 }
 
 func TestCreatePostRPC_ThreadNotFound(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1327,7 +1331,7 @@ func TestCreatePostRPC_ThreadNotFound(t *testing.T) {
 }
 
 func TestCreatePostRPC_DBErrorOnInsert(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1356,7 +1360,7 @@ func TestCreatePostRPC_DBErrorOnInsert(t *testing.T) {
 // ─── CreateThreadRPC ──────────────────────────────────────────────────────────
 
 func TestCreateThreadRPC_Success(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	boardID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1371,7 +1375,6 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 	mock.ExpectBegin()
 
 	// INSERT thread + RETURNING
-	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
 		WithArgs(boardID, "u1", "Test Title", "Test Content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
@@ -1388,7 +1391,7 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 	// COMMIT transaction
 	mock.ExpectCommit()
 
-	// RecomputeUserProfileStats — runs in goroutine
+	// RecomputeUserProfileStats — runs synchronously via recomputeStatsFn
 	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1399,9 +1402,6 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 		"content":  "Test Content",
 	}, claims)
 	h.CreateThreadRPC(c)
-
-	// Give RecomputeUserProfileStats goroutine time to execute
-	time.Sleep(5 * time.Millisecond)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -1435,7 +1435,7 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 }
 
 func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	boardID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1450,7 +1450,6 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 	mock.ExpectBegin()
 
 	// INSERT thread + RETURNING
-	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
 		WithArgs(boardID, "u1", "Poll Thread", "Poll content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
@@ -1472,7 +1471,7 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 	// COMMIT transaction
 	mock.ExpectCommit()
 
-	// RecomputeUserProfileStats — runs in goroutine
+	// RecomputeUserProfileStats — runs synchronously via recomputeStatsFn
 	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1482,16 +1481,13 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 		"title":    "Poll Thread",
 		"content":  "Poll content",
 		"poll": map[string]interface{}{
-			"question":           "Best option?",
-			"options":            []map[string]interface{}{{"id": "opt1", "text": "Option A"}, {"id": "opt2", "text": "Option B"}},
-			"show_results":       true,
-			"allow_change_vote":  true,
+			"question":          "Best option?",
+			"options":           []map[string]interface{}{{"id": "opt1", "text": "Option A"}, {"id": "opt2", "text": "Option B"}},
+			"show_results":      true,
+			"allow_change_vote": true,
 		},
 	}, claims)
 	h.CreateThreadRPC(c)
-
-	// Give RecomputeUserProfileStats goroutine time to execute
-	time.Sleep(5 * time.Millisecond)
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
@@ -1579,7 +1575,7 @@ func TestCreateThreadRPC_MissingFields(t *testing.T) {
 }
 
 func TestCreateThreadRPC_InvalidBoardID(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	c, w := newRPCPostContext(map[string]interface{}{
@@ -1596,7 +1592,7 @@ func TestCreateThreadRPC_InvalidBoardID(t *testing.T) {
 }
 
 func TestCreateThreadRPC_BoardNotFound(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	boardID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1618,7 +1614,7 @@ func TestCreateThreadRPC_BoardNotFound(t *testing.T) {
 }
 
 func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
-	h, mock := setupRPCHandler(t)
+	h, mock := setupRPCHandlerWithSyncStats(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	boardID := "550e8400-e29b-41d4-a716-446655440000"
@@ -1629,13 +1625,12 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 
 	mock.ExpectBegin()
 
-	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
 		WithArgs(boardID, "u1", "Test", "Test",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	mock.ExpectRollback()
+	// No COMMIT, no recomputeStats (error before commit)
 
 	c, w := newRPCPostContext(map[string]interface{}{
 		"board_id": boardID,
