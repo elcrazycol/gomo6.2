@@ -200,6 +200,7 @@ const Profile = () => {
   const [userThreads, setUserThreads] = useState<any[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [avatarHistory, setAvatarHistory] = useState<any[]>([]);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [showAvatarGallery, setShowAvatarGallery] = useState(false);
   const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
 
@@ -666,7 +667,7 @@ const Profile = () => {
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     // Сохраняем профиль
-    const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
+    const profileRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify({
@@ -746,13 +747,15 @@ const Profile = () => {
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const updateRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
+      setAvatarUploading(true);
+      const updateRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ avatar_url: fileName }),
       });
 
       if (!updateRes.ok) {
+        setAvatarUploading(false);
         console.error('Update error:', await updateRes.text());
         toast.error('Ошибка обновления профиля');
         return;
@@ -760,11 +763,13 @@ const Profile = () => {
 
       setAvatarUrl(fileName);
       setCropImage(null);
+      setAvatarUploading(false);
       toast.success("Аватар обновлен");
 
       // Reload avatar history
       await loadAvatarHistory();
     } catch (error) {
+      setAvatarUploading(false);
       toast.error("Ошибка обработки изображения");
       console.error(error);
     }
@@ -848,7 +853,7 @@ const Profile = () => {
       const bioJsonChanged =
         JSON.stringify(bioJson ?? null) !== JSON.stringify(prevBioJson);
       if (userId && (bio !== profile.bio || bioJsonChanged)) {
-        const bioRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
+        const bioRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ bio, bio_json: bioJson }),
@@ -858,7 +863,7 @@ const Profile = () => {
 
       // Save username changes
       if (userId && newUsername.trim() && newUsername !== profile.username) {
-        const usernameRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
+        const usernameRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ username: newUsername.trim() }),
@@ -870,7 +875,7 @@ const Profile = () => {
 
       // Save anonymity setting
       if (userId && isAnonymous !== profile.is_anonymous) {
-        const anonRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
+        const anonRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ is_anonymous: isAnonymous }),
@@ -915,7 +920,7 @@ const Profile = () => {
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const res = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
+      const res = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ username: newUsername }),
@@ -963,7 +968,11 @@ const Profile = () => {
                   className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
                   onClick={handleAvatarClick}
                 >
-                  {avatarUrl ? (
+                  {avatarUploading ? (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <PentagramLoader size="sm" />
+                    </div>
+                  ) : avatarUrl ? (
                     <img
                       src={storageUrl("post-images", avatarUrl) || avatarUrl}
                       alt="Avatar"
