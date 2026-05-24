@@ -1,0 +1,42 @@
+# =============================================================================
+# deploy.yml — Auto-deploy to VPS after CI passes on main
+# =============================================================================
+# Triggers:
+#   - Automatic: after CI workflow succeeds on main
+#   - Manual: via workflow_dispatch (Actions tab → "Deploy to VPS" → Run)
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   VPS_HOST     — VPS IP or hostname (e.g., 123.45.67.89)
+#   VPS_USER     — SSH username (e.g., root)
+#   VPS_SSH_KEY  — Private SSH key for VPS access
+#   VPS_PORT     — SSH port (default: 22, optional)
+# =============================================================================
+
+name: Deploy to VPS
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    # Only deploy if CI passed (for workflow_run) or manual trigger
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            cd /opt/gomo6
+            bash scripts/deploy-vps.sh
