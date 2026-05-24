@@ -258,7 +258,7 @@ func TestCreatePost_Success(t *testing.T) {
 	)
 
 	mock.ExpectQuery(`INSERT INTO posts.*VALUES.*RETURNING`).
-		WithArgs("550e8400-e29b-41d4-a716-446655440000", "u1", "Hello, world!", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, "localhost:8080").
+		WithArgs("550e8400-e29b-41d4-a716-446655440000", "u1", "Hello, world!", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
 		WillReturnRows(insertRow)
 
 	// Update thread post_count

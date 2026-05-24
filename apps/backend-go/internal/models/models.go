@@ -252,6 +252,8 @@ type CreatePostRequest struct {
 	ImageURLs          []string        `json:"image_urls"`
 	Attachments        JSONB           `json:"attachments,omitempty"`
 	ReplyTo            *string         `json:"reply_to,omitempty"`
+	IsPrivate          bool            `json:"is_private"`
+	PrivateRecipientID *string         `json:"private_recipient_id,omitempty"`
 	ThreadServerDomain string          `json:"thread_server_domain,omitempty"`
 }
 
