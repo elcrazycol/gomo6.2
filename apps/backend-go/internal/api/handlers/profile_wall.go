@@ -62,6 +62,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		}
 	}
 	if orRaw := c.Query("or"); orRaw != "" {
+		orRaw = strings.Trim(orRaw, "()")
 		parts := splitCSV(orRaw)
 		var orClauses []string
 		for _, part := range parts {
@@ -115,7 +116,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 	defer rows.Close()
 
 	columns, _ := rows.Columns()
-	var results []map[string]interface{}
+	results := []map[string]interface{}{}
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
