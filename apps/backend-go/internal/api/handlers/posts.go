@@ -354,8 +354,8 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	}
 
 	query := `
-		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, is_private, private_recipient_id, server_domain)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
 	`
 
@@ -363,7 +363,7 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 	var retContentJSON []byte
 	err = h.db.QueryRow(query,
 		req.ThreadID, userClaims.UserID, req.Content, insertContentJSON, imageURL,
-		imageURLs, req.Attachments, req.ReplyTo, "localhost:8080",
+		imageURLs, req.Attachments, req.ReplyTo, req.IsPrivate, req.PrivateRecipientID, "localhost:8080",
 	).Scan(
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retContentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,

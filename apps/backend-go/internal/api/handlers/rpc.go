@@ -33,9 +33,10 @@ func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
 }
 
 type RPCHandler struct {
-	db    *sql.DB
-	redis *redis.Client
-	wsHub interface{}
+	db                *sql.DB
+	redis             *redis.Client
+	wsHub             interface{}
+	botEventPublisher *BotEventPublisher
 }
 
 func NewRPCHandler(db *sql.DB) *RPCHandler {
@@ -48,6 +49,10 @@ func (h *RPCHandler) SetRedis(redis *redis.Client) {
 
 func (h *RPCHandler) SetWebSocketHub(hub interface{}) {
 	h.wsHub = hub
+}
+
+func (h *RPCHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
+	h.botEventPublisher = publisher
 }
 
 // RPC functions
@@ -1234,7 +1239,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }
 
-// CreatePostRPC creates a new post with full field support (is_private, private_recipient_id).
+// CreatePostRPC creates a new post.
 // POST /api/rpc/create_post — protected, requires auth.
 func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	claims, ok := bearerClaims(c)
@@ -1243,17 +1248,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		ThreadID           string          `json:"thread_id"`
-		Content            string          `json:"content"`
-		ContentJSON        json.RawMessage `json:"content_json"`
-		ImageURLs          []string        `json:"image_urls"`
-		Attachments        json.RawMessage `json:"attachments"`
-		ReplyTo            *string         `json:"reply_to"`
-		IsPrivate          bool            `json:"is_private"`
-		PrivateRecipientID *string         `json:"private_recipient_id"`
-	}
-
+	var req models.CreatePostRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
@@ -1264,7 +1259,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		return
 	}
 	if req.Content == "" && len(req.Attachments) == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Post cannot be empty"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Пост не может быть пустым"))
 		return
 	}
 
@@ -1303,12 +1298,6 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		insertContentJSON = []byte(req.ContentJSON)
 	}
 
-	// Build attachments
-	var insertAttachments interface{}
-	if len(req.Attachments) > 0 {
-		insertAttachments = []byte(req.Attachments)
-	}
-
 	query := `
 		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls,
 		                  attachments, reply_to, is_private, private_recipient_id, server_domain)
@@ -1321,7 +1310,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	var retContentJSON []byte
 	err = h.db.QueryRow(query,
 		req.ThreadID, claims.UserID, req.Content, insertContentJSON, imageURL,
-		imageURLs, insertAttachments, req.ReplyTo, req.IsPrivate, req.PrivateRecipientID,
+		imageURLs, req.Attachments, req.ReplyTo, req.IsPrivate, req.PrivateRecipientID,
 		"localhost:8080",
 	).Scan(
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retContentJSON,
@@ -1366,6 +1355,17 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 				fmt.Printf("[WebSocket] Published new post event for post %s\n", post.ID)
 			}
 		}
+	}
+
+	// Publish event to bots
+	if h.botEventPublisher != nil {
+		h.botEventPublisher.PublishThreadPost(map[string]interface{}{
+			"id":         post.ID,
+			"thread_id":  post.ThreadID,
+			"user_id":    post.UserID,
+			"content":    post.Content,
+			"created_at": post.CreatedAt,
+		})
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(post))
