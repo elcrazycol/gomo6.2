@@ -63,7 +63,9 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
 
     try {
       await apiClient.markNotificationAsRead(notif.id);
-    } catch {}
+    } catch {
+      // Silently ignore — notification read status is updated optimistically
+    }
   };
 
   return (
