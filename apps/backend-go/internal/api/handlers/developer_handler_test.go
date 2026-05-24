@@ -113,7 +113,7 @@ func TestCreateApp_Success(t *testing.T) {
 			sqlmock.AnyArg(), // client_id
 			sqlmock.AnyArg(), // client_secret_hash
 			sqlmock.AnyArg(), // redirect_uris JSON
-			"{profile}", // allowed_scopes as PostgreSQL text array
+			"{profile}",      // allowed_scopes as PostgreSQL text array
 			true,
 			"",
 			"",
@@ -127,12 +127,12 @@ func TestCreateApp_Success(t *testing.T) {
 			true, time.Now(), time.Now()))
 
 	c, w := newPOSTContext("/api/v1/developer/apps", oauth.CreateAppRequest{
-		Name:           "My New App",
-		Description:    "A test app",
-		RedirectURIs:   []string{"http://localhost:3000/callback"},
-		AllowedScopes:  []string{oauth.ScopeProfile},
-		LogoURL:        "",
-		HomepageURL:    "",
+		Name:          "My New App",
+		Description:   "A test app",
+		RedirectURIs:  []string{"http://localhost:3000/callback"},
+		AllowedScopes: []string{oauth.ScopeProfile},
+		LogoURL:       "",
+		HomepageURL:   "",
 	}, claims, nil)
 	h.CreateApp(c)
 
@@ -191,8 +191,8 @@ func TestCreateApp_InvalidScope(t *testing.T) {
 	// and the INSERT won't match exactly (different scopes), this should fail.
 	// We test the validation path via the handler's scope defaults.
 	c, w := newPOSTContext("/api/v1/developer/apps", oauth.CreateAppRequest{
-		Name:         "My App",
-		RedirectURIs: []string{"http://localhost:3000/callback"},
+		Name:          "My App",
+		RedirectURIs:  []string{"http://localhost:3000/callback"},
 		AllowedScopes: []string{"invalid_scope"},
 	}, claims, nil)
 	h.CreateApp(c)

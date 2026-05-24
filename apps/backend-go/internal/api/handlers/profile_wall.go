@@ -92,7 +92,7 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, tableAlias); ok {
+		if s, ok := parseOrderClause(joined, tableAlias); ok {
 			query += " ORDER BY " + s
 		}
 	}

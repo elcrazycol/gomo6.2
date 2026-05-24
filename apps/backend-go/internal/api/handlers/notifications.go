@@ -90,7 +90,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	}
 
 	notificationCount := len(notifications)
-	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: notifications, Count: &notificationCount})
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: notifications, Count: &notificationCount})
 }
 
 func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {

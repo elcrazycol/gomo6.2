@@ -383,5 +383,5 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 	}
 
 	likeCount := len(likes)
-	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: likes, Count: &likeCount})
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: likes, Count: &likeCount})
 }

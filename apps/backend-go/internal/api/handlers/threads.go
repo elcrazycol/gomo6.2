@@ -121,7 +121,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, "t"); ok {
+		if s, ok := parseOrderClause(joined, "t"); ok {
 			query += " ORDER BY " + s
 		}
 	} else {
@@ -193,7 +193,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	}
 
 	threadCount := len(threads)
-	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: threads, Count: &threadCount})
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: threads, Count: &threadCount})
 }
 
 func (h *ThreadsHandler) GetThread(c *gin.Context) {
