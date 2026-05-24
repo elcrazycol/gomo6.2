@@ -39,5 +39,9 @@ jobs:
           command_timeout: 10m
           script: |
             set -e
-            cd /root/gomo6
+            # Auto-locate the repo directory (tries common paths)
+            for d in /root/gomo6 /home/*/gomo6; do
+              [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
+            done
+            [ "${PWD##*/}" = "gomo6" ] || { echo "Cannot find gomo6 repo"; exit 1; }
             bash scripts/deploy-vps.sh
