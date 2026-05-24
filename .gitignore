@@ -32,3 +32,4 @@ dist-ssr
 
 # Test coverage
 *.out
+coverage/
