@@ -89,7 +89,7 @@ func TestGenerateToken_Success(t *testing.T) {
 	}
 }
 
-func TestGenerateToken_Expiry24Hours(t *testing.T) {
+func TestGenerateToken_Expiry1Hour(t *testing.T) {
 	svc := NewAuthService()
 
 	token, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
@@ -105,11 +105,36 @@ func TestGenerateToken_Expiry24Hours(t *testing.T) {
 	now := time.Now()
 	expiresAt := claims.ExpiresAt.Time
 
-	// Should expire ~24 hours from now (allow 5 second tolerance)
-	expectedExpiry := now.Add(24 * time.Hour)
+	// Should expire ~1 hour from now (allow 5 second tolerance)
+	expectedExpiry := now.Add(1 * time.Hour)
 	diff := expiresAt.Sub(expectedExpiry)
 	if diff < -5*time.Second || diff > 5*time.Second {
-		t.Errorf("expected expiry ~24h from now, got %v (diff: %v)", expiresAt, diff)
+		t.Errorf("expected expiry ~1h from now, got %v (diff: %v)", expiresAt, diff)
+	}
+}
+
+func TestGenerateToken_HasJTI(t *testing.T) {
+	svc := NewAuthService()
+
+	token, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	claims, err := svc.ValidateToken(token)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+
+	if claims.ID == "" {
+		t.Fatal("expected jti (ID) to be set on token claims")
+	}
+
+	// Two tokens should have different jti
+	token2, _ := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
+	claims2, _ := svc.ValidateToken(token2)
+	if claims.ID == claims2.ID {
+		t.Fatal("different tokens should have unique jti values")
 	}
 }
 
@@ -394,6 +419,109 @@ func TestGenerateToken_Unique(t *testing.T) {
 		tokens[token] = true
 		time.Sleep(1100 * time.Millisecond)
 	}
+}
+
+// =============================================================================
+// GenerateTokenPair & Refresh Tokens
+// =============================================================================
+
+func TestGenerateTokenPair_Success(t *testing.T) {
+	svc := NewAuthService()
+
+	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+	if pair.AccessToken == "" {
+		t.Fatal("expected non-empty access token")
+	}
+	if pair.RefreshToken == "" {
+		t.Fatal("expected non-empty refresh token")
+	}
+	if pair.ExpiresIn != 3600 {
+		t.Errorf("expected 3600 expires_in, got %d", pair.ExpiresIn)
+	}
+
+	// Access token should be valid JWT
+	claims, err := svc.ValidateToken(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("access token validation failed: %v", err)
+	}
+	if claims.UserID != "user-123" {
+		t.Errorf("expected UserID user-123, got %q", claims.UserID)
+	}
+}
+
+func TestGenerateTokenPair_UniqueRefreshTokens(t *testing.T) {
+	svc := NewAuthService()
+
+	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+
+	if pair1.RefreshToken == pair2.RefreshToken {
+		t.Fatal("refresh tokens must be unique")
+	}
+}
+
+func TestRefreshTokenExists_NoRedis(t *testing.T) {
+	svc := NewAuthService() // no Redis set
+
+	if svc.refreshTokenExists("user-123", "any-token") {
+		t.Fatal("refreshTokenExists should return false without Redis")
+	}
+}
+
+func TestRefreshAccessToken_NoRedis(t *testing.T) {
+	svc := NewAuthService()
+
+	_, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "any-token")
+	if err == nil {
+		t.Fatal("RefreshAccessToken should fail without Redis")
+	}
+}
+
+func TestBlacklistToken_NoRedis(t *testing.T) {
+	svc := NewAuthService()
+
+	// Should not panic when Redis is nil
+	svc.BlacklistToken("test-jti", time.Now().Add(1*time.Hour))
+}
+
+func TestBlacklistToken_EmptyJTI(t *testing.T) {
+	svc := NewAuthService()
+
+	svc.BlacklistToken("", time.Now().Add(1*time.Hour))
+	// Should not panic
+}
+
+func TestBlacklistToken_AlreadyExpired(t *testing.T) {
+	svc := NewAuthService()
+
+	// Token already expired - should not try to blacklist
+	svc.BlacklistToken("test-jti", time.Now().Add(-1*time.Hour))
+}
+
+func TestIsTokenBlacklisted_NoRedis(t *testing.T) {
+	svc := NewAuthService()
+
+	if svc.isTokenBlacklisted("any-jti") {
+		t.Fatal("isTokenBlacklisted should return false without Redis")
+	}
+}
+
+func TestIsTokenBlacklisted_EmptyJTI(t *testing.T) {
+	svc := NewAuthService()
+
+	if svc.isTokenBlacklisted("") {
+		t.Fatal("isTokenBlacklisted should return false for empty jti")
+	}
+}
+
+func TestRevokeAllRefreshTokens_NoRedis(t *testing.T) {
+	svc := NewAuthService()
+
+	// Should not panic
+	svc.RevokeAllRefreshTokens("user-123")
 }
 
 // =============================================================================
