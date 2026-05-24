@@ -575,9 +575,9 @@ func TestCreatePostRequest(t *testing.T) {
 func TestCreatePostRequest_Private(t *testing.T) {
 	recipient := "user-42"
 	req := CreatePostRequest{
-		ThreadID:          "thread-1",
-		Content:           "Private reply",
-		IsPrivate:         true,
+		ThreadID:           "thread-1",
+		Content:            "Private reply",
+		IsPrivate:          true,
 		PrivateRecipientID: &recipient,
 	}
 	if !req.IsPrivate {
@@ -684,10 +684,10 @@ func TestBoardInfo(t *testing.T) {
 
 func TestThreadWithBoards(t *testing.T) {
 	twb := ThreadWithBoards{
-		ID:      "thread-wb-1",
-		BoardID: "board-1",
-		Title:   "Thread with Board Info",
-		Content: "Content here",
+		ID:       "thread-wb-1",
+		BoardID:  "board-1",
+		Title:    "Thread with Board Info",
+		Content:  "Content here",
 		Username: "author",
 		Boards: BoardInfo{
 			Slug: "board-slug",

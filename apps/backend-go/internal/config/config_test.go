@@ -269,17 +269,17 @@ func TestGetEnvBool_InvalidValue(t *testing.T) {
 
 func TestConfig_Fields(t *testing.T) {
 	cfg := &Config{
-		ServerPort:       "8443",
-		DatabaseURL:      "postgres://localhost/test",
-		RedisURL:         "redis://localhost:6380",
-		JWTSecret:        "my-secret",
-		ServerDomain:     "example.com",
-		FederationKey:    "fed-key",
-		Environment:      "staging",
-		AllowedOrigins:   []string{"https://app.example.com"},
-		TLSCertFile:      "/ssl/cert.pem",
-		TLSKeyFile:       "/ssl/key.pem",
-		TLSRedirectHTTP:  true,
+		ServerPort:      "8443",
+		DatabaseURL:     "postgres://localhost/test",
+		RedisURL:        "redis://localhost:6380",
+		JWTSecret:       "my-secret",
+		ServerDomain:    "example.com",
+		FederationKey:   "fed-key",
+		Environment:     "staging",
+		AllowedOrigins:  []string{"https://app.example.com"},
+		TLSCertFile:     "/ssl/cert.pem",
+		TLSKeyFile:      "/ssl/key.pem",
+		TLSRedirectHTTP: true,
 	}
 
 	if cfg.ServerPort != "8443" {
