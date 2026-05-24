@@ -1043,7 +1043,11 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 	}
 
 	if len(clauses) > 0 {
-		query += " AND " + strings.Join(clauses, " AND ")
+		if strings.Contains(query, "WHERE") {
+			query += " AND " + strings.Join(clauses, " AND ")
+		} else {
+			query += " WHERE " + strings.Join(clauses, " AND ")
+		}
 	}
 
 	// Handle ORDER BY — supports multiple order params
