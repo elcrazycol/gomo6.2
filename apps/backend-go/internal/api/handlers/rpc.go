@@ -915,6 +915,53 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 	c.JSON(http.StatusOK, nil)
 }
 
+// ChatTogglePinMessage toggles the pinned message in a conversation
+func (h *RPCHandler) ChatTogglePinMessage(c *gin.Context) {
+	_, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
+	var req struct {
+		TargetConversationID string `json:"target_conversation_id"`
+		TargetMessageID      string `json:"target_message_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	if req.TargetConversationID == "" || req.TargetMessageID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("target_conversation_id and target_message_id are required"))
+		return
+	}
+
+	if _, err := uuid.Parse(req.TargetConversationID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id format"))
+		return
+	}
+	if _, err := uuid.Parse(req.TargetMessageID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid message_id format"))
+		return
+	}
+
+	// Execute the SQL function
+	var newPinnedID *string
+	err := h.db.QueryRow(`
+		SELECT chat_toggle_pin_message($1, $2)
+	`, req.TargetConversationID, req.TargetMessageID).Scan(&newPinnedID)
+
+	if err != nil {
+		log.Printf("ChatTogglePinMessage error: %v", err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": newPinnedID}))
+}
+
 // GetMessengerUnreadCount returns total unread message count for the current user
 func (h *RPCHandler) GetMessengerUnreadCount(c *gin.Context) {
 	claims, ok := bearerClaims(c)
