@@ -1029,11 +1029,11 @@ func TestCreateGomoSub_DBErrorOnInsert(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-}
+	}}
 
 func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
 	h, mock := setupRPCHandler(t)
+
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	mock.ExpectQuery(`(?s).*SELECT id FROM boards WHERE slug = \$1`).
@@ -1055,5 +1055,520 @@ func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── CreatePostRPC ────────────────────────────────────────────────────────────
+
+func TestCreatePostRPC_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	// Check thread exists
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// INSERT post + RETURNING
+	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
+	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
+		WithArgs(threadID, "u1", "Test post content",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "thread_id", "user_id", "content", "content_json",
+			"image_url", "image_urls", "attachments", "reply_to", "is_private",
+			"private_recipient_id", "server_domain", "created_at", "is_remote",
+		}).AddRow(
+			"post-1", threadID, "u1", "Test post content", nil,
+			nil, nil, nil, nil, false,
+			nil, "localhost:8080", now, false,
+		))
+
+	// Update thread post_count
+	mock.ExpectExec(`UPDATE threads SET post_count = post_count \+ 1, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// RecomputeUserProfileStats — runs in goroutine, needs time to execute
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "Test post content",
+	}, claims)
+	h.CreatePostRPC(c)
+
+	// Give RecomputeUserProfileStats goroutine time to execute
+	time.Sleep(5 * time.Millisecond)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %v", resp.Error)
+	}
+
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("failed to marshal response data: %v", err)
+	}
+	var post models.Post
+	if err := json.Unmarshal(data, &post); err != nil {
+		t.Fatalf("response data is not a valid Post: %v", err)
+	}
+	if post.ID != "post-1" {
+		t.Fatalf("expected post ID 'post-1', got %q", post.ID)
+	}
+	if post.ThreadID != threadID {
+		t.Fatalf("expected thread_id %q, got %q", threadID, post.ThreadID)
+	}
+	if post.Content != "Test post content" {
+		t.Fatalf("expected content 'Test post content', got %q", post.Content)
+	}
+}
+
+func TestCreatePostRPC_Unauthenticated(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
+		"content":   "Test",
+	}, nil)
+	h.CreatePostRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreatePostRPC_EmptyContent(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
+		"content":   "",
+	}, claims)
+	h.CreatePostRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreatePostRPC_WhitespaceOnly(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"spaces only", "     "},
+		{"newlines only", "\n\n\n"},
+		{"tabs only", "\t\t\t"},
+		{"mixed whitespace", " \n\t \n "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := newRPCPostContext(map[string]interface{}{
+				"thread_id": "550e8400-e29b-41d4-a716-446655440000",
+				"content":   tt.content,
+			}, claims)
+			h.CreatePostRPC(c)
+			_ = mock
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for content=%q, got %d: %s", tt.content, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreatePostRPC_MissingThreadID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"content": "Test",
+	}, claims)
+	h.CreatePostRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreatePostRPC_InvalidThreadID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": "not-a-uuid",
+		"content":   "Test",
+	}, claims)
+	h.CreatePostRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreatePostRPC_ThreadNotFound(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "Test",
+	}, claims)
+	h.CreatePostRPC(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreatePostRPC_DBErrorOnInsert(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
+	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
+		WithArgs(threadID, "u1", "Test",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "Test",
+	}, claims)
+	h.CreatePostRPC(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── CreateThreadRPC ──────────────────────────────────────────────────────────
+
+func TestCreateThreadRPC_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	// Check board exists
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// BEGIN transaction
+	mock.ExpectBegin()
+
+	// INSERT thread + RETURNING
+	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
+	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
+		WithArgs(boardID, "u1", "Test Title", "Test Content",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "board_id", "user_id", "title", "content", "content_json",
+			"image_url", "image_urls", "attachments", "post_count", "server_domain",
+			"created_at", "updated_at", "is_remote",
+		}).AddRow(
+			"thread-1", boardID, "u1", "Test Title", "Test Content", nil,
+			nil, nil, nil, 0, "localhost:8080",
+			now, now, false,
+		))
+
+	// COMMIT transaction
+	mock.ExpectCommit()
+
+	// RecomputeUserProfileStats — runs in goroutine
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"board_id": boardID,
+		"title":    "Test Title",
+		"content":  "Test Content",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	// Give RecomputeUserProfileStats goroutine time to execute
+	time.Sleep(5 * time.Millisecond)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %v", resp.Error)
+	}
+
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("failed to marshal response data: %v", err)
+	}
+	var thread models.Thread
+	if err := json.Unmarshal(data, &thread); err != nil {
+		t.Fatalf("response data is not a valid Thread: %v", err)
+	}
+	if thread.ID != "thread-1" {
+		t.Fatalf("expected thread ID 'thread-1', got %q", thread.ID)
+	}
+	if thread.BoardID != boardID {
+		t.Fatalf("expected board_id %q, got %q", boardID, thread.BoardID)
+	}
+	if thread.Title != "Test Title" {
+		t.Fatalf("expected title 'Test Title', got %q", thread.Title)
+	}
+}
+
+func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	// Check board exists
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// BEGIN transaction
+	mock.ExpectBegin()
+
+	// INSERT thread + RETURNING
+	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
+	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
+		WithArgs(boardID, "u1", "Poll Thread", "Poll content",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "board_id", "user_id", "title", "content", "content_json",
+			"image_url", "image_urls", "attachments", "post_count", "server_domain",
+			"created_at", "updated_at", "is_remote",
+		}).AddRow(
+			"thread-poll", boardID, "u1", "Poll Thread", "Poll content", nil,
+			nil, nil, nil, 0, "localhost:8080",
+			now, now, false,
+		))
+
+	// INSERT poll
+	mock.ExpectExec(`(?s).*INSERT INTO polls.*VALUES.*`).
+		WithArgs("thread-poll", "Best option?", sqlmock.AnyArg(), false, true, true).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// COMMIT transaction
+	mock.ExpectCommit()
+
+	// RecomputeUserProfileStats — runs in goroutine
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"board_id": boardID,
+		"title":    "Poll Thread",
+		"content":  "Poll content",
+		"poll": map[string]interface{}{
+			"question":           "Best option?",
+			"options":            []map[string]interface{}{{"id": "opt1", "text": "Option A"}, {"id": "opt2", "text": "Option B"}},
+			"show_results":       true,
+			"allow_change_vote":  true,
+		},
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	// Give RecomputeUserProfileStats goroutine time to execute
+	time.Sleep(5 * time.Millisecond)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_Unauthenticated(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"board_id": "550e8400-e29b-41d4-a716-446655440000",
+		"title":    "Test",
+		"content":  "Test",
+	}, nil)
+	h.CreateThreadRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_WhitespaceFields(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+
+	tests := []struct {
+		name    string
+		title   string
+		content string
+	}{
+		{"title has spaces only", "   ", "Content"},
+		{"title has newlines only", "\n\n\n", "Content"},
+		{"content has spaces only", "Title", "   "},
+		{"content has newlines only", "Title", "\n\n\n"},
+		{"both whitespace only", " \n ", "\t\t"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := newRPCPostContext(map[string]interface{}{
+				"board_id": boardID,
+				"title":    tt.title,
+				"content":  tt.content,
+			}, claims)
+			h.CreateThreadRPC(c)
+			_ = mock
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400 for title=%q content=%q, got %d: %s", tt.title, tt.content, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateThreadRPC_MissingFields(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	tests := []struct {
+		name string
+		body map[string]interface{}
+	}{
+		{"missing board_id", map[string]interface{}{"title": "T", "content": "C"}},
+		{"missing title", map[string]interface{}{"board_id": "550e8400-e29b-41d4-a716-446655440000", "content": "C"}},
+		{"missing content", map[string]interface{}{"board_id": "550e8400-e29b-41d4-a716-446655440000", "title": "T"}},
+		{"empty board_id", map[string]interface{}{"board_id": "", "title": "T", "content": "C"}},
+		{"empty title", map[string]interface{}{"board_id": "550e8400-e29b-41d4-a716-446655440000", "title": "", "content": "C"}},
+		{"empty content", map[string]interface{}{"board_id": "550e8400-e29b-41d4-a716-446655440000", "title": "T", "content": ""}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := newRPCPostContext(tt.body, claims)
+			h.CreateThreadRPC(c)
+			_ = mock
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCreateThreadRPC_InvalidBoardID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"board_id": "not-a-uuid",
+		"title":    "Test",
+		"content":  "Test",
+	}, claims)
+	h.CreateThreadRPC(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_BoardNotFound(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"board_id": boardID,
+		"title":    "Test",
+		"content":  "Test",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	boardID := "550e8400-e29b-41d4-a716-446655440000"
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectBegin()
+
+	// Note: JSONB fields (image_urls, attachments) pass []byte("null") not nil
+	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
+		WithArgs(boardID, "u1", "Test", "Test",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
+		WillReturnError(sqlmock.ErrCancelled)
+
+	mock.ExpectRollback()
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"board_id": boardID,
+		"title":    "Test",
+		"content":  "Test",
+	}, claims)
+	h.CreateThreadRPC(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }
