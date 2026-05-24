@@ -235,6 +235,20 @@ func ErrorResponse(err string) APIResponse {
 }
 
 // Request types for API
+// Poll types for thread creation
+type PollOption struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+type PollRequest struct {
+	Question        string       `json:"question"`
+	Options         []PollOption `json:"options"`
+	AllowMultiple   bool         `json:"allow_multiple"`
+	ShowResults     bool         `json:"show_results"`
+	AllowChangeVote bool         `json:"allow_change_vote"`
+}
+
 type CreateThreadRequest struct {
 	BoardID           string          `json:"board_id"`
 	Title             string          `json:"title"`
@@ -242,6 +256,7 @@ type CreateThreadRequest struct {
 	ContentJSON       json.RawMessage `json:"content_json,omitempty"`
 	ImageURLs         []string        `json:"image_urls"`
 	Attachments       JSONB           `json:"attachments,omitempty"` // Added for full attachment support
+	Poll              *PollRequest    `json:"poll,omitempty"`
 	BoardServerDomain string          `json:"board_server_domain,omitempty"`
 }
 

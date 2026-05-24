@@ -1380,29 +1380,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		return
 	}
 
-	type PollOption struct {
-		ID   string `json:"id"`
-		Text string `json:"text"`
-	}
-
-	type PollRequest struct {
-		Question        string       `json:"question"`
-		Options         []PollOption `json:"options"`
-		AllowMultiple   bool         `json:"allow_multiple"`
-		ShowResults     bool         `json:"show_results"`
-		AllowChangeVote bool         `json:"allow_change_vote"`
-	}
-
-	var req struct {
-		BoardID     string          `json:"board_id"`
-		Title       string          `json:"title"`
-		Content     string          `json:"content"`
-		ContentJSON json.RawMessage `json:"content_json"`
-		ImageURLs   []string        `json:"image_urls"`
-		Attachments json.RawMessage `json:"attachments"`
-		Poll        *PollRequest    `json:"poll"`
-	}
-
+	var req models.CreateThreadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
@@ -1446,11 +1424,6 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		insertContentJSON = []byte(req.ContentJSON)
 	}
 
-	var insertAttachments interface{}
-	if len(req.Attachments) > 0 {
-		insertAttachments = []byte(req.Attachments)
-	}
-
 	tx, err := h.db.Begin()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
@@ -1468,7 +1441,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls,
 		          attachments, post_count, server_domain, created_at, updated_at, is_remote
 	`, req.BoardID, claims.UserID, req.Title, req.Content, insertContentJSON,
-		imageURL, imageURLs, insertAttachments, "localhost:8080",
+		imageURL, imageURLs, req.Attachments, "localhost:8080",
 	).Scan(
 		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
@@ -1484,15 +1457,10 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	// Create poll if provided
 	if req.Poll != nil && req.Poll.Question != "" && len(req.Poll.Options) >= 2 {
-		// Build options JSON array
-		type optionEntry struct {
-			ID   string `json:"id"`
-			Text string `json:"text"`
-		}
-		var options []optionEntry
+		var options []models.PollOption
 		for _, opt := range req.Poll.Options {
 			if opt.Text != "" {
-				options = append(options, optionEntry(opt))
+				options = append(options, opt)
 			}
 		}
 
@@ -1519,6 +1487,23 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	}
 
 	RecomputeUserProfileStats(h.db, claims.UserID)
+
+	// Invalidate cache for this board's threads
+	if h.redis != nil {
+		middleware.InvalidateCacheForBoard(h.redis, req.BoardID)
+	}
+
+	// Publish event to bots
+	if h.botEventPublisher != nil {
+		h.botEventPublisher.PublishThread(map[string]interface{}{
+			"id":         thread.ID,
+			"board_id":   thread.BoardID,
+			"user_id":    thread.UserID,
+			"title":      thread.Title,
+			"content":    thread.Content,
+			"created_at": thread.CreatedAt,
+		})
+	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
 }
