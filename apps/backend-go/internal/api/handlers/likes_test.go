@@ -19,7 +19,7 @@ func TestLikeThread_Success(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
+	c, w := newPOSTContext("/api/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
 		WithArgs(threadID).
@@ -58,7 +58,7 @@ func TestLikeThread_Success(t *testing.T) {
 func TestLikeThread_InvalidUUID(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/threads/bad-id/like", nil, claims, map[string]string{"id": "bad-id"})
+	c, w := newPOSTContext("/api/v1/threads/bad-id/like", nil, claims, map[string]string{"id": "bad-id"})
 
 	handler.LikeThread(c)
 
@@ -70,7 +70,7 @@ func TestLikeThread_InvalidUUID(t *testing.T) {
 func TestLikeThread_Unauthenticated(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPOSTContext("/rest/v1/threads/"+threadID+"/like", nil, nil, map[string]string{"id": threadID})
+	c, w := newPOSTContext("/api/v1/threads/"+threadID+"/like", nil, nil, map[string]string{"id": threadID})
 
 	handler.LikeThread(c)
 
@@ -84,7 +84,7 @@ func TestLikeThread_ThreadNotFound(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
+	c, w := newPOSTContext("/api/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
 		WithArgs(threadID).
@@ -102,7 +102,7 @@ func TestLikeThread_AlreadyLiked(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
+	c, w := newPOSTContext("/api/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
 		WithArgs(threadID).
@@ -124,7 +124,7 @@ func TestLikeThread_DBError(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
+	c, w := newPOSTContext("/api/v1/threads/"+threadID+"/like", nil, claims, map[string]string{"id": threadID})
 
 	// First SELECT EXISTS error -> handler treats as "thread not found" (400)
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
@@ -145,7 +145,7 @@ func TestUnlikeThread_Success(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
+	c, w := newDELETEPContext("/api/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`DELETE FROM thread_likes WHERE thread_id = \$1 AND user_id = \$2`).
@@ -174,7 +174,7 @@ func TestUnlikeThread_Success(t *testing.T) {
 func TestUnlikeThread_InvalidUUID(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/threads/bad-id/like", nil, map[string]string{"id": "bad-id"})
+	c, w := newDELETEPContext("/api/v1/threads/bad-id/like", nil, map[string]string{"id": "bad-id"})
 	c.Set("claims", claims)
 
 	handler.UnlikeThread(c)
@@ -187,7 +187,7 @@ func TestUnlikeThread_InvalidUUID(t *testing.T) {
 func TestUnlikeThread_Unauthenticated(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newDELETEPContext("/rest/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
+	c, w := newDELETEPContext("/api/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
 
 	handler.UnlikeThread(c)
 
@@ -201,7 +201,7 @@ func TestUnlikeThread_NotFound(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
+	c, w := newDELETEPContext("/api/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`DELETE FROM thread_likes WHERE thread_id = \$1 AND user_id = \$2`).
@@ -220,7 +220,7 @@ func TestUnlikeThread_DBError(t *testing.T) {
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
+	c, w := newDELETEPContext("/api/v1/threads/"+threadID+"/like", nil, map[string]string{"id": threadID})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`DELETE FROM thread_likes WHERE thread_id = \$1 AND user_id = \$2`).
@@ -241,7 +241,7 @@ func TestLikePost_Success(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
+	c, w := newPOSTContext("/api/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM posts WHERE id = \$1\)`).
 		WithArgs(postID).
@@ -280,7 +280,7 @@ func TestLikePost_Success(t *testing.T) {
 func TestLikePost_InvalidUUID(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/posts/bad-id/like", nil, claims, map[string]string{"id": "bad-id"})
+	c, w := newPOSTContext("/api/v1/posts/bad-id/like", nil, claims, map[string]string{"id": "bad-id"})
 
 	handler.LikePost(c)
 
@@ -292,7 +292,7 @@ func TestLikePost_InvalidUUID(t *testing.T) {
 func TestLikePost_Unauthenticated(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPOSTContext("/rest/v1/posts/"+postID+"/like", nil, nil, map[string]string{"id": postID})
+	c, w := newPOSTContext("/api/v1/posts/"+postID+"/like", nil, nil, map[string]string{"id": postID})
 
 	handler.LikePost(c)
 
@@ -306,7 +306,7 @@ func TestLikePost_PostNotFound(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
+	c, w := newPOSTContext("/api/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM posts WHERE id = \$1\)`).
 		WithArgs(postID).
@@ -324,7 +324,7 @@ func TestLikePost_AlreadyLiked(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
+	c, w := newPOSTContext("/api/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM posts WHERE id = \$1\)`).
 		WithArgs(postID).
@@ -346,7 +346,7 @@ func TestLikePost_DBError(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
+	c, w := newPOSTContext("/api/v1/posts/"+postID+"/like", nil, claims, map[string]string{"id": postID})
 
 	// First SELECT EXISTS error -> handler treats as "post not found" (400)
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM posts WHERE id = \$1\)`).
@@ -367,7 +367,7 @@ func TestUnlikePost_Success(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
+	c, w := newDELETEPContext("/api/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`DELETE FROM post_likes WHERE post_id = \$1 AND user_id = \$2`).
@@ -396,7 +396,7 @@ func TestUnlikePost_Success(t *testing.T) {
 func TestUnlikePost_InvalidUUID(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/posts/bad-id/like", nil, map[string]string{"id": "bad-id"})
+	c, w := newDELETEPContext("/api/v1/posts/bad-id/like", nil, map[string]string{"id": "bad-id"})
 	c.Set("claims", claims)
 
 	handler.UnlikePost(c)
@@ -409,7 +409,7 @@ func TestUnlikePost_InvalidUUID(t *testing.T) {
 func TestUnlikePost_Unauthenticated(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newDELETEPContext("/rest/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
+	c, w := newDELETEPContext("/api/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
 
 	handler.UnlikePost(c)
 
@@ -423,7 +423,7 @@ func TestUnlikePost_NotFound(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
+	c, w := newDELETEPContext("/api/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`DELETE FROM post_likes WHERE post_id = \$1 AND user_id = \$2`).
@@ -442,7 +442,7 @@ func TestUnlikePost_DBError(t *testing.T) {
 
 	postID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/rest/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
+	c, w := newDELETEPContext("/api/v1/posts/"+postID+"/like", nil, map[string]string{"id": postID})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`DELETE FROM post_likes WHERE post_id = \$1 AND user_id = \$2`).
@@ -462,7 +462,7 @@ func TestGetThreadLikes_Success(t *testing.T) {
 	handler, mock := setupLikesHandler(t)
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newGETContext("/rest/v1/threads/"+threadID+"/likes", nil)
+	c, w := newGETContext("/api/v1/threads/"+threadID+"/likes", nil)
 	c.Params = []gin.Param{{Key: "id", Value: threadID}}
 
 	rows := sqlmock.NewRows([]string{"id", "thread_id", "user_id", "created_at", "username", "avatar_url"}).
@@ -490,7 +490,7 @@ func TestGetThreadLikes_Success(t *testing.T) {
 
 func TestGetThreadLikes_InvalidUUID(t *testing.T) {
 	handler, _ := setupLikesHandler(t)
-	c, w := newGETContext("/rest/v1/threads/bad-id/likes", nil)
+	c, w := newGETContext("/api/v1/threads/bad-id/likes", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "bad-id"}}
 
 	handler.GetThreadLikes(c)
@@ -504,7 +504,7 @@ func TestGetThreadLikes_DBError(t *testing.T) {
 	handler, mock := setupLikesHandler(t)
 
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newGETContext("/rest/v1/threads/"+threadID+"/likes", nil)
+	c, w := newGETContext("/api/v1/threads/"+threadID+"/likes", nil)
 	c.Params = []gin.Param{{Key: "id", Value: threadID}}
 
 	mock.ExpectQuery(`SELECT tl\.id, tl\.thread_id.*FROM thread_likes tl.*`).

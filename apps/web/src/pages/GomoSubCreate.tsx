@@ -183,7 +183,7 @@ const GomoSubCreate = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
 
-      const res = await fetch('/rpc/v1/create_gomosub', {
+      const res = await fetch('/api/rpc/create_gomosub', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

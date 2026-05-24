@@ -147,7 +147,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 
 	// Supabase compatibility routes
-	rest := router.Group("/rest/v1")
+	rest := router.Group("/api/v1")
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
@@ -317,7 +317,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 
 	// RPC functions (Supabase compatibility)
-	rpc := router.Group("/rpc/v1")
+	rpc := router.Group("/api/rpc")
 	{
 		// Public RPC functions
 		rpc.GET("/get_post_likes_count", rpcHandler.GetPostLikesCount)

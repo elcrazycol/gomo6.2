@@ -86,7 +86,7 @@ export const from = (table: string) => {
     if (queryState.offset) params.set('offset', String(queryState.offset));
 
     const qs = params.toString();
-    return `/rest/v1/${table}${qs ? `?${qs}` : ''}`;
+    return `/api/v1/${table}${qs ? `?${qs}` : ''}`;
   };
 
   const executeQuery = async (method = 'GET', body?: any) => {
@@ -97,7 +97,7 @@ export const from = (table: string) => {
     if (method === 'PUT' && ['profiles', 'boards', 'threads', 'posts', 'user_session_time', 'user_daily_visits', 'privacy_settings', 'gomosub_memberships', 'gomosub_rules_acceptance', 'user_roles', 'user_achievements'].includes(table)) {
       const idVal = popIdFilter(queryState);
       if (idVal !== undefined) {
-        url = `/rest/v1/${table}/${encodeURIComponent(String(idVal))}`;
+        url = `/api/v1/${table}/${encodeURIComponent(String(idVal))}`;
         const params = new URLSearchParams();
         buildFilterParams(queryState, params);
         url += params.toString() ? `?${params}` : '';
@@ -108,7 +108,7 @@ export const from = (table: string) => {
 
     // ── POST routes without id ─────────────────────────────────────────
     else if (method === 'POST' && ['posts', 'threads', 'boards'].includes(table)) {
-      url = `/rest/v1/${table}`;
+      url = `/api/v1/${table}`;
       const params = new URLSearchParams();
       if (queryState.select !== '*') params.set('select', queryState.select);
       url += params.toString() ? `?${params}` : '';
@@ -116,21 +116,21 @@ export const from = (table: string) => {
 
     // ── Likes ──────────────────────────────────────────────────────────
     else if (table === 'thread_likes' && method === 'POST' && body?.thread_id) {
-      url = `/rest/v1/threads/${encodeURIComponent(String(body.thread_id))}/like`;
+      url = `/api/v1/threads/${encodeURIComponent(String(body.thread_id))}/like`;
     }
     else if (table === 'post_likes' && method === 'POST' && body?.post_id) {
-      url = `/rest/v1/posts/${encodeURIComponent(String(body.post_id))}/like`;
+      url = `/api/v1/posts/${encodeURIComponent(String(body.post_id))}/like`;
     }
     else if (table === 'thread_likes' && method === 'DELETE') {
       const tid = queryState.filters.find((f) => f.type === 'eq' && f.column === 'thread_id');
       url = tid?.value
-        ? `/rest/v1/threads/${encodeURIComponent(String(tid.value))}/like`
+        ? `/api/v1/threads/${encodeURIComponent(String(tid.value))}/like`
         : buildQuery();
     }
     else if (table === 'post_likes' && method === 'DELETE') {
       const pid = queryState.filters.find((f) => f.type === 'eq' && f.column === 'post_id');
       url = pid?.value
-        ? `/rest/v1/posts/${encodeURIComponent(String(pid.value))}/like`
+        ? `/api/v1/posts/${encodeURIComponent(String(pid.value))}/like`
         : buildQuery();
     }
 

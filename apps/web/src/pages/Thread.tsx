@@ -435,14 +435,14 @@ const Thread = () => {
         const token = session.access_token;
         const headers = { 'Authorization': `Bearer ${token}` };
 
-        const rolesRes = await fetch(`/rest/v1/user_roles?user_id=eq.${session.user.id}`, { headers });
+        const rolesRes = await fetch(`/api/v1/user_roles?user_id=eq.${session.user.id}`, { headers });
         const rolesResult = await rolesRes.json();
         const roles = rolesResult.data;
         setIsAdmin(roles?.some((r: any) => r.role === 'admin') || false);
         setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
-        const profileRes = await fetch(`/rest/v1/profiles?id=eq.${session.user.id}`, { headers });
+        const profileRes = await fetch(`/api/v1/profiles?id=eq.${session.user.id}`, { headers });
         const profileResult = await profileRes.json();
         const profile = profileResult.data?.[0];
 
@@ -451,7 +451,7 @@ const Thread = () => {
         }
 
         // Load current user color
-        const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${session.user.id}`, { headers });
+        const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${session.user.id}`, { headers });
         const achResult = await achRes.json();
         const achievements = achResult.data;
 
@@ -499,7 +499,7 @@ const Thread = () => {
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     if (isSubscribed) {
-      const res = await fetch(`/rest/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${threadId}`, {
+      const res = await fetch(`/api/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${threadId}`, {
         method: 'DELETE',
         headers,
       });
@@ -508,7 +508,7 @@ const Thread = () => {
         toast.success("Отписались от уведомлений");
       }
     } else {
-      const res = await fetch('/rest/v1/thread_subscriptions', {
+      const res = await fetch('/api/v1/thread_subscriptions', {
         method: 'POST',
         headers,
         body: JSON.stringify({ user_id: user.id, thread_id: threadId }),
@@ -558,14 +558,14 @@ const Thread = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined;
 
-      const pollRes = await fetch(`/rest/v1/polls?thread_id=eq.${threadId}`);
+      const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${threadId}`);
       const pollResult = await pollRes.json();
       const poll = pollResult.data?.[0];
 
       if (poll) {
         let userVotes: string[] = [];
         if (user?.id && token) {
-          const voteRes = await fetch(`/rest/v1/poll_votes?poll_id=eq.${poll.id}&user_id=eq.${user.id}`, { headers });
+          const voteRes = await fetch(`/api/v1/poll_votes?poll_id=eq.${poll.id}&user_id=eq.${user.id}`, { headers });
           const voteResult = await voteRes.json();
           const userVote = voteResult.data?.[0];
 
@@ -579,7 +579,7 @@ const Thread = () => {
       if (user && thread && token) {
         try {
           const hasCustomMessage = (thread as any).custom_message && (thread as any).custom_message.trim().length > 0;
-          await fetch('/rest/v1/thread_custom_message_visits', {
+          await fetch('/api/v1/thread_custom_message_visits', {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -682,7 +682,7 @@ const Thread = () => {
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
       
       // Use RPC backend API instead of REST endpoint
-      const response = await fetch('/rpc/v1/create_post', {
+      const response = await fetch('/api/rpc/create_post', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -751,7 +751,7 @@ const Thread = () => {
     const token = (await supabase.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-    const res = await fetch('/rest/v1/reports', {
+    const res = await fetch('/api/v1/reports', {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -775,7 +775,7 @@ const Thread = () => {
     const token = (await supabase.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}` };
 
-    const res = await fetch(`/rest/v1/posts?id=eq.${postId}`, {
+    const res = await fetch(`/api/v1/posts?id=eq.${postId}`, {
       method: 'DELETE',
       headers,
     });
@@ -792,7 +792,7 @@ const Thread = () => {
     const token = (await supabase.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}` };
 
-    const res = await fetch(`/rest/v1/threads?id=eq.${threadId}`, {
+    const res = await fetch(`/api/v1/threads?id=eq.${threadId}`, {
       method: 'DELETE',
       headers,
     });
@@ -813,7 +813,7 @@ const Thread = () => {
 
     const isOpeningPost = thread && editingPostId === thread.id;
     const table = isOpeningPost ? 'threads' : 'posts';
-    const res = await fetch(`/rest/v1/${table}?id=eq.${editingPostId}`, {
+    const res = await fetch(`/api/v1/${table}?id=eq.${editingPostId}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify({ content: editContent.trim(), content_json: editContentJson }),
@@ -840,7 +840,7 @@ const Thread = () => {
       ? null 
       : new Date(Date.now() + parseInt(banDays) * 24 * 60 * 60 * 1000).toISOString();
 
-    const res = await fetch('/rest/v1/user_bans', {
+    const res = await fetch('/api/v1/user_bans', {
       method: 'POST',
       headers,
       body: JSON.stringify({

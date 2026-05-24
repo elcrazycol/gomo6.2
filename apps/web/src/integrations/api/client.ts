@@ -3,7 +3,7 @@ import { toast } from "sonner";
 
 // API Configuration
 // In Docker production, API goes through Caddy reverse proxy at same origin.
-// In dev mode (npm run dev), Vite proxy forwards /api, /rest, etc. to localhost:8080.
+// In dev mode (npm run dev), Vite proxy forwards /api to localhost:8080.
 // Set VITE_API_BASE_URL to override (e.g., for direct backend access during dev).
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -314,15 +314,15 @@ class ApiClient {
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<Board[]>(`/rest/v1/boards${query ? `?${query}` : ''}`);
+    return this.request<Board[]>(`/api/v1/boards${query ? `?${query}` : ''}`);
   }
 
   async getBoard(slug: string): Promise<ApiResponse<Board>> {
-    return this.request<Board>(`/rest/v1/boards/${slug}`);
+    return this.request<Board>(`/api/v1/boards/${slug}`);
   }
 
   async createBoard(board: Partial<Board>): Promise<ApiResponse<Board>> {
-    return this.request<Board>('/rest/v1/boards', {
+    return this.request<Board>('/api/v1/boards', {
       method: 'POST',
       body: JSON.stringify(board),
     });
@@ -342,15 +342,15 @@ class ApiClient {
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<Thread[]>(`/rest/v1/threads${query ? `?${query}` : ''}`);
+    return this.request<Thread[]>(`/api/v1/threads${query ? `?${query}` : ''}`);
   }
 
   async getThread(id: string): Promise<ApiResponse<Thread>> {
-    return this.request<Thread>(`/rest/v1/threads/${id}`);
+    return this.request<Thread>(`/api/v1/threads/${id}`);
   }
 
   async createThread(thread: Partial<Thread>): Promise<ApiResponse<Thread>> {
-    return this.request<Thread>('/rest/v1/threads', {
+    return this.request<Thread>('/api/v1/threads', {
       method: 'POST',
       body: JSON.stringify(thread),
     });
@@ -370,15 +370,15 @@ class ApiClient {
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<Post[]>(`/rest/v1/posts${query ? `?${query}` : ''}`);
+    return this.request<Post[]>(`/api/v1/posts${query ? `?${query}` : ''}`);
   }
 
   async getPost(id: string): Promise<ApiResponse<Post>> {
-    return this.request<Post>(`/rest/v1/posts/${id}`);
+    return this.request<Post>(`/api/v1/posts/${id}`);
   }
 
   async createPost(post: Partial<Post>): Promise<ApiResponse<Post>> {
-    return this.request<Post>('/rest/v1/posts', {
+    return this.request<Post>('/api/v1/posts', {
       method: 'POST',
       body: JSON.stringify(post),
     });
@@ -400,15 +400,15 @@ class ApiClient {
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<User[]>(`/rest/v1/profiles${query ? `?${query}` : ''}`);
+    return this.request<User[]>(`/api/v1/profiles${query ? `?${query}` : ''}`);
   }
 
   async getProfile(id: string): Promise<ApiResponse<User>> {
-    return this.request<User>(`/rest/v1/profiles/${id}`);
+    return this.request<User>(`/api/v1/profiles/${id}`);
   }
 
   async updateProfile(id: string, updates: Partial<User>): Promise<ApiResponse<User>> {
-    return this.request<User>(`/rest/v1/profiles/${id}`, {
+    return this.request<User>(`/api/v1/profiles/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
@@ -416,25 +416,25 @@ class ApiClient {
 
   // Likes Methods
   async likeThread(threadId: string): Promise<ApiResponse<ThreadLike>> {
-    return this.request<ThreadLike>(`/rest/v1/threads/${threadId}/like`, {
+    return this.request<ThreadLike>(`/api/v1/threads/${threadId}/like`, {
       method: 'POST',
     });
   }
 
   async unlikeThread(threadId: string): Promise<ApiResponse<any>> {
-    return this.request<any>(`/rest/v1/threads/${threadId}/like`, {
+    return this.request<any>(`/api/v1/threads/${threadId}/like`, {
       method: 'DELETE',
     });
   }
 
   async likePost(postId: string): Promise<ApiResponse<PostLike>> {
-    return this.request<PostLike>(`/rest/v1/posts/${postId}/like`, {
+    return this.request<PostLike>(`/api/v1/posts/${postId}/like`, {
       method: 'POST',
     });
   }
 
   async unlikePost(postId: string): Promise<ApiResponse<any>> {
-    return this.request<any>(`/rest/v1/posts/${postId}/like`, {
+    return this.request<any>(`/api/v1/posts/${postId}/like`, {
       method: 'DELETE',
     });
   }
@@ -448,56 +448,56 @@ class ApiClient {
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<any[]>(`/rest/v1/threads/${threadId}/likes${query ? `?${query}` : ''}`);
+    return this.request<any[]>(`/api/v1/threads/${threadId}/likes${query ? `?${query}` : ''}`);
   }
 
   // RPC Methods (Supabase compatibility)
   async getPostLikesCount(postUuid: string): Promise<ApiResponse<number>> {
-    return this.request<number>(`/rpc/v1/get_post_likes_count?post_uuid=${postUuid}`);
+    return this.request<number>(`/api/rpc/get_post_likes_count?post_uuid=${postUuid}`);
   }
 
   async getThreadLikesCount(threadUuid: string): Promise<ApiResponse<number>> {
-    return this.request<number>(`/rpc/v1/get_thread_likes_count?thread_uuid=${threadUuid}`);
+    return this.request<number>(`/api/rpc/get_thread_likes_count?thread_uuid=${threadUuid}`);
   }
 
   async hasUserLikedPost(postUuid: string, userUuid: string): Promise<ApiResponse<boolean>> {
-    return this.request<boolean>(`/rpc/v1/has_user_liked_post?post_uuid=${postUuid}&user_uuid=${userUuid}`);
+    return this.request<boolean>(`/api/rpc/has_user_liked_post?post_uuid=${postUuid}&user_uuid=${userUuid}`);
   }
 
   async hasUserLikedThread(threadUuid: string, userUuid: string): Promise<ApiResponse<boolean>> {
-    return this.request<boolean>(`/rpc/v1/has_user_liked_thread?thread_uuid=${threadUuid}&user_uuid=${userUuid}`);
+    return this.request<boolean>(`/api/rpc/has_user_liked_thread?thread_uuid=${threadUuid}&user_uuid=${userUuid}`);
   }
 
   async getRecentPostLikers(postUuid: string, limitCount = 10): Promise<ApiResponse<any[]>> {
-    return this.request<any[]>(`/rpc/v1/get_recent_post_likers?post_uuid=${postUuid}&limit_count=${limitCount}`);
+    return this.request<any[]>(`/api/rpc/get_recent_post_likers?post_uuid=${postUuid}&limit_count=${limitCount}`);
   }
 
   async getRecentThreadLikers(threadUuid: string, limitCount = 10): Promise<ApiResponse<any[]>> {
-    return this.request<any[]>(`/rpc/v1/get_recent_thread_likers?thread_uuid=${threadUuid}&limit_count=${limitCount}`);
+    return this.request<any[]>(`/api/rpc/get_recent_thread_likers?thread_uuid=${threadUuid}&limit_count=${limitCount}`);
   }
 
   async getUserLikesReceivedCount(userUuid: string): Promise<ApiResponse<number>> {
-    return this.request<number>(`/rpc/v1/get_user_likes_received_count?user_uuid=${encodeURIComponent(userUuid)}`);
+    return this.request<number>(`/api/rpc/get_user_likes_received_count?user_uuid=${encodeURIComponent(userUuid)}`);
   }
 
   async getUserThreadLikesReceivedCount(userUuid: string): Promise<ApiResponse<number>> {
-    return this.request<number>(`/rpc/v1/get_user_thread_likes_received_count?user_uuid=${encodeURIComponent(userUuid)}`);
+    return this.request<number>(`/api/rpc/get_user_thread_likes_received_count?user_uuid=${encodeURIComponent(userUuid)}`);
   }
 
   async getUserPostLikesReceivedTimestamps(userUuid: string): Promise<ApiResponse<Array<{ created_at: string }>>> {
-    return this.request(`/rpc/v1/get_user_post_likes_received_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
+    return this.request(`/api/rpc/get_user_post_likes_received_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
   }
 
   async getUserThreadLikesReceivedTimestamps(userUuid: string): Promise<ApiResponse<Array<{ created_at: string }>>> {
-    return this.request(`/rpc/v1/get_user_thread_likes_received_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
+    return this.request(`/api/rpc/get_user_thread_likes_received_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
   }
 
   async getUserThreadReplyTimestamps(userUuid: string): Promise<ApiResponse<Array<{ created_at: string }>>> {
-    return this.request(`/rpc/v1/get_user_thread_reply_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
+    return this.request(`/api/rpc/get_user_thread_reply_timestamps?user_uuid=${encodeURIComponent(userUuid)}`);
   }
 
   async toggleWallPostPin(postId: string, userId: string): Promise<ApiResponse<boolean>> {
-    return this.request(`/rpc/v1/toggle_wall_post_pin?_post_id=${encodeURIComponent(postId)}&_user_id=${encodeURIComponent(userId)}`);
+    return this.request(`/api/rpc/toggle_wall_post_pin?_post_id=${encodeURIComponent(postId)}&_user_id=${encodeURIComponent(userId)}`);
   }
 
   // Notifications
@@ -510,23 +510,23 @@ class ApiClient {
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<Notification[]>(`/rest/v1/notifications${query ? `?${query}` : ''}`);
+    return this.request<Notification[]>(`/api/v1/notifications${query ? `?${query}` : ''}`);
   }
 
   async markNotificationAsRead(id: string): Promise<ApiResponse<any>> {
-    return this.request<any>(`/rest/v1/notifications/${id}/read`, {
+    return this.request<any>(`/api/v1/notifications/${id}/read`, {
       method: 'PUT',
     });
   }
 
   async markAllNotificationsAsRead(): Promise<ApiResponse<any>> {
-    return this.request<any>('/rest/v1/notifications/read-all', {
+    return this.request<any>('/api/v1/notifications/read-all', {
       method: 'PUT',
     });
   }
 
   async getUnreadNotificationsCount(): Promise<ApiResponse<{ unread_count: number }>> {
-    return this.request<{ unread_count: number }>('/rest/v1/notifications/unread-count');
+    return this.request<{ unread_count: number }>('/api/v1/notifications/unread-count');
   }
 }
 
@@ -612,24 +612,24 @@ export const supabase = {
   from: (table: string) => ({
     select: (columns: string = '*') => ({
       eq: (column: string, value: any) => ({
-        single: () => apiClient.request<any>(`/rest/v1/${table}?${column}=eq.${value}&select=${columns}`),
-        then: (callback: any) => apiClient.request<any>(`/rest/v1/${table}?${column}=eq.${value}&select=${columns}`).then(callback)
+        single: () => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}&select=${columns}`),
+        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}&select=${columns}`).then(callback)
       }),
       order: (column: string, options?: { ascending?: boolean }) => ({
         then: (callback: any) => {
           const direction = options?.ascending ? 'asc' : 'desc';
-          return apiClient.request<any>(`/rest/v1/${table}?select=${columns}&order=${column}.${direction}`).then(callback);
+          return apiClient.request<any>(`/api/v1/${table}?select=${columns}&order=${column}.${direction}`).then(callback);
         }
       }),
-      then: (callback: any) => apiClient.request<any>(`/rest/v1/${table}?select=${columns}`).then(callback)
+      then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?select=${columns}`).then(callback)
     }),
     insert: (data: any) => ({
       select: (columns: string = '*') => ({
-        single: () => apiClient.request<any>(`/rest/v1/${table}?select=${columns}`, {
+        single: () => apiClient.request<any>(`/api/v1/${table}?select=${columns}`, {
           method: 'POST',
           body: JSON.stringify(data)
         }),
-        then: (callback: any) => apiClient.request<any>(`/rest/v1/${table}?select=${columns}`, {
+        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?select=${columns}`, {
           method: 'POST',
           body: JSON.stringify(data)
         }).then(callback)
@@ -637,7 +637,7 @@ export const supabase = {
     }),
     update: (data: any) => ({
       eq: (column: string, value: any) => ({
-        then: (callback: any) => apiClient.request<any>(`/rest/v1/${table}?${column}=eq.${value}`, {
+        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}`, {
           method: 'PUT',
           body: JSON.stringify(data)
         }).then(callback)
@@ -645,7 +645,7 @@ export const supabase = {
     }),
     delete: () => ({
       eq: (column: string, value: any) => ({
-        then: (callback: any) => apiClient.request<any>(`/rest/v1/${table}?${column}=eq.${value}`, {
+        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}`, {
           method: 'DELETE'
         }).then(callback)
       })
@@ -654,7 +654,7 @@ export const supabase = {
 
   // RPC
   rpc: (functionName: string, params?: any) => {
-    const url = `/rpc/v1/${functionName}`;
+    const url = `/api/rpc/${functionName}`;
     const searchParams = new URLSearchParams();
     
     if (params) {

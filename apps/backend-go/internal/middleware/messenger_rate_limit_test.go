@@ -159,13 +159,13 @@ func TestMessengerRateLimiter_Cleanup(t *testing.T) {
 
 func TestIsMessengerEndpoint_Valid(t *testing.T) {
 	endpoints := []string{
-		"/rest/v1/chat_messages",
-		"/rest/v1/chat_conversations",
-		"/rest/v1/chat_conversation_members",
-		"/rest/v1/chat_receipts",
-		"/rpc/v1/get_or_create_direct_chat",
-		"/rpc/v1/chat_mark_delivered",
-		"/rpc/v1/chat_mark_read",
+		"/api/v1/chat_messages",
+		"/api/v1/chat_conversations",
+		"/api/v1/chat_conversation_members",
+		"/api/v1/chat_receipts",
+		"/api/rpc/get_or_create_direct_chat",
+		"/api/rpc/chat_mark_delivered",
+		"/api/rpc/chat_mark_read",
 	}
 	for _, ep := range endpoints {
 		t.Run(ep, func(t *testing.T) {
@@ -178,10 +178,10 @@ func TestIsMessengerEndpoint_Valid(t *testing.T) {
 
 func TestIsMessengerEndpoint_Invalid(t *testing.T) {
 	endpoints := []string{
-		"/rest/v1/users",
-		"/rest/v1/chat_message",
-		"/rpc/v1/chat",
-		"/rest/v1/chat_messages/123",
+		"/api/v1/users",
+		"/api/v1/chat_message",
+		"/api/rpc/chat",
+		"/api/v1/chat_messages/123",
 		"",
 		"/",
 	}

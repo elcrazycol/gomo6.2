@@ -18,7 +18,7 @@ import (
 
 func TestGetBoards_Success_NoFilter(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards", nil)
+	c, w := newGETContext("/api/v1/boards", nil)
 
 	rows := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
@@ -53,7 +53,7 @@ func TestGetBoards_Success_NoFilter(t *testing.T) {
 
 func TestGetBoards_Success_SlugFilter(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards", map[string]string{
+	c, w := newGETContext("/api/v1/boards", map[string]string{
 		"slug": "eq.general",
 	})
 
@@ -79,7 +79,7 @@ func TestGetBoards_Success_SlugFilter(t *testing.T) {
 
 func TestGetBoards_Success_IsGomosubFilter(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards", map[string]string{
+	c, w := newGETContext("/api/v1/boards", map[string]string{
 		"is_gomosub": "eq.true",
 	})
 
@@ -100,7 +100,7 @@ func TestGetBoards_Success_IsGomosubFilter(t *testing.T) {
 
 func TestGetBoards_DBError(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards", nil)
+	c, w := newGETContext("/api/v1/boards", nil)
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*`).
 		WithArgs(50, 0).
@@ -117,7 +117,7 @@ func TestGetBoards_DBError(t *testing.T) {
 
 func TestGetBoard_Success(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards/general", nil)
+	c, w := newGETContext("/api/v1/boards/general", nil)
 	c.Params = []gin.Param{{Key: "slug", Value: "general"}}
 
 	row := sqlmock.NewRows([]string{
@@ -150,7 +150,7 @@ func TestGetBoard_Success(t *testing.T) {
 
 func TestGetBoard_NotFound(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards/unknown", nil)
+	c, w := newGETContext("/api/v1/boards/unknown", nil)
 	c.Params = []gin.Param{{Key: "slug", Value: "unknown"}}
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*WHERE slug = \$1`).
@@ -166,7 +166,7 @@ func TestGetBoard_NotFound(t *testing.T) {
 
 func TestGetBoard_DBError(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
-	c, w := newGETContext("/rest/v1/boards/general", nil)
+	c, w := newGETContext("/api/v1/boards/general", nil)
 	c.Params = []gin.Param{{Key: "slug", Value: "general"}}
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*WHERE slug = \$1`).
@@ -192,7 +192,7 @@ func TestCreateBoard_Success(t *testing.T) {
 		"description": "A brand new board",
 		"is_gomosub":  false,
 	}
-	c, w := newPOSTContext("/rest/v1/boards", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/boards", body, claims, nil)
 
 	insertRow := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
@@ -229,7 +229,7 @@ func TestCreateBoard_Unauthenticated(t *testing.T) {
 		"slug": "new-board",
 		"name": "New Board",
 	}
-	c, w := newPOSTContext("/rest/v1/boards", body, nil, nil)
+	c, w := newPOSTContext("/api/v1/boards", body, nil, nil)
 
 	handler.CreateBoard(c)
 
@@ -246,7 +246,7 @@ func TestCreateBoard_DBError(t *testing.T) {
 		"slug": "new-board",
 		"name": "New Board",
 	}
-	c, w := newPOSTContext("/rest/v1/boards", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/boards", body, claims, nil)
 
 	mock.ExpectQuery(`INSERT INTO boards.*`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
@@ -270,7 +270,7 @@ func TestUpdateBoard_Success_UpdateName(t *testing.T) {
 		"name": "Updated Name",
 	}
 	boardID := "b1"
-	c, w := newPUTContext("/rest/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
+	c, w := newPUTContext("/api/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
 
 	// Check ownership
 	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
@@ -318,7 +318,7 @@ func TestUpdateBoard_NotFound(t *testing.T) {
 		"name": "Updated Name",
 	}
 	boardID := "b1"
-	c, w := newPUTContext("/rest/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
+	c, w := newPUTContext("/api/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
 
 	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
 		WithArgs(boardID).
@@ -339,7 +339,7 @@ func TestUpdateBoard_Forbidden(t *testing.T) {
 		"name": "Updated Name",
 	}
 	boardID := "b1"
-	c, w := newPUTContext("/rest/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
+	c, w := newPUTContext("/api/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
 
 	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
 		WithArgs(boardID).
@@ -358,7 +358,7 @@ func TestUpdateBoard_NoFields(t *testing.T) {
 	claims := &auth.Claims{UserID: "u1", Username: "admin"}
 	body := map[string]interface{}{}
 	boardID := "b1"
-	c, w := newPUTContext("/rest/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
+	c, w := newPUTContext("/api/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
 
 	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
 		WithArgs(boardID).
@@ -378,7 +378,7 @@ func TestUpdateBoard_Unauthenticated(t *testing.T) {
 		"name": "Updated",
 	}
 	boardID := "b1"
-	c, w := newPUTContext("/rest/v1/boards/"+boardID, body, nil, map[string]string{"id": boardID})
+	c, w := newPUTContext("/api/v1/boards/"+boardID, body, nil, map[string]string{"id": boardID})
 
 	handler.UpdateBoard(c)
 
@@ -395,7 +395,7 @@ func TestUpdateBoard_DBErrorUpdate(t *testing.T) {
 		"name": "Updated Name",
 	}
 	boardID := "b1"
-	c, w := newPUTContext("/rest/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
+	c, w := newPUTContext("/api/v1/boards/"+boardID, body, claims, map[string]string{"id": boardID})
 
 	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
 		WithArgs(boardID).
