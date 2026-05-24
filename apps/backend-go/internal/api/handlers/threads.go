@@ -16,9 +16,8 @@ import (
 )
 
 type ThreadsHandler struct {
-	db                *sql.DB
-	redis             *redis.Client
-	botEventPublisher *BotEventPublisher
+	db    *sql.DB
+	redis *redis.Client
 }
 
 func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
@@ -28,11 +27,6 @@ func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 // SetRedis sets the Redis client for cache invalidation
 func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
-}
-
-// SetBotEventPublisher sets the bot event publisher
-func (h *ThreadsHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
-	h.botEventPublisher = publisher
 }
 
 // TODO: Run migration 001 (tags JSONB DEFAULT '[]') to add tags column to threads table,
@@ -258,102 +252,6 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(thread))
-}
-
-func (h *ThreadsHandler) CreateThread(c *gin.Context) {
-	var req models.CreateThreadRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	// Get user ID from context
-	claims, exists := c.Get("claims")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-		return
-	}
-
-	userClaims := claims.(*auth.Claims)
-
-	// Validate board_id UUID
-	_, err := uuid.Parse(req.BoardID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid board ID format"))
-		return
-	}
-
-	// Check if board exists
-	var boardExists bool
-	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM boards WHERE id = $1)", req.BoardID).Scan(&boardExists)
-	if err != nil || !boardExists {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
-		return
-	}
-
-	// Convert image URLs to JSONB
-	var imageURLs models.JSONB
-	if len(req.ImageURLs) > 0 {
-		imageURLs = make(models.JSONB, len(req.ImageURLs))
-		for i, url := range req.ImageURLs {
-			imageURLs[i] = url
-		}
-	}
-
-	var imageURL *string
-	if len(req.ImageURLs) > 0 {
-		imageURL = &req.ImageURLs[0]
-	}
-
-	var insertContentJSON interface{}
-	if len(req.ContentJSON) > 0 {
-		insertContentJSON = []byte(req.ContentJSON)
-	}
-
-	query := `
-		INSERT INTO threads (board_id, user_id, title, content, content_json, image_url, image_urls, attachments, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls, attachments, post_count, server_domain, created_at, updated_at, is_remote
-	`
-
-	var thread models.Thread
-	var retContentJSON []byte
-	err = h.db.QueryRow(query,
-		req.BoardID, userClaims.UserID, req.Title, req.Content, insertContentJSON,
-		imageURL, imageURLs, req.Attachments, "localhost:8080",
-	).Scan(
-		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
-		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
-		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
-	)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-	if len(retContentJSON) > 0 {
-		thread.ContentJSON = json.RawMessage(retContentJSON)
-	}
-
-	RecomputeUserProfileStats(h.db, userClaims.UserID)
-
-	// Invalidate cache for this board's threads
-	if h.redis != nil {
-		middleware.InvalidateCacheForBoard(h.redis, req.BoardID)
-	}
-
-	// Publish event to bots
-	if h.botEventPublisher != nil {
-		h.botEventPublisher.PublishThread(map[string]interface{}{
-			"id":         thread.ID,
-			"board_id":   thread.BoardID,
-			"user_id":    thread.UserID,
-			"title":      thread.Title,
-			"content":    thread.Content,
-			"created_at": thread.CreatedAt,
-		})
-	}
-
-	c.JSON(http.StatusCreated, models.SuccessResponse(thread))
 }
 
 func (h *ThreadsHandler) DeleteThread(c *gin.Context) {

@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,35 +11,23 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
-	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type PostsHandler struct {
-	db                *sql.DB
-	redis             *redis.Client
-	wsHub             interface{}
-	botEventPublisher *BotEventPublisher
+	db    *sql.DB
+	redis *redis.Client
 }
 
-// NewPostsHandler creates a new PostsHandler with optional WebSocket Hub and Redis
-func NewPostsHandler(db *sql.DB, wsHub ...interface{}) *PostsHandler {
-	h := &PostsHandler{db: db}
-	if len(wsHub) > 0 {
-		h.wsHub = wsHub[0]
-	}
-	return h
+// NewPostsHandler creates a new PostsHandler
+func NewPostsHandler(db *sql.DB) *PostsHandler {
+	return &PostsHandler{db: db}
 }
 
 // SetRedis sets the Redis client for cache invalidation
 func (h *PostsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
-}
-
-// SetBotEventPublisher sets the bot event publisher
-func (h *PostsHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
-	h.botEventPublisher = publisher
 }
 
 func (h *PostsHandler) GetPosts(c *gin.Context) {
@@ -294,141 +281,6 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
-}
-
-func (h *PostsHandler) CreatePost(c *gin.Context) {
-	var req models.CreatePostRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	// Validate that content is not empty
-	if req.Content == "" && len(req.Attachments) == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Пост не может быть пустым"))
-		return
-	}
-
-	// Get user ID from context
-	claims, exists := c.Get("claims")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
-		return
-	}
-
-	userClaims := claims.(*auth.Claims)
-
-	// Validate thread_id UUID
-	_, err := uuid.Parse(req.ThreadID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
-		return
-	}
-
-	// Check if thread exists
-	var threadExists bool
-	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1)", req.ThreadID).Scan(&threadExists)
-	if err != nil || !threadExists {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Thread not found"))
-		return
-	}
-
-	// Convert image URLs to JSONB
-	var imageURLs models.JSONB
-	if len(req.ImageURLs) > 0 {
-		imageURLs = make(models.JSONB, len(req.ImageURLs))
-		for i, url := range req.ImageURLs {
-			imageURLs[i] = url
-		}
-	}
-
-	var imageURL *string
-	if len(req.ImageURLs) > 0 {
-		imageURL = &req.ImageURLs[0]
-	}
-
-	var insertContentJSON interface{}
-	if len(req.ContentJSON) > 0 {
-		insertContentJSON = []byte(req.ContentJSON)
-	} else {
-	}
-
-	query := `
-		INSERT INTO posts (thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, is_private, private_recipient_id, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote
-	`
-
-	var post models.Post
-	var retContentJSON []byte
-	err = h.db.QueryRow(query,
-		req.ThreadID, userClaims.UserID, req.Content, insertContentJSON, imageURL,
-		imageURLs, req.Attachments, req.ReplyTo, req.IsPrivate, req.PrivateRecipientID, "localhost:8080",
-	).Scan(
-		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &retContentJSON,
-		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
-		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
-	)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-	if len(retContentJSON) > 0 {
-		post.ContentJSON = json.RawMessage(retContentJSON)
-	}
-
-	// Update thread post count and updated_at
-	_, err = h.db.Exec(`
-		UPDATE threads 
-		SET post_count = post_count + 1, updated_at = NOW()
-		WHERE id = $1
-	`, req.ThreadID)
-
-	if err != nil {
-		// Log error but don't fail the request
-		fmt.Printf("ERROR: Failed to update thread post count: %v\n", err)
-	}
-
-	RecomputeUserProfileStats(h.db, userClaims.UserID)
-
-	// Invalidate cache for this thread's posts
-	if h.redis != nil {
-		middleware.InvalidateCacheForThread(h.redis, req.ThreadID)
-	}
-
-	// Publish realtime event to WebSocket Hub
-	if h.wsHub != nil {
-		if hub, ok := h.wsHub.(*websocket.Hub); ok {
-			// Send minimal payload - only IDs and essential data
-			// Frontend will use React Query cache or fetch if needed
-			postData := map[string]interface{}{
-				"id":         post.ID,
-				"thread_id":  post.ThreadID,
-				"user_id":    post.UserID,
-				"created_at": post.CreatedAt,
-			}
-
-			if err := hub.PublishNewPost(postData); err != nil {
-				fmt.Printf("[WebSocket] Error publishing new post event: %v\n", err)
-			} else {
-				fmt.Printf("[WebSocket] Published new post event for post %s\n", post.ID)
-			}
-		}
-	}
-
-	// Publish event to bots
-	if h.botEventPublisher != nil {
-		h.botEventPublisher.PublishThreadPost(map[string]interface{}{
-			"id":         post.ID,
-			"thread_id":  post.ThreadID,
-			"user_id":    post.UserID,
-			"content":    post.Content,
-			"created_at": post.CreatedAt,
-		})
-	}
-
-	c.JSON(http.StatusCreated, models.SuccessResponse(post))
 }
 
 // UpdatePost updates reply body; only the author may edit.

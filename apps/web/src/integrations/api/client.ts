@@ -350,7 +350,7 @@ class ApiClient {
   }
 
   async createThread(thread: Partial<Thread>): Promise<ApiResponse<Thread>> {
-    return this.request<Thread>('/api/v1/threads', {
+    return this.request<Thread>('/api/rpc/create_thread', {
       method: 'POST',
       body: JSON.stringify(thread),
     });
@@ -378,7 +378,7 @@ class ApiClient {
   }
 
   async createPost(post: Partial<Post>): Promise<ApiResponse<Post>> {
-    return this.request<Post>('/api/v1/posts', {
+    return this.request<Post>('/api/rpc/create_post', {
       method: 'POST',
       body: JSON.stringify(post),
     });
