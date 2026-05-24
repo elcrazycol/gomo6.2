@@ -40,8 +40,8 @@ jobs:
           script: |
             set -e
             # Auto-locate the repo directory (tries common paths)
-            for d in /root/gomo6 /home/*/gomo6; do
+            for d in /root/gomo6.2 /home/*/gomo6.2; do
               [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
             done
-            [ "${PWD##*/}" = "gomo6" ] || { echo "Cannot find gomo6 repo"; exit 1; }
+            [ "${PWD##*/}" = "gomo6.2" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
             bash scripts/deploy-vps.sh
