@@ -308,9 +308,9 @@ const Profile = () => {
       let threadLikesCount = 0;
       if (token) {
         try {
-          const tlr = await fetch(`/rpc/v1/get_user_thread_likes_received_count?user_uuid=eq.${userId}`, { headers });
+          const tlr = await fetch(`/rpc/v1/get_user_thread_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
           const tlrResult = await tlr.json();
-          threadLikesCount = tlrResult.data || tlrResult || 0;
+          threadLikesCount = (tlrResult.data as number) || 0;
         } catch { /* ignore */ }
       }
 
@@ -361,7 +361,7 @@ const Profile = () => {
       // Load likes received count (protected RPC)
       if (token) {
         try {
-          const lr = await fetch(`/rpc/v1/get_user_likes_received_count?user_uuid=eq.${userId}`, { headers });
+          const lr = await fetch(`/rpc/v1/get_user_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
           const lrResult = await lr.json();
           setLikesReceived((lrResult.data as number) || 0);
         } catch { /* ignore */ }

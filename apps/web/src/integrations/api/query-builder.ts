@@ -92,13 +92,18 @@ export const from = (table: string) => {
   const executeQuery = async (method = 'GET', body?: any) => {
     let url: string;
 
-    // ── PUT with id filter → PUT /table/:id ────────────────────────────
-    const idVal = method === 'PUT' ? popIdFilter(queryState) : undefined;
-    if (idVal !== undefined && ['profiles', 'boards', 'threads', 'posts'].includes(table)) {
-      url = `/rest/v1/${table}/${encodeURIComponent(String(idVal))}`;
-      const params = new URLSearchParams();
-      buildFilterParams(queryState, params);
-      url += params.toString() ? `?${params}` : '';
+    // ── PUT with id filter → PUT /table/:id for known tables ───────────
+    // NOTE: Add new tables here when they need PUT support via query builder.
+    if (method === 'PUT' && ['profiles', 'boards', 'threads', 'posts', 'user_session_time', 'user_daily_visits', 'privacy_settings', 'gomosub_memberships', 'gomosub_rules_acceptance', 'user_roles', 'user_achievements'].includes(table)) {
+      const idVal = popIdFilter(queryState);
+      if (idVal !== undefined) {
+        url = `/rest/v1/${table}/${encodeURIComponent(String(idVal))}`;
+        const params = new URLSearchParams();
+        buildFilterParams(queryState, params);
+        url += params.toString() ? `?${params}` : '';
+      } else {
+        url = buildQuery();
+      }
     }
 
     // ── POST routes without id ─────────────────────────────────────────
@@ -129,7 +134,7 @@ export const from = (table: string) => {
         : buildQuery();
     }
 
-    // ── Default: GET / DELETE / POST without special handling ──────────
+    // ── Default: GET / DELETE / POST / PUT without special handling ────
     else {
       url = buildQuery();
     }
