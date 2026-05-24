@@ -835,6 +835,14 @@ func buildFilterFromParts(column, op, value string, argIndex int) (string, []int
 		return column + " = $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
 	case "neq":
 		return column + " <> $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
+	case "gt":
+		return column + " > $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
+	case "gte":
+		return column + " >= $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
+	case "lt":
+		return column + " < $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
+	case "lte":
+		return column + " <= $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
 	case "ilike":
 		return column + " ILIKE $" + strconv.Itoa(argIndex), []interface{}{value}, argIndex + 1
 	case "is":
@@ -1050,6 +1058,9 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		if s, ok := parseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
+	} else if tableName == "chat_messages" {
+		// Default order by sent_at ASC for chat messages
+		query += " ORDER BY " + quoteSQLIdent("sent_at") + " ASC"
 	}
 
 	// Handle LIMIT and OFFSET
@@ -1057,7 +1068,11 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		if n, err := strconv.Atoi(limit); err == nil && n >= 0 && n <= 10000 {
 			query += " LIMIT " + strconv.Itoa(n)
 		}
+	} else if tableName == "chat_messages" {
+		// Default limit 50 for chat messages to prevent loading everything
+		query += " LIMIT 50"
 	}
+
 	if offset := c.Query("offset"); offset != "" {
 		if n, err := strconv.Atoi(offset); err == nil && n >= 0 && n <= 1000000 {
 			query += " OFFSET " + strconv.Itoa(n)

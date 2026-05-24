@@ -157,6 +157,8 @@ export const MessengerView = () => {
   const [loading, setLoading] = useState(true);
   const [conversationsLoading, setConversationsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [startingConversation, setStartingConversation] = useState(false);
   const [sending, setSending] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
@@ -173,6 +175,7 @@ export const MessengerView = () => {
   const messagesRef = useRef<MessageView[]>([]);
   const lastDeliveredMessageIdRef = useRef<string | null>(null);
   const isNearBottomRef = useRef(true);
+  const oldestSentAtRef = useRef<string | null>(null);
   const previousConversationIdRef = useRef<string | null>(null);
   const ws = useWebSocket();
 
@@ -461,90 +464,158 @@ export const MessengerView = () => {
     }
   }, [isMobileViewport, requestedConversationId, targetUserId]);
 
-  const loadMessages = useCallback(async (conversation: ConversationView, userId: string, incremental = false) => {
-    if (!incremental) {
+  const fetchMessageReceipts = async (messageIds: string[], conversation: ConversationView) => {
+    if (messageIds.length === 0) return [];
+    const { data: receiptRows, error: receiptError } = await api
+      .from("chat_receipts" as never)
+      .select("message_id, user_id, delivered_at, read_at")
+      .in("message_id", messageIds);
+
+    if (receiptError) throw receiptError;
+    return (receiptRows ?? []) as ChatReceiptRecord[];
+  };
+
+  const decryptMessages = async (serverMessages: ChatMessageRecord[], userId: string, conversation: ConversationView, receiptRows: ChatReceiptRecord[]) => {
+    const myCrypto = await ensureLocalMessengerState(userId);
+    return Promise.all(
+      serverMessages.map(async (message) => {
+        const peerReceipt =
+          receiptRows.find(
+            (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
+          ) ?? null;
+
+        let plainText = "[Не удалось расшифровать сообщение]";
+        if (message.ciphertext) {
+          if (message.ciphertext.startsWith('BOT_PLAINTEXT:')) {
+            plainText = message.ciphertext.substring('BOT_PLAINTEXT:'.length);
+          } else if (message.nonce) {
+            const peerPublicKey =
+              message.sender_user_id === userId ? message.recipient_public_key : message.sender_public_key;
+
+            if (peerPublicKey) {
+              try {
+                plainText = await decryptMessengerText({
+                  cipherText: message.ciphertext,
+                  nonce: message.nonce,
+                  peerPublicKey,
+                  myPrivateKey: myCrypto.privateKey,
+                });
+              } catch (err) {
+                console.error('Decryption error:', err);
+                plainText = "[Не удалось расшифровать сообщение]";
+              }
+            }
+          }
+        }
+
+        return {
+          ...message,
+          plainText,
+          peerDeliveredAt: peerReceipt?.delivered_at ?? null,
+          peerReadAt: peerReceipt?.read_at ?? null,
+        } satisfies MessageView;
+      })
+    );
+  };
+
+  const loadMessages = useCallback(async (
+    conversation: ConversationView,
+    userId: string,
+    options?: { incremental?: boolean; cursor?: string | null }
+  ) => {
+    const isIncremental = options?.incremental ?? false;
+    const cursor = options?.cursor;
+    const isLoadMore = cursor !== undefined && cursor !== null;
+
+    if (!isIncremental && !isLoadMore) {
+      // Initial load — reset pagination state
       setMessagesLoading(true);
+      setHasMoreMessages(true);
+      oldestSentAtRef.current = null;
     }
 
     try {
-      const { data: messageRows, error: messageError } = await api
+      const query = api
         .from("chat_messages" as never)
         .select("id, conversation_id, sender_user_id, client_message_id, sent_at, ciphertext, nonce, sender_public_key, recipient_public_key")
         .eq("conversation_id", conversation.id)
-        .order("sent_at", { ascending: true });
+        .order("sent_at", { ascending: false })
+        .limit(50);
+
+      // If loading older messages, add cursor filter
+      if (isLoadMore && cursor) {
+        query.lt("sent_at", cursor);
+      }
+
+      const { data: messageRows, error: messageError } = await query;
 
       if (messageError) {
         throw messageError;
       }
 
-      const serverMessages = (messageRows ?? []) as ChatMessageRecord[];
-      const messageIds = serverMessages.map((message) => message.id);
-      const { data: receiptRows, error: receiptError } = await api
-        .from("chat_receipts" as never)
-        .select("message_id, user_id, delivered_at, read_at")
-        .in("message_id", messageIds.length > 0 ? messageIds : ["00000000-0000-0000-0000-000000000000"]);
+      // Messages come sorted newest-first; reverse for chronological display
+      const serverMessages = ((messageRows ?? []) as ChatMessageRecord[]).reverse();
 
-      if (receiptError) {
-        throw receiptError;
+      // Determine hasMore: if we got exactly 50 (or less than 50 but had cursor and got none), there might be more
+      const receivedCount = (messageRows ?? []).length;
+      const couldHaveMore = receivedCount >= 50;
+
+      // Update oldest cursor for next "load more"
+      if (serverMessages.length > 0 && !isIncremental) {
+        oldestSentAtRef.current = serverMessages[0].sent_at;
       }
 
-      const myCrypto = await ensureLocalMessengerState(userId);
-      const normalized = await Promise.all(
-        serverMessages.map(async (message) => {
-          const peerReceipt =
-            ((receiptRows ?? []) as ChatReceiptRecord[]).find(
-              (receipt) => receipt.message_id === message.id && receipt.user_id === conversation.otherUser.id
-            ) ?? null;
-
-          let plainText = "[Не удалось расшифровать сообщение]";
-          if (message.ciphertext) {
-            // Check if message is from bot (BOT_PLAINTEXT format)
-            if (message.ciphertext.startsWith('BOT_PLAINTEXT:')) {
-              plainText = message.ciphertext.substring('BOT_PLAINTEXT:'.length);
-            } else if (message.nonce) {
-              const peerPublicKey =
-                message.sender_user_id === userId ? message.recipient_public_key : message.sender_public_key;
-
-              if (peerPublicKey) {
-                try {
-                  plainText = await decryptMessengerText({
-                    cipherText: message.ciphertext,
-                    nonce: message.nonce,
-                    peerPublicKey,
-                    myPrivateKey: myCrypto.privateKey,
-                  });
-                } catch (err) {
-                  console.error('Decryption error:', err);
-                  plainText = "[Не удалось расшифровать сообщение]";
-                }
-              }
-            }
-          }
-
-          return {
-            ...message,
-            plainText,
-            peerDeliveredAt: peerReceipt?.delivered_at ?? null,
-            peerReadAt: peerReceipt?.read_at ?? null,
-          } satisfies MessageView;
-        })
-      );
+      const messageIds = serverMessages.map((message) => message.id);
+      const receiptRows = await fetchMessageReceipts(messageIds, conversation);
+      const normalized = await decryptMessages(serverMessages, userId, conversation, receiptRows);
 
       setMessages((current) => {
-        if (!incremental) {
-          return normalized;
+        if (isIncremental) {
+          // WebSocket incremental refresh — merge with existing messages
+          return mergeMessages(current, normalized, userId);
         }
-        return mergeMessages(current, normalized, userId);
+
+        if (isLoadMore) {
+          // Loading older messages — prepend to existing
+          const existingIds = new Set(current.map((m) => m.id));
+          const deduped = normalized.filter((m) => !existingIds.has(m.id));
+          return [...deduped, ...current];
+        }
+
+        // Initial load — replace all
+        return normalized;
       });
+
+      // Track hasMore for the "load more" button
+      if (!isIncremental) {
+        setHasMoreMessages(couldHaveMore);
+      }
+
+      return normalized;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
       throw new Error(message);
     } finally {
-      if (!incremental) {
+      if (!isIncremental && !isLoadMore) {
         setMessagesLoading(false);
       }
     }
   }, []);
+
+  const loadOlderMessages = useCallback(async () => {
+    const currentMe = meRef.current;
+    const currentConversation = selectedConversationRef.current;
+    if (!currentMe || !currentConversation || loadingMore || !hasMoreMessages) return;
+
+    setLoadingMore(true);
+    try {
+      await loadMessages(currentConversation, currentMe.id, { cursor: oldestSentAtRef.current });
+    } catch (error) {
+      console.error('Failed to load older messages:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadMessages, loadingMore, hasMoreMessages]);
 
   const ensureConversation = useCallback(async (userId: string, targetId: string) => {
     if (targetId === userId) return null;
@@ -617,7 +688,7 @@ export const MessengerView = () => {
     const currentMe = meRef.current;
     const currentConversation = selectedConversationRef.current;
     if (!currentMe || !currentConversation) return;
-    await loadMessages(currentConversation, currentMe.id, incremental);
+    await loadMessages(currentConversation, currentMe.id, { incremental });
   }, [loadMessages]);
 
   const sendMessage = async () => {
@@ -808,7 +879,7 @@ export const MessengerView = () => {
     lastReadMessageIdRef.current = null;
     lastDeliveredMessageIdRef.current = null;
 
-    void loadMessages(selectedConversation, me.id).catch((error) => {
+    void loadMessages(selectedConversation, me.id, {}).catch((error) => {
       setErrorMessage(error.message);
     });
   }, [loadMessages, me, selectedConversation]);
@@ -827,6 +898,7 @@ export const MessengerView = () => {
     const onScroll = () => {
       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
       isNearBottomRef.current = distanceFromBottom <= 64;
+
     };
 
     onScroll();
@@ -1049,24 +1121,41 @@ export const MessengerView = () => {
                     <p>Напиши первое сообщение, и переписка начнётся сразу.</p>
                   </div>
                 ) : (
-                  messages.map((message) => {
-                    const isMine = message.sender_user_id === me.id;
-                    return (
-                      <div key={message.id} className={`bubble-row ${isMine ? "is-mine" : ""}`}>
-                        <div className={`message-bubble ${isMine ? "is-mine" : ""}`}>
-                          <p>{message.plainText}</p>
-                          <div className="message-meta">
-                            <span>{formatTime(message.sent_at)}</span>
-                            {isMine ? (
-                              <span className={`message-status ${message.peerReadAt ? "is-read" : ""}`}>
-                                {message.localStatus === "pending" ? ">" : message.peerReadAt ? ">>" : message.peerDeliveredAt ? ">>" : ">"}
-                              </span>
-                            ) : null}
+                  <>
+                    {hasMoreMessages ? (
+                      <div className="load-more-container">
+                        {loadingMore ? (
+                          <PentagramLoader size="sm" />
+                        ) : (
+                          <button
+                            type="button"
+                            className="load-more-button"
+                            onClick={() => void loadOlderMessages()}
+                          >
+                            Загрузить предыдущие сообщения
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+                    {messages.map((message) => {
+                      const isMine = message.sender_user_id === me.id;
+                      return (
+                        <div key={message.id} className={`bubble-row ${isMine ? "is-mine" : ""}`}>
+                          <div className={`message-bubble ${isMine ? "is-mine" : ""}`}>
+                            <p>{message.plainText}</p>
+                            <div className="message-meta">
+                              <span>{formatTime(message.sent_at)}</span>
+                              {isMine ? (
+                                <span className={`message-status ${message.peerReadAt ? "is-read" : ""}`}>
+                                  {message.localStatus === "pending" ? ">" : message.peerReadAt ? ">>" : message.peerDeliveredAt ? ">>" : ">"}
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })}
+                  </>
                 )}
                 <div ref={endRef} />
               </div>
