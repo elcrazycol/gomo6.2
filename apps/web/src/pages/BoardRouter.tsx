@@ -92,37 +92,24 @@ const Board = () => {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id);
+        const [rolesResponse, profileResponse, achievementsResponse] = await Promise.all([
+          fetch(`/rest/v1/user_roles?user_id=eq.${session.user.id}`).then(r => r.json()),
+          fetch(`/rest/v1/profiles?id=eq.${session.user.id}`).then(r => r.json()),
+          fetch(`/rest/v1/user_achievements?user_id=eq.${session.user.id}`).then(r => r.json()),
+        ]);
         
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        const roles: any[] = rolesResponse.data || [];
+        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", session.user.id)
-          .single();
-
+        // Load current user profile
+        const profile = profilesResponse.data?.[0];
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", session.user.id);
-
-        if (achievements) {
+        const achievements: any[] = achievementsResponse.data || [];
+        if (achievements.length) {
           const colorRewards = achievements
             .filter((a: any) => a.achievements?.reward_type === "username_color")
             .map((a: any) => a.achievements.reward_value);
@@ -153,11 +140,9 @@ const Board = () => {
   useEffect(() => {
     const loadBoard = async () => {
       setPageLoading(true);
-      const { data: boardData } = await supabase
-        .from("boards")
-        .select("*")
-        .eq("slug", slug)
-        .single();
+      const boardResponse = await fetch(`/rest/v1/boards/${slug}`);
+      const boardResult = await boardResponse.json();
+      const boardData = boardResult.data;
 
       if (boardData) {
         setBoard(boardData);
@@ -175,10 +160,11 @@ const Board = () => {
             
             // Award incel achievement
             if (user) {
-              supabase.rpc("award_achievement", {
-                _user_id: user.id,
-                _achievement_id: "incel",
-              });
+              fetch('/rpc/v1/award_achievement', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
+              }).catch(() => {});
             }
           }
         } else {
@@ -193,29 +179,13 @@ const Board = () => {
     loadBoard();
   }, [slug, user]);
 
+  // Poll for new threads every 30s (replaces supabase realtime)
   useEffect(() => {
     if (!board) return;
-
-    // Set up realtime subscription for new threads
-    const channel = supabase
-      .channel(`board-${board.id}-threads`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'threads',
-          filter: `board_id=eq.${board.id}`,
-        },
-        () => {
-          loadThreads(board.id);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const interval = setInterval(() => {
+      loadThreads(board.id);
+    }, 30000);
+    return () => clearInterval(interval);
   }, [board]);
 
   const loadThreads = async (boardId: string) => {
@@ -358,10 +328,11 @@ const Board = () => {
       
       // Award incel achievement
       if (user) {
-        await supabase.rpc("award_achievement", {
-          _user_id: user.id,
-          _achievement_id: "incel",
-        });
+        fetch('/rpc/v1/award_achievement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
+        }).catch(() => {});
       }
     }
   };
