@@ -2,6 +2,9 @@
 
 # Gomo6
 
+[![CI](https://github.com/scramble22/gomo6.2/actions/workflows/ci.yml/badge.svg)](https://github.com/scramble22/gomo6.2/actions/workflows/ci.yml)
+[![Deploy](https://github.com/scramble22/gomo6.2/actions/workflows/deploy.yml/badge.svg)](https://github.com/scramble22/gomo6.2/actions/workflows/deploy.yml)
+
 Социальная платформа с мессенджером, OAuth, подкастами, стримингом и ботами.
 
 ## Архитектура
