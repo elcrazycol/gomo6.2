@@ -45,12 +45,15 @@ func TestRateLimiter_ExceedLimit(t *testing.T) {
 func TestRateLimiter_SeparateUsers(t *testing.T) {
 	rl := NewRateLimiter(2, time.Minute)
 
+	// User 1 uses all tokens
 	rl.Allow("user-1")
 	rl.Allow("user-1")
+
 	if rl.Allow("user-1") {
 		t.Error("user-1 must be rate-limited")
 	}
 
+	// User 2 should still have full quota
 	if !rl.Allow("user-2") {
 		t.Error("user-2 must still be allowed (separate bucket)")
 	}
@@ -64,18 +67,23 @@ func TestRateLimiter_SeparateUsers(t *testing.T) {
 // =============================================================================
 
 func TestRateLimiter_WindowRefill(t *testing.T) {
+	// Small window: 50ms
 	rl := NewRateLimiter(3, 50*time.Millisecond)
 
+	// Use all tokens
 	for i := 0; i < 3; i++ {
 		rl.Allow("user-1")
 	}
 
+	// Must be denied now
 	if rl.Allow("user-1") {
 		t.Fatal("must be rate-limited after using all tokens")
 	}
 
+	// Wait for window to pass
 	time.Sleep(60 * time.Millisecond)
 
+	// Should be allowed again after window refill
 	if !rl.Allow("user-1") {
 		t.Error("must be allowed after window refill")
 	}
@@ -93,33 +101,6 @@ func TestRateLimiter_NoPartialRefill(t *testing.T) {
 	if rl.Allow("user-1") {
 		t.Error("must still be rate-limited before window ends")
 	}
-}
-
-// =============================================================================
-// RateLimiter — Reset
-// =============================================================================
-
-func TestRateLimiter_Reset(t *testing.T) {
-	rl := NewRateLimiter(2, time.Minute)
-
-	rl.Allow("user-1")
-	rl.Allow("user-1")
-	if rl.Allow("user-1") {
-		t.Fatal("must be rate-limited after using all tokens")
-	}
-
-	rl.Reset("user-1")
-
-	if !rl.Allow("user-1") {
-		t.Error("must be allowed after Reset")
-	}
-}
-
-func TestRateLimiter_ResetNonExistent(t *testing.T) {
-	rl := NewRateLimiter(5, time.Minute)
-
-	// Reset on a user that never existed should not panic
-	rl.Reset("nonexistent-user")
 }
 
 // =============================================================================
@@ -160,13 +141,10 @@ func TestRateLimiter_ConcurrentAccess(t *testing.T) {
 	if allowed != 50 {
 		t.Errorf("expected all 50 requests to pass, got %d allowed, %d denied", allowed, denied)
 	}
-	if denied != 0 {
-		t.Errorf("expected 0 denied requests, got %d", denied)
-	}
 }
 
 func TestRateLimiter_ConcurrentAtBoundary(t *testing.T) {
-	limiter := NewRateLimiter(5, time.Minute)
+	rl := NewRateLimiter(5, time.Minute)
 
 	var wg sync.WaitGroup
 	results := make(chan bool, 5)
@@ -175,7 +153,7 @@ func TestRateLimiter_ConcurrentAtBoundary(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results <- limiter.Allow("user-boundary")
+			results <- rl.Allow("user-boundary")
 		}()
 	}
 
@@ -190,60 +168,147 @@ func TestRateLimiter_ConcurrentAtBoundary(t *testing.T) {
 	}
 
 	if passed != 5 {
-		t.Errorf("expected all 5 concurrent requests at boundary to pass, got %d", passed)
+		t.Errorf("expected all 5 concurrent requests to pass, got %d", passed)
 	}
 
-	if limiter.Allow("user-boundary") {
+	if rl.Allow("user-boundary") {
 		t.Error("6th request after concurrent boundary must be denied")
 	}
 }
 
 // =============================================================================
-// RateLimiter — edge cases
+// RateLimiter — Reset
+// =============================================================================
+
+func TestRateLimiter_Reset(t *testing.T) {
+	rl := NewRateLimiter(1, time.Minute)
+
+	rl.Allow("user-1")
+	if rl.Allow("user-1") {
+		t.Fatal("2nd request must be denied when max=1")
+	}
+
+	rl.Reset("user-1")
+
+	if !rl.Allow("user-1") {
+		t.Error("request after reset must be allowed")
+	}
+}
+
+func TestRateLimiter_Reset_Nonexistent(t *testing.T) {
+	rl := NewRateLimiter(5, time.Minute)
+	// Reset on a user that doesn't exist should not panic
+	rl.Reset("nonexistent-user")
+}
+
+// =============================================================================
+// RateLimiter — Empty user ID
 // =============================================================================
 
 func TestRateLimiter_EmptyUserID(t *testing.T) {
 	rl := NewRateLimiter(5, time.Minute)
 
 	if !rl.Allow("") {
-		t.Error("empty user ID first request must be allowed")
+		t.Error("first empty user request must be allowed")
+	}
+	if !rl.Allow("") {
+		t.Error("second empty user request must be allowed (within limit)")
 	}
 }
 
-func TestRateLimiter_ZeroMaxMessages(t *testing.T) {
+// =============================================================================
+// RateLimiter — Zero max requests
+// =============================================================================
+
+func TestRateLimiter_ZeroMaxRequests(t *testing.T) {
 	rl := NewRateLimiter(0, time.Minute)
 
-	// max=0: first request creates bucket with tokens = -1 → allowed
+	// First request: creates bucket with tokens = -1, returns true
 	if !rl.Allow("user-1") {
-		t.Error("first request with max=0 must be allowed (tokens=-1)")
+		t.Error("first request with max=0 must be allowed")
 	}
 
-	// second request: tokens = -1, not > 0 → denied
+	// Second request: tokens = -1, denied
 	if rl.Allow("user-1") {
 		t.Error("second request with max=0 must be denied")
 	}
 }
 
-func TestRateLimiter_Cleanup(t *testing.T) {
+func TestRateLimiter_OneRequest(t *testing.T) {
+	rl := NewRateLimiter(1, time.Minute)
+
+	if !rl.Allow("user-1") {
+		t.Fatal("first (only) request must be allowed")
+	}
+	if rl.Allow("user-1") {
+		t.Fatal("second request must be denied when max=1")
+	}
+}
+
+// =============================================================================
+// RateLimiter — Cleanup
+// =============================================================================
+
+func TestRateLimiter_CleanupStaleEntry(t *testing.T) {
 	rl := NewRateLimiter(5, 10*time.Millisecond)
 
-	rl.Allow("temp-user")
+	rl.Allow("stale-user")
 
 	rl.mu.RLock()
-	_, exists := rl.buckets["temp-user"]
+	_, exists := rl.buckets["stale-user"]
 	rl.mu.RUnlock()
 	if !exists {
-		t.Fatal("temp-user must exist right after Allow")
+		t.Fatal("stale-user must exist right after Allow")
 	}
 
-	// Wait for cleanup (window*2 = 20ms, plus ticker timing)
 	time.Sleep(100 * time.Millisecond)
 
 	rl.mu.RLock()
-	_, exists = rl.buckets["temp-user"]
+	_, exists = rl.buckets["stale-user"]
 	rl.mu.RUnlock()
 
 	if exists {
-		t.Error("temp-user bucket should have been cleaned up")
+		t.Error("stale-user bucket must have been cleaned up")
+	}
+}
+
+// =============================================================================
+// RateLimiter — Large batch
+// =============================================================================
+
+func TestRateLimiter_LargeBatch(t *testing.T) {
+	rl := NewRateLimiter(100, time.Minute)
+
+	// Simulate 100 requests — all within limit
+	for i := 0; i < 100; i++ {
+		if !rl.Allow("batch-user") {
+			t.Fatalf("request %d must be allowed (max 100)", i+1)
+		}
+	}
+
+	// 101st must fail
+	if rl.Allow("batch-user") {
+		t.Fatal("101st request must be denied (max 100)")
+	}
+}
+
+// =============================================================================
+// RateLimiter — Multiple users independently limited
+// =============================================================================
+
+func TestRateLimiter_MultipleUsersIndependently(t *testing.T) {
+	rl := NewRateLimiter(2, time.Minute)
+
+	users := []string{"alice", "bob", "charlie"}
+	for _, user := range users {
+		if !rl.Allow(user) {
+			t.Fatalf("first request for %s must be allowed", user)
+		}
+		if !rl.Allow(user) {
+			t.Fatalf("second request for %s must be allowed", user)
+		}
+		if rl.Allow(user) {
+			t.Errorf("third request for %s must be denied", user)
+		}
 	}
 }
