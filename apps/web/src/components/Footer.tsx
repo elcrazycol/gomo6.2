@@ -6,6 +6,10 @@ export const Footer = () => {
   // docs.localhost → localhost | docs.example.com → example.com
   const rootDomain = hostname.replace(/^(docs|dev|www)\./, '');
 
+  // Git commit hash injected at build time via VITE_GIT_COMMIT
+  const commitHash = import.meta.env.VITE_GIT_COMMIT;
+  const shortHash = commitHash && commitHash !== 'unknown' ? commitHash.slice(0, 7) : null;
+
   return (
     <footer className="bg-card border-t border-border">
       <div className="max-w-5xl mx-auto px-4 py-3">
@@ -29,6 +33,11 @@ export const Footer = () => {
           >
             Docs
           </a>
+          {shortHash && (
+            <span className="text-xs text-muted-foreground/50 font-mono" title={`Deployed commit: ${commitHash}`}>
+              {shortHash}
+            </span>
+          )}
         </div>
       </div>
     </footer>
