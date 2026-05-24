@@ -156,7 +156,7 @@ const Board = () => {
         setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile
-        const profile = profilesResponse.data?.[0];
+        const profile = profileResponse.data?.[0];
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
