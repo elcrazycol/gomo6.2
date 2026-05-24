@@ -128,7 +128,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, "p"); ok {
+		if s, ok := parseOrderClause(joined, "p"); ok {
 			query += " ORDER BY " + s
 		}
 	} else {
@@ -195,7 +195,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	}
 
 	postCount := len(posts)
-	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: posts, Count: &postCount})
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: posts, Count: &postCount})
 }
 
 func (h *PostsHandler) GetPost(c *gin.Context) {

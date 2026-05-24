@@ -77,7 +77,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, "ua"); ok {
+		if s, ok := parseOrderClause(joined, "ua"); ok {
 			query += " ORDER BY " + s
 		}
 	}

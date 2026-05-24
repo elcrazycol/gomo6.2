@@ -3,8 +3,8 @@ package oauth
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
 	"os"

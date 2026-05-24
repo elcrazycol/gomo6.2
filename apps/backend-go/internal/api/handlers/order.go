@@ -5,9 +5,9 @@ import (
 	"unicode"
 )
 
-// parseSupabaseOrderClause turns PostgREST-style "col.asc,col2.desc" into safe SQL ORDER BY fragments.
+// parseOrderClause turns PostgREST-style "col.asc,col2.desc" into safe SQL ORDER BY fragments.
 // Raw "unlocked_at.desc" is invalid in PostgreSQL (parsed as schema.table).
-func parseSupabaseOrderClause(orderExpr string, tableAlias string) (string, bool) {
+func parseOrderClause(orderExpr string, tableAlias string) (string, bool) {
 	orderExpr = strings.TrimSpace(orderExpr)
 	if orderExpr == "" {
 		return "", false

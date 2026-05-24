@@ -29,7 +29,7 @@ func TestGetPostLikesCount_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestToggleWallPostPin_NotOwner(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse: %v", err)
 	}
@@ -836,7 +836,7 @@ func TestCreateGomoSub_Success(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}

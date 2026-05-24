@@ -57,4 +57,3 @@ func AuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
 		c.Next()
 	}
 }
-

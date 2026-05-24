@@ -265,7 +265,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, ""); ok {
+		if s, ok := parseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}
@@ -1027,7 +1027,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, ""); ok {
+		if s, ok := parseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}

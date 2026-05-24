@@ -110,8 +110,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
-		"user":  user,
-		"token": tokenPair.AccessToken,
+		"user":          user,
+		"token":         tokenPair.AccessToken,
 		"refresh_token": tokenPair.RefreshToken,
 		"expires_in":    tokenPair.ExpiresIn,
 	}))

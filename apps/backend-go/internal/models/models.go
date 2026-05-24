@@ -212,7 +212,7 @@ type FederationAuth struct {
 	Signature string `json:"signature"`
 }
 
-type SupabaseResponse struct {
+type APIResponse struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   *string     `json:"error,omitempty"`
@@ -220,18 +220,18 @@ type SupabaseResponse struct {
 }
 
 // SuccessResponse builds a successful APIResponse.
-func SuccessResponse(data interface{}) SupabaseResponse {
-	return SupabaseResponse{Success: true, Data: data}
+func SuccessResponse(data interface{}) APIResponse {
+	return APIResponse{Success: true, Data: data}
 }
 
 // SuccessResponseWithCount builds a successful response with a Count field.
-func SuccessResponseWithCount(data interface{}, count int) SupabaseResponse {
-	return SupabaseResponse{Success: true, Data: data, Count: &count}
+func SuccessResponseWithCount(data interface{}, count int) APIResponse {
+	return APIResponse{Success: true, Data: data, Count: &count}
 }
 
 // ErrorResponse builds an error APIResponse.
-func ErrorResponse(err string) SupabaseResponse {
-	return SupabaseResponse{Success: false, Error: &err}
+func ErrorResponse(err string) APIResponse {
+	return APIResponse{Success: false, Error: &err}
 }
 
 // Request types for API
