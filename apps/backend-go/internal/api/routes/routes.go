@@ -233,7 +233,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Protected endpoints
 		protected := rest.Group("")
-		protected.Use(middleware.SupabaseAuthCacheMiddleware(authService, redis))
+		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		{
 			// Messenger tables (protected with rate limiting)
 			messenger := protected.Group("")
@@ -327,7 +327,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Protected RPC functions
 		protected := rpc.Group("")
-		protected.Use(middleware.SupabaseAuthMiddleware(authService))
+		protected.Use(middleware.AuthMiddleware(authService))
 		protected.Use(middleware.MessengerRateLimitMiddleware(messengerRateLimiter))
 		{
 			protected.GET("/has_user_liked_post", rpcHandler.HasUserLikedPost)
@@ -397,7 +397,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		}
 
 		storageProtected := storage.Group("")
-		storageProtected.Use(middleware.SupabaseAuthMiddleware(authService))
+		storageProtected.Use(middleware.AuthMiddleware(authService))
 		{
 			// Server-side upload: browser sends file to backend, backend uploads to Garage.
 			// Avoids CORS/S3-signature issues with direct browser-to-Garage upload.
@@ -487,12 +487,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// WebSocket endpoint
 	if wsHandler != nil {
 		ws := router.Group("/ws")
-		ws.Use(middleware.SupabaseAuthCacheMiddleware(authService, redis))
+		ws.Use(middleware.AuthCacheMiddleware(authService, redis))
 		{
 			ws.GET("", wsHandler.HandleWebSocket)
 		}
 
 		// Debug endpoint for online users count (protected, admin only in production)
-		router.GET("/ws/stats", middleware.SupabaseAuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
+		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
 	}
 }
