@@ -127,19 +127,8 @@ export const encryptMessengerText = async ({
     const sodium = await ensureSodium();
     const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES);
 
-    console.log('Encrypting message:', {
-      plainTextLength: plainText.length,
-      recipientPublicKey: recipientPublicKey,
-      senderPrivateKey: senderPrivateKey.substring(0, 10) + '...',
-    });
-
     const recipientPubKeyBytes = fromBase64(recipientPublicKey);
     const senderPrivKeyBytes = fromBase64(senderPrivateKey);
-
-    console.log('Decoded keys:', {
-      recipientPubKeyBytesLength: recipientPubKeyBytes.length,
-      senderPrivKeyBytesLength: senderPrivKeyBytes.length,
-    });
 
     const cipherText = sodium.crypto_box_easy(
       textEncoder.encode(plainText),
@@ -150,11 +139,6 @@ export const encryptMessengerText = async ({
 
     const nonceBase64 = toBase64(nonce);
     const cipherTextBase64 = toBase64(cipherText);
-
-    console.log('Encrypted successfully:', {
-      nonceLength: nonceBase64.length,
-      cipherTextLength: cipherTextBase64.length,
-    });
 
     return {
       nonce: nonceBase64,
