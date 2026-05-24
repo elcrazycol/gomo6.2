@@ -55,15 +55,16 @@ jobs:
           DATE=$(date -u +%Y-%m-%d)
 
           # Categorize commits
-          feat=$(echo "$COMMITS" | grep -iE '^feat[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
-          fix=$(echo "$COMMITS" | grep -iE '^fix[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
-          docs=$(echo "$COMMITS" | grep -iE '^docs[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
-          refactor=$(echo "$COMMITS" | grep -iE '^refactor[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
-          test=$(echo "$COMMITS" | grep -iE '^test[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
-          security=$(echo "$COMMITS" | grep -iE '^security[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          # Patterns match feat:, feat!:, feat(, feat!(
+          feat=$(echo "$COMMITS" | grep -iE '^feat!?[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          fix=$(echo "$COMMITS" | grep -iE '^fix!?[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          docs=$(echo "$COMMITS" | grep -iE '^docs!?[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          refactor=$(echo "$COMMITS" | grep -iE '^refactor!?[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          test=$(echo "$COMMITS" | grep -iE '^test!?[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          security=$(echo "$COMMITS" | grep -iE '^security!?[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
 
           # Other commits (no conventional prefix or unrecognized)
-          other=$(echo "$COMMITS" | grep -viE '^(feat|fix|docs|refactor|test|security|chore|ci|style)[(:]' | sed 's/^/- /' || true)
+          other=$(echo "$COMMITS" | grep -viE '^(feat|fix|docs|refactor|test|security)!?[(:]' | sed 's/^/- /' || true)
 
           # Build changelog section
           {
@@ -114,6 +115,7 @@ jobs:
 
             echo "---"
             echo ""
+            echo "[${CURRENT_TAG#v}]: https://github.com/${{ github.repository }}/releases/tag/$CURRENT_TAG"
           } > /tmp/changelog-entry.md
 
           # Count entries
