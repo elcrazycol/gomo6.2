@@ -4,8 +4,8 @@ set -euo pipefail
 BACKEND_DIR="apps/backend-go"
 
 # Check if backend directory exists at all — skip if not a Go project
-if [ ! -d "$BACKEND_DIR" ]; then
-    echo "⚠️  Backend directory '$BACKEND_DIR' not found, skipping Go checks"
+if [ ! -f "$BACKEND_DIR/go.mod" ]; then
+    echo "⚠️  Go module not found at '$BACKEND_DIR/go.mod', skipping Go checks"
     exit 0
 fi
 
