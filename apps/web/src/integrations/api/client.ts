@@ -641,10 +641,16 @@ export const api = {
     }),
     update: (data: any) => ({
       eq: (column: string, value: any) => ({
-        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}`, {
-          method: 'PUT',
-          body: JSON.stringify(data)
-        }).then(callback)
+        then: (callback: any) => {
+          // Use REST path for /profiles/:id PUT — paths with query params get 404
+          const url = column === 'id'
+            ? `/api/v1/${table}/${encodeURIComponent(String(value))}`
+            : `/api/v1/${table}?${column}=eq.${encodeURIComponent(String(value))}`;
+          return apiClient.request<any>(url, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+          }).then(callback);
+        }
       })
     }),
     delete: () => ({
