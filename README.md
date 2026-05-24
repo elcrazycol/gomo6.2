@@ -9,8 +9,7 @@
   <a href="https://github.com/scramble22/gomo6.2/releases/latest"><img src="https://img.shields.io/github/v/release/scramble22/gomo6.2?include_prereleases&label=release&color=00d4aa" alt="Release"></a>
   <a href="https://github.com/scramble22/gomo6.2/commits/main"><img src="https://img.shields.io/github/last-commit/scramble22/gomo6.2/main?color=blue" alt="Last commit"></a>
   <img src="https://img.shields.io/badge/license-MIT-purple" alt="License">
-  <!-- Codecov — готов закомментирован: раскомментируй когда подключишь codecov.io -->
-  <!-- <a href="https://codecov.io/gh/scramble22/gomo6.2"><img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg" alt="Coverage"></a> -->
+  <a href="https://codecov.io/gh/scramble22/gomo6.2"><img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg" alt="Coverage"></a>
 </p>
 
 <p align="center">
