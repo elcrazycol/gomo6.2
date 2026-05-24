@@ -216,6 +216,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
 		rest.Any("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
 
+		rest.Any("/reports", universalHandler.HandleTableRequest)
+		rest.Any("/reports/*path", universalHandler.HandleTableRequest)
+
+		rest.Any("/user_bans", universalHandler.HandleTableRequest)
+		rest.Any("/user_bans/*path", universalHandler.HandleTableRequest)
+
+		rest.Any("/user_settings_changes", universalHandler.HandleTableRequest)
+		rest.Any("/user_settings_changes/*path", universalHandler.HandleTableRequest)
+
 		// Protected endpoints
 		protected := rest.Group("")
 		protected.Use(middleware.SupabaseAuthCacheMiddleware(authService, redis))
@@ -278,8 +287,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PUT("/boards/:id", boardsHandler.UpdateBoard)
 			protected.POST("/threads", threadsHandler.CreateThread)
 			protected.PUT("/threads/:id", threadsHandler.UpdateThread)
+			protected.PUT("/threads", threadsHandler.UpdateThread)
 			protected.POST("/posts", postsHandler.CreatePost)
 			protected.PUT("/posts/:id", postsHandler.UpdatePost)
+			protected.PUT("/posts", postsHandler.UpdatePost)
 			protected.DELETE("/threads", threadsHandler.DeleteThread)
 			protected.DELETE("/posts", postsHandler.DeletePost)
 

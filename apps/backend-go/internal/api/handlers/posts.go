@@ -112,23 +112,18 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 	}
 
-	// Handle ordering (Supabase format: column.asc/column.desc)
-	if order := c.Query("order"); order != "" {
-		column := "p.created_at"
-		direction := "ASC"
-		parts := strings.Split(order, ".")
-		if len(parts) >= 2 {
-			switch parts[0] {
-			case "created_at":
-				column = "p.created_at"
-			case "id":
-				column = "p.id"
+	// Handle ordering (Supabase format: column.asc/column.desc) — supports multiple order params
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
 			}
-			if strings.EqualFold(parts[1], "desc") {
-				direction = "DESC"
-			}
+			joined += o
 		}
-		query += " ORDER BY " + column + " " + direction
+		if s, ok := parseSupabaseOrderClause(joined, "p"); ok {
+			query += " ORDER BY " + s
+		}
 	} else {
 		query += " ORDER BY p.created_at ASC"
 	}
@@ -432,6 +427,10 @@ func (h *PostsHandler) CreatePost(c *gin.Context) {
 // UpdatePost updates reply body; only the author may edit.
 func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	idStr := c.Param("id")
+	if idStr == "" {
+		idStr = c.Query("id")
+		idStr = strings.TrimPrefix(idStr, "eq.")
+	}
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))

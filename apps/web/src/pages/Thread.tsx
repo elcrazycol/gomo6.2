@@ -432,36 +432,28 @@ const Thread = () => {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id);
-        
-        setIsAdmin(roles?.some(r => r.role === 'admin') || false);
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        const token = session.access_token;
+        const headers = { 'Authorization': `Bearer ${token}` };
+
+        const rolesRes = await fetch(`/rest/v1/user_roles?user_id=eq.${session.user.id}`, { headers });
+        const rolesResult = await rolesRes.json();
+        const roles = rolesResult.data;
+        setIsAdmin(roles?.some((r: any) => r.role === 'admin') || false);
+        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", session.user.id)
-          .single();
+        const profileRes = await fetch(`/rest/v1/profiles?id=eq.${session.user.id}`, { headers });
+        const profileResult = await profileRes.json();
+        const profile = profileResult.data?.[0];
 
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", session.user.id);
+        const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${session.user.id}`, { headers });
+        const achResult = await achRes.json();
+        const achievements = achResult.data;
 
         if (achievements) {
           const colorRewards = achievements
@@ -503,22 +495,26 @@ const Thread = () => {
       return;
     }
 
-    if (isSubscribed) {
-      const { error } = await supabase
-        .from("thread_subscriptions")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("thread_id", threadId);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      if (!error) {
+    if (isSubscribed) {
+      const res = await fetch(`/rest/v1/thread_subscriptions?user_id=eq.${user.id}&thread_id=eq.${threadId}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (res.ok) {
         toast.success("Отписались от уведомлений");
       }
     } else {
-      const { error } = await supabase
-        .from("thread_subscriptions")
-        .insert({ user_id: user.id, thread_id: threadId });
+      const res = await fetch('/rest/v1/thread_subscriptions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ user_id: user.id, thread_id: threadId }),
+      });
 
-      if (!error) {
+      if (res.ok) {
         toast.success("Подписались на уведомления");
       }
     }
@@ -559,21 +555,19 @@ const Thread = () => {
     if (!thread?.id || !threadId) return;
 
     const loadPollData = async () => {
-      const { data: poll } = await supabase
-        .from('polls')
-        .select('*')
-        .eq('thread_id', threadId)
-        .maybeSingle();
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined;
+
+      const pollRes = await fetch(`/rest/v1/polls?thread_id=eq.${threadId}`);
+      const pollResult = await pollRes.json();
+      const poll = pollResult.data?.[0];
 
       if (poll) {
         let userVotes: string[] = [];
-        if (user?.id) {
-          const { data: userVote } = await supabase
-            .from('poll_votes')
-            .select('option_ids')
-            .eq('poll_id', poll.id)
-            .eq('user_id', user.id)
-            .maybeSingle();
+        if (user?.id && token) {
+          const voteRes = await fetch(`/rest/v1/poll_votes?poll_id=eq.${poll.id}&user_id=eq.${user.id}`, { headers });
+          const voteResult = await voteRes.json();
+          const userVote = voteResult.data?.[0];
 
           userVotes = userVote?.option_ids || [];
         }
@@ -582,18 +576,18 @@ const Thread = () => {
       }
 
       // Track thread visit for achievements
-      if (user && thread) {
+      if (user && thread && token) {
         try {
           const hasCustomMessage = (thread as any).custom_message && (thread as any).custom_message.trim().length > 0;
-          await supabase
-            .from('thread_custom_message_visits')
-            .upsert({
+          await fetch('/rest/v1/thread_custom_message_visits', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
               user_id: user.id,
               thread_id: thread.id,
               has_custom_message: hasCustomMessage
-            }, {
-              onConflict: 'user_id,thread_id'
-            });
+            }),
+          });
         } catch (error) {
           console.error("Thread visit tracking unavailable:", error);
         }
@@ -754,14 +748,21 @@ const Thread = () => {
       return;
     }
 
-    const { error } = await supabase.from("reports").insert({
-      reporter_id: user.id,
-      reported_post_id: isThread ? null : postId,
-      reported_thread_id: isThread ? threadId : null,
-      reason: reportReason.trim(),
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    const res = await fetch('/rest/v1/reports', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        reporter_id: user.id,
+        reported_post_id: isThread ? null : postId,
+        reported_thread_id: isThread ? threadId : null,
+        reason: reportReason.trim(),
+      }),
     });
 
-    if (error) {
+    if (!res.ok) {
       toast.error("Ошибка отправки жалобы");
     } else {
       toast.success("Жалоба отправлена");
@@ -771,12 +772,15 @@ const Thread = () => {
   };
 
   const handleDeletePost = async (postId: string) => {
-    const { error } = await supabase
-      .from("posts")
-      .delete()
-      .eq("id", postId);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}` };
 
-    if (error) {
+    const res = await fetch(`/rest/v1/posts?id=eq.${postId}`, {
+      method: 'DELETE',
+      headers,
+    });
+
+    if (!res.ok) {
       toast.error("Ошибка удаления поста");
     } else {
       toast.success("Пост удален");
@@ -785,12 +789,15 @@ const Thread = () => {
   };
 
   const handleDeleteThread = async () => {
-    const { error } = await supabase
-      .from("threads")
-      .delete()
-      .eq("id", threadId);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}` };
+
+    const res = await fetch(`/rest/v1/threads?id=eq.${threadId}`, {
+      method: 'DELETE',
+      headers,
+    });
     
-    if (error) {
+    if (!res.ok) {
       toast.error("Ошибка удаления треда");
     } else {
       toast.success("Тред удален");
@@ -801,18 +808,18 @@ const Thread = () => {
   const handleEditPost = async () => {
     if (!editContent.trim() || !editingPostId) return;
 
-    const isOpeningPost = thread && editingPostId === thread.id;
-    const { error } = isOpeningPost
-      ? await supabase
-          .from("threads")
-          .update({ content: editContent.trim(), content_json: editContentJson })
-          .eq("id", editingPostId)
-      : await supabase
-          .from("posts")
-          .update({ content: editContent.trim(), content_json: editContentJson })
-          .eq("id", editingPostId);
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-    if (error) {
+    const isOpeningPost = thread && editingPostId === thread.id;
+    const table = isOpeningPost ? 'threads' : 'posts';
+    const res = await fetch(`/rest/v1/${table}?id=eq.${editingPostId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ content: editContent.trim(), content_json: editContentJson }),
+    });
+
+    if (!res.ok) {
       toast.error("Ошибка изменения поста");
     } else {
       toast.success("Пост изменен");
@@ -826,21 +833,26 @@ const Thread = () => {
   const handleBanUser = async (isPermanent: boolean) => {
     if (!banReason.trim() || !banUserId) return;
 
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
     const expiresAt = isPermanent 
       ? null 
       : new Date(Date.now() + parseInt(banDays) * 24 * 60 * 60 * 1000).toISOString();
 
-    const { error } = await supabase
-      .from("user_bans")
-      .insert({
+    const res = await fetch('/rest/v1/user_bans', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
         user_id: banUserId,
         banned_by: user.id,
         reason: banReason.trim(),
         expires_at: expiresAt,
         is_permanent: isPermanent,
-      });
+      }),
+    });
 
-    if (error) {
+    if (!res.ok) {
       toast.error("Ошибка выдачи бана");
     } else {
       toast.success(isPermanent ? "Пользователь забанен навсегда" : `Пользователь забанен на ${banDays} дней`);

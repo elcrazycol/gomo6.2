@@ -160,6 +160,9 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"profile_wall_post_likes":      true,
 		"profile_wall_post_reposts":    true,
 		"gomosub_rules_acceptance":     true,
+		"reports":                      true,
+		"user_bans":                    true,
+		"user_settings_changes":        true,
 		// Messenger tables
 		"chat_user_keys":            true,
 		"chat_conversations":        true,
@@ -253,9 +256,16 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
 
-	// Handle ORDER BY (PostgREST: col.asc / col.desc — not valid raw SQL in PostgreSQL)
-	if order := c.Query("order"); order != "" {
-		if s, ok := parseSupabaseOrderClause(order, ""); ok {
+	// Handle ORDER BY (PostgREST: col.asc / col.desc) — supports multiple order params
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
+			}
+			joined += o
+		}
+		if s, ok := parseSupabaseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}
@@ -980,9 +990,16 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		query += " AND " + strings.Join(clauses, " AND ")
 	}
 
-	// Handle ORDER BY
-	if order := c.Query("order"); order != "" {
-		if s, ok := parseSupabaseOrderClause(order, ""); ok {
+	// Handle ORDER BY — supports multiple order params
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
+			}
+			joined += o
+		}
+		if s, ok := parseSupabaseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}
