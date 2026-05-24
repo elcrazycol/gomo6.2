@@ -1456,7 +1456,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		var options []optionEntry
 		for _, opt := range req.Poll.Options {
 			if opt.Text != "" {
-				options = append(options, optionEntry{ID: opt.ID, Text: opt.Text})
+				options = append(options, optionEntry(opt))
 			}
 		}
 
