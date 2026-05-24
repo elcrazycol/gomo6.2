@@ -1,0 +1,59 @@
+# =============================================================================
+# Codecov configuration
+# =============================================================================
+# Docs: https://docs.codecov.com/docs/codecov-yaml
+# =============================================================================
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...90"
+
+  # ── Status checks (PR comments) ──
+  status:
+    project:
+      backend:
+        flags:
+          - backend
+        target: auto
+        threshold: 2%
+      frontend:
+        flags:
+          - frontend
+        target: auto
+        threshold: 5%
+    patch:
+      default:
+        target: auto
+        threshold: 5%
+
+# ── Flags (matches coverage.yml uploads) ──
+flags:
+  backend:
+    paths:
+      - apps/backend-go/
+    carryforward: false
+  frontend:
+    paths:
+      - apps/web/src/
+    carryforward: false
+
+# ── Comment behavior on PRs ──
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+  show_carryforward_flags: false
+
+# ── Ignore generated/test files ──
+ignore:
+  - "apps/backend-go/**/*_test.go"
+  - "apps/web/src/**/*.test.ts"
+  - "apps/web/src/**/*.test.tsx"
+  - "apps/web/src/test/**"
+
+# ── GitHub integration ──
+github_checks:
+  annotations: true

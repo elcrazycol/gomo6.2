@@ -46,7 +46,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/go/coverage.out
-          flags: go,backend
+          flags: backend
           name: go-coverage
           fail_ci_if_error: false
           verbose: true
@@ -76,7 +76,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/frontend/lcov.info
-          flags: frontend,typescript
+          flags: frontend
           name: frontend-coverage
           fail_ci_if_error: false
           verbose: true
