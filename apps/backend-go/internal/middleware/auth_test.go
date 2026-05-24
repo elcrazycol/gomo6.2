@@ -242,6 +242,44 @@ func TestAuthCacheMiddleware_Bearer_Valid(t *testing.T) {
 	}
 }
 
+func TestAuthCacheMiddleware_ExpiredToken(t *testing.T) {
+	secret := "test-authcache-expired-secret-at-least-32-ok"
+	t.Setenv("JWT_SECRET", secret)
+
+	svc := auth.NewAuthService()
+
+	// Create a token that expired 1 hour ago
+	claims := auth.Claims{
+		UserID:   "user-123",
+		Username: "alice",
+		Domain:   "gomo6.wtf",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("failed to create expired token: %v", err)
+	}
+
+	c, w := newCacheTestContext("GET", "/api/test")
+	c.Request.Header.Set("Authorization", "Bearer "+tokenStr)
+
+	middleware := AuthCacheMiddleware(svc, nil)
+	middleware(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for expired token, got %d", w.Code)
+	}
+
+	_, exists := c.Get("claims")
+	if exists {
+		t.Error("claims should not be set for expired token")
+	}
+}
+
 func TestAuthCacheMiddleware_QueryToken_Valid(t *testing.T) {
 	svc := auth.NewAuthService()
 	token, err := svc.GenerateToken("user-456", "bob", "gomo6.wtf")
