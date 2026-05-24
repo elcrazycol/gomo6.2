@@ -14,17 +14,19 @@
 <!-- ── Coverage ── -->
 <p align="center">
   <strong>📊 Code Coverage</strong><br>
+  
   <a href="https://codecov.io/gh/scramble22/gomo6.2">
-    <img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=backend" alt="Go coverage">
+    <img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?token=NQ6LEKHYCT&flag=backend" alt="Go coverage">
   </a>
   <a href="https://codecov.io/gh/scramble22/gomo6.2">
-    <img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=frontend" alt="Frontend coverage">
+    <img src="https://codecov.io/gh/scramble22/gomo6.2/branch/main/graph/badge.svg?flag=frontend&token=NQ6LEKHYCT" alt="Frontend coverage">
   </a>
   <br>
   <sub>Backend (Go) &nbsp;·&nbsp; Frontend (TypeScript)</sub>
 </p>
 
 <p align="center">
+   <strong>Stack</strong><br>
   <img src="https://img.shields.io/badge/go-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/typescript-%23007ACC?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/react-%2320232a?style=flat&logo=react&logoColor=%2361DAFB" alt="React">
