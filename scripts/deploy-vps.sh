@@ -47,7 +47,7 @@ echo "[2/4] Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
 echo "[3/4] Rebuilding Docker images (commit: $GIT_COMMIT)..."
 echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && docker compose build --build-arg VITE_GIT_COMMIT=$OLD_COMMIT web && docker compose up -d"
 # Pass GIT_COMMIT explicitly via --build-arg (bypasses docker-compose.yml interpolation + .env)
-docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" web
+docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT"
 docker compose up -d --remove-orphans
 
 # ── Clean up old images ─────────────────────────────────────────────────────
