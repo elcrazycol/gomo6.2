@@ -589,3 +589,462 @@ func TestHub_ConcurrentRoomOperations(t *testing.T) {
 		t.Errorf("expected 21 clients in shared-room, got %d", count)
 	}
 }
+
+// =============================================================================
+// extractRoomID — unit tests (no hub needed)
+// =============================================================================
+
+func TestExtractRoomID_StringValue(t *testing.T) {
+	payload := map[string]interface{}{"thread_id": "thread-123"}
+	result := extractRoomID(payload, "thread_id")
+	if result != "thread-123" {
+		t.Errorf("expected 'thread-123', got %q", result)
+	}
+}
+
+func TestExtractRoomID_MissingKey(t *testing.T) {
+	payload := map[string]interface{}{"other_key": "value"}
+	result := extractRoomID(payload, "thread_id")
+	if result != "" {
+		t.Errorf("expected empty string for missing key, got %q", result)
+	}
+}
+
+func TestExtractRoomID_ValueNotString(t *testing.T) {
+	payload := map[string]interface{}{"thread_id": 12345}
+	result := extractRoomID(payload, "thread_id")
+	if result != "" {
+		t.Errorf("expected empty string when value is not string, got %q", result)
+	}
+}
+
+func TestExtractRoomID_NonMapPayload(t *testing.T) {
+	result := extractRoomID("string payload", "thread_id")
+	if result != "" {
+		t.Errorf("expected empty string for non-map payload, got %q", result)
+	}
+}
+
+func TestExtractRoomID_NilPayload(t *testing.T) {
+	result := extractRoomID(nil, "thread_id")
+	if result != "" {
+		t.Errorf("expected empty string for nil payload, got %q", result)
+	}
+}
+
+func TestExtractRoomID_EmptyMap(t *testing.T) {
+	payload := map[string]interface{}{}
+	result := extractRoomID(payload, "thread_id")
+	if result != "" {
+		t.Errorf("expected empty string for empty map, got %q", result)
+	}
+}
+
+func TestExtractRoomID_EmptyStringValue(t *testing.T) {
+	payload := map[string]interface{}{"thread_id": ""}
+	result := extractRoomID(payload, "thread_id")
+	if result != "" {
+		t.Errorf("expected empty string for empty value, got %q", result)
+	}
+}
+
+// =============================================================================
+// handleRedisEvent — tests event routing through hub rooms
+// =============================================================================
+
+func TestHandleRedisEvent_NewThread(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "feed")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewThread,
+		Payload: map[string]interface{}{
+			"id":    "thread-1",
+			"title": "Hello",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "new_thread") {
+			t.Errorf("expected message type 'new_thread', got: %s", string(msg))
+		}
+		if !containsStr(string(msg), "thread-1") {
+			t.Errorf("expected payload with thread-1, got: %s", string(msg))
+		}
+	default:
+		t.Error("client in 'feed' room should receive NewThread event")
+	}
+}
+
+func TestHandleRedisEvent_NewPost_ToThreadAndFeed(t *testing.T) {
+	hub := NewHub(nil, nil)
+	clientFeed := newTestClient(hub, "user-1", "Alice")
+	clientThread := newTestClient(hub, "user-2", "Bob")
+	hub.SubscribeToRoom(clientFeed, "feed")
+	hub.SubscribeToRoom(clientThread, "thread-42")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewPost,
+		Payload: map[string]interface{}{
+			"id":        "post-1",
+			"thread_id": "thread-42",
+			"content":   "Test post",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	// Client in 'feed' should receive
+	select {
+	case msg := <-clientFeed.Send:
+		if !containsStr(string(msg), "new_post") {
+			t.Errorf("feed client expected 'new_post', got: %s", string(msg))
+		}
+	default:
+		t.Error("feed client should receive NewPost event")
+	}
+
+	// Client in 'thread-42' should receive
+	select {
+	case msg := <-clientThread.Send:
+		if !containsStr(string(msg), "new_post") {
+			t.Errorf("thread client expected 'new_post', got: %s", string(msg))
+		}
+	default:
+		t.Error("thread client should receive NewPost event")
+	}
+}
+
+func TestHandleRedisEvent_NewPost_NoThreadID(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "feed")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewPost,
+		Payload: map[string]interface{}{
+			"id":      "post-1",
+			"content": "No thread id",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	// Should still broadcast to feed even without thread_id
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "new_post") {
+			t.Errorf("expected 'new_post', got: %s", string(msg))
+		}
+	default:
+		t.Error("feed client should receive NewPost even without thread_id")
+	}
+}
+
+func TestHandleRedisEvent_Like(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "thread-99")
+
+	event := RealtimeEvent{
+		Type: MessageTypeLike,
+		Payload: map[string]interface{}{
+			"post_id":   "post-5",
+			"thread_id": "thread-99",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "like") {
+			t.Errorf("expected 'like', got: %s", string(msg))
+		}
+	default:
+		t.Error("client in thread-99 should receive Like event")
+	}
+}
+
+func TestHandleRedisEvent_Unlike(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "thread-99")
+
+	event := RealtimeEvent{
+		Type: MessageTypeUnlike,
+		Payload: map[string]interface{}{
+			"post_id":   "post-5",
+			"thread_id": "thread-99",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "unlike") {
+			t.Errorf("expected 'unlike', got: %s", string(msg))
+		}
+	default:
+		t.Error("client in thread-99 should receive Unlike event")
+	}
+}
+
+func TestHandleRedisEvent_NewWallPost(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "profile_wall_user-42")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewWallPost,
+		Payload: map[string]interface{}{
+			"id":      "wall-1",
+			"user_id": "user-42",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "new_wall_post") {
+			t.Errorf("expected 'new_wall_post', got: %s", string(msg))
+		}
+	default:
+		t.Error("client in profile_wall_user-42 should receive NewWallPost event")
+	}
+}
+
+func TestHandleRedisEvent_UpdateWallPost(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "profile_wall_user-42")
+
+	event := RealtimeEvent{
+		Type: MessageTypeUpdateWallPost,
+		Payload: map[string]interface{}{
+			"id":      "wall-1",
+			"user_id": "user-42",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "update_wall_post") {
+			t.Errorf("expected 'update_wall_post', got: %s", string(msg))
+		}
+	default:
+		t.Error("client in profile_wall_user-42 should receive UpdateWallPost event")
+	}
+}
+
+func TestHandleRedisEvent_DeleteWallPost(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "profile_wall_user-42")
+
+	event := RealtimeEvent{
+		Type: MessageTypeDeleteWallPost,
+		Payload: map[string]interface{}{
+			"id":      "wall-1",
+			"user_id": "user-42",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "delete_wall_post") {
+			t.Errorf("expected 'delete_wall_post', got: %s", string(msg))
+		}
+	default:
+		t.Error("client in profile_wall_user-42 should receive DeleteWallPost event")
+	}
+}
+
+func TestHandleRedisEvent_NewChatMessage(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(client, "chat_conv-abc")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewChatMessage,
+		Payload: map[string]interface{}{
+			"id":              "msg-1",
+			"conversation_id": "conv-abc",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "new_chat_message") {
+			t.Errorf("expected 'new_chat_message', got: %s", string(msg))
+		}
+	default:
+		t.Error("client in chat_conv-abc should receive NewChatMessage event")
+	}
+}
+
+func TestHandleRedisEvent_UserStatus_BroadcastAll(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+
+	go hub.Run()
+	defer hub.Stop()
+
+	hub.register <- client
+	waitForBuffer()
+
+	event := RealtimeEvent{
+		Type: MessageTypeUserOnline,
+		Payload: map[string]interface{}{
+			"user_id":  "user-42",
+			"username": "Bob",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "user_online") {
+			t.Errorf("expected 'user_online', got: %s", string(msg))
+		}
+	default:
+		t.Error("registered client should receive UserOnline event via broadcast")
+	}
+}
+
+func TestHandleRedisEvent_UserOffline_BroadcastAll(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+
+	go hub.Run()
+	defer hub.Stop()
+
+	hub.register <- client
+	waitForBuffer()
+
+	event := RealtimeEvent{
+		Type: MessageTypeUserOffline,
+		Payload: map[string]interface{}{
+			"user_id":  "user-42",
+			"username": "Bob",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "user_offline") {
+			t.Errorf("expected 'user_offline', got: %s", string(msg))
+		}
+	default:
+		t.Error("registered client should receive UserOffline event via broadcast")
+	}
+}
+
+func TestHandleRedisEvent_UnknownType_BroadcastAll(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-1", "Alice")
+
+	go hub.Run()
+	defer hub.Stop()
+
+	hub.register <- client
+	waitForBuffer()
+
+	event := RealtimeEvent{
+		Type: "custom_event",
+		Payload: map[string]interface{}{
+			"data": "test",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-client.Send:
+		if !containsStr(string(msg), "custom_event") {
+			t.Errorf("expected 'custom_event', got: %s", string(msg))
+		}
+	default:
+		t.Error("client should receive unknown events via broadcast")
+	}
+}
+
+func TestHandleRedisEvent_WallPost_NoUserID(t *testing.T) {
+	hub := NewHub(nil, nil)
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewWallPost,
+		Payload: map[string]interface{}{
+			"id": "wall-1",
+			// no user_id
+		},
+	}
+
+	// Should not panic, just no broadcast (no client subscribed without user_id)
+	hub.handleRedisEvent(event)
+}
+
+func TestHandleRedisEvent_ChatMessage_NoConversationID(t *testing.T) {
+	hub := NewHub(nil, nil)
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewChatMessage,
+		Payload: map[string]interface{}{
+			"id": "msg-1",
+			// no conversation_id
+		},
+	}
+
+	// Should not panic
+	hub.handleRedisEvent(event)
+}
+
+func TestHandleRedisEvent_JSONMarshalError(t *testing.T) {
+	hub := NewHub(nil, nil)
+
+	// Payload with a channel (can't be marshaled) should be handled gracefully
+	event := RealtimeEvent{
+		Type:    MessageTypeNewThread,
+		Payload: make(chan int),
+	}
+
+	// Should not panic
+	hub.handleRedisEvent(event)
+}
+
+// containsStr is a helper to check substring in handleRedisEvent tests
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
