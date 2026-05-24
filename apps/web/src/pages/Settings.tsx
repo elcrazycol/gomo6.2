@@ -132,28 +132,22 @@ const Settings = () => {
       setUser(user);
       
       if (user) {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        const headers = { 'Authorization': `Bearer ${token}` };
+
         // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", user.id)
-          .single();
+        const profileRes = await fetch(`/rest/v1/profiles?id=eq.${user.id}`, { headers });
+        const profileResult = await profileRes.json();
+        const profile = profileResult.data?.[0];
 
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", user.id);
+        const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${user.id}`, { headers });
+        const achResult = await achRes.json();
+        const achievements = achResult.data;
 
         if (achievements) {
           const colorRewards = achievements
@@ -177,16 +171,15 @@ const Settings = () => {
   }, []);
 
   const loadPrivacySettings = useCallback(async () => {
-    // Always try to load from database first for consistency across devices
     try {
-      const { data, error } = await (supabase as any)
-        .from('privacy_settings')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
-      if (!error && data) {
-        // Data exists in database - use it and cache in localStorage
+      const res = await fetch(`/rest/v1/privacy_settings?user_id=eq.${user.id}`, { headers });
+      const result = await res.json();
+      const data = result.data?.[0];
+
+      if (data) {
         const merged = {
           ...defaultPrivacySettings,
           show_profile_stats: data.show_profile_stats ?? false,
@@ -199,19 +192,21 @@ const Settings = () => {
       }
 
       // If no data in database (new user), create default settings
-      if (error && error.code === 'PGRST116') {
+      if (token) {
         const defaultSettings = {
           ...defaultPrivacySettings,
           user_id: user.id,
         };
 
-        const { error: insertError, data: insertedData } = await (supabase as any)
-          .from('privacy_settings')
-          .insert(defaultSettings)
-          .select()
-          .single();
+        const insertRes = await fetch('/rest/v1/privacy_settings', {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify(defaultSettings),
+        });
+        const insertResult = await insertRes.json();
+        const insertedData = insertResult.data;
 
-        if (!insertError && insertedData) {
+        if (insertedData) {
           const mergedInserted = {
             ...defaultPrivacySettings,
             ...insertedData,
@@ -274,23 +269,25 @@ const Settings = () => {
 
       // Try to save to database
       try {
-        // First try to update existing record
-        const { error: updateError } = await (supabase as any)
-          .from('privacy_settings')
-          .update(dbData)
-          .eq('user_id', user.id);
+        const updateRes = await fetch(`/rest/v1/privacy_settings?user_id=eq.${user.id}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(dbData),
+        });
 
-        if (updateError) {
-          // If update failed, try upsert (insert or update)
-          const { error: upsertError } = await (supabase as any)
-            .from('privacy_settings')
-            .upsert({
+        if (!updateRes.ok) {
+          // If update failed, try upsert (insert)
+          const upsertRes = await fetch('/rest/v1/privacy_settings', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
               user_id: user.id,
               ...dbData,
-            });
+            }),
+          });
 
-          if (upsertError) {
-            console.error('Upsert also failed:', upsertError);
+          if (!upsertRes.ok) {
+            console.error('Upsert also failed:', await upsertRes.text());
           }
         }
 
@@ -357,14 +354,15 @@ const Settings = () => {
     if (fontName.trim()) {
       loadGoogleFont(fontName);
       // Track font setting change for achievement
-      await supabase
-        .from('user_settings_changes')
-        .upsert({
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      await fetch('/rest/v1/user_settings_changes', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           user_id: user?.id,
           setting_name: 'custom_font'
-        }, {
-          onConflict: 'user_id,setting_name'
-        });
+        }),
+      });
     } else {
       // Reset to default
       const existingLinks = document.querySelectorAll('link[data-google-font]');
@@ -446,28 +444,9 @@ const Settings = () => {
     if (user) {
       loadPrivacySettings();
 
-      // Set up real-time subscription for privacy settings changes
-      const channel = (supabase as any)
-        .channel(`privacy_settings_${user.id}`)
-        .on('postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'privacy_settings',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload: any) => {
-            // Update local state and localStorage
-            const updatedSettings = payload.new;
-            setPrivacySettings(updatedSettings);
-            localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
+      // Poll privacy settings every 30s (Go backend doesn't support realtime yet)
+      const interval = setInterval(loadPrivacySettings, 30000);
+      return () => clearInterval(interval);
     }
   }, [user, loadPrivacySettings]);
 

@@ -49,20 +49,17 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 		}
 	}
 
-	// Handle ordering
-	if order := c.Query("order"); order != "" {
-		// Convert Supabase format "column.asc" to SQL "column ASC"
-		if strings.Contains(order, ".") {
-			parts := strings.Split(order, ".")
-			if len(parts) == 2 {
-				column := parts[0]
-				direction := strings.ToUpper(parts[1])
-				query += " ORDER BY " + column + " " + direction
-			} else {
-				query += " ORDER BY " + order
+	// Handle ordering — supports multiple order params
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
 			}
-		} else {
-			query += " ORDER BY " + order
+			joined += o
+		}
+		if s, ok := parseSupabaseOrderClause(joined, ""); ok {
+			query += " ORDER BY " + s
 		}
 	} else {
 		query += " ORDER BY created_at DESC"

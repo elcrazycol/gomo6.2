@@ -84,8 +84,15 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
-	if order := c.Query("order"); order != "" {
-		if s, ok := parseSupabaseOrderClause(order, tableAlias); ok {
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
+			}
+			joined += o
+		}
+		if s, ok := parseSupabaseOrderClause(joined, tableAlias); ok {
 			query += " ORDER BY " + s
 		}
 	}

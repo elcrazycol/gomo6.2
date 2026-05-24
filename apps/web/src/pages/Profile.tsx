@@ -209,35 +209,28 @@ const Profile = () => {
       setCurrentUser(user);
       
       if (user) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id);
-        
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        const headers = { 'Authorization': `Bearer ${token}` };
+
+        // Load roles
+        const rolesRes = await fetch(`/rest/v1/user_roles?user_id=eq.${user.id}`, { headers });
+        const rolesResult = await rolesRes.json();
+        const roles = rolesResult.data;
+        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username")
-          .eq("id", user.id)
-          .single();
+        const profileRes = await fetch(`/rest/v1/profiles?id=eq.${user.id}`, { headers });
+        const profileResult = await profileRes.json();
+        const profile = profileResult.data?.[0];
 
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", user.id);
+        const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${user.id}`, { headers });
+        const achResult = await achRes.json();
+        const achievements = achResult.data;
 
         if (achievements) {
           const colorRewards = achievements
@@ -279,51 +272,53 @@ const Profile = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+  // Realtime status polling for profile (Go backend doesn't support Supabase realtime yet)
   useEffect(() => {
     if (!userId) return;
-
-    const channel = supabase
-      .channel(`profile-status-${userId}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${userId}` },
-        (payload) => {
-          const updated = payload.new as any;
-          if (updated) {
-            setIsOnline(updated.is_online || false);
-            setLastSeen(updated.last_seen_at || null);
-          }
+    // Poll profile status every 10 seconds
+    const pollStatus = async () => {
+      try {
+        const res = await fetch(`/rest/v1/profiles?id=eq.${userId}`);
+        const result = await res.json();
+        const updated = result.data?.[0];
+        if (updated) {
+          setIsOnline(updated.is_online || false);
+          setLastSeen(updated.last_seen_at || null);
         }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
+      } catch { /* ignore polling errors */ }
     };
+    pollStatus();
+    const interval = setInterval(pollStatus, 10000);
+    return () => clearInterval(interval);
   }, [userId]);
 
   // Update online status for current user
   useOnlineStatus(currentUser?.id);
 
   const loadProfile = useCallback(async () => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+
+    const profileRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`);
+    const profileResult = await profileRes.json();
+    const data = profileResult.data?.[0];
 
     if (data) {
-      // Load thread likes count
-      const { data: threadLikesData } = await supabase.rpc(
-        "get_user_thread_likes_received_count",
-        { user_uuid: userId }
-      );
+      // Load thread likes count (protected RPC)
+      let threadLikesCount = 0;
+      if (token) {
+        try {
+          const tlr = await fetch(`/rpc/v1/get_user_thread_likes_received_count?user_uuid=eq.${userId}`, { headers });
+          const tlrResult = await tlr.json();
+          threadLikesCount = tlrResult.data || tlrResult || 0;
+        } catch { /* ignore */ }
+      }
 
       setProfile({
         ...data,
         bio_json: (data as any).bio_json ?? undefined,
         garma: data.garma ?? 0,
-        thread_likes_received_count: threadLikesData || 0
+        thread_likes_received_count: threadLikesCount
       });
       setUsername(data.username);
       setBio(data.bio || "");
@@ -335,11 +330,9 @@ const Profile = () => {
       setIsOnline(data.is_online || false);
 
       // Load privacy settings for online status, wall and stats
-      const { data: privacyData } = await supabase
-        .from("privacy_settings")
-        .select("show_last_seen, show_online_status, show_profile_wall, allow_wall_posts_from_others, show_threads_tab, show_profile_stats, show_detailed_stats, stats_visibility")
-        .eq("user_id", userId)
-        .maybeSingle();
+      const privacyRes = await fetch(`/rest/v1/privacy_settings?user_id=eq.${userId}`);
+      const privacyResult = await privacyRes.json();
+      const privacyData = privacyResult.data?.[0];
 
       if (privacyData) {
         setShowLastSeen(privacyData.show_last_seen ?? true);
@@ -365,11 +358,14 @@ const Profile = () => {
       const custom = await getProfileCustomization(userId);
       setCustomization(custom);
 
-      // Load likes received count
-      const { data: likesData } = await supabase.rpc('get_user_likes_received_count', {
-        user_uuid: userId
-      });
-      setLikesReceived((likesData as number) || 0);
+      // Load likes received count (protected RPC)
+      if (token) {
+        try {
+          const lr = await fetch(`/rpc/v1/get_user_likes_received_count?user_uuid=eq.${userId}`, { headers });
+          const lrResult = await lr.json();
+          setLikesReceived((lrResult.data as number) || 0);
+        } catch { /* ignore */ }
+      }
     }
   }, [userId]);
 
@@ -386,12 +382,19 @@ const Profile = () => {
     if (!userId) return [];
 
     try {
-      const { data, error } = await supabase.rpc('get_avatar_history', {
-        user_uuid: userId
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+
+      const res = await fetch('/rpc/v1/get_avatar_history', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_uuid: userId }),
       });
+      const result = await res.json();
 
-      if (error) throw error;
+      if (!res.ok) throw new Error(result.error || 'Failed to load avatar history');
 
+      const data = result.data ?? result;
       setAvatarHistory((data || []) as any[]);
       return (data || []) as any[];
     } catch (error) {
@@ -405,64 +408,44 @@ const Profile = () => {
 
     setThreadsLoading(true);
     try {
-      const { data: threadsData, error } = await supabase
-        .from('threads')
-        .select(`
-          id,
-          title,
-          content,
-          image_url,
-          image_urls,
-          created_at,
-          updated_at,
-          user_id,
-          tags,
-          ephemeral_type,
-          ephemeral_value,
-          auto_delete_at,
-          boards (
-            slug,
-            name
-          )
-        `)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      // Fetch threads
+      const threadsRes = await fetch(`/rest/v1/threads?user_id=eq.${userId}&order=created_at.desc&limit=20`);
+      const threadsResult = await threadsRes.json();
+      const threadsData = threadsResult.data || [];
 
-      if (error) throw error;
-
-      if (threadsData) {
-        // Get profiles for all threads
-        const userIds = [...new Set(threadsData.map(t => t.user_id).filter(Boolean))];
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('id, username, is_anonymous, avatar_url')
-          .in('id', userIds);
-
-        // Get post counts for threads
-        const threadIds = threadsData.map(t => t.id);
-        const { data: postCounts } = await supabase
-          .from('posts')
-          .select('thread_id')
-          .in('thread_id', threadIds);
-
-        // Count posts per thread
-        const postCountMap = postCounts?.reduce((acc, post) => {
-          acc[post.thread_id] = (acc[post.thread_id] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>) || {};
-
-        // Combine data
-        const threadsWithData = threadsData.map(thread => ({
-          ...thread,
-          profiles: profilesData?.find(p => p.id === thread.user_id) || null,
-          post_count: postCountMap[thread.id] || 0
-        }));
-
-        setUserThreads(threadsWithData);
-      } else {
+      if (threadsData.length === 0) {
         setUserThreads([]);
+        return;
       }
+
+      // Get profiles for all threads
+      const userIds = [...new Set(threadsData.map((t: any) => t.user_id).filter(Boolean))];
+      let profilesMap: Record<string, any> = {};
+      if (userIds.length > 0) {
+        const profilesRes = await fetch(`/rest/v1/profiles?id=in.(${userIds.join(',')})`);
+        const profilesResult = await profilesRes.json();
+        (profilesResult.data || []).forEach((p: any) => { profilesMap[p.id] = p; });
+      }
+
+      // Get post counts for threads
+      const threadIds = threadsData.map((t: any) => t.id);
+      let postCountMap: Record<string, number> = {};
+      if (threadIds.length > 0) {
+        const postsRes = await fetch(`/rest/v1/posts?thread_id=in.(${threadIds.join(',')})`);
+        const postsResult = await postsRes.json();
+        (postsResult.data || []).forEach((p: any) => {
+          postCountMap[p.thread_id] = (postCountMap[p.thread_id] || 0) + 1;
+        });
+      }
+
+      // Combine data
+      const threadsWithData = threadsData.map((thread: any) => ({
+        ...thread,
+        profiles: profilesMap[thread.user_id] || null,
+        post_count: postCountMap[thread.id] || 0
+      }));
+
+      setUserThreads(threadsWithData);
     } catch (error) {
       console.error('Error loading user threads:', error);
       toast.error('Ошибка загрузки тредов');
@@ -479,12 +462,20 @@ const Profile = () => {
 
   const toggleAchievementPin = async (achievementId: string) => {
     try {
-      const { data, error } = await supabase.rpc('toggle_achievement_pin', {
-        _user_id: userId,
-        _achievement_id: achievementId
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+      const res = await fetch('/rpc/v1/toggle_achievement_pin', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          _user_id: userId,
+          _achievement_id: achievementId
+        }),
       });
 
-      if (error) throw error;
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Failed to toggle pin');
 
       // Reload achievements to reflect changes
       await loadAchievements();
@@ -494,27 +485,9 @@ const Profile = () => {
   };
 
   const loadAchievements = async () => {
-    const { data } = await supabase
-      .from("user_achievements")
-      .select(`
-        level,
-        is_pinned,
-        pinned_order,
-        unlocked_at,
-        achievements (
-          id,
-          name,
-          description,
-          icon,
-          category,
-          achievement_type
-        )
-      `)
-      .eq("user_id", userId)
-      .order("is_pinned", { ascending: false })
-      .order("pinned_order", { ascending: true })
-      .order("level", { ascending: false })
-      .order("unlocked_at", { ascending: false });
+    const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=level.desc&order=unlocked_at.desc`);
+    const achResult = await achRes.json();
+    const data = achResult.data || [];
 
     if (data) {
       // Process achievements without grouping by type (show all levels separately)
@@ -689,18 +662,22 @@ const Profile = () => {
   const handleSave = async () => {
     if (!currentUser || currentUser.id !== userId) return;
 
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
     // Сохраняем профиль
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({
+    const profileRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
         username,
         bio,
         bio_json: bioJson,
         is_anonymous: isAnonymous,
-      })
-      .eq("id", userId);
+      }),
+    });
 
-    if (profileError) {
+    if (!profileRes.ok) {
       toast.error("Ошибка сохранения профиля");
       return;
     }
@@ -766,13 +743,17 @@ const Profile = () => {
 
       await uploadFile('post-images', fileName, croppedFile);
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({ avatar_url: fileName })
-        .eq("id", userId);
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      if (error) {
-        console.error('Update error:', error);
+      const updateRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ avatar_url: fileName }),
+      });
+
+      if (!updateRes.ok) {
+        console.error('Update error:', await updateRes.text());
         toast.error('Ошибка обновления профиля');
         return;
       }
@@ -793,14 +774,22 @@ const Profile = () => {
     if (!currentUser || currentUser.id !== userId) return;
 
     try {
-      const { data, error } = await supabase.rpc('delete_avatar_from_history', {
-        avatar_id: avatarId,
-        requesting_user_id: currentUser.id
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+      const res = await fetch('/rpc/v1/delete_avatar_from_history', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          avatar_id: avatarId,
+          requesting_user_id: currentUser.id
+        }),
       });
+      const result = await res.json();
 
-      if (error) throw error;
+      if (!res.ok) throw new Error(result.error || 'Failed to delete avatar');
 
-      if (data) {
+      if (result.data) {
         toast.success("Аватар удален");
 
         // Reload history
@@ -822,9 +811,13 @@ const Profile = () => {
         }
 
         // Close gallery if no more avatars
-        const { data: historyData } = await supabase.rpc('get_avatar_history', {
-          user_uuid: userId
+        const historyRes = await fetch('/rpc/v1/get_avatar_history', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ user_uuid: userId }),
         });
+        const historyDataResult = await historyRes.json();
+        const historyData = historyDataResult.data ?? historyDataResult;
 
         if (!historyData || (historyData as any[]).length === 0) {
           setShowAvatarGallery(false);
@@ -848,38 +841,41 @@ const Profile = () => {
 
   const handleSaveAndExit = async () => {
     try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
       const prevBioJson = profile.bio_json ?? null;
       const bioJsonChanged =
         JSON.stringify(bioJson ?? null) !== JSON.stringify(prevBioJson);
       if (userId && (bio !== profile.bio || bioJsonChanged)) {
-        const { error: bioError } = await supabase
-          .from("profiles")
-          .update({ bio, bio_json: bioJson })
-          .eq("id", userId);
-
-        if (bioError) throw bioError;
+        const bioRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ bio, bio_json: bioJson }),
+        });
+        if (!bioRes.ok) throw new Error('Failed to save bio');
       }
 
       // Save username changes
       if (userId && newUsername.trim() && newUsername !== profile.username) {
-        const { error: usernameError } = await supabase
-          .from("profiles")
-          .update({ username: newUsername.trim() })
-          .eq("id", userId);
-
-        if (usernameError) throw usernameError;
+        const usernameRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ username: newUsername.trim() }),
+        });
+        if (!usernameRes.ok) throw new Error('Failed to save username');
 
         setProfile(prev => prev ? { ...prev, username: newUsername.trim() } : null);
       }
 
       // Save anonymity setting
       if (userId && isAnonymous !== profile.is_anonymous) {
-        const { error: anonError } = await supabase
-          .from("profiles")
-          .update({ is_anonymous: isAnonymous })
-          .eq("id", userId);
-
-        if (anonError) throw anonError;
+        const anonRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ is_anonymous: isAnonymous }),
+        });
+        if (!anonRes.ok) throw new Error('Failed to save anonymity');
       }
 
       setIsEditing(false);
@@ -916,12 +912,15 @@ const Profile = () => {
     }
 
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ username: newUsername })
-        .eq("id", userId);
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      if (error) throw error;
+      const res = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ username: newUsername }),
+      });
+      if (!res.ok) throw new Error('Failed to save username');
 
       toast.success("Имя пользователя изменено");
       setProfile(prev => prev ? { ...prev, username: newUsername } : null);

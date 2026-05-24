@@ -69,8 +69,15 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
-	if order := c.Query("order"); order != "" {
-		if s, ok := parseSupabaseOrderClause(order, "ua"); ok {
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
+			}
+			joined += o
+		}
+		if s, ok := parseSupabaseOrderClause(joined, "ua"); ok {
 			query += " ORDER BY " + s
 		}
 	}
