@@ -219,39 +219,65 @@ const Board = () => {
   }, [board]);
 
   const loadThreads = async (boardId: string) => {
-    const { data: threadsData } = await supabase
-      .from("threads")
-      .select("*")
-      .eq("board_id", boardId)
-      .order("updated_at", { ascending: false });
+    // Fetch threads from Go backend
+    const threadsResponse = await fetch(`/rest/v1/threads?board_id=eq.${boardId}&order=updated_at.desc`);
+    const threadsResult = await threadsResponse.json();
+    const threadsData: any[] = threadsResult.data || [];
 
-    if (threadsData) {
-      const threadsWithData = await Promise.all(
-        threadsData.map(async (thread) => {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("username, is_anonymous")
-            .eq("id", thread.user_id!)
-            .maybeSingle();
-          
-          // Get latest post with author info
-          const { data: latestPost } = await supabase
-            .from("posts")
-            .select("content, created_at, is_private, user_id, profiles(username, is_anonymous)")
-            .eq("thread_id", thread.id)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          return {
-            ...thread,
-            profiles: profile,
-            latest_post: latestPost,
-          };
-        })
-      );
-      setThreads(threadsWithData);
+    if (!threadsData.length) {
+      setThreads([]);
+      return;
     }
+
+    // Collect thread author IDs
+    const userIds = new Set<string>();
+    threadsData.forEach((t: any) => { if (t.user_id) userIds.add(t.user_id); });
+
+    // Fetch latest post for each thread in parallel
+    const postsPromises = threadsData.map(async (thread: any) => {
+      const postResponse = await fetch(`/rest/v1/posts?thread_id=eq.${thread.id}&order=created_at.desc&limit=1`);
+      const postResult = await postResponse.json();
+      return { threadId: thread.id, posts: (postResult.data || []) as any[] };
+    });
+    const postsResults = await Promise.all(postsPromises);
+
+    // Collect post author IDs
+    postsResults.forEach(({ posts }) => {
+      posts.forEach((p: any) => { if (p.user_id) userIds.add(p.user_id); });
+    });
+
+    // Batch fetch all profiles (for is_anonymous)
+    const profilesMap = new Map<string, any>();
+    const userIdArray = [...userIds];
+    if (userIdArray.length > 0) {
+      const profilesResponse = await fetch(`/rest/v1/profiles?id=in.(${userIdArray.join(',')})`);
+      const profilesResult = await profilesResponse.json();
+      (profilesResult.data || []).forEach((p: any) => profilesMap.set(p.id, p));
+    }
+
+    // Build result
+    const postsByThread = new Map(postsResults.map(r => [r.threadId, r.posts]));
+
+    const threadsWithData = threadsData.map((thread: any) => {
+      const profile = profilesMap.get(thread.user_id);
+      const posts = postsByThread.get(thread.id) || [];
+      const post = posts[0];
+      const postProfile = post ? profilesMap.get(post.user_id) : null;
+
+      return {
+        ...thread,
+        profiles: profile ? { username: profile.username, is_anonymous: profile.is_anonymous } : null,
+        latest_post: post ? {
+          content: post.content,
+          created_at: post.created_at,
+          is_private: post.is_private,
+          user_id: post.user_id,
+          profiles: postProfile ? { username: postProfile.username, is_anonymous: postProfile.is_anonymous } : null,
+        } : undefined,
+      };
+    });
+
+    setThreads(threadsWithData);
   };
 
   const handleCreateThread = async (e: React.FormEvent) => {
