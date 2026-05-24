@@ -114,8 +114,8 @@ func TestBotEventPublisher_PublishChatMessage_NilRedis(t *testing.T) {
 // TestBotEventPublisher_PublishChatMessage_PlaintextExtraction tests BOT_PLAINTEXT: prefix handling
 func TestBotEventPublisher_PublishChatMessage_PlaintextExtraction(t *testing.T) {
 	message := map[string]interface{}{
-		"id":             "msg-1",
-		"ciphertext":     "BOT_PLAINTEXT:Hello bots!",
+		"id":              "msg-1",
+		"ciphertext":      "BOT_PLAINTEXT:Hello bots!",
 		"conversation_id": "conv-1",
 	}
 

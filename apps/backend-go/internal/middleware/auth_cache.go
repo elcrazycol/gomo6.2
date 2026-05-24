@@ -90,4 +90,3 @@ func tryValidateAndCache(authService *auth.AuthService, redisClient *redis.Clien
 
 	return false
 }
-

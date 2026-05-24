@@ -147,7 +147,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	}
 
 	profileCount := len(profiles)
-	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: profiles, Count: &profileCount})
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: profiles, Count: &profileCount})
 }
 
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {

@@ -58,7 +58,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 			}
 			joined += o
 		}
-		if s, ok := parseSupabaseOrderClause(joined, ""); ok {
+		if s, ok := parseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	} else {
@@ -108,7 +108,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 	}
 
 	boardCount := len(boards)
-	c.JSON(http.StatusOK, models.SupabaseResponse{Success: true, Data: boards, Count: &boardCount})
+	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: boards, Count: &boardCount})
 }
 
 func (h *BoardsHandler) GetBoard(c *gin.Context) {

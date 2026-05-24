@@ -46,7 +46,7 @@ func TestLikeThread_Success(t *testing.T) {
 		t.Fatalf("expected 201, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestUnlikeThread_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestLikePost_Success(t *testing.T) {
 		t.Fatalf("expected 201, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestUnlikePost_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestGetThreadLikes_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	var resp models.SupabaseResponse
+	var resp models.APIResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
