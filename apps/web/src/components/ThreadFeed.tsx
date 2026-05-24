@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/api/client_simple";
+import { supabase } from "@/integrations/api/supabaseCompat";
 import { ThreadCard } from "@/components/ThreadCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 

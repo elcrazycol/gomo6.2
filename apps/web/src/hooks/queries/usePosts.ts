@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/api/client_simple';
+import { supabase } from '@/integrations/api/supabaseCompat';
 
 export interface Post {
   id: string;
