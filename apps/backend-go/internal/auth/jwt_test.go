@@ -1,12 +1,17 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 // =============================================================================
@@ -587,4 +592,373 @@ func TestGenerateToken_Unicode(t *testing.T) {
 	if claims.Username != "アリス" {
 		t.Errorf("Unicode username mismatch, got %q", claims.Username)
 	}
+}
+
+// =============================================================================
+// Redis-dependent tests (using miniredis)
+// =============================================================================
+
+func setupRedisAuthService(t *testing.T) (*AuthService, *miniredis.Miniredis) {
+	t.Helper()
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(func() { mr.Close() })
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+
+	svc := NewAuthService()
+	svc.SetRedis(client)
+
+	return svc, mr
+}
+
+func TestSetRedis(t *testing.T) {
+	svc := NewAuthService()
+	if svc.redis != nil {
+		t.Fatal("redis should be nil before SetRedis")
+	}
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer client.Close()
+
+	svc.SetRedis(client)
+	if svc.redis == nil {
+		t.Fatal("redis should NOT be nil after SetRedis")
+	}
+}
+
+func TestSetRedis_Nil(t *testing.T) {
+	svc := NewAuthService()
+	svc.SetRedis(nil)
+	// Should not panic, redis stays nil
+}
+
+func TestGenerateTokenPair_StoresInRedis(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+
+	// Verify refresh token hash is stored in Redis
+	hash := sha256.Sum256([]byte(pair.RefreshToken))
+	key := fmt.Sprintf("refresh:user-123:%x", hash)
+
+	val, err := mr.Get(key)
+	if err != nil {
+		t.Fatalf("refresh token not stored in Redis: %v", err)
+	}
+	if val != "1" {
+		t.Errorf("expected '1', got %q", val)
+	}
+
+	// Verify TTL is set (7 days)
+	ttl := mr.TTL(key)
+	if ttl < 6*24*time.Hour || ttl > 7*24*time.Hour {
+		t.Errorf("expected TTL ~7 days, got %v", ttl)
+	}
+}
+
+func TestRefreshTokenExists_WithRedis_Exists(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+
+	if !svc.refreshTokenExists("user-123", pair.RefreshToken) {
+		t.Fatal("refreshTokenExists should return true for just-stored token")
+	}
+}
+
+func TestRefreshTokenExists_WithRedis_NotExists(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	if svc.refreshTokenExists("user-123", "nonexistent-token") {
+		t.Fatal("refreshTokenExists should return false for non-existent token")
+	}
+}
+
+func TestRefreshTokenExists_WithRedis_WrongHash(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	// Store one token, check for different token
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+
+	// Slightly different token should not match
+	if svc.refreshTokenExists("user-123", pair.RefreshToken+"x") {
+		t.Fatal("refreshTokenExists should return false for modified token")
+	}
+}
+
+func TestDeleteRefreshToken_WithRedis(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+
+	hash := sha256.Sum256([]byte(pair.RefreshToken))
+	key := fmt.Sprintf("refresh:user-123:%x", hash)
+
+	// Verify token exists before delete
+	if _, err := mr.Get(key); err != nil {
+		t.Fatalf("token should exist before delete: %v", err)
+	}
+
+	svc.deleteRefreshToken("user-123", pair.RefreshToken)
+
+	// Verify token is deleted
+	if mr.Exists(key) {
+		t.Fatal("token should be deleted after deleteRefreshToken")
+	}
+}
+
+func TestRefreshAccessToken_WithRedis_Success(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	oldRefreshToken := pair.RefreshToken
+
+	// Calculate old key to verify deletion
+	oldHash := sha256.Sum256([]byte(oldRefreshToken))
+	oldKey := fmt.Sprintf("refresh:user-123:%x", oldHash)
+
+	newPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", oldRefreshToken)
+	if err != nil {
+		t.Fatalf("RefreshAccessToken failed: %v", err)
+	}
+
+	// New pair should have new tokens
+	if newPair.AccessToken == "" {
+		t.Fatal("new access token should not be empty")
+	}
+	if newPair.RefreshToken == "" {
+		t.Fatal("new refresh token should not be empty")
+	}
+	if newPair.RefreshToken == oldRefreshToken {
+		t.Fatal("new refresh token must be different from old one")
+	}
+
+	// Old refresh token should be deleted
+	if mr.Exists(oldKey) {
+		t.Fatal("old refresh token should be deleted after rotation")
+	}
+
+	// New refresh token should be stored
+	newHash := sha256.Sum256([]byte(newPair.RefreshToken))
+	newKey := fmt.Sprintf("refresh:user-123:%x", newHash)
+	if !mr.Exists(newKey) {
+		t.Fatal("new refresh token should be stored in Redis")
+	}
+}
+
+func TestRefreshAccessToken_WithRedis_InvalidToken(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	_, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "nonexistent")
+	if err == nil {
+		t.Fatal("RefreshAccessToken should fail for non-existent token")
+	}
+	if !errors.Is(err, ErrRefreshTokenNotFound) {
+		t.Errorf("expected ErrRefreshTokenNotFound, got %v", err)
+	}
+}
+
+func TestBlacklistToken_WithRedis(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	jti := "test-jti-123"
+	expiresAt := time.Now().Add(1 * time.Hour)
+
+	svc.BlacklistToken(jti, expiresAt)
+
+	// Verify blacklist entry
+	key := fmt.Sprintf("blacklist:%s", jti)
+	val, err := mr.Get(key)
+	if err != nil {
+		t.Fatalf("blacklist entry not found: %v", err)
+	}
+	if val != "1" {
+		t.Errorf("expected '1', got %q", val)
+	}
+
+	// Verify TTL
+	ttl := mr.TTL(key)
+	if ttl < 50*time.Minute || ttl > 70*time.Minute {
+		t.Errorf("expected TTL ~1h, got %v", ttl)
+	}
+}
+
+func TestIsTokenBlacklisted_WithRedis_Blacklisted(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	svc.BlacklistToken("compromised-jti", time.Now().Add(1*time.Hour))
+
+	if !svc.isTokenBlacklisted("compromised-jti") {
+		t.Fatal("blacklisted token should be detected")
+	}
+}
+
+func TestIsTokenBlacklisted_WithRedis_NotBlacklisted(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	if svc.isTokenBlacklisted("unknown-jti") {
+		t.Fatal("non-blacklisted token should return false")
+	}
+}
+
+func TestBlacklistToken_AlreadyExpired_WithRedis(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	// Token already expired - should not store in Redis
+	svc.BlacklistToken("expired-jti", time.Now().Add(-1*time.Hour))
+
+	key := fmt.Sprintf("blacklist:%s", "expired-jti")
+	if mr.Exists(key) {
+		t.Fatal("expired token should not be blacklisted")
+	}
+}
+
+func TestValidateToken_BlacklistedToken_WithRedis(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	// Generate a real token
+	tokenStr, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	// Get the jti from the token
+	claims, err := svc.ValidateToken(tokenStr)
+	if err != nil {
+		t.Fatalf("ValidateToken failed before blacklist: %v", err)
+	}
+	jti := claims.ID
+
+	// Blacklist the token
+	svc.BlacklistToken(jti, time.Now().Add(1*time.Hour))
+
+	// Now validation should fail
+	_, err = svc.ValidateToken(tokenStr)
+	if err == nil {
+		t.Fatal("SECURITY: blacklisted token was accepted!")
+	}
+	if err.Error() != "token has been revoked" {
+		t.Errorf("expected 'token has been revoked', got %v", err)
+	}
+}
+
+func TestValidateToken_NonBlacklistedToken_WithRedis(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	tokenStr, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	// Blacklist some OTHER token
+	svc.BlacklistToken("some-other-jti", time.Now().Add(1*time.Hour))
+
+	// Our token should still be valid
+	claims, err := svc.ValidateToken(tokenStr)
+	if err != nil {
+		t.Fatalf("ValidateToken failed for non-blacklisted token: %v", err)
+	}
+	if claims.UserID != "user-123" {
+		t.Errorf("expected 'user-123', got %q", claims.UserID)
+	}
+}
+
+func TestRevokeAllRefreshTokens_WithRedis(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	// Create multiple refresh tokens for the same user
+	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+
+	// Also create a token for another user (should NOT be affected)
+	pairOther, _ := svc.GenerateTokenPair("user-456", "bob", "gomo6.wtf")
+
+	hash1 := sha256.Sum256([]byte(pair1.RefreshToken))
+	hash2 := sha256.Sum256([]byte(pair2.RefreshToken))
+	hashOther := sha256.Sum256([]byte(pairOther.RefreshToken))
+
+	key1 := fmt.Sprintf("refresh:user-123:%x", hash1)
+	key2 := fmt.Sprintf("refresh:user-123:%x", hash2)
+	keyOther := fmt.Sprintf("refresh:user-456:%x", hashOther)
+
+	// Verify all tokens exist before revocation
+	if !mr.Exists(key1) || !mr.Exists(key2) || !mr.Exists(keyOther) {
+		t.Fatal("all tokens should exist before revoke")
+	}
+
+	// Revoke all tokens for user-123
+	svc.RevokeAllRefreshTokens("user-123")
+
+	// user-123 tokens should be gone
+	if mr.Exists(key1) {
+		t.Fatal("user-123 token 1 should be revoked")
+	}
+	if mr.Exists(key2) {
+		t.Fatal("user-123 token 2 should be revoked")
+	}
+
+	// user-456 token should still exist
+	if !mr.Exists(keyOther) {
+		t.Fatal("other user's token should NOT be affected by revoke")
+	}
+}
+
+func TestRevokeAllRefreshTokens_NoTokens(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	// Should not panic when user has no tokens
+	svc.RevokeAllRefreshTokens("user-nonexistent")
+}
+
+func TestGenerateTokenPair_WithRedis_UniqueHashes(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+
+	hash1 := sha256.Sum256([]byte(pair1.RefreshToken))
+	hash2 := sha256.Sum256([]byte(pair2.RefreshToken))
+
+	key1 := fmt.Sprintf("refresh:user-123:%x", hash1)
+	key2 := fmt.Sprintf("refresh:user-123:%x", hash2)
+
+	// Both should exist and be different
+	if !mr.Exists(key1) {
+		t.Fatal("first refresh token should exist")
+	}
+	if !mr.Exists(key2) {
+		t.Fatal("second refresh token should exist")
+	}
+	if key1 == key2 {
+		t.Fatal("refresh tokens must have unique hashes")
+	}
+}
+
+func TestRefreshTokenExists_NilRedis(t *testing.T) {
+	svc := NewAuthService() // no Redis
+
+	if svc.refreshTokenExists("user-123", "any-token") {
+		t.Fatal("refreshTokenExists should return false without Redis")
+	}
+}
+
+func TestDeleteRefreshToken_NilRedis(t *testing.T) {
+	svc := NewAuthService() // no Redis
+
+	// Should not panic
+	svc.deleteRefreshToken("user-123", "any-token")
 }
