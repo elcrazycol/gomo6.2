@@ -1,0 +1,145 @@
+# =============================================================================
+# changelog.yml — Auto-update CHANGELOG.md on new semver tag
+# =============================================================================
+# Trigger: push of a tag matching v*.*.* (e.g., v1.0.0, v2.1.3)
+# Action:
+#   1. Reads commits between previous and current tag
+#   2. Categorizes by conventional commit prefix (feat:, fix:, etc.)
+#   3. Prepends a new release section to CHANGELOG.md
+#   4. Commits and pushes the update
+#
+# Requires:
+#   - Repository Settings → Actions → General → Workflow permissions:
+#     "Read and write permissions" + "Allow GitHub Actions to create and
+#      approve pull requests"
+# =============================================================================
+
+name: Update Changelog
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  changelog:
+    name: Update CHANGELOG.md
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Generate changelog entry
+        id: changelog
+        run: |
+          # Get current and previous tag
+          CURRENT_TAG="${{ github.ref_name }}"
+          PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -2 | tail -1)
+
+          if [ -z "$PREV_TAG" ]; then
+            RANGE="$CURRENT_TAG"
+          else
+            RANGE="$PREV_TAG..$CURRENT_TAG"
+          fi
+
+          echo "Current: $CURRENT_TAG, Previous: ${PREV_TAG:-none}, Range: $RANGE"
+
+          # Get commits between tags, grouped by conventional commit prefix
+          COMMITS=$(git log "$RANGE" --no-merges --pretty=format:"%s" 2>/dev/null || echo "")
+
+          DATE=$(date -u +%Y-%m-%d)
+
+          # Categorize commits
+          feat=$(echo "$COMMITS" | grep -iE '^feat[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          fix=$(echo "$COMMITS" | grep -iE '^fix[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          docs=$(echo "$COMMITS" | grep -iE '^docs[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          refactor=$(echo "$COMMITS" | grep -iE '^refactor[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          test=$(echo "$COMMITS" | grep -iE '^test[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+          security=$(echo "$COMMITS" | grep -iE '^security[(:]' | sed 's/^[^:]*: //' | sed 's/^/- /' || true)
+
+          # Other commits (no conventional prefix or unrecognized)
+          other=$(echo "$COMMITS" | grep -viE '^(feat|fix|docs|refactor|test|security|chore|ci|style)[(:]' | sed 's/^/- /' || true)
+
+          # Build changelog section
+          {
+            echo "## [${CURRENT_TAG#v}] — $DATE"
+            echo ""
+
+            if [ -n "$feat" ]; then
+              echo "### Added"
+              echo "$feat"
+              echo ""
+            fi
+
+            if [ -n "$fix" ]; then
+              echo "### Fixed"
+              echo "$fix"
+              echo ""
+            fi
+
+            if [ -n "$security" ]; then
+              echo "### Security"
+              echo "$security"
+              echo ""
+            fi
+
+            if [ -n "$refactor" ]; then
+              echo "### Changed"
+              echo "$refactor"
+              echo ""
+            fi
+
+            if [ -n "$docs" ]; then
+              echo "### Documentation"
+              echo "$docs"
+              echo ""
+            fi
+
+            if [ -n "$test" ]; then
+              echo "### Tests"
+              echo "$test"
+              echo ""
+            fi
+
+            if [ -n "$other" ]; then
+              echo "### Miscellaneous"
+              echo "$other"
+              echo ""
+            fi
+
+            echo "---"
+            echo ""
+          } > /tmp/changelog-entry.md
+
+          # Count entries
+          TOTAL=$(grep -c '^- ' /tmp/changelog-entry.md 2>/dev/null || echo 0)
+          echo "entries=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "No categorized commits found. Skipping update."
+            exit 0
+          fi
+
+          # Prepend to CHANGELOG.md (after the header line)
+          HEADER=$(head -1 CHANGELOG.md)
+          BODY=$(tail -n +2 CHANGELOG.md)
+          echo "$HEADER" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          cat /tmp/changelog-entry.md >> CHANGELOG.md
+          echo "$BODY" >> CHANGELOG.md
+
+          cat /tmp/changelog-entry.md
+
+      - name: Commit and push
+        if: steps.changelog.outputs.entries != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG.md for ${{ github.ref_name }}"
+          git push origin main
