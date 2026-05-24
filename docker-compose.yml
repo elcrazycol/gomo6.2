@@ -147,9 +147,9 @@ services:
       FEDERATION_KEY: ${FEDERATION_KEY:-your-federation-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
-      ISSUER_URL: http://${DOMAIN:-localhost}
-      FRONTEND_URL: http://${DOMAIN:-localhost}
-      DEV_DASHBOARD_URL: http://dev.${DOMAIN:-localhost}
+      ISSUER_URL: https://${DOMAIN:-localhost}
+      FRONTEND_URL: https://${DOMAIN:-localhost}
+      DEV_DASHBOARD_URL: https://dev.${DOMAIN:-localhost}
       # Garage S3 — credentials from /garage-keys/s3.env (written by garage-init)
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
