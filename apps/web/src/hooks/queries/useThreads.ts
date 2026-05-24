@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 export interface Thread {
   id: string;
@@ -36,7 +36,7 @@ export function useThread(threadId: string | undefined) {
     queryFn: async () => {
       if (!threadId) return null;
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('threads')
         .select('*, boards(*), profiles:user_id(*)')
         .eq('id', threadId)
@@ -62,7 +62,7 @@ export function useThreads(boardId: string | undefined, options?: { limit?: numb
     queryFn: async () => {
       if (!boardId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('threads')
         .select('*, boards(*), profiles:user_id(*)')
         .eq('board_id', boardId)
@@ -86,7 +86,7 @@ export function useCreateThread() {
 
   return useMutation({
     mutationFn: async (thread: { board_id: string; title: string; content: string; content_json?: any; image_urls?: string[]; attachments?: any[] }) => {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('threads')
         .insert(thread)
         .select()
@@ -111,7 +111,7 @@ export function useThreadSubscription(threadId: string | undefined, userId: stri
     queryFn: async () => {
       if (!threadId || !userId) return false;
 
-      const { data } = await supabase
+      const { data } = await api
         .from('thread_subscriptions')
         .select('id')
         .eq('user_id', userId)

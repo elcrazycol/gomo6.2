@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +27,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
   const loadStatus = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.get2FAStatus();
+      const { data, error } = await api.auth.get2FAStatus();
       if (error) throw error;
       if (data) {
         setIsEnabled(data.enabled);
@@ -42,7 +42,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
 
   const handleSetup = async () => {
     try {
-      const { data, error } = await supabase.auth.setupTOTP();
+      const { data, error } = await api.auth.setupTOTP();
       if (error) throw error;
       if (data) {
         setSetupUri(data.uri);
@@ -63,7 +63,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
 
     setVerifying(true);
     try {
-      const { data, error } = await supabase.auth.verifyAndEnableTOTP(verifyCode);
+      const { data, error } = await api.auth.verifyAndEnableTOTP(verifyCode);
       if (error) throw error;
       if (data) {
         setIsEnabled(true);
@@ -88,7 +88,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
     }
 
     try {
-      await supabase.auth.disableTOTP();
+      await api.auth.disableTOTP();
       setIsEnabled(false);
       setHasPendingSecret(false);
       setSetupUri("");

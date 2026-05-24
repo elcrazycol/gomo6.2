@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -128,11 +128,11 @@ const Settings = () => {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       setUser(user);
       
       if (user) {
-        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        const token = (await api.auth.getSession()).data.session?.access_token;
         const headers = { 'Authorization': `Bearer ${token}` };
 
         // Load current user profile and color
@@ -172,7 +172,7 @@ const Settings = () => {
 
   const loadPrivacySettings = useCallback(async () => {
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
       const res = await fetch(`/api/v1/privacy_settings?user_id=eq.${user.id}`, { headers });
@@ -271,7 +271,7 @@ const Settings = () => {
       try {
         const updateRes = await fetch(`/api/v1/privacy_settings?user_id=eq.${user.id}`, {
           method: 'PUT',
-          headers: { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
+          headers: { 'Authorization': `Bearer ${(await api.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(dbData),
         });
 
@@ -279,7 +279,7 @@ const Settings = () => {
           // If update failed, try upsert (insert)
           const upsertRes = await fetch('/api/v1/privacy_settings', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
+            headers: { 'Authorization': `Bearer ${(await api.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               user_id: user.id,
               ...dbData,
@@ -354,7 +354,7 @@ const Settings = () => {
     if (fontName.trim()) {
       loadGoogleFont(fontName);
       // Track font setting change for achievement
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       await fetch('/api/v1/user_settings_changes', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -390,7 +390,7 @@ const Settings = () => {
     }
 
     try {
-      const { error } = await supabase.auth.updateUser({
+      const { error } = await api.auth.updateUser({
         password: newPassword
       });
 

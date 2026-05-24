@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { apiClient, getDeviceId } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ const Auth = () => {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (session) {
         navigate("/");
       }
@@ -67,7 +67,7 @@ const Auth = () => {
       const email = `${username}@gomo6.local`;
 
       if (isLogin) {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await api.auth.signInWithPassword({
           email,
           password,
         });
@@ -101,7 +101,7 @@ const Auth = () => {
         toast.success("Вход выполнен");
         navigate("/");
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { error } = await api.auth.signUp({
           email,
           password,
           options: {
@@ -122,9 +122,9 @@ const Auth = () => {
         }
 
         // Record terms acceptance
-        const { data: newSession } = await supabase.auth.getSession();
+        const { data: newSession } = await api.auth.getSession();
         if (newSession.session?.user) {
-          await supabase
+          await api
             .from("user_terms_acceptance")
             .insert({
               user_id: newSession.session.user.id,
@@ -158,7 +158,7 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.verify2FA(partialToken, totpCode, trustDevice);
+      const { data, error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
 
       if (error) {
         toast.error("Неверный код 2FA");

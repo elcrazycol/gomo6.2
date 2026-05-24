@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -61,7 +61,7 @@ const Moderation = () => {
   const [banDays, setBanDays] = useState("7");
 
   const checkAuth = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
     
     if (!user) {
       navigate("/auth");
@@ -70,7 +70,7 @@ const Moderation = () => {
 
     setUser(user);
 
-    const { data: roles } = await supabase
+    const { data: roles } = await api
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id);
@@ -86,7 +86,7 @@ const Moderation = () => {
     setIsModerator(true);
 
     // Load current user profile and color
-    const { data: profile } = await supabase
+    const { data: profile } = await api
       .from("profiles")
       .select("username")
       .eq("id", user.id)
@@ -97,7 +97,7 @@ const Moderation = () => {
     }
 
     // Load current user color
-    const { data: achievements } = await supabase
+    const { data: achievements } = await api
       .from("user_achievements")
       .select(`
         achievement_id,
@@ -129,7 +129,7 @@ const Moderation = () => {
 
   const loadReports = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("reports")
         .select("*")
         .order("created_at", { ascending: false });
@@ -146,7 +146,7 @@ const Moderation = () => {
     const content: ReportedContent = {};
 
     if (report.reported_post_id) {
-      const { data: post } = await supabase
+      const { data: post } = await api
         .from("posts")
         .select(`
           content,
@@ -168,7 +168,7 @@ const Moderation = () => {
     }
 
     if (report.reported_thread_id) {
-      const { data: thread } = await supabase
+      const { data: thread } = await api
         .from("threads")
         .select(`
           title,
@@ -195,7 +195,7 @@ const Moderation = () => {
   }, []);
 
   const handleDeletePost = async (postId: string) => {
-    const { error } = await supabase
+    const { error } = await api
       .from("posts")
       .delete()
       .eq("id", postId);
@@ -214,7 +214,7 @@ const Moderation = () => {
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await api
       .from("user_warnings")
       .insert({
         user_id: userId,
@@ -240,7 +240,7 @@ const Moderation = () => {
       ? null 
       : new Date(Date.now() + parseInt(banDays) * 24 * 60 * 60 * 1000).toISOString();
 
-    const { error } = await supabase
+    const { error } = await api
       .from("user_bans")
       .insert({
         user_id: userId,
@@ -259,7 +259,7 @@ const Moderation = () => {
   };
 
   const handleResolve = async (reportId: string, action: 'approve' | 'reject') => {
-    const { error } = await supabase
+    const { error } = await api
       .from("reports")
       .update({
         status: action === 'approve' ? 'resolved' : 'rejected',

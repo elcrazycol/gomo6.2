@@ -1,4 +1,4 @@
-// Go Backend API Client - Complete Supabase Replacement
+// Go Backend API Client
 import { toast } from "sonner";
 
 // API Configuration
@@ -451,7 +451,7 @@ class ApiClient {
     return this.request<any[]>(`/api/v1/threads/${threadId}/likes${query ? `?${query}` : ''}`);
   }
 
-  // RPC Methods (Supabase compatibility)
+  // RPC Methods
   async getPostLikesCount(postUuid: string): Promise<ApiResponse<number>> {
     return this.request<number>(`/api/rpc/get_post_likes_count?post_uuid=${postUuid}`);
   }
@@ -544,7 +544,7 @@ export function getDeviceId(): string {
 }
 
 // Export for backward compatibility with existing code
-export const supabase = {
+export const api = {
   // Auth
   auth: {
     signUp: async ({ email, password, options }: any) => {

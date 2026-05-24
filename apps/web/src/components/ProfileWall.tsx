@@ -1,7 +1,7 @@
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWallPost, type WallPost } from "@/components/CreateWallPost";
@@ -420,7 +420,7 @@ const WallPostCard = ({
   const loadComments = useCallback(async () => {
     try {
       setCommentsLoading(true);
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (api as any)
         .from("profile_wall_post_comments")
         .select(`
           id,
@@ -465,14 +465,14 @@ const WallPostCard = ({
           likeStateResult,
           repostStateResult,
         ] = await Promise.all([
-          supabase.from("profile_wall_post_likes").select("id", { count: "exact", head: true }).eq("post_id", post.id),
-          supabase.from("profile_wall_post_comments").select("id", { count: "exact", head: true }).eq("post_id", post.id),
-          supabase.from("profile_wall_post_reposts").select("id", { count: "exact", head: true }).eq("post_id", post.id),
+          api.from("profile_wall_post_likes").select("id", { count: "exact", head: true }).eq("post_id", post.id),
+          api.from("profile_wall_post_comments").select("id", { count: "exact", head: true }).eq("post_id", post.id),
+          api.from("profile_wall_post_reposts").select("id", { count: "exact", head: true }).eq("post_id", post.id),
           currentUserId
-            ? supabase.from("profile_wall_post_likes").select("id").eq("post_id", post.id).eq("user_id", currentUserId).maybeSingle()
+            ? api.from("profile_wall_post_likes").select("id").eq("post_id", post.id).eq("user_id", currentUserId).maybeSingle()
             : Promise.resolve({ data: null, error: null } as any),
           currentUserId
-            ? supabase
+            ? api
                 .from("profile_wall_post_reposts")
                 .select("id, reposted_wall_post_id")
                 .eq("post_id", post.id)
@@ -512,7 +512,7 @@ const WallPostCard = ({
     setIsLiking(true);
     try {
       if (isLiked) {
-        const { error } = await supabase
+        const { error } = await api
           .from("profile_wall_post_likes")
           .delete()
           .eq("post_id", post.id)
@@ -523,7 +523,7 @@ const WallPostCard = ({
         setIsLiked(false);
         setLikesCount((prev) => Math.max(0, prev - 1));
       } else {
-        const { error } = await supabase
+        const { error } = await api
           .from("profile_wall_post_likes")
           .insert({
             post_id: post.id,
@@ -556,7 +556,7 @@ const WallPostCard = ({
 
     setIsSubmittingComment(true);
     try {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (api as any)
         .from("profile_wall_post_comments")
         .insert({
           post_id: post.id,
@@ -603,7 +603,7 @@ const WallPostCard = ({
       setIsReposting(true);
       try {
         if (repostedWallPostId) {
-          const { error: repostedPostDeleteError } = await supabase
+          const { error: repostedPostDeleteError } = await api
             .from("profile_wall_posts")
             .delete()
             .eq("id", repostedWallPostId)
@@ -612,7 +612,7 @@ const WallPostCard = ({
           if (repostedPostDeleteError) throw repostedPostDeleteError;
         }
 
-        const { error } = await supabase
+        const { error } = await api
           .from("profile_wall_post_reposts")
           .delete()
           .eq("id", repostRecordId)
@@ -699,7 +699,7 @@ const WallPostCard = ({
     setIsReposting(true);
     try {
       const repostTitleSource = repostText.trim() || post.title || "Репост на стене";
-      const { data: repostedPost, error: repostedPostError } = await (supabase as any)
+      const { data: repostedPost, error: repostedPostError } = await (api as any)
         .from("profile_wall_posts")
         .insert({
           user_id: currentUserId,
@@ -716,7 +716,7 @@ const WallPostCard = ({
 
       if (repostedPostError) throw repostedPostError;
 
-      const { data: repostRecord, error: repostRecordError } = await (supabase as any)
+      const { data: repostRecord, error: repostRecordError } = await (api as any)
         .from("profile_wall_post_reposts")
         .insert({
           post_id: post.id,
@@ -780,7 +780,7 @@ const WallPostCard = ({
 
     setIsSavingCommentEdit(true);
     try {
-      const { error } = await supabase
+      const { error } = await api
         .from("profile_wall_post_comments")
         .update({
           content: normalizedEditText,
@@ -807,7 +807,7 @@ const WallPostCard = ({
 
     setDeletingCommentId(commentId);
     try {
-      const { error } = await supabase
+      const { error } = await api
         .from("profile_wall_post_comments")
         .delete()
         .eq("id", commentId);
@@ -1288,7 +1288,7 @@ export const ProfileWall = ({
   const loadPosts = useCallback(async () => {
     try {
       setLoading(true);
-      let query = (supabase as any)
+      let query = (api as any)
         .from("profile_wall_posts")
         .select(`
           id,
@@ -1336,7 +1336,7 @@ export const ProfileWall = ({
 
       let originalPostsMap = new Map<string, WallPost>();
       if (repostIds.length > 0) {
-        const { data: originalPosts, error: originalPostsError } = await (supabase as any)
+        const { data: originalPosts, error: originalPostsError } = await (api as any)
           .from("profile_wall_posts")
           .select(`
             id,
@@ -1557,7 +1557,7 @@ export const ProfileWall = ({
       // If this post is a repost, also delete the repost record so the original post
       // doesn't show a stale repost status
       if (postToDelete?.repost_of_post_id) {
-        const { error: repostRecordError } = await supabase
+        const { error: repostRecordError } = await api
           .from("profile_wall_post_reposts")
           .delete()
           .eq("reposted_wall_post_id", postId)
@@ -1568,7 +1568,7 @@ export const ProfileWall = ({
         }
       }
 
-      const { error } = await supabase
+      const { error } = await api
         .from("profile_wall_posts")
         .delete()
         .eq("id", postId)
@@ -1592,8 +1592,8 @@ export const ProfileWall = ({
     }
 
     try {
-      console.log("[handleTogglePin] calling supabase.rpc...");
-      const { data, error } = await supabase.rpc("toggle_wall_post_pin", {
+      console.log("[handleTogglePin] calling api.rpc...");
+      const { data, error } = await api.rpc("toggle_wall_post_pin", {
         _post_id: postId,
         _user_id: currentUserId,
       });

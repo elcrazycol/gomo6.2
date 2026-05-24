@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 interface VisibilityOptions {
   currentUserId: string | null;
@@ -33,7 +33,7 @@ const parseUserIdentifiers = async (identifiers: string[]): Promise<{ userIds: s
     if (cleanId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
       userIds.push(cleanId);
       // Get username for this ID
-      const { data } = await supabase
+      const { data } = await api
         .from('profiles')
         .select('username')
         .eq('id', cleanId)
@@ -46,7 +46,7 @@ const parseUserIdentifiers = async (identifiers: string[]): Promise<{ userIds: s
 
     // Check if it's a number (account_number)
     if (/^\d+$/.test(cleanId)) {
-      const { data } = await supabase
+      const { data } = await api
         .from('profiles')
         .select('id, username')
         .eq('account_number', parseInt(cleanId))
@@ -60,7 +60,7 @@ const parseUserIdentifiers = async (identifiers: string[]): Promise<{ userIds: s
     }
 
     // Otherwise, treat as username
-    const { data } = await supabase
+    const { data } = await api
       .from('profiles')
       .select('id, username')
       .eq('username', cleanId)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -64,11 +64,11 @@ const Index = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        const { data: roles } = await supabase
+        const { data: roles } = await api
           .from("user_roles")
           .select("role")
           .eq("user_id", session.user.id);
@@ -76,7 +76,7 @@ const Index = () => {
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
-        const { data: profile } = await supabase
+        const { data: profile } = await api
           .from("profiles")
           .select("username")
           .eq("id", session.user.id)
@@ -87,7 +87,7 @@ const Index = () => {
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
+        const { data: achievements } = await api
           .from("user_achievements")
           .select(`
             achievement_id,
@@ -113,7 +113,7 @@ const Index = () => {
         }
         
         // Check if user has accepted terms
-        const { data: termsData } = await supabase
+        const { data: termsData } = await api
           .from("user_terms_acceptance")
           .select("*")
           .eq("user_id", session.user.id)
@@ -128,7 +128,7 @@ const Index = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
       }
@@ -139,7 +139,7 @@ const Index = () => {
 
   useEffect(() => {
     const loadBoards = async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("boards")
         .select("*")
         .eq("is_rules_board", false)
@@ -158,7 +158,7 @@ const Index = () => {
     };
 
     const loadRandomThread = async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("threads")
         .select(`
           id,
@@ -176,7 +176,7 @@ const Index = () => {
     };
 
     const loadPopularThreads = async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("threads")
         .select(`
           id,
@@ -207,14 +207,14 @@ const Index = () => {
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
   };
 
   const handleAcceptTerms = async () => {
     if (!user) return;
     
-    await supabase
+    await api
       .from("user_terms_acceptance")
       .insert({
         user_id: user.id,
@@ -226,7 +226,7 @@ const Index = () => {
   };
 
   const handleDeclineTerms = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     navigate("/auth");
     toast.info("Вы покинули сайт");
   };

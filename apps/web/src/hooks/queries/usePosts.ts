@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 export interface Post {
   id: string;
@@ -31,7 +31,7 @@ export function usePosts(threadId: string | undefined) {
     queryFn: async () => {
       if (!threadId) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('posts')
         .select('*, profiles:user_id(*)')
         .eq('thread_id', threadId)
@@ -67,7 +67,7 @@ export function useCreatePost() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          'Authorization': `Bearer ${(await api.auth.getSession()).data.session?.access_token}`,
         },
         body: JSON.stringify(post),
       });
@@ -98,7 +98,7 @@ export function useDeletePost() {
 
   return useMutation({
     mutationFn: async ({ postId, threadId }: { postId: string; threadId: string }) => {
-      const { error } = await supabase
+      const { error } = await api
         .from('posts')
         .delete()
         .eq('id', postId);

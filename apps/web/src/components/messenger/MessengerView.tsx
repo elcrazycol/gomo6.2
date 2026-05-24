@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, type NavigateOptions } from "react-router
 import { ArrowLeft, MessageCircle, SendHorizontal } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { storageUrl } from "@/utils/storage";
 import {
   createClientMessageId,
@@ -263,7 +263,7 @@ export const MessengerView = () => {
   };
 
   const fetchMyProfile = async (userId: string) => {
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from("profiles")
       .select("id, username, avatar_url, account_number, is_online, last_seen_at")
       .eq("id", userId)
@@ -280,7 +280,7 @@ export const MessengerView = () => {
     const cryptoState = await ensureLocalMessengerState(userId);
 
     // Check if key already exists
-    const { data: existing, error: selectError } = await supabase
+    const { data: existing, error: selectError } = await api
       .from("chat_user_keys" as never)
       .select("user_id")
       .eq("user_id", userId)
@@ -293,7 +293,7 @@ export const MessengerView = () => {
 
     if (existing) {
       // Key already exists, update it
-      const { error } = await supabase
+      const { error } = await api
         .from("chat_user_keys" as never)
         .update({
           public_key: cryptoState.publicKey,
@@ -307,7 +307,7 @@ export const MessengerView = () => {
       }
     } else {
       // Key doesn't exist, insert it
-      const { error } = await supabase
+      const { error } = await api
         .from("chat_user_keys" as never)
         .insert({
           user_id: userId,
@@ -328,8 +328,8 @@ export const MessengerView = () => {
       setConversationsLoading(true);
     }
     try {
-      // Get user's conversation memberships using supabase client
-      const { data: memberships, error: membershipError } = await supabase
+      // Get user's conversation memberships using api client
+      const { data: memberships, error: membershipError } = await api
         .from("chat_conversation_members" as never)
         .select("conversation_id,unread_count_cache,last_read_at")
         .eq("user_id", userId)
@@ -348,20 +348,20 @@ export const MessengerView = () => {
         return [];
       }
 
-      // Get conversations, members, profiles, and keys in parallel using supabase client
+      // Get conversations, members, profiles, and keys in parallel using api client
       const [conversationsResult, membersResult, profilesResult, keysResult] = await Promise.all([
-        supabase
+        api
           .from("chat_conversations" as never)
           .select("id,last_message_at,updated_at")
           .in("id", conversationIds),
-        supabase
+        api
           .from("chat_conversation_members" as never)
           .select("conversation_id,user_id")
           .in("conversation_id", conversationIds),
-        supabase
+        api
           .from("profiles")
           .select("id,username,avatar_url,account_number,is_online,last_seen_at"),
-        supabase
+        api
           .from("chat_user_keys" as never)
           .select("user_id,public_key"),
       ]);
@@ -467,7 +467,7 @@ export const MessengerView = () => {
     }
 
     try {
-      const { data: messageRows, error: messageError } = await supabase
+      const { data: messageRows, error: messageError } = await api
         .from("chat_messages" as never)
         .select("id, conversation_id, sender_user_id, client_message_id, sent_at, ciphertext, nonce, sender_public_key, recipient_public_key")
         .eq("conversation_id", conversation.id)
@@ -479,7 +479,7 @@ export const MessengerView = () => {
 
       const serverMessages = (messageRows ?? []) as ChatMessageRecord[];
       const messageIds = serverMessages.map((message) => message.id);
-      const { data: receiptRows, error: receiptError } = await supabase
+      const { data: receiptRows, error: receiptError } = await api
         .from("chat_receipts" as never)
         .select("message_id, user_id, delivered_at, read_at")
         .in("message_id", messageIds.length > 0 ? messageIds : ["00000000-0000-0000-0000-000000000000"]);
@@ -551,7 +551,7 @@ export const MessengerView = () => {
 
     setStartingConversation(true);
     try {
-      const result = await supabase.rpc("get_or_create_direct_chat", {
+      const result = await api.rpc("get_or_create_direct_chat", {
         target_user_id: targetId,
       });
 
@@ -576,7 +576,7 @@ export const MessengerView = () => {
     }
 
     try {
-      await supabase.rpc("chat_mark_delivered", {
+      await api.rpc("chat_mark_delivered", {
         target_conversation_id: conversationId,
         target_message_id: latestMessageId,
       });
@@ -591,7 +591,7 @@ export const MessengerView = () => {
     if (!latestMessageId || lastReadMessageIdRef.current === latestMessageId) return;
 
     try {
-      await supabase.rpc("chat_mark_read", {
+      await api.rpc("chat_mark_read", {
         target_conversation_id: conversationId,
         target_message_id: latestMessageId,
       });
@@ -698,7 +698,7 @@ export const MessengerView = () => {
         nonce,
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from("chat_messages" as never)
         .insert(insertPayload as never)
         .select("id, conversation_id, sender_user_id, client_message_id, sent_at, ciphertext, nonce, sender_public_key, recipient_public_key")
@@ -743,7 +743,7 @@ export const MessengerView = () => {
       try {
         const {
           data: { user },
-        } = await supabase.auth.getUser();
+        } = await api.auth.getUser();
 
         if (!user) {
           navigate("/auth");

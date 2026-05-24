@@ -231,7 +231,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		}
 	}
 
-	// Supabase-style OR conditions: or=col.eq.value,col2.ilike.%term%
+	// OR conditions: or=col.eq.value,col2.ilike.%term%
 	if orRaw := c.Query("or"); orRaw != "" {
 		parts := splitCSV(orRaw)
 		var orClauses []string
@@ -320,7 +320,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 }
 
 // upsertInsertQuery returns INSERT ... ON CONFLICT for tables the frontend calls via .upsert().
-// Plain INSERT would fail on duplicate keys; Supabase resolves this server-side.
+// Plain INSERT would fail on duplicate keys; resolved server-side.
 func upsertInsertQuery(tableName string, data map[string]interface{}) (query string, args []interface{}, ok bool) {
 	switch tableName {
 	case "user_daily_visits":
