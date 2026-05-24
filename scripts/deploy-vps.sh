@@ -45,10 +45,10 @@ echo "[2/4] Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
 
 # ── Rebuild and restart ─────────────────────────────────────────────────────
 echo "[3/4] Rebuilding Docker images (commit: $GIT_COMMIT)..."
-echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && GIT_COMMIT=$OLD_COMMIT docker compose up -d --build"
-# Pass GIT_COMMIT explicitly — don't rely on export (Docker Compose may read .env and override)
-GIT_COMMIT="$GIT_COMMIT" docker compose build web
-GIT_COMMIT="$GIT_COMMIT" docker compose up -d --remove-orphans
+echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && docker compose build --build-arg VITE_GIT_COMMIT=$OLD_COMMIT web && docker compose up -d"
+# Pass GIT_COMMIT explicitly via --build-arg (bypasses docker-compose.yml interpolation + .env)
+docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" web
+docker compose up -d --remove-orphans
 
 # ── Clean up old images ─────────────────────────────────────────────────────
 echo "[4/4] Cleaning up old images..."
