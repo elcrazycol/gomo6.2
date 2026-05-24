@@ -6,7 +6,6 @@ import { toast } from "sonner";
 // In dev mode (npm run dev), Vite proxy forwards /api, /rest, etc. to localhost:8080.
 // Set VITE_API_BASE_URL to override (e.g., for direct backend access during dev).
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-const API_KEY = 'your-anon-key';
 
 // Types
 export interface User {
@@ -154,7 +153,6 @@ class ApiClient {
     const url = `${API_BASE_URL}${endpoint}`;
     const headers = {
       'Content-Type': 'application/json',
-      'apikey': API_KEY,
       ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
       ...options.headers,
     };
@@ -691,4 +689,4 @@ export const supabase = {
 };
 
 export default apiClient;
-export { API_BASE_URL, API_KEY };
+export { API_BASE_URL };
