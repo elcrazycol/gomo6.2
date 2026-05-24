@@ -9,7 +9,7 @@ const mockFrom = vi.fn();
 const mockRpc = vi.fn();
 const mockWsService = {
   subscribe: vi.fn(),
-  on: vi.fn(() => vi.fn()),
+  on: vi.fn<any, any>(),
 };
 
 vi.mock("@/integrations/api/compat", () => ({
