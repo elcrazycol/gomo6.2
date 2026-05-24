@@ -103,25 +103,18 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		}
 	}
 
-	// Handle ordering (Supabase format: column.asc/column.desc)
-	if order := c.Query("order"); order != "" {
-		column := "t.updated_at"
-		direction := "DESC"
-		parts := strings.Split(order, ".")
-		if len(parts) >= 2 {
-			switch parts[0] {
-			case "updated_at":
-				column = "t.updated_at"
-			case "created_at":
-				column = "t.created_at"
-			case "id":
-				column = "t.id"
+	// Handle ordering (Supabase format: column.asc/column.desc) — supports multiple order params
+	if orders := c.QueryArray("order"); len(orders) > 0 {
+		joined := ""
+		for i, o := range orders {
+			if i > 0 {
+				joined += ","
 			}
-			if strings.EqualFold(parts[1], "asc") {
-				direction = "ASC"
-			}
+			joined += o
 		}
-		query += " ORDER BY " + column + " " + direction
+		if s, ok := parseSupabaseOrderClause(joined, "t"); ok {
+			query += " ORDER BY " + s
+		}
 	} else {
 		query += " ORDER BY t.updated_at DESC"
 	}
@@ -401,6 +394,10 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 // UpdateThread updates thread body (OP text); only the author may edit.
 func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	idStr := c.Param("id")
+	if idStr == "" {
+		idStr = c.Query("id")
+		idStr = strings.TrimPrefix(idStr, "eq.")
+	}
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
