@@ -15,30 +15,32 @@ import (
 
 const (
 	// Message types
-	MessageTypeNewPost        = "new_post"
-	MessageTypeNewThread      = "new_thread"
-	MessageTypeNewReply       = "new_reply"
-	MessageTypeLike           = "like"
-	MessageTypeUnlike         = "unlike"
-	MessageTypeTyping         = "typing"
-	MessageTypePresence       = "presence"
-	MessageTypeSubscribe      = "subscribe"
-	MessageTypeUnsubscribe    = "unsubscribe"
-	MessageTypePing           = "ping"
-	MessageTypeNewWallPost    = "new_wall_post"
-	MessageTypeUpdateWallPost = "update_wall_post"
-	MessageTypeDeleteWallPost = "delete_wall_post"
-	MessageTypeNewChatMessage = "new_chat_message"
-	MessageTypeUserOnline     = "user_online"
-	MessageTypeUserOffline    = "user_offline"
+	MessageTypeNewPost         = "new_post"
+	MessageTypeNewThread       = "new_thread"
+	MessageTypeNewReply        = "new_reply"
+	MessageTypeLike            = "like"
+	MessageTypeUnlike          = "unlike"
+	MessageTypeTyping          = "typing"
+	MessageTypePresence        = "presence"
+	MessageTypeSubscribe       = "subscribe"
+	MessageTypeUnsubscribe     = "unsubscribe"
+	MessageTypePing            = "ping"
+	MessageTypeNewWallPost     = "new_wall_post"
+	MessageTypeUpdateWallPost  = "update_wall_post"
+	MessageTypeDeleteWallPost  = "delete_wall_post"
+	MessageTypeNewChatMessage  = "new_chat_message"
+	MessageTypeUserOnline      = "user_online"
+	MessageTypeUserOffline     = "user_offline"
+	MessageTypeNewNotification = "new_notification"
 
 	// Redis channels
-	RedisChannelPosts   = "realtime:posts"
-	RedisChannelThreads = "realtime:threads"
-	RedisChannelLikes   = "realtime:likes"
-	RedisChannelWall    = "realtime:wall"
-	RedisChannelChat    = "realtime:chat"
-	RedisChannelStatus  = "realtime:status"
+	RedisChannelPosts         = "realtime:posts"
+	RedisChannelThreads       = "realtime:threads"
+	RedisChannelLikes         = "realtime:likes"
+	RedisChannelWall          = "realtime:wall"
+	RedisChannelChat          = "realtime:chat"
+	RedisChannelStatus        = "realtime:status"
+	RedisChannelNotifications = "realtime:notifications"
 )
 
 // Message represents a WebSocket message
@@ -190,10 +192,10 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
 	defer pubsub.Close()
 
-	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus)
+	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
 
 	ch := pubsub.Channel()
 
@@ -271,6 +273,13 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
 			h.BroadcastToRoom(chatRoom, messageBytes)
+		}
+
+	case MessageTypeNewNotification:
+		// Broadcast to specific user's notification room
+		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
+			notifRoom := fmt.Sprintf("notifications_%s", userID)
+			h.BroadcastToRoom(notifRoom, messageBytes)
 		}
 
 	case MessageTypeUserOnline, MessageTypeUserOffline:
@@ -403,6 +412,15 @@ func (h *Hub) PublishDeleteWallPost(post interface{}) error {
 		Payload: post,
 	}
 	return h.PublishToRedis(RedisChannelWall, event)
+}
+
+// PublishNewNotification publishes a notification event to Redis
+func (h *Hub) PublishNewNotification(notification interface{}) error {
+	event := RealtimeEvent{
+		Type:    MessageTypeNewNotification,
+		Payload: notification,
+	}
+	return h.PublishToRedis(RedisChannelNotifications, event)
 }
 
 // PublishNewChatMessage publishes a new chat message event to Redis

@@ -68,6 +68,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	likesHandler := handlers.NewLikesHandler(db, redis)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	notificationsHandler.SetRedis(redis)
+	notificationsHandler.SetWebSocketHub(wsHub)
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)

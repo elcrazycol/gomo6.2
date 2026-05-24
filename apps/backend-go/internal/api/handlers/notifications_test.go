@@ -284,6 +284,114 @@ func TestGetUnreadCount_Unauthenticated(t *testing.T) {
 	}
 }
 
+// ──────────────────────────── CreateNotification ────────────────────────────
+
+func TestCreateNotification_Success(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "is_read", "created_at"}).
+		AddRow("n1", "t1", "like", "Test like", "You got a like!", "thread1", "post1", false, now)
+
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, is_read, created_at`).
+		WithArgs("u1", "like", "Test like", "You got a like!", "thread1", "post1", false, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	notif, err := handler.CreateNotification("u1", "like", "Test like", "You got a like!", strPtr("thread1"), strPtr("post1"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notif == nil {
+		t.Fatal("expected notification, got nil")
+	}
+	if notif.ID != "n1" {
+		t.Fatalf("expected ID n1, got %s", notif.ID)
+	}
+	if notif.Type != "like" {
+		t.Fatalf("expected type 'like', got %s", notif.Type)
+	}
+}
+
+func TestCreateNotification_SuccessNoRelated(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "is_read", "created_at"}).
+		AddRow("n2", "u1", "reply", "New reply", "Someone replied", nil, nil, false, now)
+
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
+		WithArgs("u1", "reply", "New reply", "Someone replied", nil, nil, false, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	notif, err := handler.CreateNotification("u1", "reply", "New reply", "Someone replied", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notif == nil {
+		t.Fatal("expected notification, got nil")
+	}
+	if notif.Type != "reply" {
+		t.Fatalf("expected type 'reply', got %s", notif.Type)
+	}
+}
+
+func TestCreateNotification_DBError(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
+		WithArgs("u1", "like", "Test", "Msg", nil, nil, false, sqlmock.AnyArg()).
+		WillReturnError(sqlmock.ErrCancelled)
+
+	notif, err := handler.CreateNotification("u1", "like", "Test", "Msg", nil, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if notif != nil {
+		t.Fatalf("expected nil notification, got %v", notif)
+	}
+}
+
+// ──────────────────────────── Package-level createNotification ────────────────
+
+func TestCreateNotificationPackage_NilDB(t *testing.T) {
+	err := createNotification(nil, nil, "u1", "like", "Test", "Msg", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for nil db, got nil")
+	}
+}
+
+func TestCreateNotificationPackage_Success(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	mock.ExpectExec(`INSERT INTO notifications.*VALUES.*`).
+		WithArgs("u1", "like", "Test like", "You got a like!", nil, nil, false, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	err := createNotification(handler.db, nil, "u1", "like", "Test like", "You got a like!", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCreateNotificationPackage_DBError(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	mock.ExpectExec(`INSERT INTO notifications.*VALUES.*`).
+		WithArgs("u1", "like", "Test", "Msg", nil, nil, false, sqlmock.AnyArg()).
+		WillReturnError(sqlmock.ErrCancelled)
+
+	err := createNotification(handler.db, nil, "u1", "like", "Test", "Msg", nil, nil)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+func strPtr(s string) *string {
+	return &s
+}
+
 func TestGetUnreadCount_DBError(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 

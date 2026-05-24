@@ -1,50 +1,38 @@
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { api } from "@/integrations/api/compat";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { apiClient } from "@/integrations/api/client";
 
 export const ChatIcon = ({ userId }: { userId: string }) => {
   const navigate = useNavigate();
   const [unreadCount, setUnreadCount] = useState(0);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  const loadUnread = useCallback(async () => {
+    try {
+      const resp = await apiClient.getUnreadNotificationsCount();
+      const d = resp.data as { unread_count: number } | null;
+      setUnreadCount(d?.unread_count ?? 0);
+    } catch (err) {
+      console.error("[ChatIcon] Failed to load unread count:", err);
+    }
+  }, []);
 
   useEffect(() => {
-    let mounted = true;
+    if (!userId) return;
 
-    const loadUnread = async () => {
-      const { count } = await api
-        .from("notifications")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("type", "message")
-        .eq("is_read", false);
+    loadUnread();
 
-      if (mounted) {
-        setUnreadCount(count ?? 0);
-      }
-    };
-
-    void loadUnread();
-
-    const channel = api
-      .channel(`messenger-notifications-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "notifications",
-          filter: `user_id=eq.${userId}`,
-        },
-        () => void loadUnread()
-      )
-      .subscribe();
+    // Poll every 30 seconds
+    pollingRef.current = setInterval(loadUnread, 30000);
 
     return () => {
-      mounted = false;
-      api.removeChannel(channel);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
     };
-  }, [userId]);
+  }, [userId, loadUnread]);
 
   return (
     <Button
