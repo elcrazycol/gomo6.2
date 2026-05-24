@@ -562,21 +562,16 @@ export const MessengerView = () => {
           return [];
         }
 
+        // actually need the userId for mergeMessages
+        const currentMe = meRef.current;
+        if (!currentMe) return [];
+
     const normalized = await decryptMessages(
       serverMessages,
       currentMe.id,
       selectedConversationRef.current?.otherUser.id ?? otherUserId,
       receiptRows,
     );
-
-        // Re-check after async decrypt
-        if (!mountedRef.current || loadId !== loadIdRef.current) {
-          return [];
-        }
-
-        // actually need the userId for mergeMessages
-        const currentMe = meRef.current;
-        if (!currentMe) return [];
 
         setMessages((current) => {
           if (isIncremental) {
@@ -636,7 +631,7 @@ export const MessengerView = () => {
 
       setStartingConversation(true);
       try {
-        const result = await api.rpc("get_or_create_direct_chat", {
+        const result = await (api.rpc as any)("get_or_create_direct_chat", {
           target_user_id: targetId,
         });
 
