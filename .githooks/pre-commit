@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+
+BACKEND_DIR="apps/backend-go"
+
+# Check if backend directory exists at all — skip if not a Go project
+if [ ! -d "$BACKEND_DIR" ]; then
+    echo "⚠️  Backend directory '$BACKEND_DIR' not found, skipping Go checks"
+    exit 0
+fi
+
+# Get list of staged Go files (handles multi-line output correctly)
+STAGED_GO_FILES=()
+while IFS= read -r f; do
+    STAGED_GO_FILES+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACM | grep -E '\.go$' || true)
+
+if [ ${#STAGED_GO_FILES[@]} -eq 0 ]; then
+    echo "✅ No Go files staged, skipping Go checks"
+    exit 0
+fi
+
+echo "🔍 Running pre-commit Go checks..."
+
+# Check gofmt on staged files only (pass each file as separate arg)
+echo "📐 Checking gofmt..."
+UNFORMATTED=$(gofmt -l "${STAGED_GO_FILES[@]}" 2>&1 || true)
+if [ -n "$UNFORMATTED" ]; then
+    echo "❌ gofmt found unformatted files:"
+    echo "$UNFORMATTED"
+    echo ""
+    echo "Run 'gofmt -w $UNFORMATTED' to fix."
+    exit 1
+fi
+echo "✅ gofmt passed"
+
+cd "$BACKEND_DIR"
+
+# go vet
+echo "🔎 Running go vet..."
+if ! go vet ./... 2>&1; then
+    echo "❌ go vet failed"
+    exit 1
+fi
+echo "✅ go vet passed"
+
+# go build
+echo "🏗️  Running go build..."
+if ! go build ./... 2>&1; then
+    echo "❌ go build failed"
+    exit 1
+fi
+echo "✅ go build passed"
+
+# go test
+echo "🧪 Running go test..."
+if ! go test ./... -count=1 2>&1; then
+    echo "❌ go test failed"
+    exit 1
+fi
+echo "✅ go test passed"
+
+cd - > /dev/null 2>&1 || true
+
+echo "🎉 All Go checks passed!"
