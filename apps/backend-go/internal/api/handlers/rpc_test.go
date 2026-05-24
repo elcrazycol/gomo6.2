@@ -1198,6 +1198,82 @@ func TestCreatePostRPC_WhitespaceOnly(t *testing.T) {
 	}
 }
 
+func TestCreatePostRPC_AttachmentsOnly(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	now := time.Now()
+
+	// Check thread exists
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// INSERT post + RETURNING — content empty, attachments present
+	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
+		WithArgs(threadID, "u1", "",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "thread_id", "user_id", "content", "content_json",
+			"image_url", "image_urls", "attachments", "reply_to", "is_private",
+			"private_recipient_id", "server_domain", "created_at", "is_remote",
+		}).AddRow(
+			"post-attach", threadID, "u1", "", nil,
+			nil, nil, nil, nil, false,
+			nil, "localhost:8080", now, false,
+		))
+
+	// Update thread post_count
+	mock.ExpectExec(`UPDATE threads SET post_count = post_count \+ 1, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// RecomputeUserProfileStats — runs in goroutine
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "",
+		"attachments": []map[string]interface{}{
+			{"type": "image", "url": "https://example.com/image.jpg"},
+		},
+	}, claims)
+	h.CreatePostRPC(c)
+
+	// Give RecomputeUserProfileStats goroutine time to execute
+	time.Sleep(5 * time.Millisecond)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %v", resp.Error)
+	}
+
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("failed to marshal response data: %v", err)
+	}
+	var post models.Post
+	if err := json.Unmarshal(data, &post); err != nil {
+		t.Fatalf("response data is not a valid Post: %v", err)
+	}
+	if post.ID != "post-attach" {
+		t.Fatalf("expected post ID 'post-attach', got %q", post.ID)
+	}
+	if post.Content != "" {
+		t.Fatalf("expected empty content, got %q", post.Content)
+	}
+}
+
 func TestCreatePostRPC_MissingThreadID(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
