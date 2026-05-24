@@ -20,7 +20,9 @@ COPY apps/web/ ./apps/web/
 
 # Build for production (disable Vercel SpeedInsights in Docker)
 ARG VITE_DOCKER=true
+ARG VITE_GIT_COMMIT=unknown
 ENV VITE_DOCKER=$VITE_DOCKER
+ENV VITE_GIT_COMMIT=$VITE_GIT_COMMIT
 RUN npm run build --workspace=@gomo6/web
 
 # Stage 2: Serve with nginx
