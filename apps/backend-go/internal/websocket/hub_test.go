@@ -1048,3 +1048,5 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// precommit_test: this comment is here to test the pre-commit hook
