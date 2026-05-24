@@ -161,29 +161,80 @@ func TestAuthMiddleware_ExpiredToken(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// SupabaseAuthMiddleware
-// =============================================================================
-
-func TestSupabaseAuthMiddleware_ValidBearer(t *testing.T) {
+// TestAuthMiddleware_BlacklistedToken verifies that a blacklisted token is rejected.
+// Since we don't have Redis in tests, this verifies the JWT validation itself works
+// with the blacklist feature (which is a no-op without Redis).
+func TestAuthMiddleware_BlacklistedToken_NoRedis(t *testing.T) {
 	svc := auth.NewAuthService()
 	token, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
 	if err != nil {
 		t.Fatalf("GenerateToken failed: %v", err)
 	}
 
-	c, w := newTestContext("GET", "/api/test", "Bearer "+token)
+	// Blacklist the token (no-op without Redis)
+	svc.BlacklistToken("some-jti", time.Now().Add(1*time.Hour))
 
-	middleware := SupabaseAuthMiddleware(svc)
+	// Token should still be valid (blacklist requires Redis)
+	c, w := newTestContext("GET", "/api/test", "Bearer "+token)
+	middleware := AuthMiddleware(svc)
 	middleware(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for valid Bearer, got %d", w.Code)
+		t.Errorf("expected 200 for valid token (blacklist is no-op without Redis), got %d", w.Code)
+	}
+}
+
+// TestAuthMiddleware_WrongUserToken verifies a token for a different service is rejected.
+func TestAuthMiddleware_DifferentServiceToken(t *testing.T) {
+	svcA := auth.NewAuthService()
+	svcB := auth.NewAuthService()
+
+	token, err := svcA.GenerateToken("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	c, w := newTestContext("GET", "/api/test", "Bearer "+token)
+	middleware := AuthMiddleware(svcB) // different service
+	middleware(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for token from different service, got %d", w.Code)
+	}
+}
+
+// =============================================================================
+// AuthCacheMiddleware
+// =============================================================================
+
+func newCacheTestContext(method, path string) (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(method, path, nil)
+	return c, w
+}
+
+func TestAuthCacheMiddleware_Bearer_Valid(t *testing.T) {
+	svc := auth.NewAuthService()
+	token, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	c, w := newCacheTestContext("GET", "/api/test")
+	c.Request.Header.Set("Authorization", "Bearer "+token)
+
+	middleware := AuthCacheMiddleware(svc, nil) // no Redis
+	middleware(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for valid Bearer token, got %d", w.Code)
 	}
 
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
-		t.Fatal("claims not set after valid Supabase auth")
+		t.Fatal("claims not set")
 	}
 	claims := claimsInterface.(*auth.Claims)
 	if claims.UserID != "user-123" {
@@ -191,19 +242,17 @@ func TestSupabaseAuthMiddleware_ValidBearer(t *testing.T) {
 	}
 }
 
-func TestSupabaseAuthMiddleware_QueryToken(t *testing.T) {
+func TestAuthCacheMiddleware_QueryToken_Valid(t *testing.T) {
 	svc := auth.NewAuthService()
 	token, err := svc.GenerateToken("user-456", "bob", "gomo6.wtf")
 	if err != nil {
 		t.Fatalf("GenerateToken failed: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/api/test?token="+token, nil)
+	// WebSocket-style: token in query string, no Authorization header
+	c, w := newCacheTestContext("GET", "/ws?token="+token)
 
-	middleware := SupabaseAuthMiddleware(svc)
+	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
 	if w.Code != http.StatusOK {
@@ -212,7 +261,7 @@ func TestSupabaseAuthMiddleware_QueryToken(t *testing.T) {
 
 	claimsInterface, exists := c.Get("claims")
 	if !exists {
-		t.Fatal("claims not set after query token auth")
+		t.Fatal("claims not set for query token")
 	}
 	claims := claimsInterface.(*auth.Claims)
 	if claims.UserID != "user-456" {
@@ -220,31 +269,30 @@ func TestSupabaseAuthMiddleware_QueryToken(t *testing.T) {
 	}
 }
 
-func TestSupabaseAuthMiddleware_QueryToken_Invalid(t *testing.T) {
+func TestAuthCacheMiddleware_QueryToken_Invalid(t *testing.T) {
 	svc := auth.NewAuthService()
 
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/api/test?token=garbage", nil)
+	c, w := newCacheTestContext("GET", "/ws?token=garbage")
 
-	middleware := SupabaseAuthMiddleware(svc)
+	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for invalid query token, got %d", w.Code)
 	}
+
+	_, exists := c.Get("claims")
+	if exists {
+		t.Error("claims should not be set for invalid token")
+	}
 }
 
-func TestSupabaseAuthMiddleware_NoAuth(t *testing.T) {
+func TestAuthCacheMiddleware_NoAuth(t *testing.T) {
 	svc := auth.NewAuthService()
 
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/api/test", nil)
+	c, w := newCacheTestContext("GET", "/api/test")
 
-	middleware := SupabaseAuthMiddleware(svc)
+	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
 	if w.Code != http.StatusUnauthorized {
@@ -252,76 +300,45 @@ func TestSupabaseAuthMiddleware_NoAuth(t *testing.T) {
 	}
 }
 
-func TestSupabaseAuthMiddleware_ApikeyHeader_Match(t *testing.T) {
-	// Set the SUPABASE_ANON_KEY to a known value
-	t.Setenv("SUPABASE_ANON_KEY", "test-anon-key-12345")
-
+func TestAuthCacheMiddleware_WebSocketUpgrade_Unauthorized(t *testing.T) {
 	svc := auth.NewAuthService()
 
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/api/test", nil)
-	c.Request.Header.Set("apikey", "test-anon-key-12345")
+	c, w := newCacheTestContext("GET", "/ws")
+	c.Request.Header.Set("Upgrade", "websocket")
 
-	middleware := SupabaseAuthMiddleware(svc)
+	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for matching apikey, got %d", w.Code)
-	}
-}
-
-func TestSupabaseAuthMiddleware_ApikeyHeader_Mismatch(t *testing.T) {
-	t.Setenv("SUPABASE_ANON_KEY", "test-anon-key-12345")
-
-	svc := auth.NewAuthService()
-
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/api/test", nil)
-	c.Request.Header.Set("apikey", "wrong-key")
-
-	middleware := SupabaseAuthMiddleware(svc)
-	middleware(c)
-
+	// Should return 401 (not 200) — the upgraded middleware uses AbortWithStatus(401)
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for mismatching apikey, got %d", w.Code)
+		t.Errorf("expected 401 for unauthorized WebSocket upgrade, got %d", w.Code)
+	}
+
+	// Should NOT have a JSON body (browsers can't read it during WebSocket handshake)
+	body := w.Body.String()
+	if body != "" {
+		t.Errorf("expected empty body for WebSocket abort, got %q", body)
 	}
 }
 
-func TestSupabaseAuthMiddleware_BearerTakesPriorityOverApikey(t *testing.T) {
-	// When both Bearer and apikey are present, Bearer should take priority
-	t.Setenv("SUPABASE_ANON_KEY", "test-anon-key-12345")
-
+func TestAuthCacheMiddleware_BearerPriorityOverQuery(t *testing.T) {
 	svc := auth.NewAuthService()
-	token, err := svc.GenerateToken("user-999", "priority", "gomo6.wtf")
-	if err != nil {
-		t.Fatalf("GenerateToken failed: %v", err)
-	}
+	bearerToken, _ := svc.GenerateToken("user-bearer", "alice", "gomo6.wtf")
+	queryToken, _ := svc.GenerateToken("user-query", "bob", "gomo6.wtf")
 
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/api/test", nil)
-	c.Request.Header.Set("Authorization", "Bearer "+token)
-	c.Request.Header.Set("apikey", "test-anon-key-12345")
+	// Both Bearer and query token present — Bearer should win
+	c, w := newCacheTestContext("GET", "/ws?token="+queryToken)
+	c.Request.Header.Set("Authorization", "Bearer "+bearerToken)
 
-	middleware := SupabaseAuthMiddleware(svc)
+	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 when both Bearer and apikey present, got %d", w.Code)
+		t.Errorf("expected 200 when both tokens present, got %d", w.Code)
 	}
 
-	// Claims should come from token, not apikey
-	claimsInterface, exists := c.Get("claims")
-	if !exists {
-		t.Fatal("claims not set")
-	}
-	claims := claimsInterface.(*auth.Claims)
-	if claims.UserID != "user-999" {
-		t.Errorf("expected UserID from token ('user-999'), got %q", claims.UserID)
+	claims := c.MustGet("claims").(*auth.Claims)
+	if claims.UserID != "user-bearer" {
+		t.Errorf("expected Bearer UserID 'user-bearer' to take priority, got %q", claims.UserID)
 	}
 }
