@@ -74,6 +74,27 @@ func normalizeEndpoint(raw string) (string, error) {
 	return strings.TrimSuffix(u.String(), "/"), nil
 }
 
+// corsOrigins returns the list of allowed CORS origins for presigned URLs.
+// Reads GARAGE_S3_CORS_ORIGINS as a comma-separated list; defaults to ["*"].
+func corsOrigins() []string {
+	raw := strings.TrimSpace(os.Getenv("GARAGE_S3_CORS_ORIGINS"))
+	if raw == "" {
+		return []string{"*"}
+	}
+	parts := strings.Split(raw, ",")
+	var origins []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			origins = append(origins, p)
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
+}
+
 // browserReachableS3URL rewrites Docker-only hostnames in the S3 endpoint used for presigned URLs.
 // Browsers on the host cannot resolve Docker service names (garage, garage-proxy, etc.).
 func browserReachableS3URL(ep string) (string, error) {
