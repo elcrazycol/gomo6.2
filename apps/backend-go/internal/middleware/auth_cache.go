@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -53,7 +54,7 @@ func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Clien
 // tryValidateAndCache attempts to validate a token against cache (Redis) and JWT.
 // On success, sets claims in context, calls c.Next(), and returns true.
 func tryValidateAndCache(authService *auth.AuthService, redisClient *redis.Client, c *gin.Context, token string) bool {
-	cacheKey := fmt.Sprintf("auth:token:%s", token)
+	cacheKey := fmt.Sprintf("auth:token:%x", sha256.Sum256([]byte(token)))
 
 	// Try cache first
 	if redisClient != nil {
