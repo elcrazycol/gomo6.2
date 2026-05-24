@@ -3,7 +3,6 @@ package middleware
 import (
 	"log"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -59,61 +58,3 @@ func AuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
 	}
 }
 
-// Support for Supabase apikey header
-func SupabaseAuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		log.Printf("=== SupabaseAuthMiddleware: %s %s ===", c.Request.Method, c.Request.URL.Path)
-
-		// Try Authorization header first
-		authHeader := c.GetHeader("Authorization")
-		log.Printf("Authorization header: '%s'", authHeader)
-		if authHeader != "" {
-			tokenParts := strings.Split(authHeader, " ")
-			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" {
-				claims, err := authService.ValidateToken(tokenParts[1])
-				if err == nil {
-					log.Printf("Token validated successfully for user: %s", claims.UserID)
-					c.Set("claims", claims)
-					c.Next()
-					return
-				}
-				log.Printf("Token validation failed: %v", err)
-			}
-		}
-
-		// Try token from query parameter (for WebSocket connections)
-		token := c.Query("token")
-		if token != "" {
-			claims, err := authService.ValidateToken(token)
-			if err == nil {
-				c.Set("claims", claims)
-				c.Next()
-				return
-			}
-		}
-
-		// Try apikey header (Supabase compatibility)
-		apiKey := c.GetHeader("apikey")
-		log.Printf("apikey header: '%s'", apiKey)
-		if apiKey != "" && apiKey == getEnvFromOS("SUPABASE_ANON_KEY", "your-anon-key") {
-			// Allow anonymous access with apikey
-			log.Printf("Allowing anonymous access with apikey")
-			c.Next()
-			return
-		}
-
-		// No valid auth found
-		log.Printf("No valid auth found, returning 401")
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Authorization required",
-		})
-		c.Abort()
-	}
-}
-
-func getEnvFromOS(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
