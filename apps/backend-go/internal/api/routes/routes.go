@@ -358,6 +358,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/get_or_create_direct_chat", rpcHandler.GetOrCreateDirectChat)
 			protected.POST("/chat_mark_delivered", rpcHandler.ChatMarkDelivered)
 			protected.POST("/chat_mark_read", rpcHandler.ChatMarkRead)
+			protected.POST("/chat_toggle_pin_message", rpcHandler.ChatTogglePinMessage)
 		}
 	}
 
