@@ -17,7 +17,7 @@ func TestGetNotifications_Success(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newGETContext("/rest/v1/notifications", nil)
+	c, w := newGETContext("/api/v1/notifications", nil)
 	c.Set("claims", claims)
 
 	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "is_read", "created_at"}).
@@ -50,7 +50,7 @@ func TestGetNotifications_WithPagination(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newGETContext("/rest/v1/notifications", map[string]string{"limit": "10", "offset": "5"})
+	c, w := newGETContext("/api/v1/notifications", map[string]string{"limit": "10", "offset": "5"})
 	c.Set("claims", claims)
 
 	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "is_read", "created_at"}).
@@ -69,7 +69,7 @@ func TestGetNotifications_WithPagination(t *testing.T) {
 
 func TestGetNotifications_Unauthenticated(t *testing.T) {
 	handler, _ := setupNotificationsHandler(t)
-	c, w := newGETContext("/rest/v1/notifications", nil)
+	c, w := newGETContext("/api/v1/notifications", nil)
 
 	handler.GetNotifications(c)
 
@@ -82,7 +82,7 @@ func TestGetNotifications_DBError(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newGETContext("/rest/v1/notifications", nil)
+	c, w := newGETContext("/api/v1/notifications", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*`).
@@ -100,7 +100,7 @@ func TestGetNotifications_ScanError(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newGETContext("/rest/v1/notifications", nil)
+	c, w := newGETContext("/api/v1/notifications", nil)
 	c.Set("claims", claims)
 
 	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "is_read", "created_at"}).
@@ -124,7 +124,7 @@ func TestMarkAsRead_Success(t *testing.T) {
 
 	notifID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/notifications/"+notifID+"/read", nil, claims, map[string]string{"id": notifID})
+	c, w := newPOSTContext("/api/v1/notifications/"+notifID+"/read", nil, claims, map[string]string{"id": notifID})
 
 	// Multi-line query: "UPDATE notifications \n SET is_read = true \n WHERE id = $1 AND user_id = $2"
 	mock.ExpectExec(`UPDATE notifications.*SET is_read = true.*WHERE id = \$1 AND user_id = \$2`).
@@ -141,7 +141,7 @@ func TestMarkAsRead_Success(t *testing.T) {
 func TestMarkAsRead_InvalidUUID(t *testing.T) {
 	handler, _ := setupNotificationsHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/notifications/bad-id/read", nil, claims, map[string]string{"id": "bad-id"})
+	c, w := newPOSTContext("/api/v1/notifications/bad-id/read", nil, claims, map[string]string{"id": "bad-id"})
 
 	handler.MarkAsRead(c)
 
@@ -153,7 +153,7 @@ func TestMarkAsRead_InvalidUUID(t *testing.T) {
 func TestMarkAsRead_Unauthenticated(t *testing.T) {
 	handler, _ := setupNotificationsHandler(t)
 	notifID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPOSTContext("/rest/v1/notifications/"+notifID+"/read", nil, nil, map[string]string{"id": notifID})
+	c, w := newPOSTContext("/api/v1/notifications/"+notifID+"/read", nil, nil, map[string]string{"id": notifID})
 
 	handler.MarkAsRead(c)
 
@@ -167,7 +167,7 @@ func TestMarkAsRead_NotFound(t *testing.T) {
 
 	notifID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/notifications/"+notifID+"/read", nil, claims, map[string]string{"id": notifID})
+	c, w := newPOSTContext("/api/v1/notifications/"+notifID+"/read", nil, claims, map[string]string{"id": notifID})
 
 	mock.ExpectExec(`UPDATE notifications.*SET is_read = true.*WHERE id = \$1 AND user_id = \$2`).
 		WithArgs(notifID, "u1").
@@ -185,7 +185,7 @@ func TestMarkAsRead_DBError(t *testing.T) {
 
 	notifID := "550e8400-e29b-41d4-a716-446655440000"
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/notifications/"+notifID+"/read", nil, claims, map[string]string{"id": notifID})
+	c, w := newPOSTContext("/api/v1/notifications/"+notifID+"/read", nil, claims, map[string]string{"id": notifID})
 
 	mock.ExpectExec(`UPDATE notifications.*SET is_read = true.*WHERE id = \$1 AND user_id = \$2`).
 		WithArgs(notifID, "u1").
@@ -204,7 +204,7 @@ func TestMarkAllAsRead_Success(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/notifications/read-all", nil, claims, nil)
+	c, w := newPOSTContext("/api/v1/notifications/read-all", nil, claims, nil)
 
 	mock.ExpectExec(`UPDATE notifications SET is_read = true WHERE user_id = \$1 AND is_read = false`).
 		WithArgs("u1").
@@ -219,7 +219,7 @@ func TestMarkAllAsRead_Success(t *testing.T) {
 
 func TestMarkAllAsRead_Unauthenticated(t *testing.T) {
 	handler, _ := setupNotificationsHandler(t)
-	c, w := newPOSTContext("/rest/v1/notifications/read-all", nil, nil, nil)
+	c, w := newPOSTContext("/api/v1/notifications/read-all", nil, nil, nil)
 
 	handler.MarkAllAsRead(c)
 
@@ -232,7 +232,7 @@ func TestMarkAllAsRead_DBError(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newPOSTContext("/rest/v1/notifications/read-all", nil, claims, nil)
+	c, w := newPOSTContext("/api/v1/notifications/read-all", nil, claims, nil)
 
 	mock.ExpectExec(`UPDATE notifications SET is_read = true WHERE user_id = \$1 AND is_read = false`).
 		WithArgs("u1").
@@ -251,7 +251,7 @@ func TestGetUnreadCount_Success(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newGETContext("/rest/v1/notifications/unread-count", nil)
+	c, w := newGETContext("/api/v1/notifications/unread-count", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM notifications WHERE user_id = \$1 AND is_read = false`).
@@ -275,7 +275,7 @@ func TestGetUnreadCount_Success(t *testing.T) {
 
 func TestGetUnreadCount_Unauthenticated(t *testing.T) {
 	handler, _ := setupNotificationsHandler(t)
-	c, w := newGETContext("/rest/v1/notifications/unread-count", nil)
+	c, w := newGETContext("/api/v1/notifications/unread-count", nil)
 
 	handler.GetUnreadCount(c)
 
@@ -288,7 +288,7 @@ func TestGetUnreadCount_DBError(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newGETContext("/rest/v1/notifications/unread-count", nil)
+	c, w := newGETContext("/api/v1/notifications/unread-count", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM notifications WHERE user_id = \$1 AND is_read = false`).

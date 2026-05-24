@@ -283,7 +283,7 @@ const CreateThread = () => {
         };
       }
 
-      const response = await fetch('/rpc/v1/create_thread', {
+      const response = await fetch('/api/rpc/create_thread', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

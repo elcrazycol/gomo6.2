@@ -18,7 +18,7 @@ import (
 
 func TestGetPosts_Success_NoFilter(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts", nil)
+	c, w := newGETContext("/api/v1/posts", nil)
 
 	rows := sqlmock.NewRows([]string{
 		"id", "thread_id", "user_id", "content", "content_json",
@@ -56,7 +56,7 @@ func TestGetPosts_Success_NoFilter(t *testing.T) {
 
 func TestGetPosts_Success_WithThreadFilter(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts", map[string]string{
+	c, w := newGETContext("/api/v1/posts", map[string]string{
 		"thread_id": "eq.550e8400-e29b-41d4-a716-446655440000",
 	})
 
@@ -92,7 +92,7 @@ func TestGetPosts_Success_WithThreadFilter(t *testing.T) {
 
 func TestGetPosts_Success_WithIDFilter(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts", map[string]string{
+	c, w := newGETContext("/api/v1/posts", map[string]string{
 		"id": "eq.p1",
 	})
 
@@ -120,7 +120,7 @@ func TestGetPosts_Success_WithIDFilter(t *testing.T) {
 
 func TestGetPosts_Success_WithInFilter(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts", map[string]string{
+	c, w := newGETContext("/api/v1/posts", map[string]string{
 		"id": "in.(p1,p2)",
 	})
 
@@ -148,7 +148,7 @@ func TestGetPosts_Success_WithInFilter(t *testing.T) {
 
 func TestGetPosts_DBError(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts", nil)
+	c, w := newGETContext("/api/v1/posts", nil)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*`).
 		WithArgs(100, 0).
@@ -165,7 +165,7 @@ func TestGetPosts_DBError(t *testing.T) {
 
 func TestGetPost_Success(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts/p1", nil)
+	c, w := newGETContext("/api/v1/posts/p1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
 
 	row := sqlmock.NewRows([]string{
@@ -200,7 +200,7 @@ func TestGetPost_Success(t *testing.T) {
 
 func TestGetPost_NotFound(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts/p1", nil)
+	c, w := newGETContext("/api/v1/posts/p1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1`).
@@ -216,7 +216,7 @@ func TestGetPost_NotFound(t *testing.T) {
 
 func TestGetPost_DBError(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newGETContext("/rest/v1/posts/p1", nil)
+	c, w := newGETContext("/api/v1/posts/p1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1`).
@@ -240,7 +240,7 @@ func TestCreatePost_Success(t *testing.T) {
 		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 		"content":   "Hello, world!",
 	}
-	c, w := newPOSTContext("/rest/v1/posts", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/posts", body, claims, nil)
 
 	// Check thread exists
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
@@ -289,7 +289,7 @@ func TestCreatePost_EmptyContent(t *testing.T) {
 		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 		"content":   "",
 	}
-	c, w := newPOSTContext("/rest/v1/posts", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/posts", body, claims, nil)
 
 	handler.CreatePost(c)
 
@@ -306,7 +306,7 @@ func TestCreatePost_InvalidThreadID(t *testing.T) {
 		"thread_id": "not-a-uuid",
 		"content":   "Hello!",
 	}
-	c, w := newPOSTContext("/rest/v1/posts", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/posts", body, claims, nil)
 
 	handler.CreatePost(c)
 
@@ -322,7 +322,7 @@ func TestCreatePost_Unauthenticated(t *testing.T) {
 		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 		"content":   "Hello!",
 	}
-	c, w := newPOSTContext("/rest/v1/posts", body, nil, nil)
+	c, w := newPOSTContext("/api/v1/posts", body, nil, nil)
 
 	handler.CreatePost(c)
 
@@ -339,7 +339,7 @@ func TestCreatePost_DBError(t *testing.T) {
 		"thread_id": "550e8400-e29b-41d4-a716-446655440000",
 		"content":   "Hello!",
 	}
-	c, w := newPOSTContext("/rest/v1/posts", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/posts", body, claims, nil)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
 		WithArgs("550e8400-e29b-41d4-a716-446655440000").
@@ -359,7 +359,7 @@ func TestCreatePost_DBError(t *testing.T) {
 
 func TestDeletePost_Success(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newDELETEPContext("/rest/v1/posts", nil, map[string]string{"id": "p1"})
+	c, w := newDELETEPContext("/api/v1/posts", nil, map[string]string{"id": "p1"})
 
 	// Get author and thread
 	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
@@ -393,7 +393,7 @@ func TestDeletePost_Success(t *testing.T) {
 
 func TestDeletePost_NotFound(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newDELETEPContext("/rest/v1/posts", nil, map[string]string{"id": "p1"})
+	c, w := newDELETEPContext("/api/v1/posts", nil, map[string]string{"id": "p1"})
 
 	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
 		WithArgs("p1").
@@ -409,7 +409,7 @@ func TestDeletePost_NotFound(t *testing.T) {
 func TestDeletePost_EmptyID(t *testing.T) {
 	handler, _ := setupPostsHandler(t)
 	// No id in path and no id in query
-	c, w := newDELETEPContext("/rest/v1/posts", nil, nil)
+	c, w := newDELETEPContext("/api/v1/posts", nil, nil)
 
 	handler.DeletePost(c)
 
@@ -430,7 +430,7 @@ func TestUpdatePost_Success(t *testing.T) {
 
 	// UpdatePost reads id from path param and also parses UUID; use a valid UUID.
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPUTContext("/rest/v1/posts/"+postID, body, claims, map[string]string{"id": postID})
+	c, w := newPUTContext("/api/v1/posts/"+postID, body, claims, map[string]string{"id": postID})
 
 	// Check ownership
 	mock.ExpectQuery(`SELECT user_id FROM posts WHERE id = \$1`).
@@ -474,7 +474,7 @@ func TestUpdatePost_NotFound(t *testing.T) {
 		"content": "Updated content!",
 	}
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPUTContext("/rest/v1/posts/"+postID, body, claims, map[string]string{"id": postID})
+	c, w := newPUTContext("/api/v1/posts/"+postID, body, claims, map[string]string{"id": postID})
 
 	mock.ExpectQuery(`SELECT user_id FROM posts WHERE id = \$1`).
 		WithArgs(postID).
@@ -495,7 +495,7 @@ func TestUpdatePost_Forbidden(t *testing.T) {
 		"content": "Updated content!",
 	}
 	postID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPUTContext("/rest/v1/posts/"+postID, body, claims, map[string]string{"id": postID})
+	c, w := newPUTContext("/api/v1/posts/"+postID, body, claims, map[string]string{"id": postID})
 
 	mock.ExpectQuery(`SELECT user_id FROM posts WHERE id = \$1`).
 		WithArgs(postID).
@@ -515,7 +515,7 @@ func TestUpdatePost_InvalidID(t *testing.T) {
 	body := map[string]interface{}{
 		"content": "Updated content!",
 	}
-	c, w := newPUTContext("/rest/v1/posts/not-a-uuid", body, claims, map[string]string{"id": "not-a-uuid"})
+	c, w := newPUTContext("/api/v1/posts/not-a-uuid", body, claims, map[string]string{"id": "not-a-uuid"})
 
 	handler.UpdatePost(c)
 

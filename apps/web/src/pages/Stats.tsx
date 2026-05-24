@@ -141,14 +141,14 @@ export default function Stats() {
       const rpcHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       const [profileRes, postsRes, threadsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
-        fetch(`/rest/v1/profiles?id=eq.${targetUserId}`).then(r => r.json()),
-        fetch(`/rest/v1/posts?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
-        fetch(`/rest/v1/threads?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
-        fetch(`/rpc/v1/get_user_post_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
-        fetch(`/rpc/v1/get_user_thread_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
-        fetch(`/rpc/v1/get_user_thread_reply_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
-        fetch(`/rest/v1/user_session_time?user_id=eq.${targetUserId}`).then(r => r.json()),
-        fetch(`/rest/v1/privacy_settings?user_id=eq.${targetUserId}`).then(r => r.json()),
+        fetch(`/api/v1/profiles?id=eq.${targetUserId}`).then(r => r.json()),
+        fetch(`/api/v1/posts?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
+        fetch(`/api/v1/threads?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
+        fetch(`/api/rpc/get_user_post_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/api/rpc/get_user_thread_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/api/rpc/get_user_thread_reply_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
+        fetch(`/api/v1/user_session_time?user_id=eq.${targetUserId}`).then(r => r.json()),
+        fetch(`/api/v1/privacy_settings?user_id=eq.${targetUserId}`).then(r => r.json()),
       ]);
 
       // Go backend wraps in {data: [...], success: true} — always array

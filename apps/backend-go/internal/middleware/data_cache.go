@@ -105,9 +105,9 @@ func InvalidateCache(redisClient *redis.Client, pattern string) error {
 func InvalidateCacheForThread(redisClient *redis.Client, threadID string) {
 	// Use wildcard patterns to invalidate ALL queries for this thread
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/posts*thread_id=eq.%s*", threadID),
-		fmt.Sprintf("data:/rest/v1/threads*%s*", threadID),
-		"data:/rest/v1/posts*",
+		fmt.Sprintf("data:/api/v1/posts*thread_id=eq.%s*", threadID),
+		fmt.Sprintf("data:/api/v1/threads*%s*", threadID),
+		"data:/api/v1/posts*",
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -118,7 +118,7 @@ func InvalidateCacheForThread(redisClient *redis.Client, threadID string) {
 func InvalidateCacheForProfile(redisClient *redis.Client, userID string) {
 	// Use wildcard patterns to invalidate ALL queries for this profile
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/profiles*%s*", userID),
+		fmt.Sprintf("data:/api/v1/profiles*%s*", userID),
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -129,8 +129,8 @@ func InvalidateCacheForProfile(redisClient *redis.Client, userID string) {
 func InvalidateCacheForBoard(redisClient *redis.Client, boardID string) {
 	// Use wildcard patterns scoped to this specific board
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/threads*board_id=eq.%s*", boardID),
-		fmt.Sprintf("data:/rest/v1/boards*id=eq.%s*", boardID),
+		fmt.Sprintf("data:/api/v1/threads*board_id=eq.%s*", boardID),
+		fmt.Sprintf("data:/api/v1/boards*id=eq.%s*", boardID),
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -141,7 +141,7 @@ func InvalidateCacheForBoard(redisClient *redis.Client, boardID string) {
 func InvalidateCacheForProfileWall(redisClient *redis.Client, userID string) {
 	// Use wildcard patterns scoped to this specific user only (NOT global)
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/profile_wall_posts*user_id=eq.%s*", userID),
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID),
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -157,10 +157,10 @@ func InvalidateCacheForWallPost(redisClient *redis.Client, postID string) {
 func InvalidateCacheForPost(redisClient *redis.Client, postID string, threadID string) {
 	// Use wildcard patterns to invalidate ALL queries for this post and its thread
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/posts*%s*", postID),
+		fmt.Sprintf("data:/api/v1/posts*%s*", postID),
 	}
 	if threadID != "" {
-		patterns = append(patterns, fmt.Sprintf("data:/rest/v1/posts*thread_id=eq.%s*", threadID))
+		patterns = append(patterns, fmt.Sprintf("data:/api/v1/posts*thread_id=eq.%s*", threadID))
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -183,8 +183,8 @@ func InvalidateCacheForThreadLike(redisClient *redis.Client, threadID string, bo
 func InvalidateCacheForNotification(redisClient *redis.Client, userID string) {
 	// Use wildcard to invalidate ALL notification queries for this user
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/notifications*user_id=eq.%s*", userID),
-		"data:/rest/v1/notifications*",
+		fmt.Sprintf("data:/api/v1/notifications*user_id=eq.%s*", userID),
+		"data:/api/v1/notifications*",
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -195,10 +195,10 @@ func InvalidateCacheForNotification(redisClient *redis.Client, userID string) {
 func InvalidateCacheForChatMessage(redisClient *redis.Client, messageID string, conversationID string) {
 	// Use wildcard to invalidate ALL chat message queries
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/chat_messages*conversation_id=eq.%s*", conversationID),
-		"data:/rest/v1/chat_messages*",
-		"data:/rest/v1/chat_conversations*",
-		"data:/rest/v1/chat_receipts*",
+		fmt.Sprintf("data:/api/v1/chat_messages*conversation_id=eq.%s*", conversationID),
+		"data:/api/v1/chat_messages*",
+		"data:/api/v1/chat_conversations*",
+		"data:/api/v1/chat_receipts*",
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -209,9 +209,9 @@ func InvalidateCacheForChatMessage(redisClient *redis.Client, messageID string, 
 func InvalidateCacheForChatConversation(redisClient *redis.Client, conversationID string, userID string) {
 	// Use wildcard to invalidate ALL chat conversation queries
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/chat_conversations*%s*", conversationID),
-		"data:/rest/v1/chat_conversation_members*",
-		"data:/rest/v1/chat_messages*",
+		fmt.Sprintf("data:/api/v1/chat_conversations*%s*", conversationID),
+		"data:/api/v1/chat_conversation_members*",
+		"data:/api/v1/chat_messages*",
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)
@@ -222,9 +222,9 @@ func InvalidateCacheForChatConversation(redisClient *redis.Client, conversationI
 func InvalidateCacheForWallComment(redisClient *redis.Client, commentID string, postID string) {
 	// Use wildcard to invalidate ALL wall comment queries for this post
 	patterns := []string{
-		fmt.Sprintf("data:/rest/v1/profile_wall_post_comments*post_id=eq.%s*", postID),
-		"data:/rest/v1/profile_wall_post_comments*",
-		fmt.Sprintf("data:/rest/v1/profile_wall_posts*%s*", postID),
+		fmt.Sprintf("data:/api/v1/profile_wall_post_comments*post_id=eq.%s*", postID),
+		"data:/api/v1/profile_wall_post_comments*",
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*%s*", postID),
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)

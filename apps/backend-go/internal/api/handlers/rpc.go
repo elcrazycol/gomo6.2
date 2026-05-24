@@ -1117,7 +1117,7 @@ func isReservedSlug(slug string) bool {
 var gomosubSlugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,24}$`)
 
 // CreateGomoSub creates a new gomosub (board with is_gomosub=true).
-// POST /rpc/v1/create_gomosub — protected, requires auth.
+// POST /api/rpc/create_gomosub — protected, requires auth.
 func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -1221,7 +1221,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 }
 
 // CreatePostRPC creates a new post with full field support (is_private, private_recipient_id).
-// POST /rpc/v1/create_post — protected, requires auth.
+// POST /api/rpc/create_post — protected, requires auth.
 func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -1336,7 +1336,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 }
 
 // CreateThreadRPC creates a new thread with optional poll.
-// POST /rpc/v1/create_thread — protected, requires auth.
+// POST /api/rpc/create_thread — protected, requires auth.
 func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -1588,7 +1588,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 }
 
 // AwardAchievement awards an achievement to a user (idempotent).
-// POST /rpc/v1/award_achievement — protected, requires auth.
+// POST /api/rpc/award_achievement — protected, requires auth.
 func (h *RPCHandler) AwardAchievement(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {

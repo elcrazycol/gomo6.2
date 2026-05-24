@@ -18,7 +18,7 @@ import (
 
 func TestGetThreads_Success_NoFilter(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newGETContext("/rest/v1/threads", nil)
+	c, w := newGETContext("/api/v1/threads", nil)
 
 	rows := sqlmock.NewRows([]string{
 		"id", "board_id", "user_id", "title", "content", "content_json",
@@ -58,7 +58,7 @@ func TestGetThreads_Success_NoFilter(t *testing.T) {
 
 func TestGetThreads_Success_WithBoardFilter(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newGETContext("/rest/v1/threads", map[string]string{
+	c, w := newGETContext("/api/v1/threads", map[string]string{
 		"board_id": "eq.b1",
 	})
 
@@ -87,7 +87,7 @@ func TestGetThreads_Success_WithBoardFilter(t *testing.T) {
 
 func TestGetThreads_DBError(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newGETContext("/rest/v1/threads", nil)
+	c, w := newGETContext("/api/v1/threads", nil)
 
 	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*`).
 		WithArgs(50, 0).
@@ -104,7 +104,7 @@ func TestGetThreads_DBError(t *testing.T) {
 
 func TestGetThread_Success(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newGETContext("/rest/v1/threads/550e8400-e29b-41d4-a716-446655440000", nil)
+	c, w := newGETContext("/api/v1/threads/550e8400-e29b-41d4-a716-446655440000", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "550e8400-e29b-41d4-a716-446655440000"}}
 
 	row := sqlmock.NewRows([]string{
@@ -140,7 +140,7 @@ func TestGetThread_Success(t *testing.T) {
 
 func TestGetThread_NotFound(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newGETContext("/rest/v1/threads/550e8400-e29b-41d4-a716-446655440000", nil)
+	c, w := newGETContext("/api/v1/threads/550e8400-e29b-41d4-a716-446655440000", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "550e8400-e29b-41d4-a716-446655440000"}}
 
 	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.id = \$1`).
@@ -156,7 +156,7 @@ func TestGetThread_NotFound(t *testing.T) {
 
 func TestGetThread_InvalidUUID(t *testing.T) {
 	handler, _ := setupThreadsHandler(t)
-	c, w := newGETContext("/rest/v1/threads/not-a-uuid", nil)
+	c, w := newGETContext("/api/v1/threads/not-a-uuid", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "not-a-uuid"}}
 
 	handler.GetThread(c)
@@ -177,7 +177,7 @@ func TestCreateThread_Success(t *testing.T) {
 		"title":    "Test Thread",
 		"content":  "Thread content here",
 	}
-	c, w := newPOSTContext("/rest/v1/threads", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/threads", body, claims, nil)
 
 	// Check board exists
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
@@ -223,7 +223,7 @@ func TestCreateThread_InvalidBoardID(t *testing.T) {
 		"title":    "Test Thread",
 		"content":  "Content",
 	}
-	c, w := newPOSTContext("/rest/v1/threads", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/threads", body, claims, nil)
 
 	handler.CreateThread(c)
 
@@ -240,7 +240,7 @@ func TestCreateThread_Unauthenticated(t *testing.T) {
 		"title":    "Test Thread",
 		"content":  "Content",
 	}
-	c, w := newPOSTContext("/rest/v1/threads", body, nil, nil)
+	c, w := newPOSTContext("/api/v1/threads", body, nil, nil)
 
 	handler.CreateThread(c)
 
@@ -258,7 +258,7 @@ func TestCreateThread_DBError(t *testing.T) {
 		"title":    "Test Thread",
 		"content":  "Content",
 	}
-	c, w := newPOSTContext("/rest/v1/threads", body, claims, nil)
+	c, w := newPOSTContext("/api/v1/threads", body, claims, nil)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM boards WHERE id = \$1\)`).
 		WithArgs("550e8400-e29b-41d4-a716-446655440000").
@@ -278,7 +278,7 @@ func TestCreateThread_DBError(t *testing.T) {
 
 func TestDeleteThread_Success(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newDELETEPContext("/rest/v1/threads/t1", nil, nil)
+	c, w := newDELETEPContext("/api/v1/threads/t1", nil, nil)
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
 	// Get owner
@@ -308,7 +308,7 @@ func TestDeleteThread_Success(t *testing.T) {
 
 func TestDeleteThread_NotFound(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newDELETEPContext("/rest/v1/threads/t1", nil, nil)
+	c, w := newDELETEPContext("/api/v1/threads/t1", nil, nil)
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
 	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
@@ -325,7 +325,7 @@ func TestDeleteThread_NotFound(t *testing.T) {
 func TestDeleteThread_EmptyID(t *testing.T) {
 	handler, _ := setupThreadsHandler(t)
 	// No id in path and no id in query
-	c, w := newDELETEPContext("/rest/v1/threads", nil, nil)
+	c, w := newDELETEPContext("/api/v1/threads", nil, nil)
 
 	handler.DeleteThread(c)
 
@@ -344,7 +344,7 @@ func TestUpdateThread_Success(t *testing.T) {
 		"content": "Updated content!",
 	}
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPUTContext("/rest/v1/threads/"+threadID, body, claims, map[string]string{"id": threadID})
+	c, w := newPUTContext("/api/v1/threads/"+threadID, body, claims, map[string]string{"id": threadID})
 
 	// Check ownership
 	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
@@ -389,7 +389,7 @@ func TestUpdateThread_NotFound(t *testing.T) {
 		"content": "Updated content!",
 	}
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPUTContext("/rest/v1/threads/"+threadID, body, claims, map[string]string{"id": threadID})
+	c, w := newPUTContext("/api/v1/threads/"+threadID, body, claims, map[string]string{"id": threadID})
 
 	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
 		WithArgs(threadID).
@@ -410,7 +410,7 @@ func TestUpdateThread_Forbidden(t *testing.T) {
 		"content": "Updated content!",
 	}
 	threadID := "550e8400-e29b-41d4-a716-446655440000"
-	c, w := newPUTContext("/rest/v1/threads/"+threadID, body, claims, map[string]string{"id": threadID})
+	c, w := newPUTContext("/api/v1/threads/"+threadID, body, claims, map[string]string{"id": threadID})
 
 	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
 		WithArgs(threadID).
@@ -430,7 +430,7 @@ func TestUpdateThread_InvalidID(t *testing.T) {
 	body := map[string]interface{}{
 		"content": "Updated content!",
 	}
-	c, w := newPUTContext("/rest/v1/threads/not-a-uuid", body, claims, map[string]string{"id": "not-a-uuid"})
+	c, w := newPUTContext("/api/v1/threads/not-a-uuid", body, claims, map[string]string{"id": "not-a-uuid"})
 
 	handler.UpdateThread(c)
 

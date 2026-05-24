@@ -22,7 +22,7 @@ const WallPost = () => {
         const [{ data: authData }, profileResult] = await Promise.all([
           supabase.auth.getUser(),
           userId
-            ? fetch(`/rest/v1/profiles?id=eq.${userId}`).then(r => r.json())
+            ? fetch(`/api/v1/profiles?id=eq.${userId}`).then(r => r.json())
             : Promise.resolve({ success: true, data: [] }),
         ]);
 
@@ -30,7 +30,7 @@ const WallPost = () => {
         setCurrentUserId(authUser?.id || null);
 
         if (authUser?.id) {
-          const currResponse = await fetch(`/rest/v1/profiles?id=eq.${authUser.id}`);
+          const currResponse = await fetch(`/api/v1/profiles?id=eq.${authUser.id}`);
           const currResult = await currResponse.json();
           const currentProfile = currResult.data?.[0] || null;
           setCurrentUsername(currentProfile?.username || "");

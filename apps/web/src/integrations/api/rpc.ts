@@ -59,7 +59,7 @@ export const rpc = (functionName: string, params?: any) => {
         case 'get_or_create_direct_chat':
         case 'chat_mark_delivered':
         case 'chat_mark_read': {
-          const response = await apiClient.rawRequest(`/rpc/v1/${functionName}`, {
+          const response = await apiClient.rawRequest(`/api/rpc/${functionName}`, {
             method: 'POST',
             body: JSON.stringify(params || {}),
           });

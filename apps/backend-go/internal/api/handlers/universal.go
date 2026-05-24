@@ -126,8 +126,8 @@ func (h *UniversalHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
 func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	// Extract table name from URL path
 	path := c.Request.URL.Path
-	// Remove /rest/v1/ prefix
-	tableName := strings.TrimPrefix(path, "/rest/v1/")
+	// Remove /api/v1/ prefix
+	tableName := strings.TrimPrefix(path, "/api/v1/")
 
 	// Handle sub-paths like /user_roles/123
 	if strings.Contains(tableName, "/") {
@@ -449,8 +449,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if tableName == "profile_wall_post_likes" {
 			if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 				middleware.InvalidateCacheForWallPost(h.redis, postID)
-				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/rest/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
-				cache.InvalidateByPattern(h.redis, "data:/rest/v1/profile_wall_post_likes*")
+				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
+				cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
 			}
 		}
 
@@ -578,7 +578,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	var clauses []string
 
-	// Extract optional record ID from URL path (e.g., /rest/v1/user_session_time/abc-123).
+	// Extract optional record ID from URL path (e.g., /api/v1/user_session_time/abc-123).
 	// Frontend sends PUT /table/:id — the filter is embedded in the path, not query params.
 	if recordID := extractRecordID(c.Request.URL.Path, tableName); recordID != "" {
 		clauses = append(clauses, "id = $"+strconv.Itoa(argIndex))
@@ -688,7 +688,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	var clauses []string
 	argIndex := 1
 
-	// Extract optional record ID from URL path (e.g., /rest/v1/user_session_time/abc-123).
+	// Extract optional record ID from URL path (e.g., /api/v1/user_session_time/abc-123).
 	// Frontend sends DELETE /table/:id — the filter is embedded in the path, not query params.
 	if recordID := extractRecordID(c.Request.URL.Path, tableName); recordID != "" {
 		clauses = append(clauses, "id = $"+strconv.Itoa(argIndex))
@@ -786,8 +786,8 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		// Invalidate cache for the post and its likes
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForWallPost(h.redis, postID)
-			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/rest/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
-			cache.InvalidateByPattern(h.redis, "data:/rest/v1/profile_wall_post_likes*")
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
+			cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
 		}
 	}
 
@@ -903,10 +903,10 @@ func splitCSV(input string) []string {
 	return out
 }
 
-// extractRecordID extracts the record ID from a URL path like /rest/v1/table_name/abc-123.
+// extractRecordID extracts the record ID from a URL path like /api/v1/table_name/abc-123.
 // Returns empty string if no ID is present or path contains multiple sub-paths.
 func extractRecordID(urlPath string, tableName string) string {
-	trimmed := strings.TrimPrefix(urlPath, "/rest/v1/"+tableName+"/")
+	trimmed := strings.TrimPrefix(urlPath, "/api/v1/"+tableName+"/")
 	if trimmed == "" || strings.Contains(trimmed, "/") {
 		return ""
 	}

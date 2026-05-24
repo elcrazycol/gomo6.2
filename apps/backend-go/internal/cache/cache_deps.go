@@ -11,91 +11,91 @@ type CacheDependencyMap map[string][]string
 // TableCacheDeps maps table names to their cache key patterns
 var TableCacheDeps = CacheDependencyMap{
 	"posts": {
-		"data:/rest/v1/posts",
-		"data:/rest/v1/posts?id=eq.{id}",
-		"data:/rest/v1/posts?thread_id=eq.{thread_id}",
-		"data:/rest/v1/posts/{id}",
+		"data:/api/v1/posts",
+		"data:/api/v1/posts?id=eq.{id}",
+		"data:/api/v1/posts?thread_id=eq.{thread_id}",
+		"data:/api/v1/posts/{id}",
 	},
 	"threads": {
-		"data:/rest/v1/threads",
-		"data:/rest/v1/threads?id=eq.{id}",
-		"data:/rest/v1/threads/{id}",
-		"data:/rest/v1/threads?board_id=eq.{board_id}",
+		"data:/api/v1/threads",
+		"data:/api/v1/threads?id=eq.{id}",
+		"data:/api/v1/threads/{id}",
+		"data:/api/v1/threads?board_id=eq.{board_id}",
 	},
 	"boards": {
-		"data:/rest/v1/boards",
-		"data:/rest/v1/boards?id=eq.{id}",
-		"data:/rest/v1/boards/{id}",
-		"data:/rest/v1/boards?slug=eq.{slug}",
+		"data:/api/v1/boards",
+		"data:/api/v1/boards?id=eq.{id}",
+		"data:/api/v1/boards/{id}",
+		"data:/api/v1/boards?slug=eq.{slug}",
 	},
 	"profiles": {
-		"data:/rest/v1/profiles",
-		"data:/rest/v1/profiles?id=eq.{id}",
-		"data:/rest/v1/profiles/{id}",
-		"data:/rest/v1/profiles?username=eq.{username}",
+		"data:/api/v1/profiles",
+		"data:/api/v1/profiles?id=eq.{id}",
+		"data:/api/v1/profiles/{id}",
+		"data:/api/v1/profiles?username=eq.{username}",
 	},
 	"users": {
-		"data:/rest/v1/profiles",
-		"data:/rest/v1/profiles?id=eq.{id}",
-		"data:/rest/v1/profiles/{id}",
+		"data:/api/v1/profiles",
+		"data:/api/v1/profiles?id=eq.{id}",
+		"data:/api/v1/profiles/{id}",
 	},
 	"notifications": {
-		"data:/rest/v1/notifications",
-		"data:/rest/v1/notifications?user_id=eq.{user_id}",
+		"data:/api/v1/notifications",
+		"data:/api/v1/notifications?user_id=eq.{user_id}",
 	},
 	"profile_wall_posts": {
-		"data:/rest/v1/profile_wall_posts",
-		"data:/rest/v1/profile_wall_posts?id=eq.{id}",
-		"data:/rest/v1/profile_wall_posts?user_id=eq.{user_id}",
+		"data:/api/v1/profile_wall_posts",
+		"data:/api/v1/profile_wall_posts?id=eq.{id}",
+		"data:/api/v1/profile_wall_posts?user_id=eq.{user_id}",
 	},
 	"profile_wall_post_comments": {
-		"data:/rest/v1/profile_wall_post_comments",
-		"data:/rest/v1/profile_wall_post_comments?id=eq.{id}",
-		"data:/rest/v1/profile_wall_post_comments?post_id=eq.{post_id}",
+		"data:/api/v1/profile_wall_post_comments",
+		"data:/api/v1/profile_wall_post_comments?id=eq.{id}",
+		"data:/api/v1/profile_wall_post_comments?post_id=eq.{post_id}",
 	},
 	"profile_wall_post_likes": {
-		"data:/rest/v1/profile_wall_post_likes",
-		"data:/rest/v1/profile_wall_post_likes?post_id=eq.{post_id}",
+		"data:/api/v1/profile_wall_post_likes",
+		"data:/api/v1/profile_wall_post_likes?post_id=eq.{post_id}",
 	},
 	"profile_wall_post_reposts": {
-		"data:/rest/v1/profile_wall_post_reposts",
-		"data:/rest/v1/profile_wall_post_reposts?post_id=eq.{post_id}",
+		"data:/api/v1/profile_wall_post_reposts",
+		"data:/api/v1/profile_wall_post_reposts?post_id=eq.{post_id}",
 	},
 	"chat_messages": {
-		"data:/rest/v1/chat_messages",
-		"data:/rest/v1/chat_messages?id=eq.{id}",
-		"data:/rest/v1/chat_messages?conversation_id=eq.{conversation_id}",
+		"data:/api/v1/chat_messages",
+		"data:/api/v1/chat_messages?id=eq.{id}",
+		"data:/api/v1/chat_messages?conversation_id=eq.{conversation_id}",
 	},
 	"chat_conversations": {
-		"data:/rest/v1/chat_conversations",
-		"data:/rest/v1/chat_conversations?id=eq.{id}",
+		"data:/api/v1/chat_conversations",
+		"data:/api/v1/chat_conversations?id=eq.{id}",
 	},
 	"chat_conversation_members": {
-		"data:/rest/v1/chat_conversation_members",
-		"data:/rest/v1/chat_conversation_members?conversation_id=eq.{conversation_id}",
-		"data:/rest/v1/chat_conversation_members?user_id=eq.{user_id}",
+		"data:/api/v1/chat_conversation_members",
+		"data:/api/v1/chat_conversation_members?conversation_id=eq.{conversation_id}",
+		"data:/api/v1/chat_conversation_members?user_id=eq.{user_id}",
 	},
 	"chat_receipts": {
-		"data:/rest/v1/chat_receipts",
-		"data:/rest/v1/chat_receipts?conversation_id=eq.{conversation_id}",
+		"data:/api/v1/chat_receipts",
+		"data:/api/v1/chat_receipts?conversation_id=eq.{conversation_id}",
 	},
 	"post_likes": {
-		"data:/rest/v1/posts?id=eq.{post_id}",
-		"data:/rest/v1/posts/{post_id}",
-		"data:/rest/v1/posts?thread_id=eq.{thread_id}",
+		"data:/api/v1/posts?id=eq.{post_id}",
+		"data:/api/v1/posts/{post_id}",
+		"data:/api/v1/posts?thread_id=eq.{thread_id}",
 	},
 	"thread_likes": {
-		"data:/rest/v1/threads?id=eq.{thread_id}",
-		"data:/rest/v1/threads/{thread_id}",
+		"data:/api/v1/threads?id=eq.{thread_id}",
+		"data:/api/v1/threads/{thread_id}",
 	},
 	"polls": {
-		"data:/rest/v1/polls",
-		"data:/rest/v1/polls?id=eq.{id}",
+		"data:/api/v1/polls",
+		"data:/api/v1/polls?id=eq.{id}",
 	},
 	"poll_votes": {
-		"data:/rest/v1/polls",
-		"data:/rest/v1/polls?id=eq.{poll_id}",
-		"data:/rest/v1/poll_votes?poll_id=eq.{poll_id}",
+		"data:/api/v1/polls",
+		"data:/api/v1/polls?id=eq.{poll_id}",
+		"data:/api/v1/poll_votes?poll_id=eq.{poll_id}",
 	},
 }
 
@@ -120,8 +120,8 @@ func BuildCacheKeys(table string, values map[string]string) []string {
 // BuildCachePatterns generates wildcard patterns for cache invalidation.
 // Unlike BuildCacheKeys (exact match), these patterns use * wildcards to match
 // real cache keys that include extra query params like select, order, limit, etc.
-// Example: "data:/rest/v1/posts*thread_id=eq.123*" matches
-// "data:/rest/v1/posts?thread_id=eq.123&select=id,...&order=created_at.desc"
+// Example: "data:/api/v1/posts*thread_id=eq.123*" matches
+// "data:/api/v1/posts?thread_id=eq.123&select=id,...&order=created_at.desc"
 // Uses ?* and /* boundaries to avoid prefix collisions (e.g., "posts*" matching "post_comments")
 func BuildCachePatterns(table string, values map[string]string) []string {
 	var patterns []string
@@ -129,8 +129,8 @@ func BuildCachePatterns(table string, values map[string]string) []string {
 	// Only generate table-level wildcards for explicit full-table flushes (no specific values)
 	// This prevents targeted invalidations from becoming global cache wipes
 	if len(values) == 0 {
-		patterns = append(patterns, fmt.Sprintf("data:/rest/v1/%s?*", table))
-		patterns = append(patterns, fmt.Sprintf("data:/rest/v1/%s/*", table))
+		patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s?*", table))
+		patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s/*", table))
 		return patterns
 	}
 
@@ -140,11 +140,11 @@ func BuildCachePatterns(table string, values map[string]string) []string {
 			continue
 		}
 		// Pattern to match this specific value anywhere in the query string
-		// e.g., "data:/rest/v1/posts*thread_id=eq.123*"
-		patterns = append(patterns, fmt.Sprintf("data:/rest/v1/%s*%s=eq.%s*", table, key, value))
-		// Also match by id as a resource path: /rest/v1/posts/123
+		// e.g., "data:/api/v1/posts*thread_id=eq.123*"
+		patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s*%s=eq.%s*", table, key, value))
+		// Also match by id as a resource path: /api/v1/posts/123
 		if key == "id" {
-			patterns = append(patterns, fmt.Sprintf("data:/rest/v1/%s/%s*", table, value))
+			patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s/%s*", table, value))
 		}
 	}
 

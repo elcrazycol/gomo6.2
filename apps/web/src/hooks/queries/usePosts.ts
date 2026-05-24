@@ -63,7 +63,7 @@ export function useCreatePost() {
       is_private?: boolean;
       private_recipient_id?: string;
     }) => {
-      const response = await fetch('/rpc/v1/create_post', {
+      const response = await fetch('/api/rpc/create_post', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

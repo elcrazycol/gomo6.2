@@ -18,7 +18,7 @@ import (
 
 func TestGetProfiles_Success_NoFilter(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles", nil)
+	c, w := newGETContext("/api/v1/profiles", nil)
 
 	rows := sqlmock.NewRows([]string{
 		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
@@ -53,7 +53,7 @@ func TestGetProfiles_Success_NoFilter(t *testing.T) {
 
 func TestGetProfiles_Success_IDFilter(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles", map[string]string{
+	c, w := newGETContext("/api/v1/profiles", map[string]string{
 		"id": "eq.550e8400-e29b-41d4-a716-446655440000",
 	})
 
@@ -80,7 +80,7 @@ func TestGetProfiles_Success_IDFilter(t *testing.T) {
 
 func TestGetProfiles_Success_IDInFilter(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles", map[string]string{
+	c, w := newGETContext("/api/v1/profiles", map[string]string{
 		"id": "in.(u1,u2)",
 	})
 
@@ -101,7 +101,7 @@ func TestGetProfiles_Success_IDInFilter(t *testing.T) {
 
 func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles", map[string]string{
+	c, w := newGETContext("/api/v1/profiles", map[string]string{
 		"username": "eq.testuser",
 	})
 
@@ -128,7 +128,7 @@ func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 
 func TestGetProfiles_DBError(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles", nil)
+	c, w := newGETContext("/api/v1/profiles", nil)
 
 	mock.ExpectQuery(`SELECT id, username.*FROM users.*`).
 		WithArgs(50, 0).
@@ -145,7 +145,7 @@ func TestGetProfiles_DBError(t *testing.T) {
 
 func TestGetProfile_Success(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles/u1", nil)
+	c, w := newGETContext("/api/v1/profiles/u1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	// RecomputeUserProfileStats runs in a goroutine (async, errors ignored),
@@ -183,7 +183,7 @@ func TestGetProfile_Success(t *testing.T) {
 
 func TestGetProfile_NotFound(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles/unknown", nil)
+	c, w := newGETContext("/api/v1/profiles/unknown", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "unknown"}}
 
 	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
@@ -199,7 +199,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 
 func TestGetProfile_DBError(t *testing.T) {
 	handler, mock := setupProfilesHandler(t)
-	c, w := newGETContext("/rest/v1/profiles/u1", nil)
+	c, w := newGETContext("/api/v1/profiles/u1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
@@ -222,7 +222,7 @@ func TestUpdateProfile_Success_UpdateBio(t *testing.T) {
 	body := map[string]interface{}{
 		"bio": "Updated bio!",
 	}
-	c, w := newPUTContext("/rest/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
 
 	// UPDATE: set updated_at = NOW(), bio = $1 WHERE id = $2
 	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), bio = \$1 WHERE id = \$2`).
@@ -264,7 +264,7 @@ func TestUpdateProfile_Unauthenticated(t *testing.T) {
 	body := map[string]interface{}{
 		"bio": "Updated bio!",
 	}
-	c, w := newPUTContext("/rest/v1/profiles/u1", body, nil, map[string]string{"id": "u1"})
+	c, w := newPUTContext("/api/v1/profiles/u1", body, nil, map[string]string{"id": "u1"})
 
 	handler.UpdateProfile(c)
 
@@ -280,7 +280,7 @@ func TestUpdateProfile_Forbidden(t *testing.T) {
 	body := map[string]interface{}{
 		"bio": "Updated bio!",
 	}
-	c, w := newPUTContext("/rest/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
 
 	handler.UpdateProfile(c)
 
@@ -297,7 +297,7 @@ func TestUpdateProfile_Success_UpdateAvatar(t *testing.T) {
 	body := map[string]interface{}{
 		"avatar_url": avatarURL,
 	}
-	c, w := newPUTContext("/rest/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
 
 	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), avatar_url = \$1 WHERE id = \$2`).
 		WithArgs(avatarURL, "u1").
@@ -330,7 +330,7 @@ func TestUpdateProfile_DBError(t *testing.T) {
 	body := map[string]interface{}{
 		"bio": "Updated bio!",
 	}
-	c, w := newPUTContext("/rest/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
 
 	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), bio = \$1 WHERE id = \$2`).
 		WithArgs("Updated bio!", "u1").

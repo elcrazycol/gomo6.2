@@ -213,13 +213,13 @@ const Profile = () => {
         const headers = { 'Authorization': `Bearer ${token}` };
 
         // Load roles
-        const rolesRes = await fetch(`/rest/v1/user_roles?user_id=eq.${user.id}`, { headers });
+        const rolesRes = await fetch(`/api/v1/user_roles?user_id=eq.${user.id}`, { headers });
         const rolesResult = await rolesRes.json();
         const roles = rolesResult.data;
         setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
-        const profileRes = await fetch(`/rest/v1/profiles?id=eq.${user.id}`, { headers });
+        const profileRes = await fetch(`/api/v1/profiles?id=eq.${user.id}`, { headers });
         const profileResult = await profileRes.json();
         const profile = profileResult.data?.[0];
 
@@ -228,7 +228,7 @@ const Profile = () => {
         }
 
         // Load current user color
-        const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${user.id}`, { headers });
+        const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${user.id}`, { headers });
         const achResult = await achRes.json();
         const achievements = achResult.data;
 
@@ -278,7 +278,7 @@ const Profile = () => {
     // Poll profile status every 10 seconds
     const pollStatus = async () => {
       try {
-        const res = await fetch(`/rest/v1/profiles?id=eq.${userId}`);
+        const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
         const result = await res.json();
         const updated = result.data?.[0];
         if (updated) {
@@ -299,7 +299,7 @@ const Profile = () => {
     const token = (await supabase.auth.getSession()).data.session?.access_token;
     const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
-    const profileRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`);
+    const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`);
     const profileResult = await profileRes.json();
     const data = profileResult.data?.[0];
 
@@ -308,7 +308,7 @@ const Profile = () => {
       let threadLikesCount = 0;
       if (token) {
         try {
-          const tlr = await fetch(`/rpc/v1/get_user_thread_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
+          const tlr = await fetch(`/api/rpc/get_user_thread_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
           const tlrResult = await tlr.json();
           threadLikesCount = (tlrResult.data as number) || 0;
         } catch { /* ignore */ }
@@ -330,7 +330,7 @@ const Profile = () => {
       setIsOnline(data.is_online || false);
 
       // Load privacy settings for online status, wall and stats
-      const privacyRes = await fetch(`/rest/v1/privacy_settings?user_id=eq.${userId}`);
+      const privacyRes = await fetch(`/api/v1/privacy_settings?user_id=eq.${userId}`);
       const privacyResult = await privacyRes.json();
       const privacyData = privacyResult.data?.[0];
 
@@ -361,7 +361,7 @@ const Profile = () => {
       // Load likes received count (protected RPC)
       if (token) {
         try {
-          const lr = await fetch(`/rpc/v1/get_user_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
+          const lr = await fetch(`/api/rpc/get_user_likes_received_count?user_uuid=${encodeURIComponent(userId!)}`, { headers });
           const lrResult = await lr.json();
           setLikesReceived((lrResult.data as number) || 0);
         } catch { /* ignore */ }
@@ -385,7 +385,7 @@ const Profile = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
-      const res = await fetch('/rpc/v1/get_avatar_history', {
+      const res = await fetch('/api/rpc/get_avatar_history', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_uuid: userId }),
@@ -409,7 +409,7 @@ const Profile = () => {
     setThreadsLoading(true);
     try {
       // Fetch threads
-      const threadsRes = await fetch(`/rest/v1/threads?user_id=eq.${userId}&order=created_at.desc&limit=20`);
+      const threadsRes = await fetch(`/api/v1/threads?user_id=eq.${userId}&order=created_at.desc&limit=20`);
       const threadsResult = await threadsRes.json();
       const threadsData = threadsResult.data || [];
 
@@ -422,7 +422,7 @@ const Profile = () => {
       const userIds = [...new Set(threadsData.map((t: any) => t.user_id).filter(Boolean))];
       const profilesMap: Record<string, any> = {};
       if (userIds.length > 0) {
-        const profilesRes = await fetch(`/rest/v1/profiles?id=in.(${userIds.join(',')})`);
+        const profilesRes = await fetch(`/api/v1/profiles?id=in.(${userIds.join(',')})`);
         const profilesResult = await profilesRes.json();
         (profilesResult.data || []).forEach((p: any) => { profilesMap[p.id] = p; });
       }
@@ -431,7 +431,7 @@ const Profile = () => {
       const threadIds = threadsData.map((t: any) => t.id);
       const postCountMap: Record<string, number> = {};
       if (threadIds.length > 0) {
-        const postsRes = await fetch(`/rest/v1/posts?thread_id=in.(${threadIds.join(',')})`);
+        const postsRes = await fetch(`/api/v1/posts?thread_id=in.(${threadIds.join(',')})`);
         const postsResult = await postsRes.json();
         (postsResult.data || []).forEach((p: any) => {
           postCountMap[p.thread_id] = (postCountMap[p.thread_id] || 0) + 1;
@@ -465,7 +465,7 @@ const Profile = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const res = await fetch('/rpc/v1/toggle_achievement_pin', {
+      const res = await fetch('/api/rpc/toggle_achievement_pin', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -485,7 +485,7 @@ const Profile = () => {
   };
 
   const loadAchievements = async () => {
-    const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=level.desc&order=unlocked_at.desc`);
+    const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=level.desc&order=unlocked_at.desc`);
     const achResult = await achRes.json();
     const data = achResult.data || [];
 
@@ -666,7 +666,7 @@ const Profile = () => {
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     // Сохраняем профиль
-    const profileRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+    const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify({
@@ -746,7 +746,7 @@ const Profile = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const updateRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+      const updateRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ avatar_url: fileName }),
@@ -777,7 +777,7 @@ const Profile = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const res = await fetch('/rpc/v1/delete_avatar_from_history', {
+      const res = await fetch('/api/rpc/delete_avatar_from_history', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -811,7 +811,7 @@ const Profile = () => {
         }
 
         // Close gallery if no more avatars
-        const historyRes = await fetch('/rpc/v1/get_avatar_history', {
+        const historyRes = await fetch('/api/rpc/get_avatar_history', {
           method: 'POST',
           headers,
           body: JSON.stringify({ user_uuid: userId }),
@@ -848,7 +848,7 @@ const Profile = () => {
       const bioJsonChanged =
         JSON.stringify(bioJson ?? null) !== JSON.stringify(prevBioJson);
       if (userId && (bio !== profile.bio || bioJsonChanged)) {
-        const bioRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+        const bioRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ bio, bio_json: bioJson }),
@@ -858,7 +858,7 @@ const Profile = () => {
 
       // Save username changes
       if (userId && newUsername.trim() && newUsername !== profile.username) {
-        const usernameRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+        const usernameRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ username: newUsername.trim() }),
@@ -870,7 +870,7 @@ const Profile = () => {
 
       // Save anonymity setting
       if (userId && isAnonymous !== profile.is_anonymous) {
-        const anonRes = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+        const anonRes = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ is_anonymous: isAnonymous }),
@@ -915,7 +915,7 @@ const Profile = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const res = await fetch(`/rest/v1/profiles?id=eq.${userId}`, {
+      const res = await fetch(`/api/v1/profiles?id=eq.${userId}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ username: newUsername }),

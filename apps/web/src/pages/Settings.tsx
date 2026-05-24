@@ -136,7 +136,7 @@ const Settings = () => {
         const headers = { 'Authorization': `Bearer ${token}` };
 
         // Load current user profile and color
-        const profileRes = await fetch(`/rest/v1/profiles?id=eq.${user.id}`, { headers });
+        const profileRes = await fetch(`/api/v1/profiles?id=eq.${user.id}`, { headers });
         const profileResult = await profileRes.json();
         const profile = profileResult.data?.[0];
 
@@ -145,7 +145,7 @@ const Settings = () => {
         }
 
         // Load current user color
-        const achRes = await fetch(`/rest/v1/user_achievements?user_id=eq.${user.id}`, { headers });
+        const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${user.id}`, { headers });
         const achResult = await achRes.json();
         const achievements = achResult.data;
 
@@ -175,7 +175,7 @@ const Settings = () => {
       const token = (await supabase.auth.getSession()).data.session?.access_token;
       const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
-      const res = await fetch(`/rest/v1/privacy_settings?user_id=eq.${user.id}`, { headers });
+      const res = await fetch(`/api/v1/privacy_settings?user_id=eq.${user.id}`, { headers });
       const result = await res.json();
       const data = result.data?.[0];
 
@@ -198,7 +198,7 @@ const Settings = () => {
           user_id: user.id,
         };
 
-        const insertRes = await fetch('/rest/v1/privacy_settings', {
+        const insertRes = await fetch('/api/v1/privacy_settings', {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
           body: JSON.stringify(defaultSettings),
@@ -269,7 +269,7 @@ const Settings = () => {
 
       // Try to save to database
       try {
-        const updateRes = await fetch(`/rest/v1/privacy_settings?user_id=eq.${user.id}`, {
+        const updateRes = await fetch(`/api/v1/privacy_settings?user_id=eq.${user.id}`, {
           method: 'PUT',
           headers: { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(dbData),
@@ -277,7 +277,7 @@ const Settings = () => {
 
         if (!updateRes.ok) {
           // If update failed, try upsert (insert)
-          const upsertRes = await fetch('/rest/v1/privacy_settings', {
+          const upsertRes = await fetch('/api/v1/privacy_settings', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -355,7 +355,7 @@ const Settings = () => {
       loadGoogleFont(fontName);
       // Track font setting change for achievement
       const token = (await supabase.auth.getSession()).data.session?.access_token;
-      await fetch('/rest/v1/user_settings_changes', {
+      await fetch('/api/v1/user_settings_changes', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
