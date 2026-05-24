@@ -16,9 +16,9 @@ set -euo pipefail
 PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"
 # Fallback: search for docker-compose.yml if git isn't available
 if [ -z "$PROJECT_DIR" ]; then
-  PROJECT_DIR=$(find / -maxdepth 4 -name docker-compose.yml -path "*/gomo6/*" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+  PROJECT_DIR=$(find / -maxdepth 4 -name docker-compose.yml -path "*/gomo6.2/*" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
 fi
-[ -n "$PROJECT_DIR" ] || { echo "Cannot find gomo6 repo"; exit 1; }
+[ -n "$PROJECT_DIR" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
 cd "$PROJECT_DIR"
 
 echo "=== Deploy started at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
