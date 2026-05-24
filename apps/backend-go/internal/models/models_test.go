@@ -1,7 +1,6 @@
 package models
 
 import (
-	"database/sql/driver"
 	"encoding/json"
 	"testing"
 	"time"
@@ -18,11 +17,7 @@ func TestJSONB_Value(t *testing.T) {
 		t.Fatalf("JSONB.Value() failed: %v", err)
 	}
 
-	val, ok := v.(driver.Value)
-	if !ok {
-		t.Fatal("Value() must return driver.Value")
-	}
-	bytes, ok := val.([]byte)
+	bytes, ok := v.([]byte)
 	if !ok {
 		t.Fatal("Value() must return []byte")
 	}
@@ -43,11 +38,7 @@ func TestJSONB_Value_Nil(t *testing.T) {
 		t.Fatalf("JSONB.Value() for nil failed: %v", err)
 	}
 
-	val, ok := v.(driver.Value)
-	if !ok {
-		t.Fatal("Value() must return driver.Value")
-	}
-	bytes, ok := val.([]byte)
+	bytes, ok := v.([]byte)
 	if !ok {
 		t.Fatal("Value() must return []byte")
 	}
