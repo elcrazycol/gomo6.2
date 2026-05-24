@@ -420,7 +420,7 @@ const Profile = () => {
 
       // Get profiles for all threads
       const userIds = [...new Set(threadsData.map((t: any) => t.user_id).filter(Boolean))];
-      let profilesMap: Record<string, any> = {};
+      const profilesMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const profilesRes = await fetch(`/rest/v1/profiles?id=in.(${userIds.join(',')})`);
         const profilesResult = await profilesRes.json();
@@ -429,7 +429,7 @@ const Profile = () => {
 
       // Get post counts for threads
       const threadIds = threadsData.map((t: any) => t.id);
-      let postCountMap: Record<string, number> = {};
+      const postCountMap: Record<string, number> = {};
       if (threadIds.length > 0) {
         const postsRes = await fetch(`/rest/v1/posts?thread_id=in.(${threadIds.join(',')})`);
         const postsResult = await postsRes.json();

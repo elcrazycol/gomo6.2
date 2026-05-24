@@ -32,7 +32,7 @@ func NewStorageHandler(client *storage.StorageClient) *StorageHandler {
 func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *multipart.FileHeader, err error) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		return nil, nil, fmt.Errorf("No file provided")
+		return nil, nil, fmt.Errorf("no file provided")
 	}
 	defer file.Close()
 
@@ -46,7 +46,7 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 		".webp": true, ".pdf": true, ".txt": true, ".md": true,
 	}
 	if !allowedTypes[ext] {
-		return nil, nil, fmt.Errorf("File type not allowed")
+		return nil, nil, fmt.Errorf("file type not allowed")
 	}
 
 	data, err = io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
@@ -54,7 +54,7 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 		return nil, nil, fmt.Errorf("Failed to read file")
 	}
 	if int64(len(data)) > maxUploadBytes {
-		return nil, nil, fmt.Errorf("File too large (max 10MB)")
+		return nil, nil, fmt.Errorf("file too large (max 10MB)")
 	}
 
 	return data, header, nil

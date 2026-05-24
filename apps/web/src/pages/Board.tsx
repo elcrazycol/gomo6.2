@@ -212,7 +212,7 @@ const Board = () => {
         threadsData = threadsData.filter((t: any) => {
           let tags: any = {};
           if (t.tags) {
-            try { tags = typeof t.tags === 'string' ? JSON.parse(t.tags) : t.tags; } catch {}
+            try { tags = typeof t.tags === 'string' ? JSON.parse(t.tags) : t.tags; } catch { /* ignore JSON parse errors */ }
           }
           if (contentFilter && tags.content !== contentFilter) return false;
           if (formatFilter && tags.format !== formatFilter) return false;
@@ -224,7 +224,7 @@ const Board = () => {
         threadsData = threadsData.filter((t: any) => {
           let tags: any = {};
           if (t.tags) {
-            try { tags = typeof t.tags === 'string' ? JSON.parse(t.tags) : t.tags; } catch {}
+            try { tags = typeof t.tags === 'string' ? JSON.parse(t.tags) : t.tags; } catch { /* ignore JSON parse errors */ }
           }
           return tags.content === oldTagFilter;
         });

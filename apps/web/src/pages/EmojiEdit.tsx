@@ -155,7 +155,7 @@ const EmojiEdit = () => {
       loadEmojis();
       loadGroups();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [isModerator]);
 
   const loadGroups = async () => {
