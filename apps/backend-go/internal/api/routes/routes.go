@@ -29,6 +29,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	authHandler := handlers.NewAuthHandler(db)
 	// Initialize auth service
 	authService := auth.NewAuthService()
+	authService.SetRedis(redis) // enables token blacklist + refresh tokens
+
+	// Set Redis on auth handler for lockout + token blacklist
+	authHandler.SetRedis(redis)
 
 	// Initialize OAuth service and handlers
 	oauthService := oauth.NewOAuthService(db, authService)
@@ -119,6 +123,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/refresh", middleware.AuthMiddleware(authService), authHandler.Refresh)
+			authGroup.POST("/logout", middleware.AuthMiddleware(authService), authHandler.Logout)
 			// Apply both caching and rate limiting to /me endpoint
 			authGroup.GET("/me",
 				middleware.AuthCacheMiddleware(authService, redis),

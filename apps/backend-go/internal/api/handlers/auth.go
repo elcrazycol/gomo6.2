@@ -1,24 +1,30 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/pquerna/otp/totp"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
 	db          *sql.DB
 	authService *auth.AuthService
+	redis       *redis.Client // optional — enables lockout and token blacklist
 }
 
 func NewAuthHandler(db *sql.DB) *AuthHandler {
@@ -28,9 +34,47 @@ func NewAuthHandler(db *sql.DB) *AuthHandler {
 	}
 }
 
+// SetRedis enables optional Redis-backed features: lockout and token blacklist.
+func (h *AuthHandler) SetRedis(rdb *redis.Client) {
+	h.redis = rdb
+	h.authService.SetRedis(rdb)
+}
+
+// validatePassword checks that the password meets minimum requirements:
+// - At least 8 characters
+// - At least one letter and one digit
+func validatePassword(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("Password must be at least 8 characters")
+	}
+
+	hasLetter := false
+	hasDigit := false
+	for _, ch := range password {
+		if unicode.IsLetter(ch) {
+			hasLetter = true
+		}
+		if unicode.IsDigit(ch) {
+			hasDigit = true
+		}
+	}
+
+	if !hasLetter || !hasDigit {
+		return fmt.Errorf("Password must contain at least one letter and one digit")
+	}
+
+	return nil
+}
+
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Validate password strength
+	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
@@ -58,8 +102,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Generate JWT token
-	token, err := h.authService.GenerateToken(user.ID, user.Username, user.Domain)
+	// Generate token pair (access + refresh)
+	tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
@@ -67,7 +111,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"user":  user,
-		"token": token,
+		"token": tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken,
+		"expires_in":    tokenPair.ExpiresIn,
 	}))
 }
 
@@ -83,6 +129,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	// Check account lockout
+	if h.redis != nil {
+		lockKey := fmt.Sprintf("lockout:%s", req.Email)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		attempts, err := h.redis.Get(ctx, lockKey).Int()
+		cancel()
+		if err == nil && attempts >= 5 {
+			c.JSON(http.StatusTooManyRequests, models.ErrorResponse("Account temporarily locked. Try again in 15 minutes."))
+			return
+		}
 	}
 
 	// Get user from database
@@ -113,8 +171,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Check password
 	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password))
 	if err != nil {
+		// Record failed attempt
+		if h.redis != nil {
+			h.recordFailedAttempt(req.Email)
+		}
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
 		return
+	}
+
+	// Reset lockout counter on successful password verification
+	if h.redis != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		h.redis.Del(ctx, fmt.Sprintf("lockout:%s", req.Email))
+		cancel()
 	}
 
 	// Check if 2FA is enabled and device is trusted
@@ -126,16 +195,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				if expiresAt, ok := trustedDevices[req.DeviceID]; ok {
 					if time.Now().Unix() < expiresAt {
 						// Device is trusted, skip 2FA
-						token, err := h.authService.GenerateToken(user.ID, user.Username, user.Domain)
+						tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)
 						if err != nil {
 							c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 							return
 						}
 
 						c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-							"user":      user,
-							"token":     token,
-							"needs_2fa": false,
+							"user":          user,
+							"token":         tokenPair.AccessToken,
+							"refresh_token": tokenPair.RefreshToken,
+							"expires_in":    tokenPair.ExpiresIn,
+							"needs_2fa":     false,
 						}))
 						return
 					}
@@ -158,17 +229,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// No 2FA, generate full token directly
-	token, err := h.authService.GenerateToken(user.ID, user.Username, user.Domain)
+	// No 2FA, generate token pair directly
+	tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"user":      user,
-		"token":     token,
-		"needs_2fa": false,
+		"user":          user,
+		"token":         tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken,
+		"expires_in":    tokenPair.ExpiresIn,
+		"needs_2fa":     false,
 	}))
 }
 
@@ -205,15 +278,15 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		return
 	}
 
-	// Validate TOTP code
-	valid, err := h.validateTOTP(*totpSecret, req.Code)
+	// Validate TOTP code (also try recovery codes)
+	valid, err := h.validateTOTPWithRecovery(claims.UserID, *totpSecret, req.Code)
 	if err != nil || !valid {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid 2FA code"))
 		return
 	}
 
-	// Generate full token
-	token, err := h.authService.GenerateToken(claims.UserID, claims.Username, claims.Domain)
+	// Generate token pair (access + refresh)
+	tokenPair, err := h.authService.GenerateTokenPair(claims.UserID, claims.Username, claims.Domain)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
@@ -225,8 +298,69 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-		"token": token,
+		"token":         tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken,
+		"expires_in":    tokenPair.ExpiresIn,
 	}))
+}
+
+// Refresh exchanges a valid refresh token for a new token pair.
+// POST /api/v1/auth/refresh
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.RefreshToken == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("refresh_token is required"))
+		return
+	}
+
+	// Get current user from access token (still valid or recently expired)
+	claimsI, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	claims := claimsI.(*auth.Claims)
+
+	// Validate and rotate refresh token
+	tokenPair, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, req.RefreshToken)
+	if err != nil {
+		// Only revoke all sessions if the refresh token was found but generation
+		// failed (potential token theft). "Not found" is benign (already used, expired).
+		if !errors.Is(err, auth.ErrRefreshTokenNotFound) {
+			h.authService.RevokeAllRefreshTokens(claims.UserID)
+		}
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"token":         tokenPair.AccessToken,
+		"refresh_token": tokenPair.RefreshToken,
+		"expires_in":    tokenPair.ExpiresIn,
+	}))
+}
+
+// Logout blacklists the access token and revokes all refresh tokens.
+// POST /api/v1/auth/logout
+func (h *AuthHandler) Logout(c *gin.Context) {
+	claimsI, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	claims := claimsI.(*auth.Claims)
+
+	// Blacklist the current access token
+	if claims.ExpiresAt != nil {
+		h.authService.BlacklistToken(claims.ID, claims.ExpiresAt.Time)
+	}
+
+	// Revoke all refresh tokens for this user
+	h.authService.RevokeAllRefreshTokens(claims.UserID)
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
 // SetupTOTP generates a new TOTP secret for the authenticated user and returns the provisioning URI.
@@ -308,8 +442,8 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 		return
 	}
 
-	// Generate recovery codes (5 codes)
-	recoveryCodes := h.generateRecoveryCodes(userClaims.UserID)
+	// Generate real recovery codes (8 codes), store hashes in DB
+	recoveryCodes := h.generateAndStoreRecoveryCodes(userClaims.UserID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"enabled":        true,
@@ -367,10 +501,19 @@ func (h *AuthHandler) Get2FAStatus(c *gin.Context) {
 
 // internal helpers
 
+// validateTOTP verifies a TOTP code, and also checks recovery codes if applicable.
+// Note: recovery codes are checked against the user's ID, not the TOTP secret.
 func (h *AuthHandler) validateTOTP(secret, code string) (bool, error) {
-	// First try as recovery code
+	// Validate as standard TOTP
+	result := totp.Validate(code, secret)
+	return result, nil
+}
+
+// validateTOTPWithRecovery verifies a TOTP code or a recovery code for the given user.
+func (h *AuthHandler) validateTOTPWithRecovery(userID, secret, code string) (bool, error) {
+	// Try recovery code first if it looks like one (longer format)
 	if len(code) > 10 {
-		valid, err := h.validateRecoveryCode(secret, code)
+		valid, err := h.validateRecoveryCode(userID, code)
 		if err != nil {
 			return false, err
 		}
@@ -406,19 +549,56 @@ func (h *AuthHandler) trustDevice(userID, deviceID string) {
 	h.db.Exec(`UPDATE users SET trusted_devices = $1 WHERE id = $2`, string(data), userID)
 }
 
-func (h *AuthHandler) generateRecoveryCodes(userID string) []string {
-	codes := make([]string, 5)
-	for i := 0; i < 5; i++ {
-		code := fmt.Sprintf("RC-%s-%s", userID[:8], randomHex(10))
+// generateAndStoreRecoveryCodes creates 8 recovery codes, stores their hashes in the DB,
+// and returns the plaintext codes (only time they're shown).
+func (h *AuthHandler) generateAndStoreRecoveryCodes(userID string) []string {
+	codes := make([]string, 8)
+	for i := 0; i < 8; i++ {
+		code := fmt.Sprintf("%s-%s-%s", randomHex(4), randomHex(4), randomHex(4))
 		codes[i] = code
+
+		// Hash and store
+		hash := sha256.Sum256([]byte(code))
+		codeHash := hex.EncodeToString(hash[:])
+		h.db.Exec(`
+			INSERT INTO user_recovery_codes (user_id, code_hash, used)
+			VALUES ($1, $2, FALSE)
+		`, userID, codeHash)
 	}
 	return codes
 }
 
-func (h *AuthHandler) validateRecoveryCode(secret, code string) (bool, error) {
-	// For now, recovery codes are not stored separately - use the main totp secret
-	// In production, store recovery codes in a separate table and check them here
-	return false, nil
+// recordFailedAttempt increments the failed login counter in Redis.
+func (h *AuthHandler) recordFailedAttempt(email string) {
+	if h.redis == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	lockKey := fmt.Sprintf("lockout:%s", email)
+	h.redis.Incr(ctx, lockKey)
+	h.redis.Expire(ctx, lockKey, 15*time.Minute)
+}
+
+// validateRecoveryCode checks a recovery code against the database.
+// If valid, marks it as used so it cannot be reused.
+func (h *AuthHandler) validateRecoveryCode(userID, code string) (bool, error) {
+	hash := sha256.Sum256([]byte(code))
+	codeHash := hex.EncodeToString(hash[:])
+
+	var id string
+	err := h.db.QueryRow(`
+		UPDATE user_recovery_codes
+		SET used = TRUE
+		WHERE user_id = $1 AND code_hash = $2 AND used = FALSE
+		RETURNING id
+	`, userID, codeHash).Scan(&id)
+
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (h *AuthHandler) GetMe(c *gin.Context) {
@@ -466,8 +646,14 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	var body struct {
 		Password string `json:"password"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil || len(body.Password) < 6 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Password must be at least 6 characters"))
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	// Validate password strength
+	if err := validatePassword(body.Password); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 

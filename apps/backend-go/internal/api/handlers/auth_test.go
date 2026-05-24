@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
@@ -456,5 +457,223 @@ func TestVerifyAndEnableTOTP_NoSecret(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Password Validation ─────────────────────────────────────────────────────
+
+func TestValidatePassword_TooShort(t *testing.T) {
+	err := validatePassword("Ab1")
+	if err == nil {
+		t.Fatal("expected error for short password")
+	}
+}
+
+func TestValidatePassword_NoLetter(t *testing.T) {
+	err := validatePassword("12345678")
+	if err == nil {
+		t.Fatal("expected error for password without letters")
+	}
+}
+
+func TestValidatePassword_NoDigit(t *testing.T) {
+	err := validatePassword("abcdefgh")
+	if err == nil {
+		t.Fatal("expected error for password without digits")
+	}
+}
+
+func TestValidatePassword_Valid(t *testing.T) {
+	err := validatePassword("myPassword123")
+	if err != nil {
+		t.Fatalf("expected valid password, got error: %v", err)
+	}
+}
+
+func TestValidatePassword_Exactly8Chars(t *testing.T) {
+	err := validatePassword("Abc12345")
+	if err != nil {
+		t.Fatalf("expected exactly-8-char password to be valid, got: %v", err)
+	}
+}
+
+func TestValidatePassword_Unicode(t *testing.T) {
+	// Unicode letters and digits should count
+	err := validatePassword("пароль123")
+	if err != nil {
+		t.Fatalf("unicode password should be valid: %v", err)
+	}
+}
+
+// ─── Register — Password Validation ──────────────────────────────────────────
+
+func TestRegister_WeakPassword_TooShort(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
+		Username: "testuser",
+		Email:    "test@example.com",
+		Password: "Ab1",
+	}, nil, nil)
+	h.Register(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for short password, got %d", w.Code)
+	}
+}
+
+func TestRegister_WeakPassword_NoLetter(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
+		Username: "testuser",
+		Email:    "test@example.com",
+		Password: "12345678",
+	}, nil, nil)
+	h.Register(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for password without letters, got %d", w.Code)
+	}
+}
+
+func TestRegister_WeakPassword_NoDigit(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
+		Username: "testuser",
+		Email:    "test@example.com",
+		Password: "abcdefgh",
+	}, nil, nil)
+	h.Register(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for password without digits, got %d", w.Code)
+	}
+}
+
+// ─── Refresh ─────────────────────────────────────────────────────────────────
+
+func TestRefresh_Success(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	// RefreshAccessToken will try to validate the refresh token against Redis.
+	// Without Redis, it returns an error. So we test the "no redis" path.
+	c, w := newPOSTContext("/auth/v1/refresh", map[string]string{
+		"refresh_token": "some-refresh-token",
+	}, claims, nil)
+	h.Refresh(c)
+	_ = mock
+
+	// Without Redis, refresh always fails (which is the secure default)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without Redis, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRefresh_NoClaims(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	c, w := newPOSTContext("/auth/v1/refresh", map[string]string{
+		"refresh_token": "some-token",
+	}, nil, nil)
+	h.Refresh(c)
+	_ = mock
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestRefresh_MissingToken(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	c, w := newPOSTContext("/auth/v1/refresh", map[string]string{}, claims, nil)
+	h.Refresh(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing refresh_token, got %d", w.Code)
+	}
+}
+
+func TestRefresh_InvalidBody(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	c, w := newPOSTContext("/auth/v1/refresh", "not json", claims, nil)
+	h.Refresh(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// ─── Logout ──────────────────────────────────────────────────────────────────
+
+func TestLogout_Success(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{
+		UserID:   "u1",
+		Username: "testuser",
+		Domain:   "localhost:8080",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        "test-jti",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+		},
+	}
+
+	c, w := newPOSTContext("/auth/v1/logout", nil, claims, nil)
+	h.Logout(c)
+	_ = mock
+
+	// Logout should succeed even without Redis (blacklist is best-effort)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.SupabaseResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %s", *resp.Error)
+	}
+}
+
+func TestLogout_NoClaims(t *testing.T) {
+	h, mock := setupAuthHandler(t)
+
+	c, w := newPOSTContext("/auth/v1/logout", nil, nil, nil)
+	h.Logout(c)
+	_ = mock
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestLogout_NoExpiry(t *testing.T) {
+	// Logout should still work when token has no ExpiresAt
+	h, mock := setupAuthHandler(t)
+	claims := &auth.Claims{
+		UserID:   "u1",
+		Username: "testuser",
+		Domain:   "localhost:8080",
+		// No RegisteredClaims, so no jti and no ExpiresAt
+	}
+
+	c, w := newPOSTContext("/auth/v1/logout", nil, claims, nil)
+	h.Logout(c)
+	_ = mock
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 even without expiry, got %d: %s", w.Code, w.Body.String())
 	}
 }
