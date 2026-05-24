@@ -182,6 +182,59 @@ func TestGetUserLikesReceivedCount_Success(t *testing.T) {
 	}
 }
 
+func TestGetUserLikesReceivedCount_MissingParam(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCGETContext(nil)
+	h.GetUserLikesReceivedCount(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetUserLikesReceivedCount_InvalidUUID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCGETContext(map[string]string{"user_uuid": "not-a-uuid"})
+	h.GetUserLikesReceivedCount(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetUserLikesReceivedCount_EqPrefixUUID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	// Regression test: eq. prefix (e.g. "eq.550e8400-...") must be rejected as invalid UUID
+	c, w := newRPCGETContext(map[string]string{"user_uuid": "eq.550e8400-e29b-41d4-a716-446655440001"})
+	h.GetUserLikesReceivedCount(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for eq. prefix, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetUserLikesReceivedCount_DBError(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	userID := "660e8400-e29b-41d4-a716-446655440001"
+	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM post_likes pl.*JOIN posts p ON pl.post_id = p.id.*WHERE p.user_id = \$1`).
+		WithArgs(userID).
+		WillReturnError(sqlmock.ErrCancelled)
+
+	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	h.GetUserLikesReceivedCount(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
 // ─── GetUserThreadLikesGivenCount ────────────────────────────────────────────
 
 func TestGetUserThreadLikesGivenCount_Success(t *testing.T) {
@@ -215,6 +268,59 @@ func TestGetUserThreadLikesReceivedCount_Success(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestGetUserThreadLikesReceivedCount_MissingParam(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCGETContext(nil)
+	h.GetUserThreadLikesReceivedCount(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetUserThreadLikesReceivedCount_InvalidUUID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCGETContext(map[string]string{"user_uuid": "not-a-uuid"})
+	h.GetUserThreadLikesReceivedCount(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetUserThreadLikesReceivedCount_EqPrefixUUID(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	// Regression test: eq. prefix (e.g. "eq.550e8400-...") must be rejected as invalid UUID
+	c, w := newRPCGETContext(map[string]string{"user_uuid": "eq.550e8400-e29b-41d4-a716-446655440001"})
+	h.GetUserThreadLikesReceivedCount(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for eq. prefix, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetUserThreadLikesReceivedCount_DBError(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	userID := "660e8400-e29b-41d4-a716-446655440001"
+	mock.ExpectQuery(`(?s).*SELECT COUNT\(\*\) FROM thread_likes tl.*JOIN threads t ON tl.thread_id = t.id.*WHERE t.user_id = \$1`).
+		WithArgs(userID).
+		WillReturnError(sqlmock.ErrCancelled)
+
+	c, w := newRPCGETContext(map[string]string{"user_uuid": userID})
+	h.GetUserThreadLikesReceivedCount(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
 	}
 }
 
