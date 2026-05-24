@@ -174,13 +174,13 @@ func MessengerRateLimitMiddleware(limiter *MessengerRateLimiter) gin.HandlerFunc
 		// Check rate limit based on operation
 		if c.Request.Method == "POST" {
 			switch path {
-			case "/rpc/v1/get_or_create_direct_chat":
+			case "/api/rpc/get_or_create_direct_chat":
 				if !limiter.AllowConversationCreate(userID) {
 					c.JSON(429, gin.H{"error": "Rate limit exceeded: too many conversations created. Please wait."})
 					c.Abort()
 					return
 				}
-			case "/rest/v1/chat_messages":
+			case "/api/v1/chat_messages":
 				if !limiter.AllowMessage(userID) {
 					c.JSON(429, gin.H{"error": "Rate limit exceeded: too many messages sent. Please slow down."})
 					c.Abort()
@@ -195,13 +195,13 @@ func MessengerRateLimitMiddleware(limiter *MessengerRateLimiter) gin.HandlerFunc
 
 func isMessengerEndpoint(path string) bool {
 	messengerPaths := []string{
-		"/rest/v1/chat_messages",
-		"/rest/v1/chat_conversations",
-		"/rest/v1/chat_conversation_members",
-		"/rest/v1/chat_receipts",
-		"/rpc/v1/get_or_create_direct_chat",
-		"/rpc/v1/chat_mark_delivered",
-		"/rpc/v1/chat_mark_read",
+		"/api/v1/chat_messages",
+		"/api/v1/chat_conversations",
+		"/api/v1/chat_conversation_members",
+		"/api/v1/chat_receipts",
+		"/api/rpc/get_or_create_direct_chat",
+		"/api/rpc/chat_mark_delivered",
+		"/api/rpc/chat_mark_read",
 	}
 
 	for _, p := range messengerPaths {

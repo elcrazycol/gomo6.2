@@ -15,7 +15,7 @@ import (
 func TestHandleTableRequest_DisallowedTable(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/secret_table", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/secret_table", nil, nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -27,7 +27,7 @@ func TestHandleTableRequest_DisallowedTable(t *testing.T) {
 func TestHandleTableRequest_EmptyTable(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/", nil, nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -39,7 +39,7 @@ func TestHandleTableRequest_EmptyTable(t *testing.T) {
 func TestHandleTableRequest_MethodNotAllowed(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PATCH", "/rest/v1/user_roles", nil, nil)
+	c, w := newUniversalRequestContext("PATCH", "/api/v1/user_roles", nil, nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -57,7 +57,7 @@ func TestUniversalGet_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "board_id"}).
 			AddRow("1", "u1", "b1").AddRow("2", "u2", "b2"))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/gomosub_memberships", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/gomosub_memberships", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -73,7 +73,7 @@ func TestUniversalGet_WithFilter(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}).
 			AddRow("1", "u1", "admin"))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/user_roles?user_id=eq.u1", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/user_roles?user_id=eq.u1", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -87,7 +87,7 @@ func TestUniversalGet_DBError(t *testing.T) {
 	mock.ExpectQuery(`SELECT \* FROM gomosub_memberships`).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/gomosub_memberships", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/gomosub_memberships", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusInternalServerError {
@@ -100,7 +100,7 @@ func TestUniversalGet_DBError(t *testing.T) {
 func TestUniversalGet_MessengerUnauthenticated(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/chat_conversations", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/chat_conversations", nil, nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -117,7 +117,7 @@ func TestUniversalGet_MessengerConversations(t *testing.T) {
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("conv1", "2025-01-01T00:00:00Z"))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/chat_conversations", nil, claims)
+	c, w := newUniversalRequestContext("GET", "/api/v1/chat_conversations", nil, claims)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -134,7 +134,7 @@ func TestUniversalGet_MessengerMessages(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "ciphertext"}).
 			AddRow("msg1", "conv1", "encrypted_data"))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/chat_messages", nil, claims)
+	c, w := newUniversalRequestContext("GET", "/api/v1/chat_messages", nil, claims)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -154,7 +154,7 @@ func TestUniversalPost_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "question", "created_by"}).
 			AddRow("poll1", "Test question?", "u1"))
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/polls", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/polls", map[string]string{
 		"question":   "Test question?",
 		"created_by": "u1",
 	}, nil)
@@ -173,7 +173,7 @@ func TestUniversalPost_UpsertDailyVisits(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "visit_date"}).
 			AddRow("1", "u1", "2025-01-01"))
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/user_daily_visits", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/user_daily_visits", map[string]string{
 		"user_id": "u1",
 	}, nil)
 	h.HandleTableRequest(c)
@@ -186,7 +186,7 @@ func TestUniversalPost_UpsertDailyVisits(t *testing.T) {
 func TestUniversalPost_MessengerChatMessagesUnauthenticated(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/chat_messages", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/chat_messages", map[string]string{
 		"conversation_id": "conv1",
 	}, nil)
 	h.HandleTableRequest(c)
@@ -207,7 +207,7 @@ func TestUniversalPut_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}).
 			AddRow("1", "u1", "moderator"))
 
-	c, w := newUniversalRequestContext("PUT", "/rest/v1/user_roles?user_id=eq.u1", map[string]string{
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
 		"role": "moderator",
 	}, nil)
 	h.HandleTableRequest(c)
@@ -220,7 +220,7 @@ func TestUniversalPut_Success(t *testing.T) {
 func TestUniversalPut_MissingFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PUT", "/rest/v1/user_roles", map[string]string{
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles", map[string]string{
 		"role": "moderator",
 	}, nil)
 	h.HandleTableRequest(c)
@@ -238,7 +238,7 @@ func TestUniversalPut_NotFound(t *testing.T) {
 		WithArgs("false", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "show_online_status"}))
 
-	c, w := newUniversalRequestContext("PUT", "/rest/v1/privacy_settings?user_id=eq.u1", map[string]string{
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
 		"show_online_status": "false",
 	}, nil)
 	h.HandleTableRequest(c)
@@ -258,7 +258,7 @@ func TestUniversalDelete_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "poll_id", "user_id"}).
 			AddRow("vote1", "poll1", "u1"))
 
-	c, w := newUniversalRequestContext("DELETE", "/rest/v1/poll_votes?id=eq.vote1", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/poll_votes?id=eq.vote1", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -269,7 +269,7 @@ func TestUniversalDelete_Success(t *testing.T) {
 func TestUniversalDelete_MissingFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("DELETE", "/rest/v1/poll_votes", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/poll_votes", nil, nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -285,7 +285,7 @@ func TestUniversalDelete_NotFound(t *testing.T) {
 		WithArgs("nonexistent").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id", "user_id"}))
 
-	c, w := newUniversalRequestContext("DELETE", "/rest/v1/thread_subscriptions?id=eq.nonexistent", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/thread_subscriptions?id=eq.nonexistent", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusNotFound {
@@ -305,7 +305,7 @@ func TestUniversalPost_MessengerChatMessagesForbidden(t *testing.T) {
 		WithArgs("550e8400-e29b-41d4-a716-446655440000", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/chat_messages", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/chat_messages", map[string]string{
 		"conversation_id":      "550e8400-e29b-41d4-a716-446655440000",
 		"sender_user_id":       "550e8400-e29b-41d4-a716-446655440001",
 		"ciphertext":           "aGVsbG8=",
@@ -325,7 +325,7 @@ func TestUniversalPost_MessengerConversationsForbidden(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/chat_conversations", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/chat_conversations", map[string]string{
 		"id": "conv1",
 	}, claims)
 	h.HandleTableRequest(c)
@@ -346,7 +346,7 @@ func TestUniversalGet_UserAchievements(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "achievement_id", "unlocked_at", "level", "is_pinned", "pinned_order", "achievements"}).
 			AddRow("1", "u1", "ach1", "2025-01-01T00:00:00Z", 1, false, nil, `{"id":"ach1","name":"Test"}`))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/user_achievements", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/user_achievements", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -411,7 +411,7 @@ func TestUniversalPost_UpsertGomosubRules(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "board_id"}).
 			AddRow("1", "u1", "b1"))
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/gomosub_rules_acceptance", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/gomosub_rules_acceptance", map[string]string{
 		"user_id":  "u1",
 		"board_id": "b1",
 	}, nil)
@@ -437,7 +437,7 @@ func TestUniversalPost_UpsertWallPostLikes(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id"}).
 			AddRow("1", "post1", "u1"))
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/profile_wall_post_likes", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_likes", map[string]string{
 		"post_id": "post1",
 		"user_id": "u1",
 	}, nil)
@@ -451,7 +451,7 @@ func TestUniversalPost_UpsertWallPostLikes(t *testing.T) {
 func TestUniversalPost_InvalidBody(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/polls", "invalid json", nil)
+	c, w := newUniversalRequestContext("POST", "/api/v1/polls", "invalid json", nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -468,7 +468,7 @@ func TestUniversalGet_WithInFilter(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}).
 			AddRow("1", "u1", "admin").AddRow("2", "u2", "user"))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/user_roles?user_id=in.(u1,u2)", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/user_roles?user_id=in.(u1,u2)", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -482,7 +482,7 @@ func TestUniversalGet_WithIsNull(t *testing.T) {
 	mock.ExpectQuery(`SELECT \* FROM user_roles WHERE user_id IS NULL`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/user_roles?user_id=is.null", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/user_roles?user_id=is.null", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -497,7 +497,7 @@ func TestUniversalGet_ProfileWallPosts(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "Hello!", "Test", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -512,7 +512,7 @@ func TestUniversalGet_ProfileWallPostComments(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "created_at", "updated_at", "author"}).
 			AddRow("comment1", "post1", "u1", "Nice!", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/rest/v1/profile_wall_post_comments", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, nil)
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -527,7 +527,7 @@ func TestUniversalPut_DBError(t *testing.T) {
 		WithArgs("moderator", "u1").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newUniversalRequestContext("PUT", "/rest/v1/user_roles?user_id=eq.u1", map[string]string{
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
 		"role": "moderator",
 	}, nil)
 	h.HandleTableRequest(c)
@@ -556,7 +556,7 @@ func TestUniversalGet_BuildFilterClause_NotOp(t *testing.T) {
 func TestUniversalPost_ChatReceiptsUnauthenticated(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("POST", "/rest/v1/chat_receipts", map[string]string{
+	c, w := newUniversalRequestContext("POST", "/api/v1/chat_receipts", map[string]string{
 		"message_id": "msg1",
 	}, nil)
 	h.HandleTableRequest(c)

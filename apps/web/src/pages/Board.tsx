@@ -147,9 +147,9 @@ const Board = () => {
 
         if (sessionUser) {
         const [rolesResponse, profileResponse, achievementsResponse] = await Promise.all([
-          fetch(`/rest/v1/user_roles?user_id=eq.${sessionUser.id}`).then(r => r.json()),
-          fetch(`/rest/v1/profiles?id=eq.${sessionUser.id}`).then(r => r.json()),
-          fetch(`/rest/v1/user_achievements?user_id=eq.${sessionUser.id}`).then(r => r.json()),
+          fetch(`/api/v1/user_roles?user_id=eq.${sessionUser.id}`).then(r => r.json()),
+          fetch(`/api/v1/profiles?id=eq.${sessionUser.id}`).then(r => r.json()),
+          fetch(`/api/v1/user_achievements?user_id=eq.${sessionUser.id}`).then(r => r.json()),
         ]);
         
         const roles: any[] = rolesResponse.data || [];
@@ -201,7 +201,7 @@ const Board = () => {
     const oldTagFilter = searchParams.get('tag');
 
     // Fetch threads from Go backend
-    const threadsResponse = await fetch(`/rest/v1/threads?board_id=eq.${boardId}&order=updated_at.desc&limit=100`);
+    const threadsResponse = await fetch(`/api/v1/threads?board_id=eq.${boardId}&order=updated_at.desc&limit=100`);
     const threadsResult = await threadsResponse.json();
     let threadsData: any[] = threadsResult.data || [];
 
@@ -242,7 +242,7 @@ const Board = () => {
 
     // Fetch latest post for each thread in parallel
     const postsPromises = threadsData.map(async (thread: any) => {
-      const postResponse = await fetch(`/rest/v1/posts?thread_id=eq.${thread.id}&order=created_at.desc&limit=1`);
+      const postResponse = await fetch(`/api/v1/posts?thread_id=eq.${thread.id}&order=created_at.desc&limit=1`);
       const postResult = await postResponse.json();
       return { threadId: thread.id, posts: (postResult.data || []) as any[] };
     });
@@ -257,7 +257,7 @@ const Board = () => {
     const profilesMap = new Map<string, any>();
     const userIdArray = [...userIds];
     if (userIdArray.length > 0) {
-      const profilesResponse = await fetch(`/rest/v1/profiles?id=in.(${userIdArray.join(',')})`);
+      const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${userIdArray.join(',')})`);
       const profilesResult = await profilesResponse.json();
       (profilesResult.data || []).forEach((p: any) => profilesMap.set(p.id, p));
     }
@@ -302,7 +302,7 @@ const Board = () => {
       setCheckingRules(isGomoRoute);
 
       // Fetch board by slug
-      const boardResponse = await fetch(`/rest/v1/boards/${slug}`);
+      const boardResponse = await fetch(`/api/v1/boards/${slug}`);
       const boardResult = await boardResponse.json();
       const boardData = boardResult.data;
 
@@ -315,7 +315,7 @@ const Board = () => {
           let accepted = false;
 
           if (user?.id) {
-            const acceptanceResponse = await fetch(`/rest/v1/gomosub_rules_acceptance?user_id=eq.${user.id}&board_id=eq.${boardData.id}`);
+            const acceptanceResponse = await fetch(`/api/v1/gomosub_rules_acceptance?user_id=eq.${user.id}&board_id=eq.${boardData.id}`);
             const acceptanceResult = await acceptanceResponse.json();
             const acceptance = acceptanceResult.data?.[0];
 
@@ -351,7 +351,7 @@ const Board = () => {
             
             // Award incel achievement
             if (user) {
-              fetch('/rpc/v1/award_achievement', {
+              fetch('/api/rpc/award_achievement', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
@@ -380,7 +380,7 @@ const Board = () => {
       }
 
       // Count members
-      const allMembersResponse = await fetch(`/rest/v1/gomosub_memberships?board_id=eq.${board.id}`);
+      const allMembersResponse = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${board.id}`);
       const allMembersResult = await allMembersResponse.json();
       const allMembers = allMembersResult.data || [];
       setMembersCount(allMembers.length);
@@ -390,7 +390,7 @@ const Board = () => {
         return;
       }
 
-      const membershipResponse = await fetch(`/rest/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`);
+      const membershipResponse = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`);
       const membershipResult = await membershipResponse.json();
       setIsJoined((membershipResult.data || []).length > 0);
     };
@@ -430,7 +430,7 @@ const Board = () => {
       
       // Award incel achievement
       if (user) {
-        fetch('/rpc/v1/award_achievement', {
+        fetch('/api/rpc/award_achievement', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ _user_id: user.id, _achievement_id: 'incel' }),
@@ -461,7 +461,7 @@ const Board = () => {
     const rulesVersion = board.rules_updated_at || "v1";
 
     if (user?.id) {
-      const response = await fetch('/rest/v1/gomosub_rules_acceptance', {
+      const response = await fetch('/api/v1/gomosub_rules_acceptance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -502,7 +502,7 @@ const Board = () => {
 
     setMembershipLoading(true);
     if (isJoined) {
-      const response = await fetch(`/rest/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`, {
+      const response = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`, {
         method: 'DELETE',
       });
       const result = await response.json();
@@ -518,7 +518,7 @@ const Board = () => {
       return;
     }
 
-    const response = await fetch('/rest/v1/gomosub_memberships', {
+    const response = await fetch('/api/v1/gomosub_memberships', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ board_id: board.id, user_id: user.id }),
