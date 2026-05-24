@@ -113,9 +113,12 @@ func TestUniversalGet_MessengerConversations(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s).*set_config.*`).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s).*SELECT c\.\* FROM chat_conversations c.*INNER JOIN chat_conversation_members cm ON c\.id = cm\.conversation_id.*WHERE cm\.user_id = \$1 AND cm\.archived_at IS NULL`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow("conv1", "2025-01-01T00:00:00Z"))
+	mock.ExpectCommit()
 
 	c, w := newUniversalRequestContext("GET", "/api/v1/chat_conversations", nil, claims)
 	h.HandleTableRequest(c)
@@ -129,10 +132,13 @@ func TestUniversalGet_MessengerMessages(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s).*set_config.*`).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s).*SELECT m\.\* FROM chat_messages m.*WHERE m\.conversation_id IN \(.*SELECT conversation_id FROM chat_conversation_members.*WHERE user_id = \$1 AND archived_at IS NULL.*\)`).
 		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "ciphertext"}).
 			AddRow("msg1", "conv1", "encrypted_data"))
+	mock.ExpectCommit()
 
 	c, w := newUniversalRequestContext("GET", "/api/v1/chat_messages", nil, claims)
 	h.HandleTableRequest(c)
@@ -301,9 +307,12 @@ func TestUniversalPost_MessengerChatMessagesForbidden(t *testing.T) {
 
 	// Send a message with all required fields passing validation,
 	// but user is not a member of the conversation -> 403
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s).*set_config.*`).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s).*SELECT EXISTS\(.*SELECT 1 FROM chat_conversation_members.*WHERE conversation_id = \$1 AND user_id = \$2 AND archived_at IS NULL.*\)`).
 		WithArgs("550e8400-e29b-41d4-a716-446655440000", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectRollback()
 
 	c, w := newUniversalRequestContext("POST", "/api/v1/chat_messages", map[string]string{
 		"conversation_id":      "550e8400-e29b-41d4-a716-446655440000",
@@ -325,11 +334,15 @@ func TestUniversalPost_MessengerConversationsForbidden(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
+	// Handler opens a transaction + sets RLS context before checking tableName
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s).*set_config.*`).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
 	c, w := newUniversalRequestContext("POST", "/api/v1/chat_conversations", map[string]string{
 		"id": "conv1",
 	}, claims)
 	h.HandleTableRequest(c)
-	_ = mock
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
@@ -380,6 +393,9 @@ func TestUniversal_SplitCSV_Empty(t *testing.T) {
 func TestUniversal_IsMessengerTable(t *testing.T) {
 	if !isMessengerTable("chat_messages") {
 		t.Fatal("chat_messages should be messenger table")
+	}
+	if !isMessengerTable("chat_user_keys") {
+		t.Fatal("chat_user_keys should be messenger table")
 	}
 	if isMessengerTable("polls") {
 		t.Fatal("polls should not be messenger table")
