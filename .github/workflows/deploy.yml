@@ -39,5 +39,5 @@ jobs:
           command_timeout: 10m
           script: |
             set -e
-            cd $HOME/gomo6
+            cd /root/gomo6
             bash scripts/deploy-vps.sh
