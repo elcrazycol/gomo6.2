@@ -155,8 +155,14 @@ if [ "$HAS_FRONTEND" -eq 1 ]; then
       continue
     fi
 
+    # Strip directory prefix from file paths for eslint (runs from within workspace)
+    REL_FILES=()
+    for f in "${DIR_FILES[@]}"; do
+      REL_FILES+=("${f#$dir/}")
+    done
+
     cd "$dir"
-    if ! npx eslint "${DIR_FILES[@]}" --max-warnings=1000 2>&1; then
+    if ! npx eslint "${REL_FILES[@]}" --max-warnings=1000 2>&1; then
       fail "eslint ($dir, ${#DIR_FILES[@]} файлов)"
       exit 1
     fi

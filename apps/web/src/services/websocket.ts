@@ -34,7 +34,8 @@ export type WebSocketMessageType =
   | 'update_wall_post'
   | 'delete_wall_post'
   | 'user_online'
-  | 'user_offline';
+  | 'user_offline'
+  | 'new_notification';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;
@@ -57,6 +58,7 @@ class WebSocketService {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private messageHandlers: Map<WebSocketMessageType, Set<MessageHandler>> = new Map();
   private subscribedRooms: Set<string> = new Set();
+  private currentUserId: string | null = null;
   private isConnected = false;
   private isConnecting = false;
   private lastConnectAttempt = 0;
@@ -136,6 +138,13 @@ class WebSocketService {
 
     // Re-subscribe to all rooms
     this.resubscribeRooms();
+
+    // Emit connected event
+    this.emit('connected' as WebSocketMessageType, {
+      type: 'connected',
+      data: {},
+      timestamp: Date.now(),
+    });
   }
 
   /**
@@ -272,6 +281,16 @@ class WebSocketService {
         timestamp: Date.now()
       });
     }
+  }
+
+
+  /**
+   * Subscribe to notifications room for a user
+   */
+  subscribeToNotifications(userId: string): void {
+    if (!userId) return;
+    this.currentUserId = userId;
+    this.subscribe(`notifications_${userId}`);
   }
 
   /**

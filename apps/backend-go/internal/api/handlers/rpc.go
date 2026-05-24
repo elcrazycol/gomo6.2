@@ -915,6 +915,29 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 	c.JSON(http.StatusOK, nil)
 }
 
+// GetMessengerUnreadCount returns total unread message count for the current user
+func (h *RPCHandler) GetMessengerUnreadCount(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
+	var count int
+	err := h.db.QueryRow(`
+		SELECT COALESCE(SUM(unread_count_cache), 0)
+		FROM chat_conversation_members
+		WHERE user_id = $1 AND archived_at IS NULL
+	`, claims.UserID).Scan(&count)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"unread_count": count}))
+}
+
 // GetAvatarHistory returns avatar history for a user
 func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 	var req struct {
@@ -1352,7 +1375,13 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		if len(shortContent) > 100 {
 			shortContent = shortContent[:100] + "..."
 		}
-		_ = createNotification(h.db, h.redis, threadAuthor, "reply", title, shortContent, &req.ThreadID, &post.ID)
+		var notifHub *websocket.Hub
+		if h.wsHub != nil {
+			if castHub, ok := h.wsHub.(*websocket.Hub); ok {
+				notifHub = castHub
+			}
+		}
+		_, _ = CreateNotification(h.db, h.redis, notifHub, threadAuthor, "reply", title, shortContent, &req.ThreadID, &post.ID)
 	}
 
 	// Invalidate Redis cache for this thread's posts
