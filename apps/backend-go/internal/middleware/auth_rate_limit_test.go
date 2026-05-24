@@ -1,9 +1,15 @@
 package middleware
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // =============================================================================
@@ -283,5 +289,109 @@ func TestAuthRateLimiter_OneRequest(t *testing.T) {
 	}
 	if limiter.Allow("user-1") {
 		t.Fatal("second request must be denied when max=1")
+	}
+}
+
+// =============================================================================
+// AuthRateLimitMiddleware — gin wrapper
+// =============================================================================
+
+func newRateLimitContext(claimsExists bool) (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/auth/me", nil)
+	if claimsExists {
+		c.Set("claims", &authClaims{userID: "user-123"})
+	}
+	return c, w
+}
+
+// authClaims implements the GetUserID() interface expected by the middleware.
+type authClaims struct {
+	userID string
+}
+
+func (a *authClaims) GetUserID() string {
+	return a.userID
+}
+
+func TestAuthRateLimitMiddleware_NoClaims_PassesThrough(t *testing.T) {
+	limiter := NewAuthRateLimiter(1, time.Minute)
+	middleware := AuthRateLimitMiddleware(limiter)
+
+	c, w := newRateLimitContext(false)
+
+	middleware(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestAuthRateLimitMiddleware_WithClaims_Allowed(t *testing.T) {
+	limiter := NewAuthRateLimiter(3, time.Minute)
+	middleware := AuthRateLimitMiddleware(limiter)
+
+	c, w := newRateLimitContext(true)
+
+	middleware(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestAuthRateLimitMiddleware_ExceedLimit_Returns429(t *testing.T) {
+	limiter := NewAuthRateLimiter(1, time.Minute)
+	middleware := AuthRateLimitMiddleware(limiter)
+
+	// First request — allowed
+	c1, _ := newRateLimitContext(true)
+	middleware(c1)
+
+	// Second request — should be denied
+	c2, w2 := newRateLimitContext(true)
+
+	middleware(c2)
+
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", w2.Code)
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(strings.ToLower(errMsg), "rate limit") {
+		t.Errorf("expected error mentioning rate limit, got %q", errMsg)
+	}
+}
+
+func TestAuthRateLimitMiddleware_DifferentUsers_Independent(t *testing.T) {
+	limiter := NewAuthRateLimiter(1, time.Minute)
+	middleware := AuthRateLimitMiddleware(limiter)
+
+	// User 1 exhausts their limit
+	c1, _ := newRateLimitContext(true)
+	c1.Set("claims", &authClaims{userID: "user-1"})
+	middleware(c1)
+
+	// User 1 should be blocked now
+	c2, w2 := newRateLimitContext(true)
+	c2.Set("claims", &authClaims{userID: "user-1"})
+	middleware(c2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Errorf("user-1 should be blocked after exhausting limit, got %d", w2.Code)
+	}
+
+	// User 2 should still have their own quota
+	c3, w3 := newRateLimitContext(true)
+	c3.Set("claims", &authClaims{userID: "user-2"})
+	middleware(c3)
+
+	if w3.Code != http.StatusOK {
+		t.Errorf("user-2 expected 200, got %d", w3.Code)
 	}
 }
