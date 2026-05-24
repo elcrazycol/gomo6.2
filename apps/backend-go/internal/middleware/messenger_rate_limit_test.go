@@ -1,8 +1,12 @@
 package middleware
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // =============================================================================
@@ -191,5 +195,144 @@ func TestIsMessengerEndpoint_Invalid(t *testing.T) {
 				t.Errorf("expected %q to NOT be a messenger endpoint", ep)
 			}
 		})
+	}
+}
+
+// =============================================================================
+// MessengerRateLimitMiddleware — gin wrapper
+// =============================================================================
+
+func newMessengerContext(method, path string) (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(method, path, nil)
+	return c, w
+}
+
+func TestMessengerRateLimitMiddleware_NonMessengerEndpoint_PassesThrough(t *testing.T) {
+	limiter := NewMessengerRateLimiter()
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, _ := newMessengerContext("GET", "/api/v1/users")
+
+	middleware(c)
+
+	if c.IsAborted() {
+		t.Error("request should not be aborted for non-messenger endpoint")
+	}
+}
+
+func TestMessengerRateLimitMiddleware_NoClaims_PassesThrough(t *testing.T) {
+	limiter := NewMessengerRateLimiter()
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, _ := newMessengerContext("POST", "/api/v1/chat_messages")
+
+	middleware(c)
+
+	if c.IsAborted() {
+		t.Error("request should not be aborted when no claims present")
+	}
+}
+
+func TestMessengerRateLimitMiddleware_MessageAllowed(t *testing.T) {
+	limiter := NewMessengerRateLimiter()
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, w := newMessengerContext("POST", "/api/v1/chat_messages")
+	c.Set("claims", &authClaims{userID: "msg-user"})
+
+	middleware(c)
+
+	if c.IsAborted() {
+		t.Error("first message should be allowed, not aborted")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestMessengerRateLimitMiddleware_MessageExceeded_Returns429(t *testing.T) {
+	limiter := NewMessengerRateLimiter()
+	// Use limiter directly to exhaust the minute limit
+	for i := 0; i < 30; i++ {
+		limiter.AllowMessage("flood-user")
+	}
+
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, w := newMessengerContext("POST", "/api/v1/chat_messages")
+	c.Set("claims", &authClaims{userID: "flood-user"})
+
+	middleware(c)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", w.Code)
+	}
+}
+
+func TestMessengerRateLimitMiddleware_ConversationAllowed(t *testing.T) {
+	limiter := NewMessengerRateLimiter()
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, w := newMessengerContext("POST", "/api/rpc/get_or_create_direct_chat")
+	c.Set("claims", &authClaims{userID: "conv-user"})
+
+	middleware(c)
+
+	if c.IsAborted() {
+		t.Error("first conversation should be allowed, not aborted")
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestMessengerRateLimitMiddleware_ConversationExceeded_Returns429(t *testing.T) {
+	limiter := NewMessengerRateLimiter()
+	for i := 0; i < 10; i++ {
+		limiter.AllowConversationCreate("conv-flood")
+	}
+
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, w := newMessengerContext("POST", "/api/rpc/get_or_create_direct_chat")
+	c.Set("claims", &authClaims{userID: "conv-flood"})
+
+	middleware(c)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", w.Code)
+	}
+}
+
+func TestMessengerRateLimitMiddleware_GETRequest_NotRateLimited(t *testing.T) {
+	// The middleware only rate-limits POST requests
+	limiter := NewMessengerRateLimiter()
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, _ := newMessengerContext("GET", "/api/v1/chat_messages")
+	c.Set("claims", &authClaims{userID: "get-user"})
+
+	middleware(c)
+
+	if c.IsAborted() {
+		t.Error("GET request should pass through, not be aborted")
+	}
+}
+
+func TestMessengerRateLimitMiddleware_UnknownEndpoint_NotRateLimited(t *testing.T) {
+	// The middleware only rate-limits specific paths
+	limiter := NewMessengerRateLimiter()
+	middleware := MessengerRateLimitMiddleware(limiter)
+
+	c, _ := newMessengerContext("POST", "/api/v1/chat_receipts")
+	c.Set("claims", &authClaims{userID: "user-1"})
+
+	middleware(c)
+
+	if c.IsAborted() {
+		t.Error("POST to chat_receipts should pass through, not be aborted")
 	}
 }
