@@ -410,7 +410,7 @@ func TestLoadAllowedBuckets_Defaults(t *testing.T) {
 	// allowedBucketsOnce has already fired in a full test run.
 	// This test verifies the current state matches expected defaults.
 	m := loadAllowedBuckets()
-	expected := []string{"content", "post-images", "avatars", "uploads"}
+	expected := []string{"content", "post-images", "avatars", "uploads", "emojis"}
 	for _, b := range expected {
 		if _, ok := m[b]; !ok {
 			t.Errorf("expected bucket %q in allowed set, got %v", b, keysOf(m))
