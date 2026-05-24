@@ -41,7 +41,9 @@ const Notify = () => {
                   return { ...notif, thread_slug: boardData[0]?.slug };
                 }
               }
-            } catch {}
+            } catch {
+              // Ошибка уже залогирована выше
+            }
           }
           return notif as NotifWithSlug;
         })
