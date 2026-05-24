@@ -359,6 +359,77 @@ func TestAuthCacheMiddleware_WebSocketUpgrade_Unauthorized(t *testing.T) {
 	}
 }
 
+// TestAuthCacheMiddleware_WebSocketUpgrade_InvalidToken verifies that a WebSocket
+// upgrade with a garbage query token is rejected with 401 and empty body.
+func TestAuthCacheMiddleware_WebSocketUpgrade_InvalidToken(t *testing.T) {
+	svc := auth.NewAuthService()
+
+	c, w := newCacheTestContext("GET", "/ws?token=garbage.token.here")
+	c.Request.Header.Set("Upgrade", "websocket")
+
+	middleware := AuthCacheMiddleware(svc, nil)
+	middleware(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for WebSocket upgrade with invalid token, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body != "" {
+		t.Errorf("expected empty body for WebSocket abort, got %q", body)
+	}
+
+	_, exists := c.Get("claims")
+	if exists {
+		t.Error("claims should not be set for invalid token")
+	}
+}
+
+// TestAuthCacheMiddleware_WebSocketUpgrade_ExpiredToken verifies that a WebSocket
+// upgrade with an expired query token is rejected with 401 and empty body.
+func TestAuthCacheMiddleware_WebSocketUpgrade_ExpiredToken(t *testing.T) {
+	secret := "test-ws-expired-secret-at-least-32-bytes-ok"
+	t.Setenv("JWT_SECRET", secret)
+
+	svc := auth.NewAuthService()
+
+	// Create a token that expired 1 hour ago
+	claims := auth.Claims{
+		UserID:   "user-123",
+		Username: "alice",
+		Domain:   "gomo6.wtf",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(-2 * time.Hour)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("failed to create expired token: %v", err)
+	}
+
+	c, w := newCacheTestContext("GET", "/ws?token="+tokenStr)
+	c.Request.Header.Set("Upgrade", "websocket")
+
+	middleware := AuthCacheMiddleware(svc, nil)
+	middleware(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for WebSocket upgrade with expired token, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if body != "" {
+		t.Errorf("expected empty body for WebSocket abort, got %q", body)
+	}
+
+	_, exists := c.Get("claims")
+	if exists {
+		t.Error("claims should not be set for expired token")
+	}
+}
+
 func TestAuthCacheMiddleware_BearerPriorityOverQuery(t *testing.T) {
 	svc := auth.NewAuthService()
 	bearerToken, _ := svc.GenerateToken("user-bearer", "alice", "gomo6.wtf")
