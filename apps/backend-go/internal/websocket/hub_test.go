@@ -351,8 +351,8 @@ func TestHub_MultipleRooms(t *testing.T) {
 	hub.SubscribeToRoom(client, "room-b")
 
 	hub.mu.RLock()
-	roomAClients, _ := hub.rooms["room-a"]
-	roomBClients, _ := hub.rooms["room-b"]
+	roomAClients := hub.rooms["room-a"]
+	roomBClients := hub.rooms["room-b"]
 	hub.mu.RUnlock()
 
 	if !roomAClients[client] {
