@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +44,7 @@ const EmojiCreate = () => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const checkAuth = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
 
     if (!user) {
       navigate("/auth");
@@ -53,7 +53,7 @@ const EmojiCreate = () => {
 
     setUser(user);
 
-    const { data: roles } = await supabase
+    const { data: roles } = await api
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id);
@@ -69,7 +69,7 @@ const EmojiCreate = () => {
     setIsModerator(true);
 
     // Load current user profile and color
-    const { data: profile } = await supabase
+    const { data: profile } = await api
       .from("profiles")
       .select("username")
       .eq("id", user.id)
@@ -80,7 +80,7 @@ const EmojiCreate = () => {
     }
 
     // Load current user color
-    const { data: achievements } = await supabase
+    const { data: achievements } = await api
       .from("user_achievements")
       .select(`
         achievement_id,
@@ -108,7 +108,7 @@ const EmojiCreate = () => {
 
   const loadGroups = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emoji_groups')
         .select('id, name')
         .order('name');
@@ -134,7 +134,7 @@ const EmojiCreate = () => {
     }
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emoji_groups')
         .insert({ name: newGroupName.trim() })
         .select()
@@ -247,7 +247,7 @@ const EmojiCreate = () => {
       const { publicUrl } = getPublicUrl('emojis', fileName);
 
       // Save to database
-      const { error: dbError } = await supabase
+      const { error: dbError } = await api
         .from('emojis')
         .insert({
           group_id: selectedGroup,

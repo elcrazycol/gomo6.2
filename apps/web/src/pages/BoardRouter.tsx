@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -88,7 +88,7 @@ const Board = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       setUser(session?.user ?? null);
       
       if (session?.user) {
@@ -126,7 +126,7 @@ const Board = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
       }
@@ -179,7 +179,7 @@ const Board = () => {
     loadBoard();
   }, [slug, user]);
 
-  // Poll for new threads every 30s (replaces supabase realtime)
+  // Poll for new threads every 30s (replaces api realtime)
   useEffect(() => {
     if (!board) return;
     const interval = setInterval(() => {
@@ -280,7 +280,7 @@ const Board = () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        'Authorization': `Bearer ${(await api.auth.getSession()).data.session?.access_token}`,
       },
       body: JSON.stringify({
         board_id: board!.id,
@@ -311,7 +311,7 @@ const Board = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
   };
 

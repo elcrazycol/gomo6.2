@@ -1,6 +1,6 @@
 import { useState, cloneElement } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -34,8 +34,8 @@ const getColorClass = (color: string): string => {
 // Fetch profile data with caching
 const fetchProfileData = async (userId: string) => {
   const [profileResult, achievementsResult, customization, placeholdersResult] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", userId).single(),
-    supabase.from("user_achievements").select(`
+    api.from("profiles").select("*").eq("id", userId).single(),
+    api.from("user_achievements").select(`
       achievement_id,
       achievements (
         reward_type,
@@ -43,7 +43,7 @@ const fetchProfileData = async (userId: string) => {
       )
     `).eq("user_id", userId),
     getProfileCustomization(userId),
-    supabase.from("user_placeholders").select("*").eq("user_id", userId).maybeSingle(),
+    api.from("user_placeholders").select("*").eq("user_id", userId).maybeSingle(),
   ]);
 
   const profile = profileResult.data;

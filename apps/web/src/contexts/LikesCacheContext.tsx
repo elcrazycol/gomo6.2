@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 interface LikeData {
   count: number;
@@ -66,14 +66,14 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
         const hasLikedFunction = isThread ? 'has_user_liked_thread' : 'has_user_liked_post';
 
         const promises: [Promise<any>, Promise<any>?] = [
-          supabase.rpc(countFunction, {
+          api.rpc(countFunction, {
             [isThread ? 'thread_uuid' : 'post_uuid']: postId
           })
         ];
 
         if (userId) {
           promises.push(
-            supabase.rpc(hasLikedFunction, {
+            api.rpc(hasLikedFunction, {
               [isThread ? 'thread_uuid' : 'post_uuid']: postId,
               user_uuid: userId
             })

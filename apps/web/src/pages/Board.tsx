@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -141,7 +141,7 @@ const Board = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await api.auth.getSession();
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
 
@@ -183,7 +183,7 @@ const Board = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
         setAuthResolved(true);
@@ -398,7 +398,7 @@ const Board = () => {
     loadMembership();
   }, [board?.id, board?.is_gomosub, user?.id]);
 
-  // Poll for new threads every 30s (replaces supabase realtime)
+  // Poll for new threads every 30s (replaces api realtime)
   useEffect(() => {
     if (!board) return;
     const interval = setInterval(() => {
@@ -413,7 +413,7 @@ const Board = () => {
   }
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
   };
 

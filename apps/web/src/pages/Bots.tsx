@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -60,7 +60,7 @@ end`,
 
   const loadBots = useCallback(async (userId: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       const response = await fetch("/api/v1/bots", {
@@ -79,7 +79,7 @@ end`,
   }, []);
 
   const checkAuth = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await api.auth.getSession();
     if (!session) {
       navigate("/auth");
       return;
@@ -96,7 +96,7 @@ end`,
 
   const createBot = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       const response = await fetch("/api/v1/bots", {
@@ -131,7 +131,7 @@ end`,
     if (!editingBot) return;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       const response = await fetch(`/api/v1/bots/${editingBot.id}`, {
@@ -162,7 +162,7 @@ end`,
 
   const toggleBot = async (botId: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       const response = await fetch(`/api/v1/bots/${botId}/toggle`, {
@@ -185,7 +185,7 @@ end`,
     if (!confirm("Удалить бота?")) return;
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       const response = await fetch(`/api/v1/bots/${botId}`, {
@@ -207,7 +207,7 @@ end`,
   const loadLogs = useCallback(async (botId: string) => {
     try {
       setLogsLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       console.log("[Logs] Fetching logs for bot:", botId);
@@ -252,7 +252,7 @@ end`,
 
   const clearLogs = async (botId: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       if (!session) return;
 
       const response = await fetch(`/api/v1/bots/${botId}/logs`, {

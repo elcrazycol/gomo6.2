@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Upload, X } from "lucide-react";
@@ -34,7 +34,7 @@ export const ImageUpload = ({
   // Load user's privacy settings on component mount
   useEffect(() => {
     const loadPrivacySettings = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (user) {
         const settings = await getUserPrivacySettings(user.id);
         setRemoveMetadata(settings.remove_image_metadata);
@@ -111,7 +111,7 @@ export const ImageUpload = ({
     setUploading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         toast.error("Нужно войти для загрузки изображений");
         return;
@@ -135,7 +135,7 @@ export const ImageUpload = ({
         const randomStr = Math.random().toString(36).substring(2, 9);
         const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
 
-        const { error: uploadError } = await (supabase.storage
+        const { error: uploadError } = await (api.storage
           .from('content') as any)
           .upload(fileName, file, {
             cacheControl: '3600',
@@ -158,7 +158,7 @@ export const ImageUpload = ({
       toast.success(`Загружено ${newUrls.length} изображений`);
     } catch (error: any) {
       console.error('Image upload error:', error);
-      toast.error(error.message || "Ошибка загрузки изображений. Проверьте настройки storage в Supabase.");
+      toast.error(error.message || "Ошибка загрузки изображений. Проверьте настройки storage на сервере.");
     } finally {
       setUploading(false);
       // Reset input

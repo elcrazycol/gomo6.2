@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibility";
 import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";
@@ -43,7 +43,7 @@ export const ProcessedContent = ({
         // If authorUsername is not provided, try to get it
         let finalAuthorUsername = authorUsername;
         if (!finalAuthorUsername && postAuthorId) {
-          const { data } = await supabase
+          const { data } = await api
             .from('profiles')
             .select('username')
             .eq('id', postAuthorId)
@@ -63,7 +63,7 @@ export const ProcessedContent = ({
 
         // Load usernames for display
         if (result.visibleForUsers && result.visibleForUsers.length > 0) {
-          const { data: profiles } = await supabase
+          const { data: profiles } = await api
             .from('profiles')
             .select('username')
             .in('id', result.visibleForUsers);
@@ -75,7 +75,7 @@ export const ProcessedContent = ({
         }
 
         if (result.hiddenForUsers && result.hiddenForUsers.length > 0) {
-          const { data: profiles } = await supabase
+          const { data: profiles } = await api
             .from('profiles')
             .select('username')
             .in('id', result.hiddenForUsers);
@@ -104,7 +104,7 @@ export const ProcessedContent = ({
     if (!postAuthorId) return;
 
     const loadAuthorColor = async () => {
-      const { data } = await supabase
+      const { data } = await api
         .from("user_achievements")
         .select(`
           achievement_id,

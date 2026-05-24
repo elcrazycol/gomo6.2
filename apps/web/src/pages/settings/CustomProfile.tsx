@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -182,7 +182,7 @@ const CustomProfile = () => {
   }, []);
 
   const loadCustomization = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
+    const { data, error } = await api
       .from("profile_customization")
       .select("*")
       .eq("user_id", userId)
@@ -215,12 +215,12 @@ const CustomProfile = () => {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       setUser(user);
       
       if (user) {
         // Load current user profile
-        const { data: profile } = await supabase
+        const { data: profile } = await api
           .from("profiles")
           .select("username, avatar_url")
           .eq("id", user.id)
@@ -442,7 +442,7 @@ const CustomProfile = () => {
         ? badgeCustomCss.trim()
         : generateBadgeCssFromConstructor();
 
-      const { error } = await supabase
+      const { error } = await api
         .from("profile_customization")
         .upsert({
           user_id: user.id,

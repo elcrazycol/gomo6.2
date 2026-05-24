@@ -1,6 +1,6 @@
 // Pure S3-compatible storage layer.
 // All file operations go through backend → Garage. No direct browser-to-S3.
-// Replaces all scattered supabase.storage.from() calls across the app.
+// Replaces all scattered api.storage.from() calls across the app.
 //
 // Usage:
 //   import { storageUrl, uploadFile } from "@/utils/storage";
@@ -46,7 +46,7 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
 
 /**
  * Upload a file to the backend, which stores it server-side in Garage (S3-compatible).
- * Returns { path: key } on success — same shape as supabase.storage.from().upload().
+ * Returns { path: key } on success — same shape as api.storage.from().upload().
  *
  * @param bucket — S3 bucket name (must be in backend allowlist)
  * @param key — object key (path within bucket)

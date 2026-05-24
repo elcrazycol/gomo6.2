@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { uploadFile } from "@/utils/storage";
 import { compressImageWithMetadataRemoval } from "@/lib/imageProcessing";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
@@ -200,7 +200,7 @@ const extractAudioMetadata = async (file: File): Promise<{
             const coverFile = new File([blob], `cover_${Date.now()}.${ext}`, { type: picture.format });
 
             // Загружаем обложку в S3
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await api.auth.getSession();
             if (session) {
               const timestamp = Date.now();
               const randomStr = Math.random().toString(36).substring(7);
@@ -332,7 +332,7 @@ const inferType = (file: File): AttachmentType => {
 };
 
 export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]> => {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await api.auth.getSession();
   if (!session?.user) throw new Error("Нужно войти для загрузки");
   const user = session.user;
 

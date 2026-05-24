@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
 import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
@@ -43,7 +43,7 @@ export const UserBadge = ({
 
     const loadData = async () => {
       // Load achievements for fallback color
-      const { data } = await supabase
+      const { data } = await api
         .from("user_achievements")
         .select(`
           achievement_id,

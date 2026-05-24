@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/api/supabaseCompat';
+import { api } from '@/integrations/api/compat';
 
 export interface UserStatus {
   user_id: string;
@@ -16,7 +16,7 @@ export function useUserStatus(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return null;
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('profiles')
         .select('id, is_online, last_seen')
         .eq('id', userId)
@@ -47,7 +47,7 @@ export function useBulkUserStatus(userIds: string[]) {
     queryFn: async () => {
       if (userIds.length === 0) return [];
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('profiles')
         .select('id, is_online, last_seen')
         .in('id', userIds);

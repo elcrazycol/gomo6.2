@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -56,7 +56,7 @@ const EmojiEdit = () => {
   const [loading, setLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await api.auth.getUser();
 
     if (!user) {
       navigate("/auth");
@@ -65,7 +65,7 @@ const EmojiEdit = () => {
 
     setUser(user);
 
-    const { data: roles } = await supabase
+    const { data: roles } = await api
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id);
@@ -81,7 +81,7 @@ const EmojiEdit = () => {
     setIsModerator(true);
 
     // Load current user profile and color
-    const { data: profile } = await supabase
+    const { data: profile } = await api
       .from("profiles")
       .select("username")
       .eq("id", user.id)
@@ -92,7 +92,7 @@ const EmojiEdit = () => {
     }
 
     // Load current user color
-    const { data: achievements } = await supabase
+    const { data: achievements } = await api
       .from("user_achievements")
       .select(`
         achievement_id,
@@ -124,7 +124,7 @@ const EmojiEdit = () => {
 
   const loadEmojis = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emojis')
         .select(`
           id,
@@ -160,7 +160,7 @@ const EmojiEdit = () => {
 
   const loadGroups = async () => {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('emoji_groups')
         .select('id, name')
         .order('name');
@@ -199,7 +199,7 @@ const EmojiEdit = () => {
 
   const handleDeleteEmoji = async (emojiId: string, emojiCode: string) => {
     try {
-      const { error } = await supabase
+      const { error } = await api
         .from('emojis')
         .delete()
         .eq('id', emojiId);

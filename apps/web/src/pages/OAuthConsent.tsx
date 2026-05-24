@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -57,7 +57,7 @@ const OAuthConsent = () => {
     const checkSession = async () => {
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await api.auth.getSession();
       if (!session) {
         navigate(
           `/auth?redirect=${encodeURIComponent(window.location.href)}`
@@ -80,7 +80,7 @@ const OAuthConsent = () => {
           });
         } else {
           // Fallback to session user
-          const { data: userData } = await supabase.auth.getUser();
+          const { data: userData } = await api.auth.getUser();
           setUserInfo({
             id: session.user.id,
             username:
@@ -133,7 +133,7 @@ const OAuthConsent = () => {
 
       const {
         data: { session },
-      } = await supabase.auth.getSession();
+      } = await api.auth.getSession();
       if (!session) {
         toast.error("Необходимо войти в систему");
         navigate("/auth");

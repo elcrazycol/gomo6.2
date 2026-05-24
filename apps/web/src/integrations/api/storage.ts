@@ -1,4 +1,4 @@
-// Storage module — supabase.storage.from() compatibility backed by S3-compatible Go backend
+// Storage module — api.storage.from() compatibility backed by S3-compatible Go backend
 import { uploadFile, getPublicUrl, removeFile } from '@/utils/storage';
 
 export const storage = {

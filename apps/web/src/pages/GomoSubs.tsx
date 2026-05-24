@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,11 +51,11 @@ const GomoSubs = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await api.auth.getSession();
         setUserId(session?.user?.id ?? null);
 
         if (session?.user) {
-          const { data: profileData } = await supabase
+          const { data: profileData } = await api
             .from("profiles")
             .select("garma, username, created_at")
             .eq("id", session.user.id)
@@ -65,7 +65,7 @@ const GomoSubs = () => {
           }
         }
 
-        const { data } = await supabase
+        const { data } = await api
           .from("boards")
           .select(`
           id,
@@ -84,7 +84,7 @@ const GomoSubs = () => {
         if (loadedSubs.length > 0) {
           const countResults = await Promise.all(
             loadedSubs.map(async (sub) => {
-              const { count } = await supabase
+              const { count } = await api
                 .from("gomosub_memberships")
                 .select("*", { count: "exact", head: true })
                 .eq("board_id", sub.id);
@@ -100,7 +100,7 @@ const GomoSubs = () => {
         }
 
         if (session?.user && loadedSubs.length > 0) {
-          const { data: memberships } = await supabase
+          const { data: memberships } = await api
             .from("gomosub_memberships")
             .select("board_id")
             .eq("user_id", session.user.id)
@@ -132,7 +132,7 @@ const GomoSubs = () => {
       }
 
       setMyFeedLoading(true);
-      const { data: threadsData, error } = await supabase
+      const { data: threadsData, error } = await api
         .from("threads")
         .select(`
           id,
@@ -163,7 +163,7 @@ const GomoSubs = () => {
       }
 
       const userIds = threadsData.map((thread) => thread.user_id).filter(Boolean);
-      const { data: profilesData } = await supabase
+      const { data: profilesData } = await api
         .from("profiles")
         .select("id, username, is_anonymous, avatar_url")
         .in("id", userIds);
@@ -191,7 +191,7 @@ const GomoSubs = () => {
 
     const joined = joinedSubIds.has(sub.id);
     if (joined) {
-      const { error } = await supabase
+      const { error } = await api
         .from("gomosub_memberships")
         .delete()
         .eq("board_id", sub.id)
@@ -211,7 +211,7 @@ const GomoSubs = () => {
       return;
     }
 
-    const { error } = await supabase
+    const { error } = await api
       .from("gomosub_memberships")
       .insert({ board_id: sub.id, user_id: userId });
 

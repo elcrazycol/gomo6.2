@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -428,7 +428,7 @@ const Thread = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       setUser(session?.user ?? null);
       
       if (session?.user) {
@@ -472,7 +472,7 @@ const Thread = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
       }
@@ -495,7 +495,7 @@ const Thread = () => {
       return;
     }
 
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     if (isSubscribed) {
@@ -521,11 +521,11 @@ const Thread = () => {
   };
 
   // DISABLED: Using WebSocket for realtime updates instead
-  // Supabase realtime subscription removed to prevent duplicate posts
+  // Realtime subscription removed to prevent duplicate posts
   /*
   useEffect(() => {
     // Set up realtime subscription for new posts
-    const channel = supabase
+    const channel = api
       .channel(`thread-${threadId}-posts`)
       .on(
         'postgres_changes',
@@ -542,7 +542,7 @@ const Thread = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.removeChannel(channel);
     };
   }, [threadId]);
   */
@@ -555,7 +555,7 @@ const Thread = () => {
     if (!thread?.id || !threadId) return;
 
     const loadPollData = async () => {
-      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined;
 
       const pollRes = await fetch(`/api/v1/polls?thread_id=eq.${threadId}`);
@@ -607,12 +607,12 @@ const Thread = () => {
   }, [posts, isNearBottom, scrollToBottomSmooth]);
 
   // Realtime subscription for posts changes (single channel, local merge)
-  // DISABLED: Go backend doesn't support Supabase real-time yet
+  // DISABLED: Realtime subscription disabled — using WebSocket instead
   /*
   useEffect(() => {
     if (!threadId) return;
 
-    const channel = supabase
+    const channel = api
       .channel(`posts-${threadId}`)
       .on(
         'postgres_changes',
@@ -646,7 +646,7 @@ const Thread = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      api.removeChannel(channel);
     };
   }, [fetchPostWithProfile, isNearBottom, mergePostIntoList, scrollToBottomSmooth, threadId]);
   */
@@ -686,7 +686,7 @@ const Thread = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          'Authorization': `Bearer ${(await api.auth.getSession()).data.session?.access_token}`,
         },
         body: JSON.stringify({
           thread_id: threadId,
@@ -748,7 +748,7 @@ const Thread = () => {
       return;
     }
 
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     const res = await fetch('/api/v1/reports', {
@@ -772,7 +772,7 @@ const Thread = () => {
   };
 
   const handleDeletePost = async (postId: string) => {
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}` };
 
     const res = await fetch(`/api/v1/posts?id=eq.${postId}`, {
@@ -789,7 +789,7 @@ const Thread = () => {
   };
 
   const handleDeleteThread = async () => {
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}` };
 
     const res = await fetch(`/api/v1/threads?id=eq.${threadId}`, {
@@ -808,7 +808,7 @@ const Thread = () => {
   const handleEditPost = async () => {
     if (!editContent.trim() || !editingPostId) return;
 
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     const isOpeningPost = thread && editingPostId === thread.id;
@@ -833,7 +833,7 @@ const Thread = () => {
   const handleBanUser = async (isPermanent: boolean) => {
     if (!banReason.trim() || !banUserId) return;
 
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    const token = (await api.auth.getSession()).data.session?.access_token;
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     const expiresAt = isPermanent 
@@ -935,7 +935,7 @@ const Thread = () => {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
   };
 

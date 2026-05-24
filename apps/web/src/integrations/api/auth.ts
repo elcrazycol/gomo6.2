@@ -1,8 +1,8 @@
 // Auth module — extracted from client_simple.ts
-// Provides supabase.auth compatibility layer backed by Go backend
+// Provides api.auth compatibility layer backed by Go backend
 import { apiClient, getDeviceId } from './client';
 
-export const supabaseAuth = {
+export const apiAuth = {
   signUp: async ({ email, password, options }: any) => {
     try {
       const result = await apiClient.register(email, options?.data?.username || email.split('@')[0], password);

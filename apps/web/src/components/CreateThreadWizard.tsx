@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -103,13 +103,13 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
 
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await api.auth.getUser();
       if (!user) {
         toast.error('Необходимо войти в систему');
         return;
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await api
         .from('threads')
         .insert({
           board_id: selectedBoard.id,

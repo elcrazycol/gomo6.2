@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// parseJSONObjectBody reads POST/PUT JSON: either `{...}` or `[{...}]` (Supabase insert batch).
+// parseJSONObjectBody reads POST/PUT JSON: either `{...}` or `[{...}]` (insert batch).
 func parseJSONObjectBody(c *gin.Context) (map[string]interface{}, error) {
 	raw, err := io.ReadAll(c.Request.Body)
 	if err != nil {

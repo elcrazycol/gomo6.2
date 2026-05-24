@@ -1,12 +1,12 @@
 import { useEffect } from "react";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 
 export const useOnlineStatus = (userId: string | undefined) => {
   useEffect(() => {
     if (!userId) return;
 
     const setStatus = async (online: boolean) => {
-      await supabase
+      await api
         .from("profiles")
         .update({
           is_online: online,

@@ -5,7 +5,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
-import { SpeedInsights } from "@vercel/speed-insights/react";
 import { LazyPage } from "@/components/LazyPage";
 import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { wsService } from "./services/websocket";
@@ -130,7 +129,6 @@ const App = () => {
             <TooltipProvider>
               <Toaster />
               <Sonner />
-              {import.meta.env.PROD && !import.meta.env.VITE_DOCKER ? <SpeedInsights /> : null}
               <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
                 <Routes>
                   {/* Special pages without layout */}

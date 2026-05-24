@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
-import { supabase } from "@/integrations/api/supabaseCompat";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -95,11 +95,11 @@ const Index = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await api.auth.getSession();
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        const { data: roles } = await supabase
+        const { data: roles } = await api
           .from("user_roles")
           .select("role")
           .eq("user_id", session.user.id);
@@ -107,7 +107,7 @@ const Index = () => {
         setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
-        const { data: profile } = await supabase
+        const { data: profile } = await api
           .from("profiles")
           .select("username")
           .eq("id", session.user.id)
@@ -118,7 +118,7 @@ const Index = () => {
         }
 
         // Load current user color
-        const { data: achievements } = await supabase
+        const { data: achievements } = await api
           .from("user_achievements")
           .select(`
             achievement_id,
@@ -144,7 +144,7 @@ const Index = () => {
         }
         
         // Check if user has accepted terms
-        const { data: termsData } = await supabase
+        const { data: termsData } = await api
           .from("user_terms_acceptance")
           .select("*")
           .eq("user_id", session.user.id)
@@ -159,7 +159,7 @@ const Index = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null);
       }
@@ -170,7 +170,7 @@ const Index = () => {
 
   useEffect(() => {
     const loadSidebarData = async () => {
-      const { data: boardsData } = await supabase
+      const { data: boardsData } = await api
         .from("boards")
         .select("*")
         .eq("is_rules_board", false)
@@ -183,7 +183,7 @@ const Index = () => {
         setBoards(filteredBoards);
       }
 
-      const { data: gomoSubsData } = await supabase
+      const { data: gomoSubsData } = await api
         .from("boards")
         .select("id, slug, name, description")
         .eq("is_gomosub", true)
@@ -197,7 +197,7 @@ const Index = () => {
         setGomoSubs(randomized);
         const counts = await Promise.all(
           randomized.map(async (sub) => {
-            const { count } = await supabase
+            const { count } = await api
               .from("gomosub_memberships")
               .select("*", { count: "exact", head: true })
               .eq("board_id", sub.id);
@@ -227,14 +227,14 @@ const Index = () => {
 
       setSubscriptionsLoading(true);
 
-      const { data: memberships } = await supabase
+      const { data: memberships } = await api
         .from("gomosub_memberships")
         .select("board_id")
         .eq("user_id", user.id);
       const joinedBoardIds = (memberships ?? []).map((m) => m.board_id);
 
       const { data: joinedBoardsData } = joinedBoardIds.length
-        ? await supabase
+        ? await api
             .from("boards")
             .select("id, slug, name, description")
             .in("id", joinedBoardIds)
@@ -242,13 +242,13 @@ const Index = () => {
         : { data: [] as any[] };
       setJoinedGomoSubs((joinedBoardsData as GomoSub[]) ?? []);
 
-      const { data: threadSubs } = await supabase
+      const { data: threadSubs } = await api
         .from("thread_subscriptions")
         .select("thread_id")
         .eq("user_id", user.id);
       const subscribedThreadIds = (threadSubs ?? []).map((t) => t.thread_id);
 
-      let threadsQuery = supabase
+      let threadsQuery = api
         .from("threads")
         .select(`
           id,
@@ -285,7 +285,7 @@ const Index = () => {
       const dedupThreads = Array.from(new Map(threadsData.map((t: any) => [t.id, t])).values());
       const threadAuthorIds = dedupThreads.map((t) => t.user_id).filter(Boolean);
       const { data: threadAuthors } = threadAuthorIds.length
-        ? await supabase
+        ? await api
             .from("profiles")
             .select("id, username, is_anonymous, avatar_url")
             .in("id", threadAuthorIds)
@@ -298,7 +298,7 @@ const Index = () => {
       setSubscriptionsFeed(feedThreads);
 
       if (subscribedThreadIds.length > 0) {
-        const { data: postsData } = await supabase
+        const { data: postsData } = await api
           .from("posts")
           .select("id, content, created_at, thread_id, user_id")
           .in("thread_id", subscribedThreadIds)
@@ -311,12 +311,12 @@ const Index = () => {
           const authorIds = Array.from(new Set(postsData.map((p) => p.user_id).filter(Boolean)));
 
           const [{ data: postThreads }, { data: postAuthors }] = await Promise.all([
-            supabase
+            api
               .from("threads")
               .select("id, title, board_id, boards!inner(slug, is_gomosub)")
               .in("id", threadIds),
             authorIds.length
-              ? supabase
+              ? api
                   .from("profiles")
                   .select("id, username")
                   .in("id", authorIds)
@@ -353,14 +353,14 @@ const Index = () => {
   }, [user?.id]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     toast.success("Вышли");
   };
 
   const handleAcceptTerms = async () => {
     if (!user) return;
     
-    await supabase
+    await api
       .from("user_terms_acceptance")
       .insert({
         user_id: user.id,
@@ -372,7 +372,7 @@ const Index = () => {
   };
 
   const handleDeclineTerms = async () => {
-    await supabase.auth.signOut();
+    await api.auth.signOut();
     navigate("/auth");
     toast.info("Вы покинули сайт");
   };
