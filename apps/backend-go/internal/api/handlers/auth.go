@@ -45,7 +45,7 @@ func (h *AuthHandler) SetRedis(rdb *redis.Client) {
 // - At least one letter and one digit
 func validatePassword(password string) error {
 	if len(password) < 8 {
-		return fmt.Errorf("Password must be at least 8 characters")
+		return fmt.Errorf("password must be at least 8 characters")
 	}
 
 	hasLetter := false
@@ -60,7 +60,7 @@ func validatePassword(password string) error {
 	}
 
 	if !hasLetter || !hasDigit {
-		return fmt.Errorf("Password must contain at least one letter and one digit")
+		return fmt.Errorf("password must contain at least one letter and one digit")
 	}
 
 	return nil

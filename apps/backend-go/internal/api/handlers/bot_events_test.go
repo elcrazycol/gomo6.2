@@ -1,37 +1,11 @@
 package handlers
 
 import (
-	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
 )
-
-// mockRedisClient implements redis.Cmdable for testing publish calls
-type mockRedisClient struct {
-	redis.Cmdable
-	publishedMessages []map[string]interface{}
-	publishErr        error
-}
-
-func (m *mockRedisClient) Publish(ctx context.Context, channel string, message interface{}) *redis.IntCmd {
-	cmd := redis.NewIntCmd(ctx)
-	if m.publishErr != nil {
-		cmd.SetErr(m.publishErr)
-		return cmd
-	}
-	// Decode message to verify it's valid JSON
-	var decoded map[string]interface{}
-	if err := json.Unmarshal([]byte(message.(string)), &decoded); err != nil {
-		cmd.SetErr(err)
-		return cmd
-	}
-	m.publishedMessages = append(m.publishedMessages, decoded)
-	cmd.SetVal(1)
-	return cmd
-}
 
 // TestNewBotEventPublisher_CreatesPublisher tests publisher creation
 func TestNewBotEventPublisher_CreatesPublisher(t *testing.T) {
