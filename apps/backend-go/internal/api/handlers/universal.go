@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -916,6 +917,7 @@ func extractRecordID(urlPath string, tableName string) string {
 // isMessengerTable checks if table is a messenger table requiring access control
 func isMessengerTable(tableName string) bool {
 	messengerTables := map[string]bool{
+		"chat_user_keys":            true,
 		"chat_conversations":        true,
 		"chat_conversation_members": true,
 		"chat_messages":             true,
@@ -939,12 +941,30 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		return
 	}
 
+	// Begin transaction for RLS context (set_config with is_local=true)
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	defer tx.Rollback()
+
+	// Set Row-Level Security context — scoped to this transaction
+	_, err = tx.Exec("SELECT set_config('app.current_user_id', $1, true)", claims.UserID)
+	if err != nil {
+		log.Printf("[RLS] Warning: failed to set app.current_user_id: %v", err)
+	}
+
 	// Build query with access control
 	var query string
 	var args []interface{}
 	argIndex := 1
 
 	switch tableName {
+	case "chat_user_keys":
+		// Public keys are readable by everyone (RLS policy: FOR SELECT USING true)
+		query = `SELECT * FROM chat_user_keys`
+
 	case "chat_conversations":
 		// Only return conversations where user is a member
 		query = `
@@ -1044,7 +1064,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		}
 	}
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
@@ -1078,6 +1098,11 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		results = append(results, row)
 	}
 
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
@@ -1099,8 +1124,26 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 	// Create validator
 	validator := NewMessengerValidator()
 
+	// Begin transaction for RLS context + atomicity
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	defer tx.Rollback()
+
+	// Set Row-Level Security context — scoped to this transaction
+	_, err = tx.Exec("SELECT set_config('app.current_user_id', $1, true)", claims.UserID)
+	if err != nil {
+		log.Printf("[RLS] Warning: failed to set app.current_user_id: %v", err)
+	}
+
 	// Validate access based on table
 	switch tableName {
+	case "chat_user_keys":
+		// Ensure user_id matches authenticated user
+		data["user_id"] = claims.UserID
+
 	case "chat_messages":
 		// Validate message data
 		if err := validator.ValidateMessageData(data); err != nil {
@@ -1112,7 +1155,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		conversationID, _ := data["conversation_id"].(string)
 
 		var isMember bool
-		err := h.db.QueryRow(`
+		err := tx.QueryRow(`
 			SELECT EXISTS(
 				SELECT 1 FROM chat_conversation_members
 				WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
@@ -1141,7 +1184,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		}
 
 		var isMember bool
-		err := h.db.QueryRow(`
+		err := tx.QueryRow(`
 			SELECT EXISTS(
 				SELECT 1 FROM chat_messages m
 				INNER JOIN chat_conversation_members cm ON m.conversation_id = cm.conversation_id
@@ -1173,7 +1216,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 	}
 
 	// Build INSERT query
-	query := "INSERT INTO " + tableName + " ("
+	insertQuery := "INSERT INTO " + tableName + " ("
 	var columns []string
 	var placeholders []string
 	var args []interface{}
@@ -1186,9 +1229,9 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		argIndex++
 	}
 
-	query += joinStrings(columns, ", ") + ") VALUES (" + joinStrings(placeholders, ", ") + ") RETURNING *"
+	insertQuery += joinStrings(columns, ", ") + ") VALUES (" + joinStrings(placeholders, ", ") + ") RETURNING *"
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := tx.Query(insertQuery, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
@@ -1206,7 +1249,13 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		return
 	}
 
-	// Publish WebSocket events for new chat messages
+	// Commit transaction before publishing events
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Publish WebSocket events for new chat messages (after commit)
 	if tableName == "chat_messages" {
 		if h.hub != nil {
 			conversationID := rowUserID(result["conversation_id"])
