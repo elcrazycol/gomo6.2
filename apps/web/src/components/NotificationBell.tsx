@@ -1,21 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { api } from "@/integrations/api/compat";
+import { apiClient, type Notification } from "@/integrations/api/client";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-
-interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  is_read: boolean;
-  created_at: string;
-  related_thread_id: string | null;
-  related_post_id: string | null;
-  thread_slug?: string;
-}
 
 export const NotificationBell = ({ userId }: { userId: string }) => {
   const navigate = useNavigate();
@@ -23,75 +12,58 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [showCard, setShowCard] = useState(false);
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadNotifications = useCallback(async () => {
-    const { data } = await api
-      .from("notifications")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(10);
+    try {
+      const [notifResp, countResp] = await Promise.all([
+        apiClient.getNotifications({ limit: 10 }),
+        apiClient.getUnreadNotificationsCount(),
+      ]);
 
-    if (data) {
-      // Fetch board slugs for each notification with a thread
-      const notificationsWithSlugs = await Promise.all(
-        data.map(async (notif) => {
-          if (notif.related_thread_id) {
-            const { data: threadData } = await api
-              .from("threads")
-              .select("board_id")
-              .eq("id", notif.related_thread_id)
-              .single();
-            
-            if (threadData) {
-              const { data: boardData } = await api
-                .from("boards")
-                .select("slug")
-                .eq("id", threadData.board_id)
-                .single();
-              
-              return { ...notif, thread_slug: boardData?.slug };
-            }
-          }
-          return notif;
-        })
-      );
-      
-      setNotifications(notificationsWithSlugs);
-      setUnreadCount(notificationsWithSlugs.filter(n => !n.is_read).length);
+      if (notifResp.data && Array.isArray(notifResp.data)) {
+        setNotifications(notifResp.data as Notification[]);
+      }
+
+      if (countResp.data) {
+        const d = countResp.data as { unread_count: number };
+        setUnreadCount(d.unread_count);
+      }
+    } catch (err) {
+      console.error("[NotificationBell] Failed to load notifications:", err);
     }
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     loadNotifications();
 
-    const channel = api
-      .channel('notifications-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          loadNotifications();
-        }
-      )
-      .subscribe();
+    // Poll every 30 seconds for real-time updates
+    pollingRef.current = setInterval(loadNotifications, 30000);
 
     return () => {
-      api.removeChannel(channel);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
       if (closeTimeoutRef.current) {
         clearTimeout(closeTimeoutRef.current);
       }
     };
   }, [userId, loadNotifications]);
 
-
   const handleClick = () => {
     navigate("/notify");
+  };
+
+  const markAsRead = async (notif: Notification) => {
+    // Optimistic UI update
+    setNotifications(prev =>
+      prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
+    );
+    setUnreadCount(prev => Math.max(0, prev - 1));
+
+    try {
+      await apiClient.markNotificationAsRead(notif.id);
+    } catch {}
   };
 
   return (
@@ -153,8 +125,8 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {notifications.slice(0, 5).map((notif) => {
-                  const link = notif.related_thread_id && notif.thread_slug 
-                    ? `/${notif.thread_slug}/thread/${notif.related_thread_id}`
+                  const link = notif.related_thread_id 
+                    ? `/notify?thread=${notif.related_thread_id}`
                     : '#';
                   
                   return (
@@ -163,21 +135,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
                       to={link}
                       onMouseEnter={() => {
                         if (!notif.is_read) {
-                          // Immediately update local state
-                          setNotifications(prev =>
-                            prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
-                          );
-                          // Update unread count immediately
-                          setUnreadCount(prev => Math.max(0, prev - 1));
-                          // Mark as read in database (async)
-                          api
-                            .from('notifications')
-                            .update({ is_read: true })
-                            .eq('id', notif.id)
-                            .then(() => {
-                              // Reload notifications to ensure consistency
-                              loadNotifications();
-                            });
+                          markAsRead(notif);
                         }
                       }}
                       className={`block p-3 border text-foreground transition-all duration-200 rounded relative ${

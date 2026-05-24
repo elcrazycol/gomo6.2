@@ -1343,6 +1343,18 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	// Recompute user stats
 	h.recomputeStatsFn(h.db, claims.UserID)
 
+	// Create notification for thread owner (if replying to someone else's thread)
+	var threadAuthor string
+	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
+	if threadAuthor != "" && threadAuthor != claims.UserID {
+		title := fmt.Sprintf("@%s ответил(а) в вашем треде", claims.Username)
+		shortContent := post.Content
+		if len(shortContent) > 100 {
+			shortContent = shortContent[:100] + "..."
+		}
+		_ = createNotification(h.db, h.redis, threadAuthor, "reply", title, shortContent, &req.ThreadID, &post.ID)
+	}
+
 	// Invalidate Redis cache for this thread's posts
 	if h.redis != nil {
 		middleware.InvalidateCacheForThread(h.redis, req.ThreadID)
