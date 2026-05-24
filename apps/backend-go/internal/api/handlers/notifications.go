@@ -17,6 +17,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// notificationPayload is the data sent over WebSocket for a new notification
+type notificationPayload struct {
+	ID              string      `json:"id"`
+	UserID          string      `json:"user_id"`
+	Type            string      `json:"type"`
+	Title           string      `json:"title"`
+	Message         string      `json:"message"`
+	RelatedThreadID interface{} `json:"related_thread_id"`
+	RelatedPostID   interface{} `json:"related_post_id"`
+	IsRead          bool        `json:"is_read"`
+	CreatedAt       string      `json:"created_at"`
+}
+
 type NotificationsHandler struct {
 	db    *sql.DB
 	redis *redis.Client
@@ -27,19 +40,18 @@ func NewNotificationsHandler(db *sql.DB) *NotificationsHandler {
 	return &NotificationsHandler{db: db}
 }
 
-// SetRedis sets the Redis client for cache invalidation
 func (h *NotificationsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
-// SetWebSocketHub sets the WebSocket hub for real-time notifications
 func (h *NotificationsHandler) SetWebSocketHub(hub *websocket.Hub) {
 	h.hub = hub
 }
 
-// CreateNotification creates a notification for a user and publishes it via WebSocket
-func (h *NotificationsHandler) CreateNotification(userID, notifType, title, message string, relatedThreadID, relatedPostID *string) (*models.Notification, error) {
-	if h.db == nil {
+// CreateNotification creates a notification, invalidates cache, and broadcasts via WebSocket.
+// This is the single function for ALL notification creation across the codebase.
+func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, title, message string, relatedThreadID, relatedPostID *string) (*models.Notification, error) {
+	if db == nil {
 		return nil, fmt.Errorf("database not available")
 	}
 
@@ -62,7 +74,7 @@ func (h *NotificationsHandler) CreateNotification(userID, notifType, title, mess
 	`
 
 	var retCreatedAt time.Time
-	err := h.db.QueryRow(query,
+	err := db.QueryRow(query,
 		userID, notifType, title, message, relatedThreadID, relatedPostID, false, now,
 	).Scan(
 		&notification.ID, &notification.UserID, &notification.Type,
@@ -78,26 +90,25 @@ func (h *NotificationsHandler) CreateNotification(userID, notifType, title, mess
 	notification.CreatedAt = &retCreatedAt
 
 	// Invalidate cache for this user's notifications
-	if h.redis != nil {
-		middleware.InvalidateCacheForNotification(h.redis, userID)
+	if redisClient != nil {
+		middleware.InvalidateCacheForNotification(redisClient, userID)
 	}
 
 	// Publish WebSocket event for real-time delivery
-	if h.hub != nil {
-		notifData := map[string]interface{}{
-			"id":                notification.ID,
-			"user_id":           notification.UserID,
-			"type":              notification.Type,
-			"title":             notification.Title,
-			"message":           notification.Message,
-			"related_thread_id": nullableString(notification.RelatedThreadID),
-			"related_post_id":   nullableString(notification.RelatedPostID),
-			"is_read":           notification.IsRead,
-			"created_at":        retCreatedAt.Format(time.RFC3339Nano),
+	if hub != nil {
+		payload := notificationPayload{
+			ID:              notification.ID,
+			UserID:          notification.UserID,
+			Type:            notification.Type,
+			Title:           notification.Title,
+			Message:         notification.Message,
+			RelatedThreadID: nullableString(notification.RelatedThreadID),
+			RelatedPostID:   nullableString(notification.RelatedPostID),
+			IsRead:          notification.IsRead,
+			CreatedAt:       retCreatedAt.Format(time.RFC3339Nano),
 		}
 
-		// Subscribe the user to their notification room if connected, then publish
-		if err := h.hub.PublishNewNotification(notifData); err != nil {
+		if err := hub.PublishNewNotification(payload); err != nil {
 			log.Printf("[Notifications] Error publishing WS event: %v", err)
 		}
 	}
@@ -113,35 +124,9 @@ func nullableString(s *string) interface{} {
 	return *s
 }
 
-// createNotification is a package-level helper that creates a notification in DB and invalidates cache.
-// It does NOT use the WebSocket hub — used by handlers that don't have hub access (e.g., LikesHandler).
-func createNotification(db *sql.DB, redis *redis.Client, userID, notifType, title, message string, relatedThreadID, relatedPostID *string) error {
-	if db == nil {
-		return fmt.Errorf("database not available")
-	}
-
-	now := time.Now()
-	query := `
-		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, is_read, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
-
-	_, err := db.Exec(query, userID, notifType, title, message, relatedThreadID, relatedPostID, false, now)
-	if err != nil {
-		log.Printf("[Notifications] Error creating notification: %v", err)
-		return err
-	}
-
-	// Invalidate cache for this user's notifications
-	if redis != nil {
-		middleware.InvalidateCacheForNotification(redis, userID)
-	}
-
-	return nil
-}
+// --- NotificationsHandler HTTP methods ---
 
 func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
-	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -161,7 +146,6 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	var args []interface{}
 	args = append(args, userClaims.UserID)
 
-	// Handle pagination
 	limit := 50
 	offset := 0
 
@@ -209,14 +193,12 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 	notificationID := c.Param("id")
 
-	// Validate UUID
 	_, err := uuid.Parse(notificationID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid notification ID format"))
 		return
 	}
 
-	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -225,7 +207,6 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 
 	userClaims := claims.(*auth.Claims)
 
-	// Update notification
 	query := `
 		UPDATE notifications 
 		SET is_read = true 
@@ -244,7 +225,6 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 		return
 	}
 
-	// Invalidate notification cache for user
 	if h.redis != nil {
 		middleware.InvalidateCacheForNotification(h.redis, userClaims.UserID)
 	}
@@ -253,7 +233,6 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 }
 
 func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
-	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -262,7 +241,6 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 
 	userClaims := claims.(*auth.Claims)
 
-	// Update all notifications for user
 	query := `UPDATE notifications SET is_read = true WHERE user_id = $1 AND is_read = false`
 
 	_, err := h.db.Exec(query, userClaims.UserID)
@@ -271,7 +249,6 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 		return
 	}
 
-	// Invalidate notification cache for user
 	if h.redis != nil {
 		middleware.InvalidateCacheForNotification(h.redis, userClaims.UserID)
 	}
@@ -280,7 +257,6 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 }
 
 func (h *NotificationsHandler) GetUnreadCount(c *gin.Context) {
-	// Get user from context
 	claims, exists := c.Get("claims")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))

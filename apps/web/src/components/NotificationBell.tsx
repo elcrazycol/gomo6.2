@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { apiClient, type Notification } from "@/integrations/api/client";
+import { wsService } from "@/services/websocket";
+import type { WebSocketMessage } from "@/services/websocket";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
@@ -34,10 +36,33 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
     }
   }, []);
 
+  // WebSocket real-time handler for new notifications
+  const handleNewNotification = useCallback((message: WebSocketMessage) => {
+    const notif = message.data as Notification;
+    if (!notif || !notif.id) return;
+
+    // Prepend the new notification to the list
+    setNotifications(prev => {
+      const filtered = prev.filter(n => n.id !== notif.id);
+      return [notif, ...filtered].slice(0, 10);
+    });
+
+    // Increment unread count
+    setUnreadCount(prev => prev + 1);
+  }, []);
+
   useEffect(() => {
+    if (!userId) return;
+
     loadNotifications();
 
-    // Poll every 30 seconds for real-time updates
+    // Subscribe to notification room
+    wsService.subscribeToNotifications(userId);
+
+    // Listen for real-time notification events
+    const unsubscribe = wsService.on('new_notification', handleNewNotification);
+
+    // Poll every 30 seconds as fallback
     pollingRef.current = setInterval(loadNotifications, 30000);
 
     return () => {
@@ -47,8 +72,22 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
       if (closeTimeoutRef.current) {
         clearTimeout(closeTimeoutRef.current);
       }
+      unsubscribe();
     };
-  }, [userId, loadNotifications]);
+  }, [userId, loadNotifications, handleNewNotification]);
+
+  // Re-subscribe on connect (in case WS reconnects)
+  useEffect(() => {
+    if (!userId) return;
+
+    const unsubscribeConnected = wsService.on('connected', () => {
+      wsService.subscribeToNotifications(userId);
+    });
+
+    return () => {
+      unsubscribeConnected();
+    };
+  }, [userId]);
 
   const handleClick = () => {
     navigate("/notify");

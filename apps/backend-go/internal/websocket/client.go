@@ -275,6 +275,9 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userID, username 
 		client.Send <- msgBytes
 	}
 
+	// Auto-subscribe user to their notification room
+	hub.SubscribeToRoom(client, fmt.Sprintf("notifications_%s", userID))
+
 	// Start goroutines for reading and writing
 	go client.writePump()
 	go client.readPump()

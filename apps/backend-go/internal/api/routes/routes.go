@@ -66,6 +66,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	profilesHandler := handlers.NewProfilesHandler(db)
 	profilesHandler.SetRedis(redis)
 	likesHandler := handlers.NewLikesHandler(db, redis)
+	likesHandler.SetWebSocketHub(wsHub)
 	notificationsHandler := handlers.NewNotificationsHandler(db)
 	notificationsHandler.SetRedis(redis)
 	notificationsHandler.SetWebSocketHub(wsHub)
@@ -346,6 +347,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/award_achievement", rpcHandler.AwardAchievement)
 
 			// GomoSub RPC functions
+			protected.GET("/get_messenger_unread_count", rpcHandler.GetMessengerUnreadCount)
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
 
 			// Thread/Post RPC functions

@@ -11,11 +11,11 @@ export const ChatIcon = ({ userId }: { userId: string }) => {
 
   const loadUnread = useCallback(async () => {
     try {
-      const resp = await apiClient.getUnreadNotificationsCount();
+      const resp = await apiClient.getMessengerUnreadCount();
       const d = resp.data as { unread_count: number } | null;
       setUnreadCount(d?.unread_count ?? 0);
     } catch (err) {
-      console.error("[ChatIcon] Failed to load unread count:", err);
+      console.error("[ChatIcon] Failed to load messenger unread count:", err);
     }
   }, []);
 

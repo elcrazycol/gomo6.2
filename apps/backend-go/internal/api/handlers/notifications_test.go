@@ -297,7 +297,7 @@ func TestCreateNotification_Success(t *testing.T) {
 		WithArgs("u1", "like", "Test like", "You got a like!", "thread1", "post1", false, sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
-	notif, err := handler.CreateNotification("u1", "like", "Test like", "You got a like!", strPtr("thread1"), strPtr("post1"))
+	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Test like", "You got a like!", strPtr("thread1"), strPtr("post1"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestCreateNotification_SuccessNoRelated(t *testing.T) {
 		WithArgs("u1", "reply", "New reply", "Someone replied", nil, nil, false, sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
-	notif, err := handler.CreateNotification("u1", "reply", "New reply", "Someone replied", nil, nil)
+	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "reply", "New reply", "Someone replied", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestCreateNotification_DBError(t *testing.T) {
 		WithArgs("u1", "like", "Test", "Msg", nil, nil, false, sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	notif, err := handler.CreateNotification("u1", "like", "Test", "Msg", nil, nil)
+	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Test", "Msg", nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -351,38 +351,52 @@ func TestCreateNotification_DBError(t *testing.T) {
 	}
 }
 
-// ──────────────────────────── Package-level createNotification ────────────────
+// ──────────────────────────── CreateNotification (nil guards) ─────────────────
 
-func TestCreateNotificationPackage_NilDB(t *testing.T) {
-	err := createNotification(nil, nil, "u1", "like", "Test", "Msg", nil, nil)
+func TestCreateNotification_NilDB(t *testing.T) {
+	notif, err := CreateNotification(nil, nil, nil, "u1", "like", "Test", "Msg", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil db, got nil")
 	}
-}
-
-func TestCreateNotificationPackage_Success(t *testing.T) {
-	handler, mock := setupNotificationsHandler(t)
-
-	mock.ExpectExec(`INSERT INTO notifications.*VALUES.*`).
-		WithArgs("u1", "like", "Test like", "You got a like!", nil, nil, false, sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
-
-	err := createNotification(handler.db, nil, "u1", "like", "Test like", "You got a like!", nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if notif != nil {
+		t.Fatalf("expected nil notification, got %v", notif)
 	}
 }
 
-func TestCreateNotificationPackage_DBError(t *testing.T) {
+func TestCreateNotification_NilRedisHub(t *testing.T) {
 	handler, mock := setupNotificationsHandler(t)
 
-	mock.ExpectExec(`INSERT INTO notifications.*VALUES.*`).
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "user_id", "type", "title", "message", "related_thread_id", "related_post_id", "is_read", "created_at"}).
+		AddRow("n1", "u1", "like", "Test like", "You got a like!", nil, nil, false, now)
+
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
+		WithArgs("u1", "like", "Test like", "You got a like!", nil, nil, false, sqlmock.AnyArg()).
+		WillReturnRows(rows)
+
+	// redis=nil, hub=nil should work — just skips cache invalidation and WS publish
+	notif, err := CreateNotification(handler.db, nil, nil, "u1", "like", "Test like", "You got a like!", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notif == nil {
+		t.Fatal("expected notification, got nil")
+	}
+}
+
+func TestCreateNotification_DBErrorPackage(t *testing.T) {
+	handler, mock := setupNotificationsHandler(t)
+
+	mock.ExpectQuery(`INSERT INTO notifications.*VALUES.*RETURNING.*`).
 		WithArgs("u1", "like", "Test", "Msg", nil, nil, false, sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	err := createNotification(handler.db, nil, "u1", "like", "Test", "Msg", nil, nil)
+	notif, err := CreateNotification(handler.db, handler.redis, handler.hub, "u1", "like", "Test", "Msg", nil, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+	if notif != nil {
+		t.Fatalf("expected nil notification, got %v", notif)
 	}
 }
 

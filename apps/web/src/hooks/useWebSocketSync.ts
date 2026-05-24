@@ -10,6 +10,12 @@ export function useWebSocketSync() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    // Handle new notification events
+    const unsubscribeNewNotification = wsService.on('new_notification', () => {
+      // Invalidate notification queries to refresh lists and counts
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
+
     // Handle new post events
     const unsubscribeNewPost = wsService.on('new_post', (message: WebSocketMessage) => {
       try {
@@ -72,6 +78,7 @@ export function useWebSocketSync() {
 
     // Cleanup subscriptions
     return () => {
+      unsubscribeNewNotification();
       unsubscribeNewPost();
       unsubscribeNewThread();
       unsubscribeUserOnline();

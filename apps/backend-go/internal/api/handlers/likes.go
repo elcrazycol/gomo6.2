@@ -12,6 +12,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -19,6 +20,7 @@ import (
 type LikesHandler struct {
 	db    *sql.DB
 	redis *redis.Client
+	hub   *websocket.Hub
 }
 
 func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
@@ -26,6 +28,10 @@ func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
 		db:    db,
 		redis: redis,
 	}
+}
+
+func (h *LikesHandler) SetWebSocketHub(hub *websocket.Hub) {
+	h.hub = hub
 }
 
 func (h *LikesHandler) LikeThread(c *gin.Context) {
@@ -93,7 +99,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	// Create notification for thread author (if not self-like)
 	if threadOwner != "" && threadOwner != userClaims.UserID {
 		title := fmt.Sprintf("@%s оценил(а) ваш тред", userClaims.Username)
-		_ = createNotification(h.db, h.redis, threadOwner, "like", title, "", &threadID, nil)
+		_, _ = CreateNotification(h.db, h.redis, h.hub, threadOwner, "like", title, "", &threadID, nil)
 	}
 
 	// Invalidate cache for thread and its posts
@@ -240,7 +246,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	if postAuthor != "" && postAuthor != userClaims.UserID {
 		title := fmt.Sprintf("@%s оценил(а) ваш пост", userClaims.Username)
 		// Try to create notification (best-effort)
-		_ = createNotification(h.db, h.redis, postAuthor, "like", title, "", &threadID, &postID)
+		_, _ = CreateNotification(h.db, h.redis, h.hub, postAuthor, "like", title, "", &threadID, &postID)
 	}
 
 	// Invalidate cache for post and its thread

@@ -528,6 +528,10 @@ class ApiClient {
   async getUnreadNotificationsCount(): Promise<ApiResponse<{ unread_count: number }>> {
     return this.request<{ unread_count: number }>('/api/v1/notifications/unread-count');
   }
+
+  async getMessengerUnreadCount(): Promise<ApiResponse<{ unread_count: number }>> {
+    return this.request<{ unread_count: number }>('/api/rpc/get_messenger_unread_count');
+  }
 }
 
 // Create singleton instance
