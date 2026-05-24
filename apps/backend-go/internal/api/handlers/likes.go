@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -88,6 +89,12 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	var threadOwner string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", threadID).Scan(&threadOwner)
 	RecomputeUserProfileStats(h.db, threadOwner)
+
+	// Create notification for thread author (if not self-like)
+	if threadOwner != "" && threadOwner != userClaims.UserID {
+		title := fmt.Sprintf("@%s оценил(а) ваш тред", userClaims.Username)
+		_ = createNotification(h.db, h.redis, threadOwner, "like", title, "", &threadID, nil)
+	}
 
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
@@ -228,6 +235,13 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	var postAuthor, threadID string
 	_ = h.db.QueryRow("SELECT user_id, thread_id FROM posts WHERE id = $1", postID).Scan(&postAuthor, &threadID)
 	RecomputeUserProfileStats(h.db, postAuthor)
+
+	// Create notification for post author (if not self-like)
+	if postAuthor != "" && postAuthor != userClaims.UserID {
+		title := fmt.Sprintf("@%s оценил(а) ваш пост", userClaims.Username)
+		// Try to create notification (best-effort)
+		_ = createNotification(h.db, h.redis, postAuthor, "like", title, "", &threadID, &postID)
+	}
 
 	// Invalidate cache for post and its thread
 	if h.redis != nil {
