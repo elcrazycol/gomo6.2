@@ -27,13 +27,17 @@ echo "=== Deploy started at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 OLD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 echo "[0/4] Current commit: $OLD_COMMIT"
 
-# ── Preserve .env before reset (it's in .gitignore but was tracked historically) ─
+# ── Preserve .env before reset (.gitignore wasn't always in place) ──────
 echo "[1/4] Pulling latest changes..."
+rm -f .env.deploy-backup
 if [ -f .env ]; then cp .env .env.deploy-backup; fi
+# Auto-restore .env even if git commands fail (set -e would exit)
+trap 'if [ -f .env.deploy-backup ]; then mv .env.deploy-backup .env; fi' EXIT
 git fetch origin main
 git reset --hard origin/main
 # Restore .env — NEVER let git overwrite production secrets
 if [ -f .env.deploy-backup ]; then mv .env.deploy-backup .env; fi
+trap - EXIT  # restore succeeded, remove trap
 
 # ── Capture new commit hash ─────────────────────────────────────────────────
 GIT_COMMIT=$(git rev-parse --short HEAD)
