@@ -37,10 +37,16 @@ type RPCHandler struct {
 	redis             *redis.Client
 	wsHub             interface{}
 	botEventPublisher *BotEventPublisher
+	recomputeStatsFn  func(*sql.DB, string)
 }
 
 func NewRPCHandler(db *sql.DB) *RPCHandler {
-	return &RPCHandler{db: db}
+	return &RPCHandler{
+		db: db,
+		recomputeStatsFn: func(db *sql.DB, userID string) {
+			RecomputeUserProfileStats(db, userID)
+		},
+	}
 }
 
 func (h *RPCHandler) SetRedis(redis *redis.Client) {
@@ -1335,7 +1341,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	}
 
 	// Recompute user stats
-	RecomputeUserProfileStats(h.db, claims.UserID)
+	h.recomputeStatsFn(h.db, claims.UserID)
 
 	// Invalidate Redis cache for this thread's posts
 	if h.redis != nil {
@@ -1491,7 +1497,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		return
 	}
 
-	RecomputeUserProfileStats(h.db, claims.UserID)
+	h.recomputeStatsFn(h.db, claims.UserID)
 
 	// Invalidate cache for this board's threads
 	if h.redis != nil {
