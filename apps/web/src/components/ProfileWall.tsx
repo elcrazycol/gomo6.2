@@ -1388,11 +1388,14 @@ export const ProfileWall = ({
 
       // Merge with existing posts to avoid losing WebSocket-added posts
       setPosts(prevPosts => {
-        const apiPostIds = new Set(normalizedPosts.map(p => p.id));
-        const websocketPosts = prevPosts.filter(post => !apiPostIds.has(post.id));
+        // Filter out any posts without a valid id (safety guard)
+        const validNormalized = normalizedPosts.filter(p => p.id);
+        const validPrevPosts = prevPosts.filter(p => p.id);
+        const apiPostIds = new Set(validNormalized.map(p => p.id));
+        const websocketPosts = validPrevPosts.filter(post => !apiPostIds.has(post.id));
         
         // Combine: API posts and WebSocket posts, then sort
-        const combinedPosts = [...normalizedPosts, ...websocketPosts];
+        const combinedPosts = [...validNormalized, ...websocketPosts];
         
         // Sort combined posts: pinned first, then by created_at desc
         combinedPosts.sort((a, b) => {
@@ -1743,7 +1746,9 @@ export const ProfileWall = ({
           </div>
         ) : (
           <div className="space-y-4">
-            {posts.map((post, index) => (
+            {posts
+              .filter(post => post.id) // safety guard: skip posts without id
+              .map((post, index) => (
               <WallPostCard
                 key={`${post.id}-${post.created_at}-${index}`}
                 post={post}
@@ -1761,9 +1766,9 @@ export const ProfileWall = ({
                 forceCommentsOpen={Boolean(focusedPostId)}
                 postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
                 standalone={standalone}
-                onImageClick={(images, index) => {
+                onImageClick={(images, idx) => {
                   setGalleryImages(images);
-                  setGalleryIndex(index);
+                  setGalleryIndex(idx);
                 }}
               />
             ))}
