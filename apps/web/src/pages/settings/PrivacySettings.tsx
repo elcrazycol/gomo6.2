@@ -63,6 +63,7 @@ const PrivacySettings = () => {
   }, []);
 
   const loadPrivacySettings = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await api
         .from('privacy_settings')
