@@ -20,7 +20,7 @@ import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer, Trash2 } fr
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
+import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "@/components/AdminBadge";
 import { ProfileWall } from "@/components/ProfileWall";
 import { ThreadCard } from "@/components/ThreadCard";
@@ -57,6 +57,27 @@ interface Achievement {
   level?: number;
   is_pinned?: boolean;
   pinned_order?: number;
+}
+
+interface UserAchievementRaw {
+  level?: number;
+  unlocked_at?: string;
+  is_pinned?: boolean;
+  pinned_order?: number;
+  achievement_type?: string;
+  achievements?: {
+    id: string;
+    name: string;
+    description: string;
+    reward_type?: string;
+    reward_value?: string;
+  };
+}
+
+interface AvatarHistoryItem {
+  id: string;
+  avatar_url: string;
+  is_current: boolean;
 }
 
 interface AchievementCardProps {
@@ -160,7 +181,7 @@ const Profile = () => {
   const [pinnedAchievements, setPinnedAchievements] = useState<Achievement[]>([]);
   const [regularAchievements, setRegularAchievements] = useState<Achievement[]>([]);
   const [likesReceived, setLikesReceived] = useState(0);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
@@ -176,7 +197,7 @@ const Profile = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
-  const [customization, setCustomization] = useState<any>(null);
+  const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [showLastSeen, setShowLastSeen] = useState(true);
@@ -217,7 +238,7 @@ const Profile = () => {
         const rolesRes = await fetch(`/api/v1/user_roles?user_id=eq.${user.id}`, { headers });
         const rolesResult = await rolesRes.json();
         const roles = rolesResult.data;
-        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
+        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
         const profileRes = await fetch(`/api/v1/profiles?id=eq.${user.id}`, { headers });
@@ -235,8 +256,8 @@ const Profile = () => {
 
         if (achievements) {
           const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a: { achievements?: { reward_type: string; reward_value: string } | undefined }) => a.achievements?.reward_type === "username_color")
+            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -318,13 +339,13 @@ const Profile = () => {
 
       setProfile({
         ...data,
-        bio_json: (data as any).bio_json ?? undefined,
+        bio_json: (data as { bio_json?: unknown }).bio_json ?? undefined,
         garma: data.garma ?? 0,
         thread_likes_received_count: threadLikesCount
       });
       setUsername(data.username);
       setBio(data.bio || "");
-      setBioJson((data as any).bio_json || null);
+      setBioJson((data as { bio_json?: unknown }).bio_json || null);
       setBioEditorResetKey((prev) => prev + 1);
       setIsAnonymous(data.is_anonymous);
       setAvatarUrl(data.avatar_url);
@@ -397,8 +418,8 @@ const Profile = () => {
       if (!res.ok) throw new Error(result.error || 'Failed to load avatar history');
 
       const data = result.data ?? result;
-      setAvatarHistory((data || []) as any[]);
-      return (data || []) as any[];
+      setAvatarHistory((data || []) as AvatarHistoryItem[]);
+      return (data || []) as AvatarHistoryItem[];
     } catch (error) {
       console.error('Error loading avatar history:', error);
       return [];
@@ -421,27 +442,27 @@ const Profile = () => {
       }
 
       // Get profiles for all threads
-      const userIds = [...new Set(threadsData.map((t: any) => t.user_id).filter(Boolean))];
+      const userIds = [...new Set(threadsData.map((t: { user_id: string }) => t.user_id).filter(Boolean))];
       const profilesMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const profilesRes = await fetch(`/api/v1/profiles?id=in.(${userIds.join(',')})`);
         const profilesResult = await profilesRes.json();
-        (profilesResult.data || []).forEach((p: any) => { profilesMap[p.id] = p; });
+        (profilesResult.data || []).forEach((p: { id: string }) => { profilesMap[p.id] = p; });
       }
 
       // Get post counts for threads
-      const threadIds = threadsData.map((t: any) => t.id);
+      const threadIds = threadsData.map((t: { id: string }) => t.id);
       const postCountMap: Record<string, number> = {};
       if (threadIds.length > 0) {
         const postsRes = await fetch(`/api/v1/posts?thread_id=in.(${threadIds.join(',')})`);
         const postsResult = await postsRes.json();
-        (postsResult.data || []).forEach((p: any) => {
+        (postsResult.data || []).forEach((p: { thread_id: string }) => {
           postCountMap[p.thread_id] = (postCountMap[p.thread_id] || 0) + 1;
         });
       }
 
       // Combine data
-      const threadsWithData = threadsData.map((thread: any) => ({
+      const threadsWithData = threadsData.map((thread: { id: string; user_id: string; [key: string]: unknown }) => ({
         ...thread,
         profiles: profilesMap[thread.user_id] || null,
         post_count: postCountMap[thread.id] || 0
@@ -493,8 +514,8 @@ const Profile = () => {
 
     if (data) {
       // Process achievements without grouping by type (show all levels separately)
-      const processedAchievements = data.map((ua: any) => {
-        const achievement = ua.achievements ?? {};
+      const processedAchievements = data.map((ua: UserAchievementRaw) => {
+        const achievement = ua.achievements ?? ({} as Partial<NonNullable<UserAchievementRaw["achievements"]>>);
         let displayName = achievement.name ?? "—";
         let displayDescription = achievement.description ?? "";
 
@@ -526,8 +547,8 @@ const Profile = () => {
             9: 'Провёл на сайте 250 часов',
             10: 'Провёл на сайте 500 часов'
           };
-          displayName = timeNames[ua.level || 1] || achievement.name;
-          displayDescription = timeDescriptions[ua.level || 1] || achievement.description;
+          displayName = (timeNames[ua.level || 1] || achievement.name) ?? "—";
+          displayDescription = (timeDescriptions[ua.level || 1] || achievement.description) ?? "";
         } else if (achievement.id === 'posts_10') {
           const postNames: Record<number, string> = {
             1: 'Первые 10 сообщений',
@@ -547,8 +568,8 @@ const Profile = () => {
             6: 'Написал 2500 сообщений',
             7: 'Написал 5000 сообщений'
           };
-          displayName = postNames[ua.level || 1] || achievement.name;
-          displayDescription = postDescriptions[ua.level || 1] || achievement.description;
+          displayName = (postNames[ua.level || 1] || achievement.name) ?? "—";
+          displayDescription = (postDescriptions[ua.level || 1] || achievement.description) ?? "";
         } else if (achievement.id === 'threads_5') {
           const threadNames: Record<number, string> = {
             1: 'Создатель',
@@ -566,8 +587,8 @@ const Profile = () => {
             5: 'Создал 80 тредов',
             6: 'Создал 100 тредов'
           };
-          displayName = threadNames[ua.level || 1] || achievement.name;
-          displayDescription = threadDescriptions[ua.level || 1] || achievement.description;
+          displayName = (threadNames[ua.level || 1] || achievement.name) ?? "—";
+          displayDescription = (threadDescriptions[ua.level || 1] || achievement.description) ?? "";
         } else if (achievement.id === 'images_1' || achievement.id === 'images_10' || achievement.id === 'images_25' || achievement.id === 'images_50' || achievement.id === 'images_100' || achievement.id === 'images_250' || achievement.id === 'images_500' || achievement.id === 'images_1000') {
           const imageNames: Record<number, string> = {
             1: 'Фотограф-новичок',
@@ -589,8 +610,8 @@ const Profile = () => {
             7: 'Загрузил 500 изображений',
             8: 'Загрузил 1000 изображений'
           };
-          displayName = imageNames[ua.level || 1] || achievement.name;
-          displayDescription = imageDescriptions[ua.level || 1] || achievement.description;
+          displayName = (imageNames[ua.level || 1] || achievement.name) ?? "—";
+          displayDescription = (imageDescriptions[ua.level || 1] || achievement.description) ?? "";
         } else if (achievement.id === 'likes_received_1' || achievement.id === 'likes_received_10' || achievement.id === 'likes_received_25' || achievement.id === 'likes_received_50' || achievement.id === 'likes_received_100' || achievement.id === 'likes_received_250' || achievement.id === 'likes_received_500' || achievement.id === 'likes_received_1000') {
           const likesNames: Record<number, string> = {
             1: 'Замеченный',
@@ -612,8 +633,8 @@ const Profile = () => {
             7: 'Получил 500 лайков',
             8: 'Получил 1000 лайков'
           };
-          displayName = likesNames[ua.level || 1] || achievement.name;
-          displayDescription = likesDescriptions[ua.level || 1] || achievement.description;
+          displayName = (likesNames[ua.level || 1] || achievement.name) ?? "—";
+          displayDescription = (likesDescriptions[ua.level || 1] || achievement.description) ?? "";
         }
 
         return {
@@ -802,13 +823,13 @@ const Profile = () => {
         const historyResult = await loadAvatarHistory();
 
         // Update avatar URL from history - find the current one
-        if (historyResult && (historyResult as any[]).length > 0) {
-          const currentAvatar = (historyResult as any[]).find((a: any) => a.is_current);
+        if (historyResult && (historyResult as AvatarHistoryItem[]).length > 0) {
+          const currentAvatar = (historyResult as AvatarHistoryItem[]).find((a: AvatarHistoryItem) => a.is_current);
           if (currentAvatar) {
             setAvatarUrl(currentAvatar.avatar_url);
-          } else if ((historyResult as any[]).length > 0) {
+          } else if ((historyResult as AvatarHistoryItem[]).length > 0) {
             // If no current avatar marked, use the most recent one
-            setAvatarUrl((historyResult as any[])[0].avatar_url);
+            setAvatarUrl((historyResult as AvatarHistoryItem[])[0].avatar_url);
           } else {
             setAvatarUrl(null);
           }
@@ -825,7 +846,7 @@ const Profile = () => {
         const historyDataResult = await historyRes.json();
         const historyData = historyDataResult.data ?? historyDataResult;
 
-        if (!historyData || (historyData as any[]).length === 0) {
+        if (!historyData || (historyData as AvatarHistoryItem[]).length === 0) {
           setShowAvatarGallery(false);
         }
       } else {
@@ -1173,7 +1194,7 @@ const Profile = () => {
 
               {profile.bio && (
                 <div className="text-sm">
-                  <ProcessedContent content={profile.bio} contentJson={(profile as any).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
+                  <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
                 </div>
               )}
 
