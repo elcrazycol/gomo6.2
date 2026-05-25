@@ -106,7 +106,7 @@ const GomoSubs = () => {
             .eq("user_id", session.user.id)
             .in("board_id", loadedSubs.map((sub) => sub.id));
 
-          setJoinedSubIds(new Set((memberships ?? []).map((m) => m.board_id)));
+          setJoinedSubIds(new Set((memberships ?? []).map((m: { board_id: string }) => m.board_id)));
         } else {
           setJoinedSubIds(new Set());
         }
@@ -162,15 +162,15 @@ const GomoSubs = () => {
         return;
       }
 
-      const userIds = threadsData.map((thread) => thread.user_id).filter(Boolean);
+      const userIds = threadsData.map((thread: { user_id: string }) => thread.user_id).filter(Boolean);
       const { data: profilesData } = await api
         .from("profiles")
         .select("id, username, is_anonymous, avatar_url")
         .in("id", userIds);
 
-      const merged = threadsData.map((thread) => ({
+      const merged = threadsData.map((thread: { user_id: string; [key: string]: unknown }) => ({
         ...thread,
-        profiles: profilesData?.find((profile) => profile.id === thread.user_id) || null
+        profiles: profilesData?.find((profile: { id: string }) => profile.id === thread.user_id) || null
       }));
       setMyFeedThreads(merged);
       setMyFeedLoading(false);
