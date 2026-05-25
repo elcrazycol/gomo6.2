@@ -270,7 +270,7 @@ const GomoSubSettings = () => {
 
     setSaving(false);
     if (error) {
-      toast.error(error.message || "Не удалось сохранить настройки");
+      toast.error((error as { message?: string }).message || "Не удалось сохранить настройки");
       return;
     }
     toast.success("Настройки g-саба сохранены");

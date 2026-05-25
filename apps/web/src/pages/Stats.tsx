@@ -152,10 +152,10 @@ export default function Stats() {
       ]);
 
       // Go backend wraps in {data: [...], success: true} — always array
-      const profileData: any = profileRes.data?.[0];
+      const profileData = profileRes.data?.[0] as ProfileSummary | undefined;
       if (profileData) setProfile(profileData);
 
-      const privacyData: any = privacyRes.data?.[0];
+      const privacyData = privacyRes.data?.[0] as { show_profile_stats?: boolean; show_detailed_stats?: boolean; stats_visibility?: Record<string, boolean> } | undefined;
       if (privacyData) {
         setPrivacy({
           show_profile_stats: privacyData.show_profile_stats ?? false,
@@ -166,14 +166,14 @@ export default function Stats() {
         setPrivacy({ show_profile_stats: false, show_detailed_stats: false, stats_visibility: {} });
       }
 
-      const timeData: any = timeRes.data?.[0];
+      const timeData = timeRes.data?.[0] as TimeStats | undefined;
       if (timeData) setTimeStats(timeData);
 
-      setPostsTs((postsRes.data as any[])?.map((p: any) => p.created_at) || []);
-      setThreadsTs((threadsRes.data as any[])?.map((t: any) => t.created_at) || []);
-      setPostLikesTs((postLikesRes.data as any[])?.map((l: any) => l.created_at) || []);
-      setThreadLikesTs((threadLikesRes.data as any[])?.map((l: any) => l.created_at) || []);
-      setRepliesTs((repliesRes.data as any[])?.map((r: any) => r.created_at) || []);
+      setPostsTs((postsRes.data as Array<{ created_at: string }>)?.map((p) => p.created_at) || []);
+      setThreadsTs((threadsRes.data as Array<{ created_at: string }>)?.map((t) => t.created_at) || []);
+      setPostLikesTs((postLikesRes.data as Array<{ created_at: string }>)?.map((l) => l.created_at) || []);
+      setThreadLikesTs((threadLikesRes.data as Array<{ created_at: string }>)?.map((l) => l.created_at) || []);
+      setRepliesTs((repliesRes.data as Array<{ created_at: string }>)?.map((r) => r.created_at) || []);
 
       setLoading(false);
     };

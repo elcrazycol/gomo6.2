@@ -39,7 +39,7 @@ const parseUserIdentifiers = async (identifiers: string[]): Promise<{ userIds: s
         .eq('id', cleanId)
         .single();
       if (data) {
-        usernames.push(data.username);
+        usernames.push((data as { username: string }).username);
       }
       continue;
     }
@@ -53,8 +53,9 @@ const parseUserIdentifiers = async (identifiers: string[]): Promise<{ userIds: s
         .single();
       
       if (data) {
-        userIds.push(data.id);
-        usernames.push(data.username);
+        const d = data as { id: string; username: string };
+        userIds.push(d.id);
+        usernames.push(d.username);
       }
       continue;
     }
@@ -67,8 +68,9 @@ const parseUserIdentifiers = async (identifiers: string[]): Promise<{ userIds: s
       .single();
     
     if (data) {
-      userIds.push(data.id);
-      usernames.push(data.username);
+      const d = data as { id: string; username: string };
+      userIds.push(d.id);
+      usernames.push(d.username);
     }
   }
 

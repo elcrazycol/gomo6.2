@@ -188,7 +188,7 @@ const CustomProfile = () => {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
+    if (error && (error as { code?: string }).code !== 'PGRST116') {
       console.error("Error loading customization:", error);
       return;
     }
@@ -452,8 +452,6 @@ const CustomProfile = () => {
           username_icon_stroke: iconStroke || null,
           profile_badge_text: badgeText || null,
           profile_badge_css: badgeCss || null,
-        }, {
-          onConflict: 'user_id'
         });
 
       if (error) throw error;

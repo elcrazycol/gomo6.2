@@ -69,7 +69,7 @@ const Board = () => {
   const navigate = useNavigate();
   const [board, setBoard] = useState<Board | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -98,8 +98,8 @@ const Board = () => {
           fetch(`/api/v1/user_achievements?user_id=eq.${session.user.id}`).then(r => r.json()),
         ]);
         
-        const roles: any[] = rolesResponse.data || [];
-        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
+        const roles: { role: string }[] = (rolesResponse.data || []) as { role: string }[];
+        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile
         const profile = profileResponse.data?.[0];
@@ -108,11 +108,11 @@ const Board = () => {
         }
 
         // Load current user color
-        const achievements: any[] = achievementsResponse.data || [];
+        const achievements: { achievements?: { reward_type: string; reward_value: string } }[] = (achievementsResponse.data || []) as { achievements?: { reward_type: string; reward_value: string } }[];
         if (achievements.length) {
           const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
+            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -192,7 +192,7 @@ const Board = () => {
     // Fetch threads from Go backend
     const threadsResponse = await fetch(`/api/v1/threads?board_id=eq.${boardId}&order=updated_at.desc`);
     const threadsResult = await threadsResponse.json();
-    const threadsData: any[] = threadsResult.data || [];
+    const threadsData: Record<string, unknown>[] = (threadsResult.data || []) as Record<string, unknown>[];
 
     if (!threadsData.length) {
       setThreads([]);
@@ -201,38 +201,38 @@ const Board = () => {
 
     // Collect thread author IDs
     const userIds = new Set<string>();
-    threadsData.forEach((t: any) => { if (t.user_id) userIds.add(t.user_id); });
+    threadsData.forEach((t: Record<string, unknown>) => { if (t.user_id) userIds.add(t.user_id as string); });
 
     // Fetch latest post for each thread in parallel
-    const postsPromises = threadsData.map(async (thread: any) => {
-      const postResponse = await fetch(`/api/v1/posts?thread_id=eq.${thread.id}&order=created_at.desc&limit=1`);
+    const postsPromises = threadsData.map(async (thread: Record<string, unknown>) => {
+      const postResponse = await fetch(`/api/v1/posts?thread_id=eq.${thread.id as string}&order=created_at.desc&limit=1`);
       const postResult = await postResponse.json();
-      return { threadId: thread.id, posts: (postResult.data || []) as any[] };
+      return { threadId: thread.id as string, posts: (postResult.data || []) as Record<string, unknown>[] };
     });
     const postsResults = await Promise.all(postsPromises);
 
     // Collect post author IDs
     postsResults.forEach(({ posts }) => {
-      posts.forEach((p: any) => { if (p.user_id) userIds.add(p.user_id); });
+      posts.forEach((p: Record<string, unknown>) => { if (p.user_id) userIds.add(p.user_id as string); });
     });
 
     // Batch fetch all profiles (for is_anonymous)
-    const profilesMap = new Map<string, any>();
+    const profilesMap = new Map<string, { id: string; username: string; is_anonymous: boolean }>();
     const userIdArray = [...userIds];
     if (userIdArray.length > 0) {
       const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${userIdArray.join(',')})`);
       const profilesResult = await profilesResponse.json();
-      (profilesResult.data || []).forEach((p: any) => profilesMap.set(p.id, p));
+      (profilesResult.data || []).forEach((p: { id: string; username: string; is_anonymous: boolean }) => profilesMap.set(p.id, p));
     }
 
     // Build result
     const postsByThread = new Map(postsResults.map(r => [r.threadId, r.posts]));
 
-    const threadsWithData = threadsData.map((thread: any) => {
-      const profile = profilesMap.get(thread.user_id);
-      const posts = postsByThread.get(thread.id) || [];
-      const post = posts[0];
-      const postProfile = post ? profilesMap.get(post.user_id) : null;
+    const threadsWithData = threadsData.map((thread: Record<string, unknown>) => {
+      const profile = profilesMap.get(thread.user_id as string);
+      const posts = postsByThread.get(thread.id as string) || [];
+      const post = posts[0] as Record<string, unknown> | undefined;
+      const postProfile = post ? profilesMap.get(post.user_id as string) : null;
 
       return {
         ...thread,
@@ -247,7 +247,7 @@ const Board = () => {
       };
     });
 
-    setThreads(threadsWithData);
+    setThreads(threadsWithData as Thread[]);
   };
 
   const handleCreateThread = async (e: React.FormEvent) => {

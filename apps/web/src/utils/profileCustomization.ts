@@ -24,13 +24,13 @@ export const getProfileCustomization = async (userId: string): Promise<ProfileCu
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
+    if (error && (error as { code?: string }).code !== 'PGRST116') {
       console.error("Error loading customization:", error);
       customizationCache.set(userId, null);
       return null;
     }
 
-    const customization = data || null;
+    const customization = (data || null) as ProfileCustomization | null;
     customizationCache.set(userId, customization);
     return customization;
   } catch (error) {

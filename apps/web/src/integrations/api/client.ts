@@ -45,7 +45,7 @@ export interface Thread {
   user_id: string;
   title: string;
   content: string;
-  content_json?: any;
+  content_json?: Record<string, unknown> | null;
   image_url?: string | null;
   image_urls?: string[] | null;
   post_count: number;
@@ -60,7 +60,7 @@ export interface Post {
   thread_id: string;
   user_id: string;
   content: string;
-  content_json?: any;
+  content_json?: Record<string, unknown> | null;
   image_url?: string | null;
   image_urls?: string[] | null;
   reply_to?: string | null;
@@ -208,7 +208,7 @@ class ApiClient {
   }
 
   async login(email: string, password: string, deviceId?: string): Promise<AuthResponse & { needs_2fa?: boolean }> {
-    const body: any = { email, password };
+    const body: Record<string, string | boolean> = { email, password };
     if (deviceId) {
       body.device_id = deviceId;
     }
@@ -218,7 +218,7 @@ class ApiClient {
       body: JSON.stringify(body),
     });
 
-    const data = response.data as any;
+    const data = response.data as AuthResponse & { needs_2fa?: boolean } | null;
     if (data) {
       // Only set token if 2FA is not needed (full token)
       if (!data.needs_2fa) {
@@ -230,7 +230,7 @@ class ApiClient {
   }
 
   async verify2FA(token: string, code: string, deviceId?: string, trustDevice?: boolean): Promise<AuthResponse> {
-    const body: any = { token, code };
+    const body: Record<string, string | boolean> = { token, code };
     if (deviceId) {
       body.device_id = deviceId;
     }
@@ -282,7 +282,7 @@ class ApiClient {
   }
 
   async verifyAndEnableTOTP(code: string): Promise<{ enabled: boolean; recovery_codes?: string[] }> {
-    const response = await this.request<any>('/api/v1/auth/2fa/verify-and-enable', {
+    const response = await this.request<{ enabled: boolean; recovery_codes?: string[] }>('/api/v1/auth/2fa/verify-and-enable', {
       method: 'POST',
       body: JSON.stringify({ code }),
     });
@@ -421,8 +421,8 @@ class ApiClient {
     });
   }
 
-  async unlikeThread(threadId: string): Promise<ApiResponse<any>> {
-    return this.request<any>(`/api/v1/threads/${threadId}/like`, {
+  async unlikeThread(threadId: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/api/v1/threads/${threadId}/like`, {
       method: 'DELETE',
     });
   }
@@ -433,8 +433,8 @@ class ApiClient {
     });
   }
 
-  async unlikePost(postId: string): Promise<ApiResponse<any>> {
-    return this.request<any>(`/api/v1/posts/${postId}/like`, {
+  async unlikePost(postId: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/api/v1/posts/${postId}/like`, {
       method: 'DELETE',
     });
   }
@@ -442,13 +442,13 @@ class ApiClient {
   async getThreadLikes(threadId: string, params?: {
     limit?: number;
     offset?: number;
-  }): Promise<ApiResponse<any[]>> {
+  }): Promise<ApiResponse<ThreadLike[]>> {
     const searchParams = new URLSearchParams();
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
 
     const query = searchParams.toString();
-    return this.request<any[]>(`/api/v1/threads/${threadId}/likes${query ? `?${query}` : ''}`);
+    return this.request<ThreadLike[]>(`/api/v1/threads/${threadId}/likes${query ? `?${query}` : ''}`);
   }
 
   // RPC Methods
@@ -468,12 +468,12 @@ class ApiClient {
     return this.request<boolean>(`/api/rpc/has_user_liked_thread?thread_uuid=${threadUuid}&user_uuid=${userUuid}`);
   }
 
-  async getRecentPostLikers(postUuid: string, limitCount = 10): Promise<ApiResponse<any[]>> {
-    return this.request<any[]>(`/api/rpc/get_recent_post_likers?post_uuid=${postUuid}&limit_count=${limitCount}`);
+  async getRecentPostLikers(postUuid: string, limitCount = 10): Promise<ApiResponse<Array<{ user_id: string; created_at: string }>>> {
+    return this.request<Array<{ user_id: string; created_at: string }>>(`/api/rpc/get_recent_post_likers?post_uuid=${postUuid}&limit_count=${limitCount}`);
   }
 
-  async getRecentThreadLikers(threadUuid: string, limitCount = 10): Promise<ApiResponse<any[]>> {
-    return this.request<any[]>(`/api/rpc/get_recent_thread_likers?thread_uuid=${threadUuid}&limit_count=${limitCount}`);
+  async getRecentThreadLikers(threadUuid: string, limitCount = 10): Promise<ApiResponse<Array<{ user_id: string; created_at: string }>>> {
+    return this.request<Array<{ user_id: string; created_at: string }>>(`/api/rpc/get_recent_thread_likers?thread_uuid=${threadUuid}&limit_count=${limitCount}`);
   }
 
   async getUserLikesReceivedCount(userUuid: string): Promise<ApiResponse<number>> {
@@ -513,14 +513,14 @@ class ApiClient {
     return this.request<Notification[]>(`/api/v1/notifications${query ? `?${query}` : ''}`);
   }
 
-  async markNotificationAsRead(id: string): Promise<ApiResponse<any>> {
-    return this.request<any>(`/api/v1/notifications/${id}/read`, {
+  async markNotificationAsRead(id: string): Promise<ApiResponse<void>> {
+    return this.request<void>(`/api/v1/notifications/${id}/read`, {
       method: 'PUT',
     });
   }
 
-  async markAllNotificationsAsRead(): Promise<ApiResponse<any>> {
-    return this.request<any>('/api/v1/notifications/read-all', {
+  async markAllNotificationsAsRead(): Promise<ApiResponse<void>> {
+    return this.request<void>('/api/v1/notifications/read-all', {
       method: 'PUT',
     });
   }
@@ -551,7 +551,7 @@ export function getDeviceId(): string {
 export const api = {
   // Auth
   auth: {
-    signUp: async ({ email, password, options }: any) => {
+    signUp: async ({ email, password, options }: { email: string; password: string; options?: { data?: { username?: string } } }) => {
       try {
         const result = await apiClient.register(email, options?.data?.username || email.split('@')[0], password);
         return { data: { user: result.user, session: { access_token: result.token } }, error: null };
@@ -559,7 +559,7 @@ export const api = {
         return { data: null, error: { message: (error as Error).message } };
       }
     },
-    signInWithPassword: async ({ email, password }: any) => {
+    signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
       try {
         const deviceId = getDeviceId();
         const result = await apiClient.login(email, password, deviceId);
@@ -597,7 +597,7 @@ export const api = {
         return { data: { session: null }, error: { message: (error as Error).message } };
       }
     },
-    onAuthStateChange: (callback: any) => {
+    onAuthStateChange: (callback: (event: string, session: { user: User } | null) => void) => {
       // Simple implementation - in real app would use event listeners
       const checkAuth = async () => {
         const user = await apiClient.getCurrentUser();
@@ -615,38 +615,38 @@ export const api = {
   // Database
   from: (table: string) => ({
     select: (columns: string = '*') => ({
-      eq: (column: string, value: any) => ({
-        single: () => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}&select=${columns}`),
-        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}&select=${columns}`).then(callback)
+      eq: (column: string, value: string | number | boolean) => ({
+        single: () => apiClient.request<Record<string, unknown>>(`/api/v1/${table}?${column}=eq.${value}&select=${columns}`),
+        then: (callback: (value: ApiResponse<Record<string, unknown>>) => void) => apiClient.request<Record<string, unknown>>(`/api/v1/${table}?${column}=eq.${value}&select=${columns}`).then(callback)
       }),
       order: (column: string, options?: { ascending?: boolean }) => ({
-        then: (callback: any) => {
+        then: (callback: (value: ApiResponse<Record<string, unknown>>) => void) => {
           const direction = options?.ascending ? 'asc' : 'desc';
-          return apiClient.request<any>(`/api/v1/${table}?select=${columns}&order=${column}.${direction}`).then(callback);
+          return apiClient.request<Record<string, unknown>>(`/api/v1/${table}?select=${columns}&order=${column}.${direction}`).then(callback);
         }
       }),
-      then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?select=${columns}`).then(callback)
+      then: (callback: (value: ApiResponse<Record<string, unknown>>) => void) => apiClient.request<Record<string, unknown>>(`/api/v1/${table}?select=${columns}`).then(callback)
     }),
-    insert: (data: any) => ({
+    insert: (data: Record<string, unknown>) => ({
       select: (columns: string = '*') => ({
-        single: () => apiClient.request<any>(`/api/v1/${table}?select=${columns}`, {
+        single: () => apiClient.request<Record<string, unknown>>(`/api/v1/${table}?select=${columns}`, {
           method: 'POST',
           body: JSON.stringify(data)
         }),
-        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?select=${columns}`, {
+        then: (callback: (value: ApiResponse<Record<string, unknown>>) => void) => apiClient.request<Record<string, unknown>>(`/api/v1/${table}?select=${columns}`, {
           method: 'POST',
           body: JSON.stringify(data)
         }).then(callback)
       })
     }),
-    update: (data: any) => ({
-      eq: (column: string, value: any) => ({
-        then: (callback: any) => {
+    update: (data: Record<string, unknown>) => ({
+      eq: (column: string, value: string | number | boolean) => ({
+        then: (callback: (value: ApiResponse<Record<string, unknown>>) => void) => {
           // Use REST path for /profiles/:id PUT — paths with query params get 404
           const url = column === 'id'
             ? `/api/v1/${table}/${encodeURIComponent(String(value))}`
             : `/api/v1/${table}?${column}=eq.${encodeURIComponent(String(value))}`;
-          return apiClient.request<any>(url, {
+          return apiClient.request<Record<string, unknown>>(url, {
             method: 'PUT',
             body: JSON.stringify(data)
           }).then(callback);
@@ -654,8 +654,8 @@ export const api = {
       })
     }),
     delete: () => ({
-      eq: (column: string, value: any) => ({
-        then: (callback: any) => apiClient.request<any>(`/api/v1/${table}?${column}=eq.${value}`, {
+      eq: (column: string, value: string | number | boolean) => ({
+        then: (callback: (value: ApiResponse<Record<string, unknown>>) => void) => apiClient.request<Record<string, unknown>>(`/api/v1/${table}?${column}=eq.${value}`, {
           method: 'DELETE'
         }).then(callback)
       })
@@ -663,20 +663,20 @@ export const api = {
   }),
 
   // RPC
-  rpc: (functionName: string, params?: any) => {
+  rpc: (functionName: string, params?: Record<string, string | number | boolean>) => {
     const url = `/api/rpc/${functionName}`;
     const searchParams = new URLSearchParams();
     
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
-        searchParams.set(key, value as string);
+        searchParams.set(key, String(value));
       });
     }
     
     const fullUrl = `${url}${searchParams.toString() ? `?${searchParams}` : ''}`;
     
     // Return a proper Promise that can be awaited
-    return apiClient.request<any>(fullUrl).then(response => {
+    return apiClient.request<Record<string, unknown>>(fullUrl).then(response => {
       return { data: response.data, error: response.error || null };
     }).catch(error => {
       return { data: null, error: { message: (error as Error).message } };
