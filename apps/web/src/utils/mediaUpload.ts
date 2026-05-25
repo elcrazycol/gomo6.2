@@ -27,7 +27,6 @@ const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB для изображений
 const MAX_VIDEO_WIDTH = 1080; // Уменьшили для веба
 const MAX_VIDEO_HEIGHT = 1080;
 const MAX_VIDEO_BITRATE = "1200k"; // Уменьшили битрейт
-const MAX_AUDIO_BITRATE = "96k"; // Уменьшили для аудио
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 
 // Кэш для обработанных файлов
@@ -284,49 +283,6 @@ const extractAudioMetadata = async (file: File): Promise<{
   }
 };
 
-const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: Awaited<ReturnType<typeof extractAudioMetadata>> }> => {
-  // Извлекаем метаданные ПЕРЕД transcoding
-  const metadata = await extractAudioMetadata(file);
-
-  // Проверяем кэш
-  const cached = getCachedFile(file);
-  if (cached) return { file: cached.file, metadata };
-
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error("Аудио больше 25MB — сожмите перед загрузкой");
-  }
-
-  const ffmpeg = await loadFFmpeg();
-  const inputName = `input.${file.name.split(".").pop() || "wav"}`;
-  const outputName = "output.ogg";
-
-  try {
-    ffmpeg.writeFile(inputName, new Uint8Array(await file.arrayBuffer()));
-
-    // Улучшенные параметры для аудио
-    await ffmpeg.exec([
-      "-i", inputName,
-      "-c:a", "libvorbis",
-      "-b:a", MAX_AUDIO_BITRATE,
-      "-ar", "44100",
-      "-ac", "2",
-      "-compression_level", "5",
-      outputName
-    ]);
-
-    const data = await ffmpeg.readFile(outputName);
-    const buf2 = data instanceof Uint8Array ? data : new Uint8Array(data as unknown as ArrayBuffer);
-    const ab2 = buf2.buffer as ArrayBuffer;
-    const outFile = new File([ab2], file.name.replace(/\.[^.]+$/, "") + ".ogg", { type: "audio/ogg" });
-    
-    setCachedFile(file, { file: outFile });
-    return { file: outFile, metadata };
-  } finally {
-    try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
-    try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
-  }
-};
-
 const inferType = (file: File): AttachmentType => {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
@@ -361,16 +317,10 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
         file = transcoded.file;
         poster = transcoded.poster;
       } else if (type === "audio") {
-        // Для MP3 файлов не делаем transcoding, чтобы сохранить метаданные
-        if (file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')) {
-          file = original;
-          // Все равно извлекаем метаданные для MP3
-          audioMetadata = await extractAudioMetadata(original);
-        } else {
-          const audioResult = await transcodeAudio(original);
-          file = audioResult.file;
-          audioMetadata = audioResult.metadata;
-        }
+        // Audio files: upload original without browser-side transcoding.
+        // Browser-side FFmpeg WASM is unreliable (loads 25MB+ from CDN)
+        // and often fails. Backend accepts all common audio formats.
+        audioMetadata = await extractAudioMetadata(original);
       } else if (file.size > MAX_FILE_SIZE) {
         throw new Error("Файл больше 25MB — прикрепите меньший");
       }
