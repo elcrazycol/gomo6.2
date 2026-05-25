@@ -232,22 +232,20 @@ interface RangeSelectionSnapshot {
 const createSelectionSnapshot = (
   selection: ReturnType<typeof $getSelection>
 ): RangeSelectionSnapshot | null => {
-  if (!$isRangeSelection(selection) || selection.isCollapsed()) {
+  if (!selection || !$isRangeSelection(selection) || selection.isCollapsed()) {
     return null;
   }
 
   const anchorNode = selection.anchor.getNode();
-  const focusNode = selection.focus.getNode();
-
-  return {
+  const focusNode = selection.focus.getNode();  return {
     anchorKey: anchorNode.getKey(),
     anchorOffset: selection.anchor.offset,
     focusKey: focusNode.getKey(),
     focusOffset: selection.focus.offset,
     text: selection.getTextContent(),
-    color: $getSelectionStyleValueForProperty(selection, "color", "") || "",
-  };
-};
+    color: (($getSelectionStyleValueForProperty as unknown as (sel: unknown, prop: string, fallback: string) => string)(selection, "color", "")) || "",
+  } as RangeSelectionSnapshot;
+  }
 
 const randomHexColor = () =>
   `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
@@ -275,19 +273,19 @@ const StyleContinuationPlugin = () => {
           let handled = false;
 
           editor.update(() => {
-            const selection = $getSelection();
-            if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+            const rawSelection = $getSelection();
+            if (!$isRangeSelection(rawSelection) || !rawSelection.isCollapsed()) {
               return;
             }
 
-            const hasActiveInlineContinuation = Boolean(selection.style) || selection.format !== 0;
+            const hasActiveInlineContinuation = Boolean(rawSelection.style) || rawSelection.format !== 0;
             if (!hasActiveInlineContinuation) {
               return;
             }
 
             if (event.key === "Enter") {
-              (selection as any).setStyle("");
-              (selection as any).setFormat(0);
+              ((rawSelection as unknown) as { setStyle: (s: string) => void }).setStyle("");
+              ((rawSelection as unknown) as { setFormat: (f: number) => void }).setFormat(0);
               handled = false;
               return;
             }
@@ -296,17 +294,17 @@ const StyleContinuationPlugin = () => {
               return;
             }
 
-            const anchorNode = selection.anchor.getNode();
+            const anchorNode = rawSelection.anchor.getNode();
             if (!$isTextNode(anchorNode)) {
               return;
             }
 
             const text = anchorNode.getTextContent();
-            const previousChar = text[Math.max(0, selection.anchor.offset - 1)] ?? "";
+            const previousChar = text[Math.max(0, rawSelection.anchor.offset - 1)] ?? "";
 
             if (previousChar === " " || previousChar === "\n") {
-              (selection as any).setStyle("");
-              (selection as any).setFormat(0);
+              ((rawSelection as unknown) as { setStyle: (s: string) => void }).setStyle("");
+              ((rawSelection as unknown) as { setFormat: (f: number) => void }).setFormat(0);
               handled = false;
             }
           });
@@ -451,11 +449,14 @@ const Toolbar = ({
     });
   };
 
-  const withSavedSelection = (callback: (selection: ReturnType<typeof $getSelection>) => void) => {
+  const withSavedSelection = (callback: (selection: NonNullable<ReturnType<typeof $getSelection>>) => void) => {
     editor.update(() => {
-      let selection = $getSelection();
+      const rawSelection = $getSelection();
+      let selection = rawSelection;
 
-      if ((!$isRangeSelection(selection) || !selection) && selectionSnapshot) {
+      if (!rawSelection) return;
+
+      if ((!$isRangeSelection(rawSelection) || !rawSelection) && selectionSnapshot) {
         const anchorNode = $getNodeByKey(selectionSnapshot.anchorKey);
         const focusNode = $getNodeByKey(selectionSnapshot.focusKey);
 
@@ -480,24 +481,25 @@ const Toolbar = ({
   };
 
   const toggleBlur = () => {
-    withSavedSelection((selection) => {
-      if (selection.isCollapsed()) return;
+    withSavedSelection((sel: NonNullable<ReturnType<typeof $getSelection>>) => {
+      const selection = sel;
+      if (!selection || selection.isCollapsed()) return;
 
       const extractedNodes = selection.extract();
-      const selectedTextNodes = extractedNodes.filter($isTextNode);
+      const selectedTextNodes = extractedNodes.filter($isTextNode) as Array<{ getStyle: () => string; setStyle: (s: string) => void }>;
 
       if (selectedTextNodes.length === 0) return;
 
       const shouldRemoveBlur = selectedTextNodes.every((node) => hasBlurStyle(node.getStyle()));
 
-      selectedTextNodes.forEach((node) => {
+      selectedTextNodes.forEach((node: { getStyle: () => string; setStyle: (s: string) => void }) => {
         const nextStyle = shouldRemoveBlur
           ? removeBlurFromStyleText(node.getStyle())
           : applyBlurToStyleText(node.getStyle());
         node.setStyle(nextStyle);
       });
 
-      (selection as any).setStyle("");
+      ((selection as unknown) as { setStyle: (s: string) => void }).setStyle("");
     });
 
     window.requestAnimationFrame(() => {
@@ -524,16 +526,17 @@ const Toolbar = ({
       return;
     }
 
-    setSelectionSnapshot(nextSnapshot);
-    setColorDraft(nextSnapshot.color || randomHexColor());
+    const snapshot = nextSnapshot as RangeSelectionSnapshot;
+    setSelectionSnapshot(snapshot);
+    setColorDraft(snapshot.color || randomHexColor());
     setIsColorDialogOpen(true);
   };
 
   const applyColor = (nextColor: string) => {
-    withSavedSelection((selection) => {
+    withSavedSelection((selection: any) => {
       $patchStyleText(selection, { color: nextColor });
       if (!nextColor) {
-        (selection as any).setStyle("");
+        selection.setStyle("");
       }
     });
     setIsColorDialogOpen(false);
@@ -655,7 +658,7 @@ const EditorBridge = forwardRef<GomoRichEditorHandle>((_, ref) => {
 
   useImperativeHandle(ref, () => ({
     focus: () => editor.focus(),
-    insertText: (text: string) => insertTextAtSelection(editor as any, text),
+    insertText: (text: string) => insertTextAtSelection(editor as Parameters<typeof insertTextAtSelection>[0], text),
   }), [editor]);
 
   return null;
