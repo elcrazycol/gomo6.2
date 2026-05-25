@@ -251,7 +251,7 @@ const Profile = () => {
     checkAuth();
 
     const { data: { subscription } } = api.auth.onAuthStateChange(
-      (_event, session) => {
+      (_event: unknown, session: { user: { id: string } | null } | null) => {
         setCurrentUser(session?.user ?? null);
       }
     );
@@ -297,8 +297,9 @@ const Profile = () => {
   useOnlineStatus(currentUser?.id);
 
   const loadProfile = useCallback(async () => {
-    const token = (await api.auth.getSession()).data.session?.access_token;
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+    const sessionAuth = await api.auth.getSession();
+    const token = sessionAuth.data.session?.access_token;
+    const headers: Record<string, string> | undefined = token ? { 'Authorization': `Bearer ${token}` } : undefined;
 
     const profileRes = await fetch(`/api/v1/profiles?id=eq.${userId}`);
     const profileResult = await profileRes.json();
@@ -356,7 +357,7 @@ const Profile = () => {
       }
 
       // Load customization
-      const custom = await getProfileCustomization(userId);
+      const custom = await getProfileCustomization(userId!);
       setCustomization(custom);
 
       // Load likes received count (protected RPC)
@@ -501,7 +502,7 @@ const Profile = () => {
 
         // Customize name and description based on achievement ID (base achievements)
         if (achievement.id === 'time_10min') {
-          const timeNames = {
+          const timeNames: Record<number, string> = {
             1: 'Дуралей I',
             2: 'Дуралей II',
             3: 'Дуралей III',
@@ -513,7 +514,7 @@ const Profile = () => {
             9: 'Дуралей IX',
             10: 'Дуралей X'
           };
-          const timeDescriptions = {
+          const timeDescriptions: Record<number, string> = {
             1: 'Провёл на сайте 10 минут',
             2: 'Провёл на сайте 30 минут',
             3: 'Провёл на сайте 1 час',
@@ -528,7 +529,7 @@ const Profile = () => {
           displayName = timeNames[ua.level || 1] || achievement.name;
           displayDescription = timeDescriptions[ua.level || 1] || achievement.description;
         } else if (achievement.id === 'posts_10') {
-          const postNames = {
+          const postNames: Record<number, string> = {
             1: 'Первые 10 сообщений',
             2: 'Первые 100 сообщений',
             3: 'Болтливый',
@@ -537,7 +538,7 @@ const Profile = () => {
             6: 'Мастер слова',
             7: 'Легенда форума'
           };
-          const postDescriptions = {
+          const postDescriptions: Record<number, string> = {
             1: 'Написал 10 сообщений',
             2: 'Написал 100 сообщений',
             3: 'Написал 250 сообщений',
@@ -549,7 +550,7 @@ const Profile = () => {
           displayName = postNames[ua.level || 1] || achievement.name;
           displayDescription = postDescriptions[ua.level || 1] || achievement.description;
         } else if (achievement.id === 'threads_5') {
-          const threadNames = {
+          const threadNames: Record<number, string> = {
             1: 'Создатель',
             2: 'Творец',
             3: 'Генератор идей',
@@ -557,7 +558,7 @@ const Profile = () => {
             5: 'Мастер дискуссий',
             6: 'Легенда форума'
           };
-          const threadDescriptions = {
+          const threadDescriptions: Record<number, string> = {
             1: 'Создал 5 тредов',
             2: 'Создал 10 тредов',
             3: 'Создал 25 тредов',
@@ -568,7 +569,7 @@ const Profile = () => {
           displayName = threadNames[ua.level || 1] || achievement.name;
           displayDescription = threadDescriptions[ua.level || 1] || achievement.description;
         } else if (achievement.id === 'images_1' || achievement.id === 'images_10' || achievement.id === 'images_25' || achievement.id === 'images_50' || achievement.id === 'images_100' || achievement.id === 'images_250' || achievement.id === 'images_500' || achievement.id === 'images_1000') {
-          const imageNames = {
+          const imageNames: Record<number, string> = {
             1: 'Фотограф-новичок',
             2: 'Коллекционер',
             3: 'Фотолюбитель',
@@ -578,7 +579,7 @@ const Profile = () => {
             7: 'Легенда фотографии',
             8: 'Икона фотографии'
           };
-          const imageDescriptions = {
+          const imageDescriptions: Record<number, string> = {
             1: 'Загрузил первое изображение',
             2: 'Загрузил 10 изображений',
             3: 'Загрузил 25 изображений',
@@ -591,7 +592,7 @@ const Profile = () => {
           displayName = imageNames[ua.level || 1] || achievement.name;
           displayDescription = imageDescriptions[ua.level || 1] || achievement.description;
         } else if (achievement.id === 'likes_received_1' || achievement.id === 'likes_received_10' || achievement.id === 'likes_received_25' || achievement.id === 'likes_received_50' || achievement.id === 'likes_received_100' || achievement.id === 'likes_received_250' || achievement.id === 'likes_received_500' || achievement.id === 'likes_received_1000') {
-          const likesNames = {
+          const likesNames: Record<number, string> = {
             1: 'Замеченный',
             2: 'Популярный',
             3: 'Уважаемый',
@@ -601,7 +602,7 @@ const Profile = () => {
             7: 'Легенда форума',
             8: 'Икона сообщества'
           };
-          const likesDescriptions = {
+          const likesDescriptions: Record<number, string> = {
             1: 'Получил свой первый лайк',
             2: 'Получил 10 лайков',
             3: 'Получил 25 лайков',
@@ -631,7 +632,7 @@ const Profile = () => {
       const achievementMap = new Map<string, typeof processedAchievements[0]>();
       const groupedTypes = ['time', 'posts', 'threads', 'images', 'likes_received', 'likes_given'];
       
-      processedAchievements.forEach((achievement) => {
+      processedAchievements.forEach((achievement: typeof processedAchievements[0]) => {
         // If achievement has a type that should be grouped, group by type
         // Otherwise, keep as individual achievement
         if (achievement.achievement_type && groupedTypes.includes(achievement.achievement_type)) {
@@ -667,7 +668,7 @@ const Profile = () => {
     const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     // Сохраняем профиль
-    const profileRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+    const profileRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
       method: 'PUT',
       headers,
       body: JSON.stringify({
@@ -748,7 +749,7 @@ const Profile = () => {
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
       setAvatarUploading(true);
-      const updateRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+      const updateRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ avatar_url: fileName }),
@@ -849,11 +850,11 @@ const Profile = () => {
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const prevBioJson = profile.bio_json ?? null;
+      const prevBioJson = profile?.bio_json ?? null;
       const bioJsonChanged =
         JSON.stringify(bioJson ?? null) !== JSON.stringify(prevBioJson);
-      if (userId && (bio !== profile.bio || bioJsonChanged)) {
-        const bioRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+      if (userId && profile && (bio !== profile.bio || bioJsonChanged)) {
+        const bioRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ bio, bio_json: bioJson }),
@@ -862,8 +863,8 @@ const Profile = () => {
       }
 
       // Save username changes
-      if (userId && newUsername.trim() && newUsername !== profile.username) {
-        const usernameRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+      if (userId && profile && newUsername.trim() && newUsername !== profile.username) {
+        const usernameRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ username: newUsername.trim() }),
@@ -874,8 +875,8 @@ const Profile = () => {
       }
 
       // Save anonymity setting
-      if (userId && isAnonymous !== profile.is_anonymous) {
-        const anonRes = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+      if (userId && profile && isAnonymous !== profile.is_anonymous) {
+        const anonRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({ is_anonymous: isAnonymous }),
@@ -897,6 +898,7 @@ const Profile = () => {
   };
 
   const startEditing = () => {
+    if (!profile) return;
     setNewUsername(profile.username);
     setBio(profile.bio || "");
     setBioJson(profile.bio_json ?? null);
@@ -920,7 +922,7 @@ const Profile = () => {
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const res = await fetch(`/api/v1/profiles/${encodeURIComponent(userId)}`, {
+      const res = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ username: newUsername }),
