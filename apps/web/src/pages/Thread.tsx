@@ -474,8 +474,7 @@ const Thread = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = api.auth.onAuthStateChange(
-      (_event, session) => {
+    const { data: { subscription } } = api.auth.onAuthStateChange(          (_event: unknown, session: { user: { id: string } | null } | null) => {
         setUser(session?.user ?? null);
       }
     );
@@ -1229,8 +1228,7 @@ const Thread = () => {
           {/* Poll */}
           {pollData && (
             <Poll
-              poll={pollData}
-              threadId={threadId}
+              poll={pollData}                  threadId={threadId!}
               currentUserId={user?.id || null}
               isPageLoading={pageLoading}
             />
@@ -1348,8 +1346,7 @@ const Thread = () => {
                   href={`#post-${post.reply_to}`}
                   className="text-xs hover:text-primary/80 font-medium hover:underline block mb-1 transition-colors cursor-pointer"
                   onClick={(e) => {
-                    e.preventDefault();
-                    setPulsingPostId(post.reply_to);
+                    e.preventDefault();                        setPulsingPostId(post.reply_to ?? null);
                     setTimeout(() => setPulsingPostId(null), 800);
                     const element = document.getElementById(`post-${post.reply_to}`);
                     if (element) {
