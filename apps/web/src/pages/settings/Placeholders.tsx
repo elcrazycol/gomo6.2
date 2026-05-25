@@ -17,6 +17,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { processProfileBio } from "@/utils/profileBio";
 import { UserBadge } from "@/components/UserBadge";
 import { AdminBadge } from "@/components/AdminBadge";
@@ -135,7 +136,7 @@ const Placeholders = () => {
       case 'bio':
         return profile.bio ? processProfileBio(profile.bio) : null;
       case 'created_at':
-        return format(new Date(profile.created_at), "dd.MM.yyyy", { locale: ru });
+        return format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: ru });
       case 'post_count':
         return `${profile.post_count || 0} ${profile.post_count === 1 ? 'пост' : (profile.post_count ?? 0) < 5 ? 'поста' : 'постов'}`;
       case 'thread_count':
