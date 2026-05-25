@@ -187,7 +187,7 @@ const GomoSubCreate = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` }),
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           slug,
@@ -282,7 +282,7 @@ const GomoSubCreate = () => {
                 className="group relative w-full h-full text-left"
               >
                 {coverImages[0] ? (
-                  <img src={storageUrl("post-images", coverImages[0])} alt="cover" className="w-full h-full object-cover" />
+                  <img src={storageUrl("post-images", coverImages[0]) ?? undefined} alt="cover" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
                     {uploadingCover ? "Загрузка..." : "Нажми сюда, чтобы добавить фон"}
@@ -308,7 +308,7 @@ const GomoSubCreate = () => {
                   className="group relative w-full h-full"
                 >
                 {avatarImages[0] ? (
-                  <img src={storageUrl("post-images", avatarImages[0])} alt="avatar" className="w-full h-full object-cover" />
+                  <img src={storageUrl("post-images", avatarImages[0]) ?? undefined} alt="avatar" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-xl font-bold text-muted-foreground">
                     {uploadingAvatar ? "..." : (form.name.trim()[0] || "g").toUpperCase()}
