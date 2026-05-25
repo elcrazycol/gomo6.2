@@ -4,6 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { safeDate } from "@/utils/safeDate";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -360,7 +361,7 @@ const Moderation = () => {
                     <div className="flex flex-col sm:flex-row justify-between gap-3">
                       <div className="flex-1">
                         <p className="text-xs sm:text-sm text-muted-foreground">
-                          {new Date(report.created_at).toLocaleString('ru-RU')}
+                          {safeDate(report.created_at).toLocaleString('ru-RU')}
                         </p>
                         <p className="font-bold mt-1 text-sm sm:text-base">Причина жалобы:</p>
                         <p className="text-xs sm:text-sm">{report.reason}</p>
@@ -560,7 +561,7 @@ const Moderation = () => {
               resolvedReports.map((report) => (
                 <div key={report.id} className="bg-card border border-border p-4 opacity-70">
                   <p className="text-sm text-muted-foreground">
-                    {new Date(report.created_at).toLocaleString('ru-RU')}
+                    {safeDate(report.created_at).toLocaleString('ru-RU')}
                   </p>
                   <p className="font-bold mt-1">Причина: {report.reason}</p>
                   <p className="text-sm text-primary mt-2">

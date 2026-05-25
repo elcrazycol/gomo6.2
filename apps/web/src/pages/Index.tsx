@@ -21,6 +21,7 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 
 interface Board {
   id: string;
@@ -454,7 +455,7 @@ const Index = () => {
                           className="block rounded-lg border border-border p-3 hover:bg-thread-hover transition-colors"
                         >
                           <div className="text-xs text-muted-foreground mb-1">
-                            @{item.author_username} - {formatDistanceToNow(new Date(item.created_at), { addSuffix: true, locale: ru })}
+                            @{item.author_username} - {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: ru })}
                           </div>
                           <div className="font-medium text-sm">{item.thread_title}</div>
                           <div className="text-sm text-muted-foreground line-clamp-2 mt-1">{item.content}</div>

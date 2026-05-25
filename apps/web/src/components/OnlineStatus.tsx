@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 
 interface OnlineStatusProps {
@@ -37,7 +38,7 @@ export function OnlineStatus({
 
   if (lastSeen) {
     try {
-      const timeAgo = formatDistanceToNow(new Date(lastSeen), {
+      const timeAgo = formatDistanceToNow(safeDate(lastSeen), {
         addSuffix: true,
         locale: ru,
       });
