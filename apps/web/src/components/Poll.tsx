@@ -12,7 +12,7 @@ interface PollOption {
   percentage?: number;
 }
 
-interface Poll {
+export interface Poll {
   id: string;
   question: string;
   options: PollOption[];

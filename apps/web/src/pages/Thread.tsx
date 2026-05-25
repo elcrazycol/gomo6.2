@@ -21,6 +21,7 @@ import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
 import { Input } from "@/components/ui/input";
 import { Poll } from "@/components/Poll";
+import type { Poll as PollData } from "@/components/Poll";
 import { storageUrl } from "@/utils/storage";
 import { wsService } from "@/services/websocket";
 
@@ -86,6 +87,21 @@ import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { ThreadAttachmentUpload } from "@/components/ThreadAttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
 import type { Thread as ThreadModel, Post as PostModel, UserProfileLite } from "@/types/forum";
+
+interface ThreadWithExtras extends ThreadModel {
+  content_json?: unknown;
+  ephemeral_type?: string;
+  ephemeral_value?: number;
+  username?: string;
+  avatar_url?: string;
+  tags?: { content?: string; format?: string; atmosphere?: string; flag?: string };
+}
+
+interface PostWithExtras extends PostModel {
+  content_json?: unknown;
+  username?: string;
+  avatar_url?: string;
+}
 import { FileAudio2, FileVideo2, FileText, Image as ImageIcon, SkipBack, SkipForward, Play, Pause } from "lucide-react";
 import { MediaPlayer } from "@/components/MediaPlayer";
 import { AudioAttachment } from "@/components/AudioAttachment";
@@ -199,7 +215,7 @@ const Thread = () => {
   const { data: thread, isLoading: threadLoading } = useThread(threadId);
   const { data: posts = [], isLoading: postsLoading } = usePosts(threadId);
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -242,9 +258,9 @@ const Thread = () => {
   const [pageLoading, setPageLoading] = useState(false); // Changed from true - React Query handles loading
   const [removeMetadata, setRemoveMetadata] = useState(true);
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
-    return (localStorage.getItem('sender-display-type') as any) || 'classic';
+    return (localStorage.getItem('sender-display-type') as 'classic' | 'modern') || 'classic';
   });
-  const [pollData, setPollData] = useState<any>(null);
+  const [pollData, setPollData] = useState<{ id: string; user_votes: string[]; [key: string]: unknown } | null>(null);
   const shouldStickBottomRef = useRef(false);
   const SCROLL_STICKY_THRESHOLD = 240;
 
@@ -440,8 +456,8 @@ const Thread = () => {
         const rolesRes = await fetch(`/api/v1/user_roles?user_id=eq.${session.user.id}`, { headers });
         const rolesResult = await rolesRes.json();
         const roles = rolesResult.data;
-        setIsAdmin(roles?.some((r: any) => r.role === 'admin') || false);
-        setIsModerator(roles?.some((r: any) => r.role === 'moderator' || r.role === 'admin') || false);
+        setIsAdmin(roles?.some((r: { role: string }) => r.role === 'admin') || false);
+        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
         const profileRes = await fetch(`/api/v1/profiles?id=eq.${session.user.id}`, { headers });
@@ -459,8 +475,8 @@ const Thread = () => {
 
         if (achievements) {
           const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
+            .map((a: { achievements: { reward_value: string } }) => a.achievements.reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -579,7 +595,7 @@ const Thread = () => {
       // Track thread visit for achievements
       if (user && thread && token) {
         try {
-          const hasCustomMessage = (thread as any).custom_message && (thread as any).custom_message.trim().length > 0;
+          const hasCustomMessage = (thread as ThreadWithExtras).custom_message && ((thread as ThreadWithExtras).custom_message ?? "").trim().length > 0;
           await fetch('/api/v1/thread_custom_message_visits', {
             method: 'POST',
             headers,
@@ -847,7 +863,7 @@ const Thread = () => {
       headers,
       body: JSON.stringify({
         user_id: banUserId,
-        banned_by: user.id,
+        banned_by: user?.id ?? "",
         reason: banReason.trim(),
         expires_at: expiresAt,
         is_permanent: isPermanent,
@@ -1011,7 +1027,7 @@ const Thread = () => {
                   onEdit={() => {
                     setEditingPostId(thread.id);
                     setEditContent(thread.content);
-                    setEditContentJson((thread as any).content_json);
+                    setEditContentJson((thread as ThreadWithExtras).content_json);
                   }}
                   onDelete={() => handleDeleteThread()}
                   onReport={() => setReportingPost(thread.id)}
@@ -1055,14 +1071,14 @@ const Thread = () => {
               {senderDisplayType === 'modern' ? (
                 <div className="flex items-start gap-2">
                   <img
-                    src={storageUrl("post-images", (thread as any).avatar_url) || '/placeholder.svg'}
+                    src={storageUrl("post-images", (thread as ThreadWithExtras).avatar_url) || '/placeholder.svg'}
                     alt="Avatar"
                     className="w-12 h-12 rounded-full object-cover border border-border"
                   />
                   <div>
                     <UserBadge
                       userId={thread.user_id}
-                    username={(thread as any).username || "Аноним"}
+                    username={(thread as ThreadWithExtras).username || "Аноним"}
                     isAnonymous={false}
                     showOutline={false}
                     isThreadOpener={true}
@@ -1082,7 +1098,7 @@ const Thread = () => {
                   {" · "}
                   <UserBadge
                     userId={thread.user_id}
-                    username={(thread as any).username || "Аноним"}
+                    username={(thread as ThreadWithExtras).username || "Аноним"}
                     isAnonymous={false}
                     showOutline={false}
                   />
@@ -1094,7 +1110,7 @@ const Thread = () => {
                 </>
               )}
             </div>
-            {renderAttachments((thread as any).attachments, (urls, idx) => {
+            {renderAttachments((thread as ThreadWithExtras).attachments as unknown as AttachmentMeta[] | null | undefined, (urls, idx) => {
               setGalleryEditable(false);
               setGalleryImages(urls);
               setGalleryIndex(idx);
@@ -1105,7 +1121,7 @@ const Thread = () => {
               <div className="space-y-2">
                 <GomoRichEditor
                   key={resetKey}
-                  contentJson={(thread as any).content_json}
+                  contentJson={(thread as ThreadWithExtras).content_json}
                   legacyContent={thread.content}
                   onChange={({ json, text }) => {
                     setEditContentJson(json);
@@ -1134,31 +1150,31 @@ const Thread = () => {
               <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
                 <ProcessedContent
                   content={thread.content}
-                  contentJson={(thread as any).content_json}
+                  contentJson={(thread as ThreadWithExtras).content_json}
                   currentUserId={user?.id || null}
                   isAdmin={isAdmin}
                   currentUsername={currentUserUsername}
                   currentUserColor={currentUserColor}
-                  postAuthorId={thread.user_id}                        authorUsername={(thread as any).username}
+                  postAuthorId={thread.user_id}                        authorUsername={(thread as ThreadWithExtras).username}
                 />
               </div>
             )}
 
             {/* Thread tags */}
-            {((thread as any).tags) && (
+            {(thread as ThreadWithExtras).tags && (
               <div className="flex flex-wrap gap-1 mt-3">
                 {/* Ephemeral indicator */}
-                {(thread as any).ephemeral_type && (
+                {(thread as ThreadWithExtras).ephemeral_type && (
                   <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full border border-orange-200">
-                    {(thread as any).ephemeral_type === 'time'
-                      ? `${(thread as any).ephemeral_value}ч`
-                      : `${(thread as any).ephemeral_value}сообщ.`
+                    {(thread as ThreadWithExtras).ephemeral_type === 'time'
+                      ? `${(thread as ThreadWithExtras).ephemeral_value}ч`
+                      : `${(thread as ThreadWithExtras).ephemeral_value}сообщ.`
                     }
                   </span>
                 )}
 
                 {/* Ephemeral tag */}
-                {(thread as any).ephemeral_type && (
+                {(thread as ThreadWithExtras).ephemeral_type && (
                   <button
                     onClick={() => navigate('/b?flag=ephemeral')}
                     className="inline-block px-2 py-0.5 text-xs bg-orange-500/10 text-orange-700 rounded-full
@@ -1170,43 +1186,43 @@ const Thread = () => {
                 )}
 
                 {/* Content tag */}
-                {(thread as any).tags.content && (
+                {(thread as ThreadWithExtras).tags!.content && (
                   <button
-                    onClick={() => navigate(`/b?content=${(thread as any).tags.content}`)}
+                    onClick={() => navigate(`/b?content=${(thread as ThreadWithExtras).tags!.content}`)}
                     className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full
                              hover:bg-blue-500/20 hover:text-blue-700 transition-colors duration-200
                              border border-blue-500/20 hover:border-blue-500/40"
                   >
-                    {getContentTagLabel((thread as any).tags.content)}
+                    {getContentTagLabel((thread as ThreadWithExtras).tags!.content!)}
                   </button>
                 )}
 
                 {/* Format tag */}
-                {(thread as any).tags.format && (
+                {(thread as ThreadWithExtras).tags!.format && (
                   <button
-                    onClick={() => navigate(`/b?format=${(thread as any).tags.format}`)}
+                    onClick={() => navigate(`/b?format=${(thread as ThreadWithExtras).tags!.format}`)}
                     className="inline-block px-2 py-0.5 text-xs bg-green-500/10 text-green-600 rounded-full
                              hover:bg-green-500/20 hover:text-green-700 transition-colors duration-200
                              border border-green-500/20 hover:border-green-500/40"
                   >
-                    {getFormatTagLabel((thread as any).tags.format)}
+                    {getFormatTagLabel((thread as ThreadWithExtras).tags!.format!)}
                   </button>
                 )}
 
                 {/* Atmosphere tag */}
-                {(thread as any).tags.atmosphere && (
+                {(thread as ThreadWithExtras).tags!.atmosphere && (
                   <button
-                    onClick={() => navigate(`/b?atmosphere=${(thread as any).tags.atmosphere}`)}
+                    onClick={() => navigate(`/b?atmosphere=${(thread as ThreadWithExtras).tags!.atmosphere}`)}
                     className="inline-block px-2 py-0.5 text-xs bg-purple-500/10 text-purple-600 rounded-full
                              hover:bg-purple-500/20 hover:text-purple-700 transition-colors duration-200
                              border border-purple-500/20 hover:border-purple-500/40"
                   >
-                    {getAtmosphereTagLabel((thread as any).tags.atmosphere)}
+                    {getAtmosphereTagLabel((thread as ThreadWithExtras).tags!.atmosphere!)}
                   </button>
                 )}
 
                 {/* Night tag */}
-                {(thread as any).tags.flag === 'night' && (
+                {(thread as ThreadWithExtras).tags!.flag === 'night' && (
                   <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full border border-blue-500/20">
                     Ночной
                   </span>
@@ -1226,9 +1242,9 @@ const Thread = () => {
           )}
 
           {/* Poll */}
-          {pollData && (
-            <Poll
-              poll={pollData}                  threadId={threadId!}
+          {pollData && (<Poll
+                  poll={pollData as unknown as PollData}
+                  threadId={threadId!}
               currentUserId={user?.id || null}
               isPageLoading={pageLoading}
             />
@@ -1247,14 +1263,14 @@ const Thread = () => {
                   {senderDisplayType === 'modern' ? (
                     <div className="flex items-start gap-2">
                       <img
-                        src={storageUrl("post-images", (post as any).avatar_url) || '/placeholder.svg'}
+                        src={storageUrl("post-images", (post as PostWithExtras).avatar_url) || '/placeholder.svg'}
                         alt="Avatar"
                         className="w-12 h-12 rounded-full object-cover border border-border"
                       />
                       <div>
                         <UserBadge
                           userId={post.user_id}
-                          username={(post as any).username || "Аноним"}
+                          username={(post as PostWithExtras).username || "Аноним"}
                           isAnonymous={false}
                           showOutline={false}
                           isThreadOpener={post.user_id === thread?.user_id}
@@ -1274,7 +1290,7 @@ const Thread = () => {
                       {" · "}
                       <UserBadge
                         userId={post.user_id}
-                      username={(post as any).username || "Аноним"}
+                      username={(post as PostWithExtras).username || "Аноним"}
                       isAnonymous={false}
                       showOutline={false}
                       />
@@ -1293,7 +1309,7 @@ const Thread = () => {
                       onEdit={() => {
                         setEditingPostId(post.id);
                         setEditContent(post.content);
-                        setEditContentJson((post as any).content_json ?? null);
+                        setEditContentJson((post as PostWithExtras).content_json ?? null);
                       }}
                       onDelete={() => handleDeletePost(post.id)}
                       onReport={() => setReportingPost(post.id)}
@@ -1306,7 +1322,7 @@ const Thread = () => {
                       onEdit={() => {
                         setEditingPostId(post.id);
                         setEditContent(post.content);
-                        setEditContentJson((post as any).content_json ?? null);
+                        setEditContentJson((post as PostWithExtras).content_json ?? null);
                       }}
                       onBan={() => setBanUserId(post.user_id!)}
                     />
@@ -1357,7 +1373,7 @@ const Thread = () => {
                   <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
                 </a>
               )}
-              {renderAttachments((post as any).attachments || [], (urls, idx) => {
+              {renderAttachments(((post as PostWithExtras).attachments || []) as unknown as AttachmentMeta[], (urls, idx) => {
                 setGalleryEditable(false);
                 setGalleryImages(urls);
                 setGalleryIndex(idx);
@@ -1367,7 +1383,7 @@ const Thread = () => {
                 <div className="space-y-2">
                   <GomoRichEditor
                     key={resetKey}
-                    contentJson={(post as any).content_json}
+                    contentJson={(post as PostWithExtras).content_json}
                     legacyContent={post.content}
                     onChange={({ json, text }) => {
                       setEditContentJson(json);
@@ -1400,13 +1416,13 @@ const Thread = () => {
                     <>
                       <ProcessedContent
                         content={post.content}
-                        contentJson={(post as any).content_json}
+                        contentJson={(post as PostWithExtras).content_json}
                         currentUserId={user?.id || null}
                         isAdmin={isAdmin}
                         currentUsername={currentUserUsername}
                         currentUserColor={currentUserColor}
                         postAuthorId={post.user_id}
-                        authorUsername={(post as any).username}
+                        authorUsername={(post as PostWithExtras).username}
                       />
                     </>
                   )}
