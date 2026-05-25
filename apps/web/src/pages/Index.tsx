@@ -104,7 +104,7 @@ const Index = () => {
           .select("role")
           .eq("user_id", session.user.id);
 
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
         const { data: profile } = await api
@@ -160,7 +160,7 @@ const Index = () => {
     checkAuth();
 
     const { data: { subscription } } = api.auth.onAuthStateChange(
-      (_event, session) => {
+      (_event: unknown, session: { user: { id: string } | null } | null) => {
         setUser(session?.user ?? null);
       }
     );
@@ -179,7 +179,7 @@ const Index = () => {
 
       if (boardsData) {
         // Filter out /faq/ and /bugs/ boards from the main list
-        const filteredBoards = boardsData.filter(board => board.slug !== 'faq' && board.slug !== 'bugs');
+        const filteredBoards = boardsData.filter((board: { slug: string }) => board.slug !== 'faq' && board.slug !== 'bugs');
         setBoards(filteredBoards);
       }
 
@@ -231,7 +231,7 @@ const Index = () => {
         .from("gomosub_memberships")
         .select("board_id")
         .eq("user_id", user.id);
-      const joinedBoardIds = (memberships ?? []).map((m) => m.board_id);
+      const joinedBoardIds = (memberships ?? []).map((m: { board_id: string }) => m.board_id);
 
       const { data: joinedBoardsData } = joinedBoardIds.length
         ? await api
@@ -246,7 +246,7 @@ const Index = () => {
         .from("thread_subscriptions")
         .select("thread_id")
         .eq("user_id", user.id);
-      const subscribedThreadIds = (threadSubs ?? []).map((t) => t.thread_id);
+      const subscribedThreadIds = (threadSubs ?? []).map((t: { thread_id: string }) => t.thread_id);
 
       let threadsQuery = api
         .from("threads")
@@ -307,8 +307,8 @@ const Index = () => {
           .limit(12);
 
         if (postsData && postsData.length > 0) {
-          const threadIds = Array.from(new Set(postsData.map((p) => p.thread_id)));
-          const authorIds = Array.from(new Set(postsData.map((p) => p.user_id).filter(Boolean)));
+          const threadIds = Array.from(new Set(postsData.map((p: { thread_id: string; user_id: string | null }) => p.thread_id)));
+          const authorIds = Array.from(new Set(postsData.map((p: { thread_id: string; user_id: string | null }) => p.user_id).filter(Boolean)));
 
           const [{ data: postThreads }, { data: postAuthors }] = await Promise.all([
             api
