@@ -145,7 +145,7 @@ const GomoSubSettings = () => {
       }
 
       const tags = Array.isArray(board.gomosub_tags)
-        ? board.gomosub_tags.filter((t): t is string => typeof t === "string")
+        ? board.gomosub_tags.filter((t: unknown): t is string => typeof t === "string")
         : [];
 
       const parsedRules = parseRulesMarkdown(board.rules_markdown);
