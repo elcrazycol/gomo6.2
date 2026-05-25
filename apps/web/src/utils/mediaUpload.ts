@@ -132,8 +132,9 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
     ]);
 
     const data = await ffmpeg.readFile(outputName);
-    const arrayBuffer = data instanceof Uint8Array ? data.buffer : (data as any).buffer || data;
-    const outFile = new File([arrayBuffer], file.name.replace(/\.[^.]+$/, "") + ".webm", { type: "video/webm" });
+    const buf1 = data instanceof Uint8Array ? data : new Uint8Array(data as unknown as ArrayBuffer);
+    const ab1 = buf1.buffer as ArrayBuffer;
+    const outFile = new File([ab1], file.name.replace(/\.[^.]+$/, "") + ".webm", { type: "video/webm" });
 
     let poster: string | undefined;
     try {
@@ -142,11 +143,12 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
         "-vf", "scale=640:-2", "-q:v", "2", posterName
       ]);
       const posterData = await ffmpeg.readFile(posterName);
-      const posterArrayBuffer = posterData instanceof Uint8Array ? posterData.buffer : (posterData as any).buffer || posterData;
+      const posterBuf = posterData instanceof Uint8Array ? posterData : new Uint8Array(posterData as unknown as ArrayBuffer);
+      const posterArrayBuffer = posterBuf.buffer as ArrayBuffer;
       const posterFile = new File([posterArrayBuffer], "poster.jpg", { type: "image/jpeg" });
       poster = URL.createObjectURL(posterFile);
-    } catch (e) {
-      console.warn("Failed to generate poster:", e);
+    } catch (_e) {
+      console.warn("Failed to generate poster:", _e);
     }
 
     const result = { file: outFile, poster };
@@ -170,7 +172,7 @@ const extractAudioMetadata = async (file: File): Promise<{
   try {
     
     // Сначала пробуем извлечь через music-metadata
-    let metadata: any = null;
+    let metadata: mm.IAudioMetadata | null = null;
     let coverArt: string | undefined;
     
     try {
@@ -282,7 +284,7 @@ const extractAudioMetadata = async (file: File): Promise<{
   }
 };
 
-const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: any }> => {
+const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: Awaited<ReturnType<typeof extractAudioMetadata>> }> => {
   // Извлекаем метаданные ПЕРЕД transcoding
   const metadata = await extractAudioMetadata(file);
 
@@ -313,8 +315,9 @@ const transcodeAudio = async (file: File): Promise<{ file: File; metadata?: any 
     ]);
 
     const data = await ffmpeg.readFile(outputName);
-    const arrayBuffer = data instanceof Uint8Array ? data.buffer : (data as any).buffer || data;
-    const outFile = new File([arrayBuffer], file.name.replace(/\.[^.]+$/, "") + ".ogg", { type: "audio/ogg" });
+    const buf2 = data instanceof Uint8Array ? data : new Uint8Array(data as unknown as ArrayBuffer);
+    const ab2 = buf2.buffer as ArrayBuffer;
+    const outFile = new File([ab2], file.name.replace(/\.[^.]+$/, "") + ".ogg", { type: "audio/ogg" });
     
     setCachedFile(file, { file: outFile });
     return { file: outFile, metadata };
@@ -342,7 +345,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const type = inferType(original);
     let file: File = original;
     let poster: string | undefined;
-    let audioMetadata: any;
+    let audioMetadata: Awaited<ReturnType<typeof extractAudioMetadata>> | undefined;
 
     // Показываем прогресс для больших файлов
     // const showProgress = original.size > 5 * 1024 * 1024; // > 5MB

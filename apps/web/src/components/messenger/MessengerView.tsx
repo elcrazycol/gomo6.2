@@ -52,7 +52,7 @@ const ensureKeyForCurrentUser = async (userId: string) => {
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (selectError && selectError.code !== "PGRST116") {
+  if (selectError && (selectError as { code?: string }).code !== "PGRST116") {
     console.warn("Error checking existing key:", selectError);
   }
 
@@ -76,7 +76,7 @@ const ensureKeyForCurrentUser = async (userId: string) => {
         public_key: cryptoState.publicKey,
       } as never);
 
-    if (error && !error.message?.includes("duplicate key")) {
+    if (error && !(error as { message?: string }).message?.includes("duplicate key")) {
       throw new Error("Не удалось зарегистрировать messenger-ключ");
     }
   }

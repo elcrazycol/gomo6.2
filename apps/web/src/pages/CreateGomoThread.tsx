@@ -137,7 +137,7 @@ const CreateGomoThread = () => {
 
     setCreating(false);
     if (error) {
-      toast.error(error.message || "Ошибка при создании треда");
+      toast.error((error as { message?: string }).message || "Ошибка при создании треда");
       return;
     }
 

@@ -47,7 +47,7 @@ interface FeedThread {
   user_id: string | null;
   board_id: string;
   post_count: number;
-  tags?: any;
+  tags?: Record<string, unknown>;
   profiles: {
     username: string;
     is_anonymous: boolean;
@@ -81,7 +81,7 @@ const Index = () => {
   const [subscribedPostUpdates, setSubscribedPostUpdates] = useState<SubscribedPostUpdate[]>([]);
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [activeFeed, setActiveFeed] = useState<"recommended" | "subscriptions">("recommended");
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -131,8 +131,8 @@ const Index = () => {
 
         if (achievements) {
           const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
+            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -239,7 +239,7 @@ const Index = () => {
             .select("id, slug, name, description")
             .in("id", joinedBoardIds)
             .order("created_at", { ascending: false })
-        : { data: [] as any[] };
+        : { data: [] as GomoSub[] };
       setJoinedGomoSubs((joinedBoardsData as GomoSub[]) ?? []);
 
       const { data: threadSubs } = await api
@@ -281,20 +281,20 @@ const Index = () => {
       }
 
       const { data: rawThreadsData } = await threadsQuery;
-      const threadsData = (rawThreadsData ?? []) as any[];
-      const dedupThreads = Array.from(new Map(threadsData.map((t: any) => [t.id, t])).values());
-      const threadAuthorIds = dedupThreads.map((t) => t.user_id).filter(Boolean);
+      const threadsData = (rawThreadsData ?? []) as Record<string, unknown>[];
+      const dedupThreads = Array.from(new Map(threadsData.map((t: Record<string, unknown>) => [t.id as string, t])).values());
+      const threadAuthorIds = dedupThreads.map((t: Record<string, unknown>) => t.user_id as string).filter(Boolean);
       const { data: threadAuthors } = threadAuthorIds.length
         ? await api
             .from("profiles")
             .select("id, username, is_anonymous, avatar_url")
             .in("id", threadAuthorIds)
-        : { data: [] as any[] };
+        : { data: [] as { id: string; username: string; is_anonymous: boolean; avatar_url?: string | null }[] };
 
-      const feedThreads: FeedThread[] = dedupThreads.map((thread: any) => ({
+      const feedThreads = dedupThreads.map((thread: Record<string, unknown>) => ({
         ...thread,
-        profiles: (threadAuthors ?? []).find((p: any) => p.id === thread.user_id) || null,
-      }));
+        profiles: (threadAuthors ?? []).find((p: { id: string }) => p.id === thread.user_id) || null,
+      })) as FeedThread[];
       setSubscriptionsFeed(feedThreads);
 
       if (subscribedThreadIds.length > 0) {
@@ -320,12 +320,12 @@ const Index = () => {
                   .from("profiles")
                   .select("id, username")
                   .in("id", authorIds)
-              : Promise.resolve({ data: [] as any[] }),
+              : Promise.resolve({ data: [] as { id: string; username: string }[] }),
           ]);
 
-          const postUpdates: SubscribedPostUpdate[] = postsData.map((post: any) => {
-            const thread = (postThreads ?? []).find((t: any) => t.id === post.thread_id);
-            const author = (postAuthors ?? []).find((a: any) => a.id === post.user_id);
+          const postUpdates: SubscribedPostUpdate[] = postsData.map((post: { id: string; content: string; created_at: string; thread_id: string; user_id: string | null }) => {
+            const thread = (postThreads ?? []).find((t: { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }) => t.id === post.thread_id);
+            const author = (postAuthors ?? []).find((a: { id: string; username: string }) => a.id === post.user_id);
             return {
               id: post.id,
               content: post.content,

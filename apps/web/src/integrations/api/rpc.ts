@@ -1,56 +1,56 @@
 // RPC module — api.rpc() compatibility backed by Go backend
 import { apiClient } from './client';
 
-export const rpc = (functionName: string, params?: any) => {
+export const rpc = (functionName: string, params?: Record<string, unknown>) => {
   const executeRpc = async () => {
     try {
       switch (functionName) {
         case 'get_post_likes_count': {
-          const res = await apiClient.getPostLikesCount(params?.post_uuid);
+          const res = await apiClient.getPostLikesCount(params?.post_uuid as string);
           return { data: res.data, error: null };
         }
         case 'get_thread_likes_count': {
-          const res = await apiClient.getThreadLikesCount(params?.thread_uuid);
+          const res = await apiClient.getThreadLikesCount(params?.thread_uuid as string);
           return { data: res.data, error: null };
         }
         case 'has_user_liked_post': {
-          const res = await apiClient.hasUserLikedPost(params?.post_uuid, params?.user_uuid);
+          const res = await apiClient.hasUserLikedPost(params?.post_uuid as string, params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'has_user_liked_thread': {
-          const res = await apiClient.hasUserLikedThread(params?.thread_uuid, params?.user_uuid);
+          const res = await apiClient.hasUserLikedThread(params?.thread_uuid as string, params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'get_recent_post_likers': {
-          const res = await apiClient.getRecentPostLikers(params?.post_uuid, params?.limit_count);
+          const res = await apiClient.getRecentPostLikers(params?.post_uuid as string, Number(params?.limit_count));
           return { data: res.data, error: null };
         }
         case 'get_recent_thread_likers': {
-          const res = await apiClient.getRecentThreadLikers(params?.thread_uuid, params?.limit_count);
+          const res = await apiClient.getRecentThreadLikers(params?.thread_uuid as string, Number(params?.limit_count));
           return { data: res.data, error: null };
         }
         case 'get_user_likes_received_count': {
-          const res = await apiClient.getUserLikesReceivedCount(params?.user_uuid);
+          const res = await apiClient.getUserLikesReceivedCount(params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'get_user_thread_likes_received_count': {
-          const res = await apiClient.getUserThreadLikesReceivedCount(params?.user_uuid);
+          const res = await apiClient.getUserThreadLikesReceivedCount(params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'get_user_post_likes_received_timestamps': {
-          const res = await apiClient.getUserPostLikesReceivedTimestamps(params?.user_uuid);
+          const res = await apiClient.getUserPostLikesReceivedTimestamps(params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'get_user_thread_likes_received_timestamps': {
-          const res = await apiClient.getUserThreadLikesReceivedTimestamps(params?.user_uuid);
+          const res = await apiClient.getUserThreadLikesReceivedTimestamps(params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'get_user_thread_reply_timestamps': {
-          const res = await apiClient.getUserThreadReplyTimestamps(params?.user_uuid);
+          const res = await apiClient.getUserThreadReplyTimestamps(params?.user_uuid as string);
           return { data: res.data, error: null };
         }
         case 'toggle_wall_post_pin': {
-          const res = await apiClient.toggleWallPostPin(params?._post_id, params?._user_id);
+          const res = await apiClient.toggleWallPostPin(params?._post_id as string, params?._user_id as string);
           return { data: res.data, error: null };
         }
         case 'get_avatar_history':
@@ -69,7 +69,7 @@ export const rpc = (functionName: string, params?: any) => {
           return { data: null, error: { message: 'Unknown RPC function' } };
       }
     } catch (error) {
-      return { data: null, error: { message: (error as Error).message } };
+      return { data: null, error: error as { message: string } };
     }
   };
 

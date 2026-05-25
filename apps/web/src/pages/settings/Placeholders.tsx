@@ -72,11 +72,12 @@ const Placeholders = () => {
         .maybeSingle();
 
       if (placeholders) {
-        setPlaceholder1(placeholders.placeholder_1 || 'bio');
-        setPlaceholder2(placeholders.placeholder_2 || 'created_at');
-        setPlaceholder3(placeholders.placeholder_3 || 'post_count');
-        setUseCustom(placeholders.use_custom || false);
-        setCustomPlaceholder(placeholders.custom_placeholder || '');
+        const p = placeholders as { placeholder_1?: string; placeholder_2?: string; placeholder_3?: string; use_custom?: boolean; custom_placeholder?: string };
+        setPlaceholder1(p.placeholder_1 || 'bio');
+        setPlaceholder2(p.placeholder_2 || 'created_at');
+        setPlaceholder3(p.placeholder_3 || 'post_count');
+        setUseCustom(p.use_custom || false);
+        setCustomPlaceholder(p.custom_placeholder || '');
       }
 
       // Load profile for preview
@@ -87,7 +88,7 @@ const Placeholders = () => {
         .single();
 
       if (profileData) {
-        setProfile(profileData);
+        setProfile(profileData as { username?: string; bio?: string | null; created_at: string; post_count?: number; thread_count?: number; account_number?: number; id: string; avatar_url?: string | null });
       }
 
       // Load customization
