@@ -138,7 +138,7 @@ export default function Stats() {
 
       setLoading(true);
 
-      const rpcHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const rpcHeaders: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       const [profileRes, postsRes, threadsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
         fetch(`/api/v1/profiles?id=eq.${targetUserId}`).then(r => r.json()),
