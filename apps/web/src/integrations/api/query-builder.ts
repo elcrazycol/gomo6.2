@@ -237,12 +237,20 @@ export const from = (table: string): TableApi => {
 
   const flattenSingleResponse = (r: QueryResponse): SingleResponse => {
     const data = r.data;
-    return data?.length === 1 ? { ...r, data: data[0] as Record<string, unknown> } : { ...r, data: null };
+    if (Array.isArray(data)) {
+      return data.length === 1 ? { ...r, data: data[0] as Record<string, unknown> } : { ...r, data: null };
+    }
+    // Non-array: backend returned a single object (e.g., POST insert response)
+    return { ...r, data: data as Record<string, unknown> | null };
   };
 
   const flattenMaybeSingleResponse = (r: QueryResponse): SingleResponse => {
     const data = r.data;
-    return data?.length > 0 ? { ...r, data: data[0] as Record<string, unknown> } : { ...r, data: null };
+    if (Array.isArray(data)) {
+      return data.length > 0 ? { ...r, data: data[0] as Record<string, unknown> } : { ...r, data: null };
+    }
+    // Non-array: backend returned a single object (e.g., POST insert response)
+    return { ...r, data: data as Record<string, unknown> | null };
   };
 
   // ── Mutation builder (PUT / DELETE) ──────────────────────────────────
