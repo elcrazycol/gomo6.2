@@ -2,6 +2,12 @@ import { type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo,
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { api } from "@/integrations/api/compat";
+
+const safeDate = (value: string | null | undefined): Date => {
+  if (!value) return new Date();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+};
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CreateWallPost, type WallPost } from "@/components/CreateWallPost";
@@ -96,11 +102,11 @@ const normalizeWallPostRecord = (post: Record<string, unknown>, currentUsername?
   return {
     ...post,
     repost_of_post_id: (post?.repost_of_post_id as string | null | undefined) ?? null,
-    author: normalizeWallPostAuthor(postAuthor, postAuthorUsername || currentUsername),
-    original_post: originalPostSource
+    author: normalizeWallPostAuthor(postAuthor, postAuthorUsername || currentUsername),      original_post: originalPostSource
       ? {
           ...originalPostSource,
           repost_of_post_id: (originalPostSource?.repost_of_post_id as string | null | undefined) ?? null,
+          created_at: (originalPostSource?.created_at as string | null | undefined) || new Date().toISOString(),
           author: normalizeWallPostAuthor(
             originalPostSource?.author as Record<string, unknown> | null | undefined,
             ((originalPostSource?.author as Record<string, unknown> | undefined)?.username as string | undefined) || currentUsername,
@@ -123,8 +129,8 @@ const normalizeWallComment = (comment: Record<string, unknown>): WallComment => 
     user_id: comment.user_id as string,
     content,
     content_json: contentJson,
-    created_at: comment.created_at as string,
-    updated_at: comment.updated_at as string,
+    created_at: (comment.created_at as string | null | undefined) || new Date().toISOString(),
+    updated_at: (comment.updated_at as string | null | undefined) || new Date().toISOString(),
     author: normalizeWallPostAuthor(comment?.author as Record<string, unknown> | null | undefined),
   };
 };
@@ -232,14 +238,13 @@ const EmbeddedWallPost = ({
           isAnonymous={post.author.is_anonymous}
           disableLink={false}
           stopPropagationOnClick
-        />
-        <span className="text-xs text-muted-foreground">
-          {formatDistanceToNow(new Date(post.created_at), {
-            locale: ru,
-            addSuffix: true,
-          })}
-        </span>
-      </div>
+        />          <span className="text-xs text-muted-foreground">
+            {formatDistanceToNow(safeDate(post.created_at), {
+              locale: ru,
+              addSuffix: true,
+            })}
+          </span>
+        </div>
 
       {((post.content || post.content_json) as string | null) && (
         <div className="break-words text-sm leading-6 sm:text-[15px]">
@@ -859,7 +864,7 @@ const WallPostCard = ({
                   stopPropagationOnClick
                 />
                 <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(new Date(post.created_at), {
+                  {formatDistanceToNow(safeDate(post.created_at), {
                     locale: ru,
                     addSuffix: true,
                   })}
@@ -1044,11 +1049,10 @@ const WallPostCard = ({
                           isAnonymous={comment.author.is_anonymous}
                           disableLink={false}
                         />
-                        <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(comment.created_at), {
-                            locale: ru,
-                            addSuffix: true,
-                          })}
+                        <span className="text-xs text-muted-foreground">                            {formatDistanceToNow(safeDate(comment.created_at), {
+                              locale: ru,
+                              addSuffix: true,
+                            })}
                         </span>
                       </div>
                       {(currentUserId === comment.user_id || currentUserId === post.user_id) && (
@@ -1399,7 +1403,7 @@ export const ProfileWall = ({
               return (a.pinned_order ?? 0) - (b.pinned_order ?? 0);
             }
           }
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          return safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime();
         });
         
         return combinedPosts;
@@ -1446,7 +1450,7 @@ export const ProfileWall = ({
           }
           
           const postId = String(postData.id);
-          const postTimestamp = new Date(postData.created_at).getTime();
+          const postTimestamp = safeDate(postData.created_at).getTime();
           
           // Check if we've already processed this post (prevents duplicates from multiple WS messages)
           if (processedPostIdsRef.current.has(postId)) {

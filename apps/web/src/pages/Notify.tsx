@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { ArrowLeft } from "lucide-react";
 
 interface NotifWithSlug extends Notification {
@@ -52,11 +53,11 @@ const Notify = () => {
       // Sort notifications
       const sorted = [...notificationsWithSlugs] as NotifWithSlug[];
       if (sortBy === "oldest") {
-        sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        sorted.sort((a, b) => safeDate(a.created_at).getTime() - safeDate(b.created_at).getTime());
       } else if (sortBy === "unread") {
         sorted.sort((a, b) => {
           if (a.is_read === b.is_read) {
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            return safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime();
           }
           return a.is_read ? 1 : -1;
         });
@@ -207,7 +208,7 @@ const Notify = () => {
                       <p className="font-bold text-base text-foreground">{notif.title}</p>
                       <p className="text-sm text-muted-foreground mt-1">{notif.message}</p>
                       <p className="text-xs text-muted-foreground mt-2">
-                        {formatDistanceToNow(new Date(notif.created_at), {
+                        {formatDistanceToNow(safeDate(notif.created_at), {
                           locale: ru,
                           addSuffix: true,
                         })}

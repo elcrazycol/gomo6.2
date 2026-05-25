@@ -19,6 +19,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "@/components/AdminBadge";
@@ -166,7 +167,7 @@ const AchievementCard: React.FC<AchievementCardProps> = ({ achievement, onToggle
           {achievement.description}
         </p>
         <p className="text-xs text-primary mt-1">
-          Уровень {achievement.level || 1} • {achievement.unlocked_at ? new Date(achievement.unlocked_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Недавно'}
+          Уровень {achievement.level || 1} • {achievement.unlocked_at ? safeDate(achievement.unlocked_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Недавно'}
         </p>
       </div>
     </div>

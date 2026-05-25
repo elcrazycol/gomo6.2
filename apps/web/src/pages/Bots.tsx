@@ -4,6 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { safeDate } from "@/utils/safeDate";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -600,7 +601,7 @@ end`}
                               {log.level}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(log.created_at).toLocaleTimeString("ru-RU")}
+                              {safeDate(log.created_at).toLocaleTimeString("ru-RU")}
                             </span>
                           </div>
                           <div className="text-foreground break-words whitespace-pre-wrap">

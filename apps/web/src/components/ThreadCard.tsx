@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
@@ -369,13 +370,13 @@ const ThreadCard = ({
                 в {boardPrefix || ""}/{thread.boards.slug}/
               </Link>
               <span className={`text-xs text-muted-foreground ${hideTimestampOnCompactMobile ? "compact-mobile-hide" : ""}`}>
-                {formatDistanceToNow(new Date(thread.created_at), {
+                {formatDistanceToNow(safeDate(thread.created_at), {
                   locale: ru,
                   addSuffix: true,
                 })}
                 {lastPostDate && (
                   <span className="hidden group-hover/title:inline">
-                    {' | '}{formatDistanceToNow(new Date(lastPostDate), {
+                    {' | '}{formatDistanceToNow(safeDate(lastPostDate), {
                       locale: ru,
                       addSuffix: true,
                     })}
@@ -496,7 +497,7 @@ const ThreadCard = ({
                   {recentPosts[0].profiles?.username || "Аноним"}:
                 </span>
                 <span className="text-muted-foreground text-xs">
-                  {formatDistanceToNow(new Date(recentPosts[0].created_at), {
+                  {formatDistanceToNow(safeDate(recentPosts[0].created_at), {
                     locale: ru,
                     addSuffix: true,
                   })}

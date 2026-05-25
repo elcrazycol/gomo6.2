@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 
 export const NotificationBell = ({ userId }: { userId: string }) => {
   const navigate = useNavigate();
@@ -188,7 +189,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
                       <p className="font-bold text-sm text-foreground">{notif.title}</p>
                       <p className="text-xs text-muted-foreground">{notif.message}</p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {formatDistanceToNow(new Date(notif.created_at), {
+                        {formatDistanceToNow(safeDate(notif.created_at), {
                           locale: ru,
                           addSuffix: true,
                         })}

@@ -4,6 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { processProfileBio } from "@/utils/profileBio";
@@ -200,7 +201,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                     case 'bio':
                       return profile.bio ? processProfileBio(profile.bio) : null;
                     case 'created_at':
-                      return profile.created_at ? format(new Date(profile.created_at), "dd.MM.yyyy", { locale: ru }) : null;
+                      return profile.created_at ? format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: ru }) : null;
                     case 'post_count':
                       return profile.post_count !== null ? `${profile.post_count} ${profile.post_count === 1 ? 'пост' : profile.post_count < 5 ? 'поста' : 'постов'}` : null;
                     case 'thread_count':

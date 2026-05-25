@@ -4,6 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,7 +37,7 @@ const GomoSubs = () => {
   const canCreate = useMemo(() => {
     const garmaOk = (profile?.garma ?? 0) >= 10;
     const ageOk = profile?.created_at
-      ? Date.now() - new Date(profile.created_at).getTime() >= 14 * 24 * 60 * 60 * 1000
+      ? Date.now() - safeDate(profile.created_at).getTime() >= 14 * 24 * 60 * 60 * 1000
       : false;
     return garmaOk && ageOk;
   }, [profile?.garma, profile?.created_at]);

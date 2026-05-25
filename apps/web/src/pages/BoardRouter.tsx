@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -515,7 +516,7 @@ const Board = () => {
                       disableLink={true}
                     />
                     {" · "}
-                    {formatDistanceToNow(new Date(thread.created_at), {
+                    {formatDistanceToNow(safeDate(thread.created_at), {
                       locale: ru,
                       addSuffix: true,
                     })}

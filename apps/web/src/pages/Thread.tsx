@@ -9,6 +9,7 @@ import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
 import { useWebSocketSync } from "@/hooks/useWebSocketSync";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { ImageGallery } from "@/components/ImageGallery";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -1084,7 +1085,7 @@ const Thread = () => {
                     isThreadOpener={true}
                     />
                     <div className="text-muted-foreground">
-                      {formatDistanceToNow(new Date(thread.created_at), {
+                      {formatDistanceToNow(safeDate(thread.created_at), {
                         locale: ru,
                         addSuffix: true,
                       })}
@@ -1103,7 +1104,7 @@ const Thread = () => {
                     showOutline={false}
                   />
                   {" · "}
-                  {formatDistanceToNow(new Date(thread.created_at), {
+                  {formatDistanceToNow(safeDate(thread.created_at), {
                     locale: ru,
                     addSuffix: true,
                   })}

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 
 // Tag constants (duplicated from CreateThread.tsx for filtering)
@@ -446,7 +447,7 @@ const Board = () => {
   };
 
   const rulesUpdatedLabel = board?.rules_updated_at
-    ? formatDistanceToNow(new Date(board.rules_updated_at), { addSuffix: true, locale: ru })
+    ? formatDistanceToNow(safeDate(board.rules_updated_at), { addSuffix: true, locale: ru })
     : null;
 
   const handleAcceptRules = async () => {
@@ -1067,7 +1068,7 @@ const Board = () => {
                           className="text-sm"
                         />
                         <span>
-                          {formatDistanceToNow(new Date(thread.created_at), {
+                          {formatDistanceToNow(safeDate(thread.created_at), {
                             locale: ru,
                             addSuffix: true,
                           })}
@@ -1175,7 +1176,7 @@ const Board = () => {
                           className="text-sm"
                         />
                         <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(thread.created_at), {
+                          {formatDistanceToNow(safeDate(thread.created_at), {
                             locale: ru,
                             addSuffix: true,
                           })}
@@ -1267,7 +1268,7 @@ const Board = () => {
 
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-sm text-muted-foreground">
-                            {formatDistanceToNow(new Date(thread.created_at), {
+                            {formatDistanceToNow(safeDate(thread.created_at), {
                               locale: ru,
                               addSuffix: true,
                             })}
