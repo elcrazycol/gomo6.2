@@ -246,7 +246,7 @@ const EmbeddedWallPost = ({
           </span>
         </div>
 
-      {((post.content || post.content_json) as string | null) && (
+      {post.content?.trim() && (
         <div className="break-words text-sm leading-6 sm:text-[15px]">
           <ProcessedContent
             content={(post.content as string | null) ?? ""}
@@ -933,8 +933,8 @@ const WallPostCard = ({
           onClick={handleOpenPost}
           role={postHref && !isEditing ? "button" : undefined}
           tabIndex={postHref && !isEditing ? 0 : undefined}
-        >
-          {((post.content || post.content_json) as string | null) && (              <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+        >{post.content?.trim() && (
+              <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
               <ProcessedContent            content={(post.content as string) || ""} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
             </div>
           )}
