@@ -17,7 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/storage"
 )
 
-const maxUploadBytes = 10 * 1024 * 1024
+const maxUploadBytes = 25 * 1024 * 1024
 
 type StorageHandler struct {
 	client *storage.StorageClient
@@ -42,11 +42,17 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	allowedTypes := map[string]bool{
+		// Images
 		".jpg": true, ".jpeg": true, ".png": true, ".gif": true,
-		".webp": true, ".pdf": true, ".txt": true, ".md": true,
+		".webp": true,
+		// Audio
+		".mp3": true, ".ogg": true, ".wav": true, ".flac": true,
+		".m4a": true, ".aac": true,
+		// Documents
+		".pdf": true, ".txt": true, ".md": true,
 	}
 	if !allowedTypes[ext] {
-		return nil, nil, fmt.Errorf("file type not allowed")
+		return nil, nil, fmt.Errorf("file type not allowed: %s", ext)
 	}
 
 	data, err = io.ReadAll(io.LimitReader(file, maxUploadBytes+1))

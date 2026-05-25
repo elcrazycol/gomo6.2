@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { Upload, Loader2, FileAudio2, FileVideo2, FileText, Image as ImageIcon, X } from "lucide-react";
+import { toast } from "sonner";
 import { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
@@ -96,8 +97,9 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6 }: Profi
         setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
       }, 1000);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload error:', error);
+      toast.error(error?.message || "Не удалось загрузить файл");
       setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
     } finally {
       setUploading(false);
