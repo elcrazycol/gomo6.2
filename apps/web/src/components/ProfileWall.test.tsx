@@ -1179,4 +1179,339 @@ describe("ProfileWall", () => {
       expect(postTexts[1]).toBe("Regular post");
     });
   });
+
+  // ─── WallPostCard: post with only attachments (no text) ───────────────────────
+
+  it("does not render content block for posts with only attachments", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "attach-only",
+        content: null,
+        content_json: null,
+        attachments: [{ url: "img.jpg", type: "image", mime: "image/jpeg", name: "photo.jpg", size: 0 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      // Image should be rendered
+      const img = screen.getByAltText("photo.jpg");
+      expect(img).toBeInTheDocument();
+    });
+
+    // No processed-content should exist since there's no text content
+    const processedContents = screen.queryAllByTestId("processed-content");
+    expect(processedContents.length).toBe(0);
+  });
+
+  // ─── WallPostCard: post with text + attachments ──────────────────────────────
+
+  it("renders both text content and attachments", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "text-and-attach",
+        content: "Text with attachment",
+        attachments: [{ url: "img.jpg", type: "image", mime: "image/jpeg", name: "pic.jpg", size: 0 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      // Text content should render
+      const contentElements = screen.getAllByTestId("processed-content");
+      expect(contentElements.some(el => el.textContent === "Text with attachment")).toBe(true);
+      // Image should also render
+      const img = screen.getByAltText("pic.jpg");
+      expect(img).toBeInTheDocument();
+    });
+  });
+
+  // ─── WallPostCard: video attachment ──────────────────────────────────────────
+
+  it("renders video attachment via MediaPlayer", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "post-video",
+        content: "Check this video",
+        attachments: [{ url: "video.webm", type: "video", mime: "video/webm", name: "clip.webm", size: 0 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      const player = screen.getByTestId("media-player");
+      expect(player).toBeInTheDocument();
+      expect(player).toHaveAttribute("data-kind", "video");
+    });
+  });
+
+  // ─── WallPostCard: audio attachment ──────────────────────────────────────────
+
+  it("renders audio attachment via AudioAttachment", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "post-audio",
+        content: "Listen to this",
+        attachments: [{ url: "track.ogg", type: "audio", mime: "audio/ogg", name: "song.ogg", size: 5000000 }],
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      const audio = screen.getByTestId("audio-attachment");
+      expect(audio).toBeInTheDocument();
+      expect(audio).toHaveTextContent("song.ogg");
+    });
+  });
+
+  // ─── WallPostCard: WS deduplication ──────────────────────────────────────────
+
+  it("deduplicates posts arriving via WebSocket (same id twice)", async () => {
+    let newPostHandler: (...args: any[]) => any = () => {};
+    mockWsService.on.mockImplementation((event: string, handler: (...args: any[]) => any) => {
+      if (event === "new_wall_post") {
+        newPostHandler = handler;
+      }
+      return vi.fn();
+    });
+
+    setupApiMocks({ posts: [] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
+    });
+
+    const wsPostPayload = {
+      data: {
+        id: "dedup-post",
+        user_id: "profile-user-1",
+        author_id: "author-2",
+        title: "Dedup",
+        content: "Unique content",
+        content_json: null,
+        image_url: null,
+        attachments: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        author: { username: "dedupuser", is_anonymous: false, avatar_url: null },
+      },
+    };
+
+    // First event — adds the post
+    act(() => { newPostHandler(wsPostPayload); });
+
+    await waitFor(() => {
+      const contents = screen.getAllByTestId("processed-content");
+      expect(contents.length).toBe(1);
+      expect(contents[0].textContent).toBe("Unique content");
+    });
+
+    // Second event with same id — should be deduplicated
+    act(() => { newPostHandler(wsPostPayload); });
+
+    // Still only one post
+    const contents = screen.queryAllByTestId("processed-content");
+    expect(contents.length).toBe(1);
+  });
+
+  // ─── WallPostCard: WS ignores other walls ────────────────────────────────────
+
+  it("ignores WebSocket posts for other profile walls", async () => {
+    let newPostHandler: (...args: any[]) => any = () => {};
+    mockWsService.on.mockImplementation((event: string, handler: (...args: any[]) => any) => {
+      if (event === "new_wall_post") {
+        newPostHandler = handler;
+      }
+      return vi.fn();
+    });
+
+    setupApiMocks({ posts: [] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
+    });
+
+    act(() => {
+      newPostHandler({
+        data: {
+          id: "other-wall",
+          user_id: "other-user", // different from profileUserId="profile-user-1"
+          content: "Wrong wall!",
+          created_at: new Date().toISOString(),
+          author: { username: "otheruser", is_anonymous: false, avatar_url: null },
+        },
+      });
+    });
+
+    // Post should NOT appear — empty state remains
+    await waitFor(() => {
+      expect(screen.getByText("На стене пока тихо")).toBeInTheDocument();
+    });
+    const contents = screen.queryAllByTestId("processed-content");
+    expect(contents.length).toBe(0);
+  });
+
+  // ─── WallPostCard: delete comment ────────────────────────────────────────────
+
+  it("deletes a comment", async () => {
+    setupApiMocks({
+      posts: [createMockPost()],
+      comments: [createMockComment({ id: "comment-to-del", user_id: "current-user", content: "Delete this" })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Комментировать"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete this")).toBeInTheDocument();
+    });
+
+    const deleteCommentButton = screen.getByTitle("Удалить комментарий");
+    await userEvent.click(deleteCommentButton);
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Комментарий удалён");
+    });
+  });
+
+  // ─── WallPostCard: pin button for wall owner ─────────────────────────────────
+
+  it("shows pin button when current user is the wall owner", async () => {
+    setupApiMocks({
+      posts: [createMockPost({ id: "pin-post", user_id: "current-user", author_id: "other" })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="current-user"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Закрепить пост")).toBeInTheDocument();
+    });
+  });
+
+  // ─── WallPostCard: edit button for author ────────────────────────────────────
+
+  it("shows edit button when current user is the post author", async () => {
+    setupApiMocks({
+      posts: [createMockPost({ id: "edit-post", author_id: "current-user" })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Редактировать")).toBeInTheDocument();
+    });
+  });
+
+  // ─── WallPostCard: no management for other users ────────────────────────────
+
+  it("hides management buttons for non-author non-owner users", async () => {
+    setupApiMocks({
+      posts: [createMockPost()], // author_id: "author-1", user_id: "profile-user-1"
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="stranger"
+        currentUsername="stranger"
+        canPost={false}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTitle("Редактировать")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Удалить")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Закрепить пост")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Открепить пост")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Закрепить")).not.toBeInTheDocument();
+  });
 });
