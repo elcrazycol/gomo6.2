@@ -75,7 +75,7 @@ const Moderation = () => {
       .select("role")
       .eq("user_id", user.id);
 
-    const isMod = roles?.some(r => r.role === 'moderator' || r.role === 'admin');
+    const isMod = roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin');
     
     if (!isMod) {
       toast.error("У вас нет доступа к этой странице");
