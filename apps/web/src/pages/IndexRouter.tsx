@@ -73,7 +73,7 @@ const Index = () => {
           .select("role")
           .eq("user_id", session.user.id);
         
-        setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
+        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
         // Load current user profile and color
         const { data: profile } = await api
@@ -129,7 +129,7 @@ const Index = () => {
     checkAuth();
 
     const { data: { subscription } } = api.auth.onAuthStateChange(
-      (_event, session) => {
+      (_event: string, session: { user?: { id: string } } | null) => {
         setUser(session?.user ?? null);
       }
     );
@@ -148,7 +148,7 @@ const Index = () => {
 
       if (data) {
         // Filter out /faq/ and /bugs/ boards from the main list
-        const filteredBoards = data.filter(board => board.slug !== 'faq' && board.slug !== 'bugs');
+        const filteredBoards = data.filter((board: { slug: string }) => board.slug !== 'faq' && board.slug !== 'bugs');
         setBoards(filteredBoards);
 
         // Get 2 random boards from filtered list
