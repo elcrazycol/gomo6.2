@@ -1110,7 +1110,7 @@ const Thread = () => {
                 </>
               )}
             </div>
-            {renderAttachments((thread as ThreadWithExtras).attachments as unknown as AttachmentMeta[] | null | undefined, (urls, idx) => {
+            {renderAttachments((thread as ThreadWithExtras).attachments, (urls, idx) => {
               setGalleryEditable(false);
               setGalleryImages(urls);
               setGalleryIndex(idx);
@@ -1373,7 +1373,7 @@ const Thread = () => {
                   <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
                 </a>
               )}
-              {renderAttachments(((post as PostWithExtras).attachments || []) as unknown as AttachmentMeta[], (urls, idx) => {
+              {renderAttachments((post as PostWithExtras).attachments || [], (urls, idx) => {
                 setGalleryEditable(false);
                 setGalleryImages(urls);
                 setGalleryIndex(idx);

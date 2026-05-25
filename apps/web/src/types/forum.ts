@@ -1,16 +1,5 @@
-export interface AttachmentMeta {
-  url: string;
-  type: "image" | "video" | "audio" | "file";
-  mime?: string | null;
-  name?: string | null;
-  size?: number | null;
-  poster?: string | null;
-  title?: string | null;
-  artist?: string | null;
-  album?: string | null;
-  duration?: number | null;
-  coverArt?: string | null;
-}
+import type { AttachmentMeta } from "@/utils/mediaUpload";
+export type { AttachmentMeta };
 
 export interface UserProfileLite {
   id?: string | null;
