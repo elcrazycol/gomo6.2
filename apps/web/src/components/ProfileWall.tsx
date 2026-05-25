@@ -67,18 +67,19 @@ interface WallComment {
   };
 }
 
-const normalizeWallPostAuthor = (author: any, fallbackUsername?: string) => {
+const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: string) => {
   const authorSource = Array.isArray(author) ? author[0] : author;
-  
+
   // If we have author data, use it. Otherwise, use fallback if provided.
-  if (authorSource && typeof authorSource === 'object' && authorSource.username) {
+  if (authorSource && typeof authorSource === 'object' && 'username' in (authorSource as Record<string, unknown>)) {
+    const a = authorSource as { username: string; is_anonymous?: boolean; avatar_url?: string | null };
     return {
-      username: authorSource.username,
-      is_anonymous: Boolean(authorSource.is_anonymous),
-      avatar_url: authorSource.avatar_url || null,
+      username: a.username,
+      is_anonymous: Boolean(a.is_anonymous),
+      avatar_url: a.avatar_url || null,
     };
   }
-  
+
   // Fallback for WebSocket messages that might not include full author data
   return {
     username: fallbackUsername || "user",
@@ -87,38 +88,44 @@ const normalizeWallPostAuthor = (author: any, fallbackUsername?: string) => {
   };
 };
 
-const normalizeWallPostRecord = (post: any, currentUsername?: string): WallPost => {
-  const originalPostSource = post?.original_post ?? null;
+const normalizeWallPostRecord = (post: Record<string, unknown>, currentUsername?: string): WallPost => {
+  const originalPostSource = (post?.original_post as Record<string, unknown> | null | undefined) ?? null;
+  const postAuthor = post?.author as Record<string, unknown> | null | undefined;
+  const postAuthorUsername = postAuthor?.username as string | undefined;
 
   return {
     ...post,
-    repost_of_post_id: post?.repost_of_post_id ?? null,
-    author: normalizeWallPostAuthor(post?.author, post?.author?.username || currentUsername),
+    repost_of_post_id: (post?.repost_of_post_id as string | null | undefined) ?? null,
+    author: normalizeWallPostAuthor(postAuthor, postAuthorUsername || currentUsername),
     original_post: originalPostSource
       ? {
           ...originalPostSource,
-          repost_of_post_id: originalPostSource?.repost_of_post_id ?? null,
-          author: normalizeWallPostAuthor(originalPostSource?.author, originalPostSource?.author?.username || currentUsername),
+          repost_of_post_id: (originalPostSource?.repost_of_post_id as string | null | undefined) ?? null,
+          author: normalizeWallPostAuthor(
+            originalPostSource?.author as Record<string, unknown> | null | undefined,
+            ((originalPostSource?.author as Record<string, unknown> | undefined)?.username as string | undefined) || currentUsername,
+          ),
         }
       : null,
   } as WallPost;
 };
 
-const normalizeWallComment = (comment: any): WallComment => {
+const normalizeWallComment = (comment: Record<string, unknown>): WallComment => {
   const contentJson = comment?.content_json ?? null;
-  const content = typeof comment?.content === "string" && comment.content.trim().length > 0
-    ? comment.content
+  const contentStr = comment?.content as string | undefined;
+  const content = typeof contentStr === "string" && contentStr.trim().length > 0
+    ? contentStr
     : lexicalJsonToPlainText(contentJson, "");
 
   return {
-    id: comment.id,
-    post_id: comment.post_id,
-    user_id: comment.user_id,
+    id: comment.id as string,
+    post_id: comment.post_id as string,
+    user_id: comment.user_id as string,
     content,
     content_json: contentJson,
-    created_at: comment.created_at,
-    updated_at: comment.updated_at,
-    author: normalizeWallPostAuthor(comment?.author),
+    created_at: comment.created_at as string,
+    updated_at: comment.updated_at as string,
+    author: normalizeWallPostAuthor(comment?.author as Record<string, unknown> | null | undefined),
   };
 };
 
@@ -420,7 +427,7 @@ const WallPostCard = ({
   const loadComments = useCallback(async () => {
     try {
       setCommentsLoading(true);
-      const { data, error } = await (api as any)
+      const { data, error } = await api
         .from("profile_wall_post_comments")
         .select(`
           id,
@@ -440,9 +447,9 @@ const WallPostCard = ({
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setComments(((data || []) as any[]).map(normalizeWallComment));
-    } catch (error) {
-      console.error("Error loading wall comments:", error);
+      setComments(((data || []) as Record<string, unknown>[]).map(normalizeWallComment));
+    } catch (err) {
+      console.error("Error loading wall comments:", err);
       toast.error("Не удалось загрузить комментарии");
     } finally {
       setCommentsLoading(false);
@@ -470,7 +477,7 @@ const WallPostCard = ({
           api.from("profile_wall_post_reposts").select("id", { count: "exact", head: true }).eq("post_id", post.id),
           currentUserId
             ? api.from("profile_wall_post_likes").select("id").eq("post_id", post.id).eq("user_id", currentUserId).maybeSingle()
-            : Promise.resolve({ data: null, error: null } as any),
+            : Promise.resolve({ data: null, error: null } as Record<string, unknown>),
           currentUserId
             ? api
                 .from("profile_wall_post_reposts")
@@ -479,16 +486,16 @@ const WallPostCard = ({
                 .eq("user_id", currentUserId)
                 .eq("wall_user_id", currentUserId)
                 .maybeSingle()
-            : Promise.resolve({ data: null, error: null } as any),
+            : Promise.resolve({ data: null, error: null } as Record<string, unknown>),
         ]);
 
         setLikesCount(likesCountResult.count || 0);
         setCommentsCount(commentsCountResult.count || 0);
         setRepostsCount(repostsCountResult.count || 0);
-        setIsLiked(Boolean((likeStateResult as any).data));
-        setIsReposted(Boolean((repostStateResult as any).data));
-        setRepostRecordId((repostStateResult as any).data?.id || null);
-        setRepostedWallPostId((repostStateResult as any).data?.reposted_wall_post_id || null);
+        setIsLiked(Boolean((likeStateResult as { data: unknown }).data));
+        setIsReposted(Boolean((repostStateResult as { data: unknown }).data));
+        setRepostRecordId((repostStateResult as { data: { id: string } | null }).data?.id || null);
+        setRepostedWallPostId((repostStateResult as { data: { reposted_wall_post_id: string } | null }).data?.reposted_wall_post_id || null);
       } catch (error) {
         console.error("Error loading wall interaction state:", error);
       }
@@ -535,8 +542,8 @@ const WallPostCard = ({
         setIsLiked(true);
         setLikesCount((prev) => prev + 1);
       }
-    } catch (error) {
-      console.error("Error toggling wall like:", error);
+    } catch (err) {
+      console.error("Error toggling wall like:", err);
       toast.error("Не удалось изменить лайк");
     } finally {
       setIsLiking(false);
@@ -556,7 +563,7 @@ const WallPostCard = ({
 
     setIsSubmittingComment(true);
     try {
-      const { data, error } = await (api as any)
+      const { data, error } = await api
         .from("profile_wall_post_comments")
         .insert({
           post_id: post.id,
@@ -631,9 +638,9 @@ const WallPostCard = ({
         }
 
         return;
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("Error toggling wall repost:", error);
-        if (error?.code === "23505") {
+        if ((error as { code?: string })?.code === "23505") {
           toast.error("Вы уже репостнули эту запись к себе");
         } else {
           toast.error("Не удалось выполнить репост");
@@ -699,7 +706,7 @@ const WallPostCard = ({
     setIsReposting(true);
     try {
       const repostTitleSource = repostText.trim() || post.title || "Репост на стене";
-      const { data: repostedPost, error: repostedPostError } = await (api as any)
+      const { data: repostedPost, error: repostedPostError } = await api
         .from("profile_wall_posts")
         .insert({
           user_id: currentUserId,
@@ -716,7 +723,7 @@ const WallPostCard = ({
 
       if (repostedPostError) throw repostedPostError;
 
-      const { data: repostRecord, error: repostRecordError } = await (api as any)
+      const { data: repostRecord, error: repostRecordError } = await api
         .from("profile_wall_post_reposts")
         .insert({
           post_id: post.id,
@@ -741,9 +748,9 @@ const WallPostCard = ({
       if (currentUserId === profileUserId) {
         await onRefreshPosts();
       }
-    } catch (error: any) {
-      console.error("Error creating wall repost:", error);
-      if (error?.code === "23505") {
+    } catch (err: unknown) {
+      console.error("Error creating wall repost:", err);
+      if ((err as { code?: string })?.code === "23505") {
         toast.error("Вы уже репостнули эту запись к себе");
       } else {
         toast.error("Не удалось выполнить репост");
@@ -863,7 +870,7 @@ const WallPostCard = ({
                     Закреплено
                   </span>
                 )}
-                {!!(post as any).repost_of_post_id && (
+                {!!(post.repost_of_post_id) && (
                   <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
                     <Repeat2 className="h-3.5 w-3.5" />
                     Репост на стене
@@ -1110,7 +1117,7 @@ const WallPostCard = ({
                       <div className="break-words text-sm leading-6 sm:text-[15px]">
                         <ProcessedContent
                           content={comment.content || ""}
-                          contentJson={(comment as any).content_json as unknown}
+                          contentJson={comment.content_json as unknown}
                           currentUserId={currentUserId}
                           isAdmin={false}
                           currentUsername={currentUsername}
@@ -1286,7 +1293,7 @@ export const ProfileWall = ({
   const loadPosts = useCallback(async () => {
     try {
       setLoading(true);
-      let query = (api as any)
+      let query = api
         .from("profile_wall_posts")
         .select(`
           id,
@@ -1323,7 +1330,7 @@ export const ProfileWall = ({
 
       if (error) throw error;
 
-      const rawPosts = (data || []) as any[];
+      const rawPosts = (data || []) as Record<string, unknown>[];
       const repostIds = Array.from(
         new Set(
           rawPosts
@@ -1334,7 +1341,7 @@ export const ProfileWall = ({
 
       let originalPostsMap = new Map<string, WallPost>();
       if (repostIds.length > 0) {
-        const { data: originalPosts, error: originalPostsError } = await (api as any)
+        const { data: originalPosts, error: originalPostsError } = await api
           .from("profile_wall_posts")
           .select(`
             id,
@@ -1361,7 +1368,7 @@ export const ProfileWall = ({
         if (originalPostsError) throw originalPostsError;
 
         originalPostsMap = new Map(
-          ((originalPosts || []) as any[]).map((originalPost) => {
+          ((originalPosts || []) as Record<string, unknown>[]).map((originalPost) => {
             const normalized = normalizeWallPostRecord(originalPost, currentUsernameRef.current);
             return [normalized.id, normalized];
           })
@@ -1371,7 +1378,7 @@ export const ProfileWall = ({
       const normalizedPosts = rawPosts.map((post) =>
         normalizeWallPostRecord({
           ...post,
-          original_post: post.repost_of_post_id ? originalPostsMap.get(post.repost_of_post_id) || null : null,
+          original_post: (post.repost_of_post_id as string | undefined) ? originalPostsMap.get(post.repost_of_post_id as string) || null : null,
         }, currentUsernameRef.current)
       );
 
@@ -1618,7 +1625,7 @@ export const ProfileWall = ({
   const handlePostCreated = (newPost: WallPost) => {
     // Add a temporary marker to identify locally added posts
     const markedPost = {
-      ...normalizeWallPostRecord(newPost, currentUsername),
+      ...normalizeWallPostRecord(newPost as unknown as Record<string, unknown>, currentUsername),
       _localAdd: true // Temporary marker
     };
     
@@ -1656,7 +1663,7 @@ export const ProfileWall = ({
   };
 
   const handlePostUpdated = (updatedPost: WallPost) => {
-    setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? normalizeWallPostRecord(updatedPost, currentUsername) : post)));
+    setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? normalizeWallPostRecord(updatedPost as unknown as Record<string, unknown>, currentUsername) : post)));
     setEditingPost(null);
   };
 

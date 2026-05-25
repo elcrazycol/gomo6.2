@@ -367,7 +367,7 @@ const Thread = () => {
     const loadPrivacySettings = async () => {
       if (user?.id) {
         const settings = await getUserPrivacySettings(user.id);
-        setRemoveMetadata(settings.remove_image_metadata);
+        setRemoveMetadata((settings as { remove_image_metadata: boolean }).remove_image_metadata);
       }
     };
 

@@ -71,7 +71,7 @@ const PrivacySettings = () => {
         .eq('user_id', user.id)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error && (error as { code?: string }).code !== 'PGRST116') { // PGRST116 = no rows returned
         console.error('Error loading privacy settings:', error);
         return;
       }
@@ -79,8 +79,8 @@ const PrivacySettings = () => {
       if (data) {
         setSettings({
           ...defaultSettings,
-          ...data,
-        });
+          ...(data as Record<string, unknown>),
+        } as PrivacySettingsData);
       } else {
         // Create default settings if none exist
         setSettings(defaultSettings);

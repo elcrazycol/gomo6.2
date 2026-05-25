@@ -23,18 +23,13 @@ export function useSessionTime(userId: string | null) {
       try {
         const { error } = await api
           .from("user_daily_visits")
-          .upsert(
-            {
-              user_id: userId,
-              visit_date: new Date().toISOString().split("T")[0],
-            },
-            {
-              onConflict: "user_id,visit_date",
-            }
-          );
+          .upsert({
+            user_id: userId,
+            visit_date: new Date().toISOString().split("T")[0],
+          });
 
         if (error) {
-          console.error("[Session] Error registering daily visit:", error.message);
+          console.error("[Session] Error registering daily visit:", (error as { message?: string }).message);
         }
       } catch (error) {
         console.error("[Session] Daily visit endpoint unavailable:", error);

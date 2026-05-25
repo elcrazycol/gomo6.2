@@ -73,11 +73,11 @@ const themeOptions: Array<{
 const Settings = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
-  const [privacySettings, setPrivacySettings] = useState<any>(defaultPrivacySettings);
+  const [privacySettings, setPrivacySettings] = useState<PrivacySettingsData>(defaultPrivacySettings);
 
   interface PrivacySettingsData {
     visibility_profile: boolean;
@@ -94,6 +94,7 @@ const Settings = () => {
     show_online_status: boolean;
     show_profile_wall: boolean;
     allow_wall_posts_from_others: boolean;
+    show_profile_stats: boolean;
     show_detailed_stats: boolean;
     stats_visibility: Record<string, boolean>;
   }
@@ -118,12 +119,12 @@ const Settings = () => {
 
   // Interface settings
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
-    return (localStorage.getItem('sender-display-type') as any) || 'classic';
+    return (localStorage.getItem('sender-display-type') as 'classic' | 'modern' | null) || 'classic';
   });
   const settingsTabs = useMemo(() => ["general", "appearance", "profile", "account", "privacy"] as const, []);
   const currentTab = useMemo(() => {
     const pathPart = location.pathname.split("/")[2] || "appearance";
-    return settingsTabs.includes(pathPart as any) ? pathPart : "appearance";
+    return settingsTabs.includes(pathPart as (typeof settingsTabs)[number]) ? pathPart : "appearance";
   }, [location.pathname, settingsTabs]);
 
   useEffect(() => {
@@ -151,8 +152,8 @@ const Settings = () => {
 
         if (achievements) {
           const colorRewards = achievements
-            .filter((a: any) => a.achievements?.reward_type === "username_color")
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown> | undefined)?.reward_type === "username_color")
+            .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -400,8 +401,9 @@ const Settings = () => {
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswordDialog(false);
-    } catch (error: any) {
-      toast.error("Ошибка изменения пароля: " + error.message);
+    } catch (error: unknown) {
+      const errMsg = error && typeof (error as { message?: string }).message === "string" ? (error as { message: string }).message : "неизвестная ошибка";
+      toast.error("Ошибка изменения пароля: " + errMsg);
     }
   };
 

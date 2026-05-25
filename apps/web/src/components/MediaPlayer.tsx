@@ -1,15 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 const PLYR_SCRIPT = "https://cdn.plyr.io/3.8.4/plyr.polyfilled.js";
 const PLYR_CSS = "https://cdn.plyr.io/3.8.4/plyr.css";
 
 declare global {
   interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Plyr?: any;
   }
 }
 
-let plyrLoader: Promise<any> | null = null;
+interface PlyrInstance {
+  on: (event: string, callback: (...args: unknown[]) => void) => void;
+  play: () => Promise<void>;
+  pause: () => void;
+  destroy: () => void;
+  media: HTMLMediaElement;
+}
+
+let plyrLoader: Promise<unknown> | null = null;
 
 // Global audio element - single source of truth for audio playback
 let globalAudioElement: HTMLAudioElement | null = null;
@@ -71,28 +80,27 @@ interface MediaPlayerProps {
   title?: string;
   playlistId?: string;
   playlistIndex?: number;
-  onReady?: (instance: any) => void;
-  onPlay?: (instance: any) => void;
-  onPause?: (instance: any) => void;
+  onReady?: (instance: PlyrInstance) => void;
+  onPlay?: (instance: PlyrInstance) => void;
+  onPause?: (instance: PlyrInstance) => void;
 }
 
 export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, title, playlistId, playlistIndex, onReady, onPlay, onPause }: MediaPlayerProps) => {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const mountRef = useRef<HTMLDivElement | null>(null);
   const playerKey = useMemo(() => playerId || sources[0]?.src || "global-audio", [playerId, sources]);
-  const instanceRef = useRef<any>(null);
+  const instanceRef = useRef<PlyrInstance | null>(null);
   const isUnmountingRef = useRef(false);
 
   useEffect(() => {
     if (kind === "video") {
       // Video: normal flow
-      let instance: any;
       const controls = ["play", "progress", "current-time", "mute", "volume", "settings", "pip", "fullscreen"];
 
       ensurePlyrAssets()
-        .then((Plyr) => {
+        .then((Plyr: unknown) => {
           if (!Plyr || !mediaRef.current || !mountRef.current) return;
-          instance = new Plyr(mediaRef.current, {
+          const instance = new (Plyr as new (el: HTMLElement, opts: Record<string, unknown>) => PlyrInstance)(mediaRef.current, {
             ratio: "16:9",
             controls,
             autopause: false,
@@ -114,19 +122,18 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
 
       return () => {
         isUnmountingRef.current = true;
-        instance?.destroy?.();
+        instanceRef.current?.destroy?.();
       };
     }
 
     // Audio: use global audio element, local element is MUTED and only for UI
     if (kind === "audio") {
       const globalAudio = ensureGlobalAudio();
-      let instance: any;
       const controls = ["play", "progress", "current-time", "duration", "mute"];
       const trackSrc = sources[0]?.src;
 
       ensurePlyrAssets()
-        .then((Plyr) => {
+        .then((Plyr: unknown) => {
           if (!Plyr || !mediaRef.current || !mountRef.current) return;
 
           // CRITICAL: Mute local audio element so it doesn't play sound
@@ -134,7 +141,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           mediaRef.current.volume = 0;
 
           // Create Plyr instance for UI
-          instance = new Plyr(mediaRef.current, {
+          const instance = new (Plyr as new (el: HTMLElement, opts: Record<string, unknown>) => PlyrInstance)(mediaRef.current, {
             ratio: "16:9",
             controls,
             autopause: false,
@@ -147,7 +154,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           // Intercept Plyr's play event BEFORE it actually plays
           let isHandlingPlay = false;
 
-          instance.on("play", async (event: any) => {
+          instance.on("play", async (_event: Event) => {
             if (isHandlingPlay) return;
             isHandlingPlay = true;
 
@@ -158,7 +165,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
 
             // Handle global audio
             if (globalAudioCurrentSrc !== trackSrc) {
-              globalAudio.src = trackSrc;
+              globalAudio.src = trackSrc ?? "";
               globalAudioCurrentSrc = trackSrc;
 
               // Wait for metadata
@@ -224,7 +231,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           };
 
           const syncPlay = () => {
-            if (globalAudioCurrentSrc === trackSrc && instance?.media?.paused) {
+            if (globalAudioCurrentSrc === trackSrc && instance.media?.paused) {
               requestAnimationFrame(() => {
                 instance.play().catch(() => {});
               });
@@ -232,7 +239,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
           };
 
           const syncPause = () => {
-            if (globalAudioCurrentSrc === trackSrc && instance?.media && !instance.media.paused) {
+            if (globalAudioCurrentSrc === trackSrc && instance.media && !instance.media.paused) {
               requestAnimationFrame(() => {
                 instance.pause();
               });
@@ -291,7 +298,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
     <div className={`w-full rounded-xl border border-border bg-card/80 shadow-sm overflow-hidden ${className}`}>
       <div ref={mountRef}>
         <Element
-          ref={mediaRef as any}
+          ref={mediaRef as unknown as React.LegacyRef<HTMLVideoElement> | undefined}
           className="w-full"
           playsInline
           controls
