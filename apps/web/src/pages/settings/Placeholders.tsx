@@ -274,7 +274,7 @@ const Placeholders = () => {
             <div className="bg-post-header p-4 border border-border">
               <div className="flex items-start gap-3">
                 <img
-                  src={storageUrl("post-images", profile.avatar_url) || '/placeholder.svg'}
+                  src={storageUrl("post-images", profile.avatar_url ?? null) || '/placeholder.svg'}
                   alt="Avatar"
                   className="w-12 h-12 rounded-full object-cover border border-border"
                 />
@@ -282,7 +282,7 @@ const Placeholders = () => {
                   <div className="flex items-center gap-1 flex-wrap mb-1">
                     <UserBadge
                       userId={user.id}
-                      username={profile.username}
+                      username={profile.username ?? ''}
                       isAnonymous={false}
                       showOutline={false}
                       disableLink={true}
