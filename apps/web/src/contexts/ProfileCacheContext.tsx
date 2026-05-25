@@ -11,7 +11,7 @@ interface ProfileData {
 
 interface ProfileCacheContextType {
   getProfile: (userId: string) => ProfileData | null;
-  loadProfile: (userId: string) => Promise<ProfileData>;
+  loadProfile: (userId: string | undefined) => Promise<ProfileData>;
   clearCache: () => void;
 }
 
@@ -65,15 +65,21 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return entry.data;
   }, [cache]);
 
-  const loadProfile = useCallback(async (userId: string): Promise<ProfileData> => {
+  const loadProfile = useCallback(async (userId: string | undefined): Promise<ProfileData> => {
+    if (!userId) {
+      return { username: '', color: '', customization: null, isAdmin: false, avatarUrl: undefined };
+    }
+
+    const uid = userId;
+
     // Check if already loading
-    const existingRequest = loadingRequests.current.get(userId);
+    const existingRequest = loadingRequests.current.get(uid);
     if (existingRequest) {
       return existingRequest;
     }
 
     // Check cache first
-    const cached = getProfile(userId);
+    const cached = getProfile(uid);
     if (cached) {
       return cached;
     }
@@ -83,16 +89,16 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         // Load all data in parallel
         const [profileRes, achievementsRes, rolesRes, customizationRes] = await Promise.all([
-          api.from('profiles').select('username, avatar_url').eq('id', userId).single(),
+          api.from('profiles').select('username, avatar_url').eq('id', uid).single(),
           api.from('user_achievements').select(`
             achievement_id,
             achievements (
               reward_type,
               reward_value
             )
-          `).eq('user_id', userId),
-          api.from('user_roles').select('role').eq('user_id', userId),
-          api.from('profile_customization').select('*').eq('user_id', userId).single(),
+          `).eq('user_id', uid),
+          api.from('user_roles').select('role').eq('user_id', uid),
+          api.from('profile_customization').select('*').eq('user_id', uid).single(),
         ]);
 
         // Process color from achievements
@@ -128,11 +134,11 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
           // Limit cache size
           if (newCache.size >= MAX_CACHE_SIZE) {
-            const firstKey = newCache.keys().next().value;
+            const firstKey = newCache.keys().next().value!;
             newCache.delete(firstKey);
           }
 
-          newCache.set(userId, {
+          newCache.set(uid, {
             data: profileData,
             timestamp: Date.now(),
             loading: null,
@@ -142,11 +148,11 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         return profileData;
       } finally {
-        loadingRequests.current.delete(userId);
+        loadingRequests.current.delete(uid);
       }
     })();
 
-    loadingRequests.current.set(userId, loadPromise);
+    loadingRequests.current.set(uid, loadPromise);
     return loadPromise;
   }, [getProfile]);
 
