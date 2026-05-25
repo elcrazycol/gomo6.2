@@ -234,10 +234,10 @@ const EmbeddedWallPost = ({
         </span>
       </div>
 
-      {(post.content || post.content_json) && (
+      {((post.content || post.content_json) as string | null) && (
         <div className="break-words text-sm leading-6 sm:text-[15px]">
           <ProcessedContent
-            content={post.content || ""}
+            content={(post.content as string | null) ?? ""}
             contentJson={post.content_json}
             currentUserId={currentUserId}
             isAdmin={false}
@@ -314,8 +314,8 @@ const WallAttachments = ({
             <MediaPlayer
               key={`${galleryKey}-${index}`}
               kind="video"
-              poster={attachment.poster}
-              sources={[{ src: storageUrl("content", attachment.url) || attachment.url, type: attachment.mime || "video/webm" }]}
+              poster={attachment.poster ?? undefined}
+              sources={[{ src: storageUrl("content", attachment.url) ?? attachment.url, type: attachment.mime || "video/webm" }]}
               className="max-w-3xl"
             />
           );
@@ -863,7 +863,7 @@ const WallPostCard = ({
                     Закреплено
                   </span>
                 )}
-                {(post as any).repost_of_post_id && (
+                {!!(post as any).repost_of_post_id && (
                   <span className="inline-flex items-center gap-1 border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
                     <Repeat2 className="h-3.5 w-3.5" />
                     Репост на стене
@@ -922,9 +922,8 @@ const WallPostCard = ({
           role={postHref && !isEditing ? "button" : undefined}
           tabIndex={postHref && !isEditing ? 0 : undefined}
         >
-          {(post.content || post.content_json) && (
-            <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-              <ProcessedContent content={post.content || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
+          {((post.content || post.content_json) as string | null) && (              <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
+              <ProcessedContent            content={(post.content as string) || ""} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
             </div>
           )}
 
@@ -1053,7 +1052,7 @@ const WallPostCard = ({
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              onClick={() => handleStartCommentEdit(comment)}
+                              onClick={() => { handleStartCommentEdit(comment); }}
                               title="Редактировать комментарий"
                             >
                               <Edit3 className="h-3.5 w-3.5" />
@@ -1111,7 +1110,7 @@ const WallPostCard = ({
                       <div className="break-words text-sm leading-6 sm:text-[15px]">
                         <ProcessedContent
                           content={comment.content || ""}
-                          contentJson={comment.content_json}
+                          contentJson={(comment as any).content_json as unknown}
                           currentUserId={currentUserId}
                           isAdmin={false}
                           currentUsername={currentUsername}
@@ -1204,8 +1203,7 @@ const WallPostCard = ({
               {shareUrl}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              {navigator.share && (
+            <div className="grid grid-cols-2 gap-2">                      {typeof navigator.share !== 'undefined' && (
                 <Button type="button" variant="outline" onClick={handleNativeShare} disabled={isSharing}>
                   <Share2 className="mr-2 h-4 w-4" />
                   Системно
@@ -1270,16 +1268,16 @@ export const ProfileWall = ({
   const [galleryIndex, setGalleryIndex] = useState(0);
   
   // Use refs for tracking pending posts to avoid stale closure issues
-  const pendingPostIdRef = useRef<string | null>(null);
-  const pendingPostTimestampRef = useRef<number | null>(null);
+  const pendingPostIdRef = useRef<string | undefined>(undefined);
+  const pendingPostTimestampRef = useRef<number | undefined>(undefined);
   const processedPostIdsRef = useRef<Set<string>>(new Set());
   
   // Use ref for currentUsername to avoid stale closures in WebSocket handlers
   const currentUsernameRef = useRef(currentUsername);
   currentUsernameRef.current = currentUsername;
 
-  const [pendingPostId, setPendingPostId] = useState<string | null>(null);
-  const [pendingPostTimestamp, setPendingPostTimestamp] = useState<number | null>(null);
+  const [pendingPostId, setPendingPostId] = useState<string | undefined>(undefined);
+  const [pendingPostTimestamp, setPendingPostTimestamp] = useState<number | undefined>(undefined);
   const activeEditingPost = useMemo(
     () => posts.find((post) => post.id === editingPost),
     [editingPost, posts]
@@ -1390,8 +1388,8 @@ export const ProfileWall = ({
           if (a.is_pinned && !b.is_pinned) return -1;
           if (!a.is_pinned && b.is_pinned) return 1;
           if (a.is_pinned && b.is_pinned) {
-            if (a.pinned_order !== null && b.pinned_order !== null) {
-              return a.pinned_order - b.pinned_order;
+            if ((a.pinned_order ?? 0) !== (b.pinned_order ?? 0)) {
+              return (a.pinned_order ?? 0) - (b.pinned_order ?? 0);
             }
           }
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -1463,19 +1461,19 @@ export const ProfileWall = ({
             
             if (existingPost) {
               // Clear pending refs since we found the post
-              pendingPostIdRef.current = null;
-              pendingPostTimestampRef.current = null;
-              setPendingPostId(null);
-              setPendingPostTimestamp(null);
+              pendingPostIdRef.current = undefined;
+              pendingPostTimestampRef.current = undefined;
+              setPendingPostId(undefined);
+              setPendingPostTimestamp(undefined);
               return prevPosts;
             }
             
             // If this post was created very recently OR matches pending ID, it's ours
             if (isRecentPost || isPendingPost) {
-              pendingPostIdRef.current = null;
-              pendingPostTimestampRef.current = null;
-              setPendingPostId(null);
-              setPendingPostTimestamp(null);
+              pendingPostIdRef.current = undefined;
+              pendingPostTimestampRef.current = undefined;
+              setPendingPostId(undefined);
+              setPendingPostTimestamp(undefined);
               return prevPosts;
             }
             
@@ -1629,10 +1627,10 @@ export const ProfileWall = ({
     
     // Clear pending refs after a longer delay to ensure WebSocket message is handled
     setTimeout(() => {
-      pendingPostTimestampRef.current = null;
-      pendingPostIdRef.current = null;
-      setPendingPostTimestamp(null);
-      setPendingPostId(null);
+      pendingPostTimestampRef.current = undefined;
+      pendingPostIdRef.current = undefined;
+      setPendingPostTimestamp(undefined);
+      setPendingPostId(undefined);
     }, 5000);
   };
 
@@ -1760,9 +1758,7 @@ export const ProfileWall = ({
             ))}
           </div>
         )}
-      </div>
-
-      {galleryImages && (
+      </div>              {!!galleryImages && (
         <ImageGallery
           images={galleryImages}
           initialIndex={galleryIndex}
