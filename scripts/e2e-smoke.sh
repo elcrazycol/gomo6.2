@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # E2E Smoke Test — локальный аналог CI smoke job из full-tests.yml
-# Проверяет: health, register, login, presigned URL, upload, CORS
+# Проверяет: health, register, login, presigned URL, upload, CORS,
+#             board → thread → post → like → verify
 # Требования: docker compose up -d (стек должен быть запущен)
 # =============================================================================
 set -euo pipefail
@@ -124,6 +125,22 @@ POST_CONTENT=$(echo "$POST_RESP" | python3 -c 'import sys,json; print(json.load(
 ATTACHMENT_COUNT=$(echo "$POST_RESP" | python3 -c 'import sys,json; print(len(json.load(sys.stdin)["data"]["attachments"]))')
 [ "$ATTACHMENT_COUNT" = "1" ] || fail "Expected 1 attachment, got $ATTACHMENT_COUNT"
 pass "Post created with attachment (id: ${POST_ID:0:8}...)"
+
+# ── 13. Like the post ────────────────────────────────────────────────
+echo "=== 13. Like the post ==="
+curl -sf -X POST "$BASE/api/v1/posts/$POST_ID/like" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' > /dev/null
+pass "Post liked"
+
+# ── 14. Verify like count ─────────────────────────────────────────────
+echo "=== 14. Verify like count ==="
+LIKES_COUNT=$(curl -sf "$BASE/api/rpc/get_post_likes_count?post_uuid=$POST_ID" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"])')
+if [ "$LIKES_COUNT" != "1" ]; then
+  fail "Expected likes=1, got $LIKES_COUNT"
+fi
+pass "Like count verified: $LIKES_COUNT"
 
 # ── Done ────────────────────────────────────────────────────────────
 echo ""

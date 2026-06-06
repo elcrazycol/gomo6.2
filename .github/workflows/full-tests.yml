@@ -166,7 +166,7 @@ jobs:
   # E2E Smoke test — docker-compose + register + photo upload + CORS
   ##############################################################################
   smoke:
-    name: E2E Smoke (register + upload + CORS)
+    name: E2E Smoke (register + upload + CORS + post + like)
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     steps:
@@ -371,6 +371,31 @@ jobs:
           fi
           echo "Post created with attachment: ${POST_ID:0:8}..."
           echo "POST_ID=${POST_ID}" >> $GITHUB_OUTPUT
+
+      - name: Like the post
+        id: like_post
+        env:
+          TOKEN: ${{ steps.login.outputs.TOKEN }}
+          POST_ID: ${{ steps.create_post.outputs.POST_ID }}
+        run: |
+          set -euo pipefail
+          curl -sf -X POST "http://localhost/api/v1/posts/$POST_ID/like" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'Content-Type: application/json' > /dev/null
+          echo "Post liked: $POST_ID"
+
+      - name: Verify like count
+        env:
+          POST_ID: ${{ steps.create_post.outputs.POST_ID }}
+        run: |
+          set -euo pipefail
+          LIKES_COUNT=$(curl -sf "http://localhost/api/rpc/get_post_likes_count?post_uuid=$POST_ID" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["data"])')
+          if [ "$LIKES_COUNT" != "1" ]; then
+            echo "Expected likes=1, got $LIKES_COUNT"
+            exit 1
+          fi
+          echo "Like count verified: $LIKES_COUNT"
 
       - name: Dump logs on failure
         if: failure()
