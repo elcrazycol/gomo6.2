@@ -58,19 +58,11 @@ func getUserIDFromContext(c *gin.Context) (string, error) {
 
 // CreateBot creates a new bot
 func (h *BotHandler) CreateBot(c *gin.Context) {
-	log.Println("=== CreateBot CALLED ===")
-
-	// Check what's in context
-	claimsInterface, claimsExists := c.Get("claims")
-	log.Printf("Claims exists: %v, value: %+v\n", claimsExists, claimsInterface)
-
 	userID, err := getUserIDFromContext(c)
 	if err != nil {
-		log.Println("DEBUG: getUserIDFromContext failed:", err)
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("HANDLER: Unauthorized"))
 		return
 	}
-	log.Println("DEBUG: userID from context:", userID)
 
 	var req models.CreateBotRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -432,18 +424,14 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 	}
 
 	botID := c.Param("id")
-	log.Printf("[GetBotLogs] Fetching logs for bot_id=%s, user_id=%s", botID, userID)
 
 	// Check if bot belongs to user
 	var exists bool
 	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM bots WHERE id = $1 AND owner_id = $2)", botID, userID).Scan(&exists)
 	if err != nil || !exists {
-		log.Printf("[GetBotLogs] Bot not found or doesn't belong to user: bot_id=%s, user_id=%s, err=%v", botID, userID, err)
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Bot not found"))
 		return
 	}
-
-	log.Printf("[GetBotLogs] Bot ownership verified, fetching logs...")
 
 	// Get logs (last 100, oldest first for proper display)
 	rows, err := h.DB.Query(`
@@ -454,7 +442,6 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 		LIMIT 100
 	`, botID)
 	if err != nil {
-		log.Printf("[GetBotLogs] Query error: %v", err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to fetch logs"))
 		return
 	}
@@ -466,7 +453,6 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 		var context sql.NullString
 		err := rows.Scan(&logEntry.ID, &logEntry.BotID, &logEntry.Level, &logEntry.Message, &context, &logEntry.CreatedAt)
 		if err != nil {
-			log.Printf("[GetBotLogs] Scan error: %v", err)
 			continue
 		}
 		if context.Valid {
@@ -480,7 +466,6 @@ func (h *BotHandler) GetBotLogs(c *gin.Context) {
 		logs = []models.BotLog{}
 	}
 
-	log.Printf("[GetBotLogs] Returning %d logs", len(logs))
 	c.JSON(http.StatusOK, logs)
 }
 
