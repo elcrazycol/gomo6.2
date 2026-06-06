@@ -29,12 +29,11 @@ func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
-// TODO: Run migration 001 (tags JSONB DEFAULT '[]') to add tags column to threads table,
-// then restore 't.tags' in SELECT and Scan below.
+// Migration 036 added tags JSONB column to threads table.
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	query := `
 		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
-		       t.attachments, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
+		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
 		FROM threads t
@@ -154,11 +153,11 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		var avatarURL sql.NullString
 		var boardSlug, boardName string
 		var boardIsGomosub, boardIsRulesBoard bool
-		var contentJSON []byte
+		var contentJSON, tagsJSON []byte
 
 		err := rows.Scan(
 			&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
-			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
+			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		)
@@ -176,6 +175,9 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			} else {
 				thread.ContentJSON = nil
 			}
+		}
+		if len(tagsJSON) > 0 {
+			thread.Tags = json.RawMessage(tagsJSON)
 		}
 		thread.Boards = models.BoardInfo{
 			Slug:         boardSlug,
@@ -202,7 +204,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	query := `
 		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
-		       t.attachments, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
+		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
 		FROM threads t
@@ -216,10 +218,11 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	var boardSlug, boardName string
 	var boardIsGomosub, boardIsRulesBoard bool
 	var contentJSON []byte
+	var tagsJSON []byte
 
 	err = h.db.QueryRow(query, id.String()).Scan(
 		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
-		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
+		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 	)
@@ -243,6 +246,9 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		} else {
 			thread.ContentJSON = nil
 		}
+	}
+	if len(tagsJSON) > 0 {
+		thread.Tags = json.RawMessage(tagsJSON)
 	}
 	thread.Boards = models.BoardInfo{
 		Slug:         boardSlug,
