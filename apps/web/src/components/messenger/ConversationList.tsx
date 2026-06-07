@@ -17,7 +17,7 @@ interface ConversationListProps {
   targetUserId: string | null;
   ensureConversation: (userId: string, targetId: string) => Promise<string | null>;
   loadConversations: (userId: string) => Promise<ConversationView[]>;
-  me: ProfileSummary;
+  me: ProfileSummary | null;
   totalUnread: number;
   onDismissError: () => void;
 }
@@ -93,8 +93,9 @@ export const ConversationList = memo(function ConversationList({
   onDismissError,
 }: ConversationListProps) {
   const handleEnsureConversation = useCallback(() => {
-    void ensureConversation(me.id, targetUserId!).then(() => loadConversations(me.id));
-  }, [ensureConversation, loadConversations, me.id, targetUserId]);
+    if (!me || !targetUserId) return;
+    void ensureConversation(me.id, targetUserId).then(() => loadConversations(me.id));
+  }, [ensureConversation, loadConversations, me, targetUserId]);
 
   return (
     <>
