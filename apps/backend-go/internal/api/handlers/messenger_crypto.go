@@ -10,6 +10,12 @@ import (
 	"os"
 )
 
+// ValidateMessengerEncryptionKey checks the key at startup.
+func ValidateMessengerEncryptionKey() error {
+	_, err := getMessengerEncryptionKey()
+	return err
+}
+
 // getMessengerEncryptionKey returns the AES-256 key from env (32 bytes, base64).
 // Falls back to a hardcoded dev key if env is not set.
 func getMessengerEncryptionKey() ([]byte, error) {

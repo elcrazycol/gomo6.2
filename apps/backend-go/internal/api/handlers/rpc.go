@@ -811,12 +811,9 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("ChatMarkRead: Error binding JSON: %v", err)
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
-
-	log.Printf("ChatMarkRead: user=%s, conversation=%s, message=%s", claims.UserID, req.TargetConversationID, req.TargetMessageID)
 
 	if req.TargetConversationID == "" || req.TargetMessageID == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("target_conversation_id and target_message_id are required"))
