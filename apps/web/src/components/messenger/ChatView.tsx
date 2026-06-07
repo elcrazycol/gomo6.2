@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, MessageCircle, Pin } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -90,6 +90,29 @@ export const ChatView = memo(function ChatView({
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [pinnedMessageInfo, messageScrollRef]);
+
+  const formatDateSeparator = useCallback((prevSentAt: string | null, sentAt: string): string | null => {
+    const curr = new Date(sentAt);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const currDay = curr.toDateString();
+
+    // Same day as previous — no separator
+    if (prevSentAt != null) {
+      const prev = new Date(prevSentAt);
+      if (prev.toDateString() === currDay) return null;
+    }
+
+    // Different day — add a label
+    const todayDay = today.toDateString();
+    const yesterdayDay = yesterday.toDateString();
+
+    if (currDay === todayDay) return "сегодня";
+    if (currDay === yesterdayDay) return "вчера";
+    return curr.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const container = messageScrollRef.current;
@@ -197,16 +220,34 @@ export const ChatView = memo(function ChatView({
                 )}
               </div>
             ) : null}
-            {messages.map((message, index) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                isMine={message.sender_user_id === me.id}
-                onRetry={onRetryMessage}
-                onTogglePin={onTogglePin}
-                isPinned={pinnedMessageInfo?.id === message.id}
-              />
-            ))}
+            {messages.map((message, index) => {
+              const prev = index > 0 ? messages[index - 1] : null;
+              const isConsecutive =
+                prev != null &&
+                prev.sender_user_id === message.sender_user_id &&
+                new Date(message.sent_at).getTime() - new Date(prev.sent_at).getTime() < 120_000;
+
+              const dateLabel = formatDateSeparator(
+                index > 0 ? messages[index - 1].sent_at : null,
+                message.sent_at,
+              );
+
+              return (
+                <React.Fragment key={message.id}>
+                  {dateLabel ? (
+                    <div className="date-separator"><span>{dateLabel}</span></div>
+                  ) : null}
+                  <MessageBubble
+                    message={message}
+                    isMine={message.sender_user_id === me.id}
+                    onRetry={onRetryMessage}
+                    onTogglePin={onTogglePin}
+                    isPinned={pinnedMessageInfo?.id === message.id}
+                    isConsecutive={isConsecutive}
+                  />
+                </React.Fragment>
+              );
+            })}
           </>
         )}
         <div ref={endRef} />

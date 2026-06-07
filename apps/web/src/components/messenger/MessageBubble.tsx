@@ -11,9 +11,10 @@ interface MessageBubbleProps {
   onRetry?: (message: MessageView) => void;
   onTogglePin?: (message: MessageView) => void;
   isPinned?: boolean;
+  isConsecutive?: boolean;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, isMine, onRetry, onTogglePin, isPinned }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, isMine, onRetry, onTogglePin, isPinned, isConsecutive }: MessageBubbleProps) {
   const [showPendingWarning, setShowPendingWarning] = useState(false);
   const [isStuck, setIsStuck] = useState(false);
 
@@ -51,7 +52,7 @@ export const MessageBubble = memo(function MessageBubble({ message, isMine, onRe
   }, [onTogglePin, message]);
 
   return (
-    <div className={`bubble-row ${isMine ? "is-mine" : ""}`}>
+    <div className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}>
       <div
         className={`message-bubble ${isMine ? "is-mine" : ""} ${isStuck ? "is-stuck" : ""} ${showPendingWarning ? "is-pending-slow" : ""} ${isPinned ? "is-pinned" : ""}`}
         data-message-id={message.id}
