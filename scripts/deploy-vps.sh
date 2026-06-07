@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy-vps.sh — Production auto-deploy called by GitHub Actions via SSH
+# deploy-vps.sh — Pull pre-built images from ghcr.io and restart containers
 # =============================================================================
-# PREREQUISITES (set up once by initial deploy.sh):
-#   1. Repo cloned at /opt/gomo6 with SSH key configured for GitLab
-#   2. Docker + Docker Compose v2 installed
-#   3. .env file with JWT_SECRET, FEDERATION_KEY, DOMAIN etc.
+# Images are built on GitHub Actions runners (fast, HTTPS works) and pushed to
+# GitHub Container Registry (ghcr.io). This script just pulls and restarts.
 #
-# This script is invoked by GitHub Actions after CI passes on main.
-# DO NOT run locally — it assumes it's inside /opt/gomo6 on the VPS.
+# GHCR_PAT is passed from GitHub Actions and used for docker login.
 # =============================================================================
 set -euo pipefail
 
 # Auto-locate repo root via git
 PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"
-# Fallback: search for docker-compose.yml if git isn't available
 if [ -z "$PROJECT_DIR" ]; then
   PROJECT_DIR=$(find / -maxdepth 4 -name docker-compose.yml -path "*/gomo6.2/*" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
 fi
@@ -23,45 +19,54 @@ cd "$PROJECT_DIR"
 
 echo "=== Deploy started at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 
-# ── Capture current commit (for rollback if build fails) ────────────────────
-OLD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-echo "[0/4] Current commit: $OLD_COMMIT"
+# ── Login to ghcr.io ───────────────────────────────────────────────────────
+if [ -n "${GHCR_PAT:-}" ]; then
+  echo "[0/3] Logging in to ghcr.io..."
+  echo "$GHCR_PAT" | docker login ghcr.io -u scramble22 --password-stdin
+else
+  echo "[0/3] GHCR_PAT not set, assuming already logged in"
+fi
 
-# ── Preserve .env before reset (.gitignore wasn't always in place) ──────
-echo "[1/4] Pulling latest changes..."
+# ── Capture current commit ──────────────────────────────────────────────────
+OLD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+echo "[1/3] Current commit: $OLD_COMMIT"
+
+# ── Pull latest git (for docker-compose.yml, Caddyfile, .env changes) ──────
+echo "       Pulling latest changes..."
 rm -f .env.deploy-backup
 if [ -f .env ]; then cp .env .env.deploy-backup; fi
-# Auto-restore .env even if git commands fail (set -e would exit)
 trap 'if [ -f .env.deploy-backup ]; then mv .env.deploy-backup .env; fi' EXIT
 git fetch origin main
 git reset --hard origin/main
-# Restore .env — NEVER let git overwrite production secrets
 if [ -f .env.deploy-backup ]; then mv .env.deploy-backup .env; fi
-trap - EXIT  # restore succeeded, remove trap
+trap - EXIT
 
-# ── Capture new commit hash ─────────────────────────────────────────────────
 GIT_COMMIT=$(git rev-parse --short HEAD)
-echo "[2/4] Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
+echo "       Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
 
-# ── Rebuild and restart ─────────────────────────────────────────────────────
-echo "[3/4] Rebuilding Docker images (commit: $GIT_COMMIT)..."
-echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && docker build -t gomo6-backend -f apps/backend-go/Dockerfile apps/backend-go && docker build --build-arg VITE_GIT_COMMIT=$OLD_COMMIT -t gomo6-web -f apps/web/Dockerfile . && docker build -t gomo6-docs -f apps/docs/Dockerfile . && docker build -t gomo6-dev-dashboard -f apps/dev-dashboard/Dockerfile . && docker compose up -d"
-# Pass GIT_COMMIT explicitly via --build-arg (bypasses docker-compose.yml interpolation + .env)
-# Build sequentially with docker build (not docker compose build) —
-# bash awaits each build, so they're truly sequential (no OOM).
-# BuildKit stays enabled → npm cache mount works across builds.
-echo "  [3.1/4] Building backend (Go)..."
-docker build -t gomo6-backend -f apps/backend-go/Dockerfile apps/backend-go
-echo "  [3.2/4] Building web frontend..."
-docker build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" -t gomo6-web -f apps/web/Dockerfile .
-echo "  [3.3/4] Building docs frontend..."
-docker build -t gomo6-docs -f apps/docs/Dockerfile .
-echo "  [3.4/4] Building dev-dashboard frontend..."
-docker build -t gomo6-dev-dashboard -f apps/dev-dashboard/Dockerfile .
-docker compose up -d --remove-orphans
+# ── Pull pre-built images from ghcr.io ─────────────────────────────────────
+echo "[2/3] Pulling Docker images from ghcr.io..."
 
-# ── Clean up old images ─────────────────────────────────────────────────────
-echo "[4/4] Cleaning up old images..."
+pull_and_check() {
+  local img="$1"
+  echo "       Pulling $img..."
+  docker pull "$img:latest" || {
+    echo "ERROR: Failed to pull $img:latest"
+    echo "Rollback: git reset --hard $OLD_COMMIT && docker compose up -d --no-build"
+    exit 1
+  }
+}
+
+pull_and_check ghcr.io/scramble22/gomo6-backend
+pull_and_check ghcr.io/scramble22/gomo6-web
+pull_and_check ghcr.io/scramble22/gomo6-docs
+pull_and_check ghcr.io/scramble22/gomo6-dev-dashboard
+
+# ── Restart containers (--no-build prevents falling back to local build) ────
+echo "[3/3] Restarting containers..."
+docker compose up -d --remove-orphans --no-build
+
+# Clean old images
 docker image prune -f
 
 echo "=== Deploy finished: $GIT_COMMIT ==="

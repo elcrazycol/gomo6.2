@@ -13,12 +13,10 @@ COPY apps/web/package.json ./apps/web/
 COPY apps/dev-dashboard/package.json ./apps/dev-dashboard/
 
 # Install ALL workspace dependencies at root
-# HTTP registry — VPS blocks outbound port 443 from Docker containers
-# BuildKit cache mount persists /root/.npm across builds (fast reinstalls)
-ENV NODE_OPTIONS="--max-old-space-size=256"
+# BuildKit cache mount persists /root/.npm across builds
+ENV NODE_OPTIONS="--max-old-space-size=512"
 RUN --mount=type=cache,target=/root/.npm \
-    npm config set registry http://registry.npmjs.org/ && \
-    npm ci --maxsockets=1 --prefer-offline
+    npm ci
 
 # Copy the docs app source
 COPY apps/docs/ ./apps/docs/
