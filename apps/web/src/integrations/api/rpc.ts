@@ -67,11 +67,17 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
         }
         case 'chat_mark_delivered':
         case 'chat_mark_read': {
-          const response = await apiClient.rawRequest(`/api/rpc/${functionName}`, {
-            method: 'POST',
-            body: JSON.stringify(params || {}),
-          });
-          return { data: response.data, error: response.error ? { message: response.error } : null };
+          // Go handler returns c.JSON(http.StatusOK, nil) → body is null, not {success, data}
+          // rawRequest throws on null.success, so we catch and treat null as success
+          try {
+            await apiClient.rawRequest(`/api/rpc/${functionName}`, {
+              method: 'POST',
+              body: JSON.stringify(params || {}),
+            });
+            return { data: null, error: null };
+          } catch (error) {
+            return { data: null, error: error as { message: string } };
+          }
         }
         default:
           return { data: null, error: { message: 'Unknown RPC function' } };

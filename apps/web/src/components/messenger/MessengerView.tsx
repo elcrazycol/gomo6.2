@@ -379,10 +379,8 @@ export const MessengerView = () => {
   const markDelivered = useCallback(
     async (conversationId: string, latestMessageId: string | null) => {
       if (!latestMessageId || lastDeliveredMessageIdRef.current === latestMessageId) return;
-      try {
-        await api.rpc("chat_mark_delivered", { target_conversation_id: conversationId, target_message_id: latestMessageId });
-        lastDeliveredMessageIdRef.current = latestMessageId;
-      } catch (error) { console.warn("Failed to mark delivered:", error); }
+      await api.rpc("chat_mark_delivered", { target_conversation_id: conversationId, target_message_id: latestMessageId });
+      lastDeliveredMessageIdRef.current = latestMessageId;
     },
     [],
   );
@@ -390,17 +388,15 @@ export const MessengerView = () => {
   const markRead = useCallback(
     async (conversationId: string, latestMessageId: string | null) => {
       if (!latestMessageId || lastReadMessageIdRef.current === latestMessageId) return;
-      try {
-        await api.rpc("chat_mark_read", { target_conversation_id: conversationId, target_message_id: latestMessageId });
-        lastReadMessageIdRef.current = latestMessageId;
-        setConversations((current) =>
-          current.map((c) =>
-            c.id === conversationId
-              ? { ...c, unreadCount: 0, lastReadAt: messagesRef.current.at(-1)?.sent_at ?? c.lastReadAt }
-              : c,
-          ),
-        );
-      } catch (error) { console.warn("Failed to mark read:", error); }
+      await api.rpc("chat_mark_read", { target_conversation_id: conversationId, target_message_id: latestMessageId });
+      lastReadMessageIdRef.current = latestMessageId;
+      setConversations((current) =>
+        current.map((c) =>
+          c.id === conversationId
+            ? { ...c, unreadCount: 0, lastReadAt: messagesRef.current.at(-1)?.sent_at ?? c.lastReadAt }
+            : c,
+        ),
+      );
     },
     [],
   );
@@ -569,7 +565,7 @@ export const MessengerView = () => {
     void handleTargetUser();
   }, [conversations, ensureConversation, loadConversations, me, targetUserId, updateSearchRef]);
 
-  // Load messages when conversation ID changes (not on every render/re-fetch of conversations)
+  // Load messages when conversation ID changes (keep old messages visible for seamless switching)
   const prevConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!me || !selectedConversationId) { setMessages([]); return; }
@@ -580,8 +576,10 @@ export const MessengerView = () => {
     const conversation = conversations.find((c) => c.id === selectedConversationId);
     if (!conversation) return;
     visibleConversationIdRef.current = selectedConversationId;
+    // Reset per-conversation state (but keep old messages visible until new ones arrive)
     lastReadMessageIdRef.current = null;
     lastDeliveredMessageIdRef.current = null;
+    lastMarkedMessageId.current = null;
     oldestSentAtRef.current = null;
     hasMoreRef.current = true;
     void loadMessages(selectedConversationId, conversation.otherUser.id, {}).catch((error) => {
@@ -626,11 +624,17 @@ export const MessengerView = () => {
     isNearBottomRef.current = true;
   }, [messages, selectedConversationId]);
 
-  // Mark delivered/read
+  // Mark delivered/read — debounced by message ID to avoid redundant calls
+  const lastMarkedMessageId = useRef<string | null>(null);
   useEffect(() => {
     if (!me || !selectedConversation || messages.length === 0) return;
     const latestMessage = messages.at(-1);
     if (!latestMessage || latestMessage.localStatus === "pending") return;
+    // Guard: skip if message ID starts with "local-" (not yet confirmed by server)
+    if (latestMessage.id.startsWith("local-")) return;
+    // Dedup: don't re-mark the same message
+    if (lastMarkedMessageId.current === latestMessage.id) return;
+    lastMarkedMessageId.current = latestMessage.id;
     void markDelivered(selectedConversation.id, latestMessage.id).catch(() => undefined);
     if (document.visibilityState === "visible")
       void markRead(selectedConversation.id, latestMessage.id).catch(() => undefined);

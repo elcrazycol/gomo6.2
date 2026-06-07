@@ -766,13 +766,18 @@ func (h *RPCHandler) ChatMarkDelivered(c *gin.Context) {
 		return
 	}
 
-	// Get message sent_at timestamp
+	// Get message sent_at timestamp — gracefully handle missing message (race condition)
 	var sentAt time.Time
 	err = h.db.QueryRow(`
 		SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2
 	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
 
 	if err != nil {
+		if err == sql.ErrNoRows {
+			// Message not found — likely a race with pending→confirmed transition. No-op.
+			c.JSON(http.StatusOK, nil)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
@@ -849,13 +854,18 @@ func (h *RPCHandler) ChatMarkRead(c *gin.Context) {
 		return
 	}
 
-	// Get message sent_at timestamp
+	// Get message sent_at timestamp — gracefully handle missing message (race condition)
 	var sentAt time.Time
 	err = h.db.QueryRow(`
 		SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2
 	`, req.TargetMessageID, req.TargetConversationID).Scan(&sentAt)
 
 	if err != nil {
+		if err == sql.ErrNoRows {
+			// Message not found — likely a race with pending→confirmed transition. No-op.
+			c.JSON(http.StatusOK, nil)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
