@@ -47,7 +47,13 @@ echo "[2/4] Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
 echo "[3/4] Rebuilding Docker images (commit: $GIT_COMMIT)..."
 echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && docker compose build --build-arg VITE_GIT_COMMIT=$OLD_COMMIT web && docker compose up -d"
 # Pass GIT_COMMIT explicitly via --build-arg (bypasses docker-compose.yml interpolation + .env)
-docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT"
+# Build sequentially — VPS has limited RAM, parallel npm ci exhausts memory
+# 1. Backend (Go) first — no npm
+docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" backend
+# 2. Frontends one at a time — each runs npm ci (384MB heap)
+docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" web
+docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" docs
+docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" dev-dashboard
 docker compose up -d --remove-orphans
 
 # ── Clean up old images ─────────────────────────────────────────────────────
