@@ -32,6 +32,7 @@ export const WebSocketProvider = ({ children }: Props) => {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Map<string, Set<(data: unknown) => void>>>(new Map());
+  const pendingSubscriptions = useRef<Set<string>>(new Set());
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
 
@@ -52,6 +53,15 @@ export const WebSocketProvider = ({ children }: Props) => {
         console.log("[WebSocket] Connected");
         setIsConnected(true);
         reconnectAttemptsRef.current = 0;
+
+        // Replay all pending subscriptions that were queued during disconnect/reconnect
+        const pending = pendingSubscriptions.current;
+        if (pending.size > 0) {
+          console.log("[WebSocket] Replaying subscriptions:", [...pending]);
+          for (const room of pending) {
+            ws.send(JSON.stringify({ type: "subscribe", data: room }));
+          }
+        }
       };
 
       ws.onmessage = (event) => {
@@ -93,6 +103,7 @@ export const WebSocketProvider = ({ children }: Props) => {
   }, []);
 
   const subscribe = (room: string) => {
+    pendingSubscriptions.current.add(room);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: "subscribe",
@@ -102,6 +113,7 @@ export const WebSocketProvider = ({ children }: Props) => {
   };
 
   const unsubscribe = (room: string) => {
+    pendingSubscriptions.current.delete(room);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: "unsubscribe",

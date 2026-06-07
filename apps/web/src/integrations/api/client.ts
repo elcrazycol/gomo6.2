@@ -250,19 +250,29 @@ class ApiClient {
     return response.data as AuthResponse;
   }
 
+  // Last known good user profile (survives network errors)
+  private cachedUser: User | null = null;
+
   async getCurrentUser(): Promise<User | null> {
-    if (!this.token) return null;
+    if (!this.token) { this.cachedUser = null; return null; }
 
     try {
       const response = await this.request<User>('/api/v1/auth/me');
-      return response.data as User;
+      const user = response.data as User;
+      if (user) this.cachedUser = user;
+      return user;
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
       // Only clear token on explicit 401 (expired/invalid).
       // Network errors (502, CORS, timeout) should NOT log out the user.
-      if (error instanceof Error && error.message.includes('HTTP 401')) {
+      if (msg.includes('HTTP 401') || msg.includes('Unauthorized')) {
         this.clearToken();
+        this.cachedUser = null;
+        return null;
       }
-      return null;
+      // Network error (502, timeout, DNS) — return cached user if available
+      console.warn('[API] getCurrentUser network error, using cached profile:', msg);
+      return this.cachedUser;
     }
   }
 

@@ -20,17 +20,6 @@ import type {
 } from "./types";
 
 // ─── Pure helpers (outside component, no closures) ──────────────────────────
-
-const fetchMyProfile = async (userId: string): Promise<ProfileSummary> => {
-  const { data, error } = await api
-    .from("profiles")
-    .select("id, username, avatar_url, account_number, is_online, last_seen_at")
-    .eq("id", userId)
-    .single();
-  if (error || !data) throw new Error("Не удалось загрузить профиль");
-  return data as ProfileSummary;
-};
-
 const loadConversationsFromApi = async (userId: string): Promise<ConversationView[]> => {
   const { data: memberships, error: mErr } = await api
     .from("chat_conversation_members" as never)
@@ -191,12 +180,30 @@ export const MessengerView = () => {
     (async () => {
       try {
         const { data: { user } } = await api.auth.getUser();
-        if (!user) { navigate("/auth"); return; }
         if (cancelled) return;
 
-        const profile = await fetchMyProfile(user.id);
-        if (cancelled) return;
-        setMe(profile);
+        // No user at all — check if it's a network error (token exists but backend unreachable)
+        if (!user) {
+          if (localStorage.getItem("auth_token")) {
+            // Has token but couldn't fetch user — network error, stay in messenger
+            setError("Сервер временно недоступен. Попробуем переподключиться...");
+            setInitLoading(false);
+            return;
+          }
+          // No token at all — real auth failure, redirect to login
+          navigate("/auth");
+          return;
+        }
+
+        // Build profile from /auth/me response (sufficient for messenger)
+        setMe({
+          id: user.id,
+          username: user.username,
+          avatar_url: user.avatar_url ?? null,
+          account_number: null,
+          is_online: false,
+          last_seen_at: null,
+        });
 
         const views = await loadConversationsFromApi(user.id);
         if (cancelled) return;
