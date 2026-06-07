@@ -69,41 +69,40 @@ export type MessageView = ChatMessageRecord & {
 export const mergeMessages = (current: MessageView[], normalized: MessageView[], userId: string): MessageView[] => {
   const pending = current.filter((message) => message.localStatus === "pending");
   const nonPending = current.filter((message) => message.localStatus !== "pending");
-  const pendingMatchedIds = new Set<string>();
 
-  const mergedServer = normalized.map((message) => {
-    const localPending = pending.find(
-      (pendingMessage) =>
-        pendingMessage.client_message_id === message.client_message_id && pendingMessage.sender_user_id === userId
+  // Dedup by client_message_id: pending → matched → drop pending, unmatched → keep
+  const matchedClientIds = new Set<string>();
+
+  // Build merged view: server messages first, finding matching pending ones
+  const mergedServer = normalized.map((serverMsg) => {
+    const match = pending.find(
+      (p) => p.client_message_id === serverMsg.client_message_id && p.sender_user_id === userId
     );
-
-    if (!localPending) {
-      return message;
+    if (match) {
+      matchedClientIds.add(match.client_message_id);
+      return {
+        ...serverMsg,
+        plainText: match.plainText,
+        peerDeliveredAt: serverMsg.peerDeliveredAt ?? match.peerDeliveredAt,
+        peerReadAt: serverMsg.peerReadAt ?? match.peerReadAt,
+      };
     }
-
-    pendingMatchedIds.add(localPending.id);
-    return {
-      ...message,
-      plainText: localPending.plainText,
-      peerDeliveredAt: message.peerDeliveredAt ?? localPending.peerDeliveredAt,
-      peerReadAt: message.peerReadAt ?? localPending.peerReadAt,
-    };
+    return serverMsg;
   });
 
-  const pendingStillLocal = pending.filter((message) => !pendingMatchedIds.has(message.id));
+  // Pending messages that haven't been matched by the server yet
+  const pendingStillLocal = pending.filter((p) => !matchedClientIds.has(p.client_message_id));
+
+  // Merge server + old non-pending by id (dedup)
   const mergedById = new Map<string, MessageView>();
-
-  for (const message of nonPending) {
-    mergedById.set(message.id, message);
+  for (const msg of nonPending) {
+    mergedById.set(msg.client_message_id, msg);
+  }
+  for (const msg of mergedServer) {
+    mergedById.set(msg.client_message_id, msg);
   }
 
-  for (const message of mergedServer) {
-    mergedById.set(message.id, message);
-  }
-
-  const merged = [...pendingStillLocal, ...Array.from(mergedById.values())].sort(
-    (left, right) => new Date(left.sent_at).getTime() - new Date(right.sent_at).getTime()
+  return [...pendingStillLocal, ...Array.from(mergedById.values())].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime()
   );
-
-  return merged;
 };

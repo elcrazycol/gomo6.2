@@ -81,7 +81,8 @@ export const MessengerView = () => {
   const [conversationsLoading, setConversationsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const hasMoreRef = useRef(true);
   const [startingConversation, setStartingConversation] = useState(false);
   const [sending, setSending] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(true);
@@ -275,7 +276,6 @@ export const MessengerView = () => {
       if (!mountedRef.current) return [];
       if (!isIncremental && !isLoadMore) {
         setMessagesLoading(true);
-        setHasMoreMessages(true);
         oldestSentAtRef.current = null;
       }
 
@@ -310,13 +310,13 @@ export const MessengerView = () => {
         setMessages((current) => {
           if (isIncremental) return mergeMessages(current, normalized, currentMe.id);
           if (isLoadMore) {
-            const existingIds = new Set(current.map((m) => m.id));
-            return [...normalized.filter((m) => !existingIds.has(m.id)), ...current];
+            const existingClientIds = new Set(current.map((m) => m.client_message_id));
+            return [...normalized.filter((m) => !existingClientIds.has(m.client_message_id)), ...current];
           }
           return normalized;
         });
 
-        if (!isIncremental) setHasMoreMessages(couldHaveMore);
+        if (!isIncremental) { setHasMoreMessages(couldHaveMore); hasMoreRef.current = couldHaveMore; }
         return normalized;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Не удалось загрузить сообщения";
@@ -331,7 +331,7 @@ export const MessengerView = () => {
   const loadOlderMessages = useCallback(async () => {
     const currentMe = meRef.current;
     const currentConversation = selectedConversationRef.current;
-    if (!currentMe || !currentConversation || loadingMore || !hasMoreMessages) return;
+    if (!currentMe || !currentConversation || loadingMore || !hasMoreRef.current) return;
     setLoadingMore(true);
     try {
       await loadMessages(currentConversation.id, currentConversation.otherUser.id, { cursor: oldestSentAtRef.current });
@@ -340,19 +340,32 @@ export const MessengerView = () => {
     } finally {
       if (mountedRef.current) setLoadingMore(false);
     }
-  }, [loadMessages, loadingMore, hasMoreMessages]);
+  }, [loadMessages, loadingMore]);
 
   const ensureConversation = useCallback(
     async (userId: string, targetId: string) => {
       if (targetId === userId) return null;
       setStartingConversation(true);
       try {
-        const result = await (api.rpc as any)("get_or_create_direct_chat", { target_user_id: targetId });
-        const cleanId = typeof result === "string" ? result.replace(/^"|"$/g, "") : String(result ?? "");
-        updateSearchRef(cleanId, targetId);
-        setSelectedConversationId(cleanId);
+        const { data, error } = await api.rpc("get_or_create_direct_chat", { target_user_id: targetId });
+        if (error) throw new Error(typeof error === 'string' ? error : 'Не удалось создать диалог');
+
+        // Normalise response: could be { conversation_id } or plain string or wrapped string
+        const raw = (data ?? '');
+        let conversationId: string;
+        if (typeof raw === 'object' && raw !== null && 'conversation_id' in raw) {
+          conversationId = (raw as { conversation_id: string }).conversation_id;
+        } else if (typeof raw === 'string') {
+          conversationId = raw.replace(/^"|"$/g, '');
+        } else {
+          conversationId = '';
+        }
+
+        if (!conversationId) throw new Error('Не удалось получить ID диалога');
+        updateSearchRef(conversationId, targetId);
+        setSelectedConversationId(conversationId);
         setMobileSidebarOpen(false);
-        return cleanId;
+        return conversationId;
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Не удалось открыть диалог");
         return null;
@@ -445,14 +458,14 @@ export const MessengerView = () => {
       if (error || !data) throw error ?? new Error("Не удалось отправить сообщение");
       if (!mountedRef.current) return;
 
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === localId
-            ? { ...(data as ChatMessageRecord), plainText, peerDeliveredAt: null, peerReadAt: null }
-            : msg,
-        ),
-      );
-      void refreshCurrentConversation(true).catch(() => undefined);
+    setMessages((prev) => {
+      // Remove the local pending message by client_message_id, add server version
+      const filtered = prev.filter((m) => m.client_message_id !== clientMessageId);
+      const serverMsg = data as ChatMessageRecord;
+      return [...filtered, { ...serverMsg, plainText, peerDeliveredAt: null, peerReadAt: null }]
+        .sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
+    });
+      await refreshCurrentConversation(true);
       setErrorMessage(null);
     } catch (error) {
       if (!mountedRef.current) return;
@@ -557,22 +570,36 @@ export const MessengerView = () => {
     void handleTargetUser();
   }, [conversations, ensureConversation, loadConversations, me, targetUserId, updateSearchRef]);
 
-  // Load messages when conversation changes
+  // Load messages when conversation ID changes (not on every render/re-fetch of conversations)
+  const prevConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!me || !selectedConversation) { setMessages([]); return; }
-    visibleConversationIdRef.current = selectedConversation.id;
+    if (!me || !selectedConversationId) { setMessages([]); return; }
+    // Guard: only reload if conversation ID actually changed
+    if (selectedConversationId === prevConversationIdRef.current) return;
+    prevConversationIdRef.current = selectedConversationId;
+
+    const conversation = conversations.find((c) => c.id === selectedConversationId);
+    if (!conversation) return;
+    visibleConversationIdRef.current = selectedConversationId;
     lastReadMessageIdRef.current = null;
     lastDeliveredMessageIdRef.current = null;
-    void loadMessages(selectedConversation.id, selectedConversation.otherUser.id, {}).catch((error) => {
+    oldestSentAtRef.current = null;
+    hasMoreRef.current = true;
+    void loadMessages(selectedConversationId, conversation.otherUser.id, {}).catch((error) => {
       if (mountedRef.current) setErrorMessage(error.message);
     });
-  }, [loadMessages, me, selectedConversation]);
+  }, [loadMessages, me, selectedConversationId, conversations]);
 
-  // Sync selectedConversationId
+  // Sync selectedConversationId (only on initial load, not on every conversation update)
+  const initialSyncDone = useRef(false);
   useEffect(() => {
-    if (!me) return;
-    if (selectedConversationId && !conversations.some((c) => c.id === selectedConversationId))
+    if (!me || conversations.length === 0) return;
+    if (selectedConversationId && conversations.some((c) => c.id === selectedConversationId)) return;
+    if (initialSyncDone.current) return;
+    initialSyncDone.current = true;
+    if (selectedConversationId && !conversations.some((c) => c.id === selectedConversationId)) {
       setSelectedConversationId(conversations[0]?.id ?? null);
+    }
   }, [conversations, me, selectedConversationId]);
 
   // Scroll handler
@@ -610,12 +637,16 @@ export const MessengerView = () => {
       void markRead(selectedConversation.id, latestMessage.id).catch(() => undefined);
   }, [markDelivered, markRead, me, messages, selectedConversation]);
 
-  // WebSocket subscription
+  // WebSocket subscription (debounced — skip if recently fetched)
+  const lastWsRefresh = useRef(0);
   useEffect(() => {
     if (!selectedConversation) return;
     const chatRoom = `chat_${selectedConversation.id}`;
     ws.subscribe(chatRoom);
     const unsubscribe = ws.on("new_chat_message", () => {
+      const now = Date.now();
+      if (now - lastWsRefresh.current < 2000) return;
+      lastWsRefresh.current = now;
       void refreshCurrentConversation(true).catch(() => undefined);
     });
     return () => { unsubscribe(); ws.unsubscribe(chatRoom); };
@@ -668,21 +699,24 @@ export const MessengerView = () => {
     [me, refreshCurrentConversation],
   );
 
-  // Focus handler
+  // Focus handler (no conversation reload — was the main cause of flickering)
+  const lastFocusRefresh = useRef(0);
   useEffect(() => {
     if (!selectedConversation) return;
     const onFocus = () => {
+      const now = Date.now();
+      if (now - lastFocusRefresh.current < 5000) return;
+      lastFocusRefresh.current = now;
       if (!mountedRef.current || !visibleConversationIdRef.current) return;
       const latestMessage = messagesRef.current.at(-1);
       if (!latestMessage || latestMessage.localStatus === "pending") return;
       void markRead(visibleConversationIdRef.current, latestMessage.id).catch(() => undefined);
       void refreshCurrentConversation(true).catch(() => undefined);
-      void loadConversations(meRef.current?.id ?? "", { silent: true }).catch(() => undefined);
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
-  }, [markRead, refreshCurrentConversation, loadConversations, selectedConversation]);
+  }, [markRead, refreshCurrentConversation, selectedConversation]);
 
   if (loading || !me) {
     return (
