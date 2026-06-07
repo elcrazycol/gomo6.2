@@ -31,10 +31,9 @@ const ConversationCard = memo(function ConversationCard({
   isSelected: boolean;
   onOpen: () => void;
 }) {
-  return (
-    <button
+  return (      <button
       type="button"
-      className={`conversation-card ${isSelected ? "is-active" : ""}`}
+      className={`conversation-card${isSelected ? " is-active" : ""}${conversation.unreadCount > 0 ? " has-unread" : ""}`}
       onClick={onOpen}
     >
       <div className="avatar">
@@ -62,12 +61,16 @@ const ConversationCard = memo(function ConversationCard({
         <div className="conversation-meta">
           <span>{formatDate(conversation.lastMessageAt)}</span>
           <span>#{conversation.otherUser.account_number ?? "?"}</span>
-          <OnlineStatus
-            userId={conversation.otherUser.id}
-            isOnline={conversation.otherUser.is_online}
-            lastSeen={conversation.otherUser.last_seen_at}
-            showText={false}
-          />
+          {conversation.otherUser.is_online ? (
+            <span className="online-dot" title="Онлайн" />
+          ) : (
+            <OnlineStatus
+              userId={conversation.otherUser.id}
+              isOnline={conversation.otherUser.is_online}
+              lastSeen={conversation.otherUser.last_seen_at}
+              showText={false}
+            />
+          )}
           {conversation.unreadCount > 0 ? <span className="count-badge">{conversation.unreadCount}</span> : null}
         </div>
       </div>

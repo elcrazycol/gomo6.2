@@ -51,7 +51,7 @@ export const MessageComposer = memo(function MessageComposer({
   const canSend = !sending && draft.trim().length > 0;
 
   return (
-    <form className="composer" onSubmit={handleSubmit}>
+    <form className={`composer${sending ? " is-sending" : ""}`} onSubmit={handleSubmit}>
       <div className="composer-input-wrap">
         <textarea
           ref={composerRef}
