@@ -35,7 +35,8 @@ export type WebSocketMessageType =
   | 'delete_wall_post'
   | 'user_online'
   | 'user_offline'
-  | 'new_notification';
+  | 'new_notification'
+  | 'new_chat_message';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;
