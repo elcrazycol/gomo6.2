@@ -17,7 +17,7 @@ import (
 	"github.com/gomo6/backend/internal/storage"
 )
 
-const maxUploadBytes = 25 * 1024 * 1024
+const maxUploadBytes = 10 * 1024 * 1024
 
 type StorageHandler struct {
 	client *storage.StorageClient
@@ -37,7 +37,7 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 	defer file.Close()
 
 	if header.Size > maxUploadBytes {
-		return nil, nil, fmt.Errorf("file too large (max 10MB)")
+		return nil, nil, fmt.Errorf("file too large (max %dMB)", maxUploadBytes/(1024*1024))
 	}
 
 	ext := strings.ToLower(filepath.Ext(header.Filename))
@@ -60,7 +60,7 @@ func (h *StorageHandler) readUploadFile(c *gin.Context) (data []byte, header *mu
 		return nil, nil, fmt.Errorf("failed to read file")
 	}
 	if int64(len(data)) > maxUploadBytes {
-		return nil, nil, fmt.Errorf("file too large (max 10MB)")
+		return nil, nil, fmt.Errorf("file too large (max %dMB)", maxUploadBytes/(1024*1024))
 	}
 
 	return data, header, nil

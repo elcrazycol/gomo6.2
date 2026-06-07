@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -165,7 +164,6 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"user_bans":                    true,
 		"user_settings_changes":        true,
 		// Messenger tables
-		"chat_user_keys":            true,
 		"chat_conversations":        true,
 		"chat_conversation_members": true,
 		"chat_messages":             true,
@@ -925,7 +923,6 @@ func extractRecordID(urlPath string, tableName string) string {
 // isMessengerTable checks if table is a messenger table requiring access control
 func isMessengerTable(tableName string) bool {
 	messengerTables := map[string]bool{
-		"chat_user_keys":            true,
 		"chat_conversations":        true,
 		"chat_conversation_members": true,
 		"chat_messages":             true,
@@ -949,30 +946,12 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		return
 	}
 
-	// Begin transaction for RLS context (set_config with is_local=true)
-	tx, err := h.db.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-	defer tx.Rollback()
-
-	// Set Row-Level Security context — scoped to this transaction
-	_, err = tx.Exec("SELECT set_config('app.current_user_id', $1, true)", claims.UserID)
-	if err != nil {
-		log.Printf("[RLS] Warning: failed to set app.current_user_id: %v", err)
-	}
-
 	// Build query with access control
 	var query string
 	var args []interface{}
 	argIndex := 1
 
 	switch tableName {
-	case "chat_user_keys":
-		// Public keys are readable by everyone (RLS policy: FOR SELECT USING true)
-		query = `SELECT * FROM chat_user_keys`
-
 	case "chat_conversations":
 		// Only return conversations where user is a member
 		query = `
@@ -1083,7 +1062,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		}
 	}
 
-	rows, err := tx.Query(query, args...)
+	rows, err := h.db.Query(query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
@@ -1117,9 +1096,15 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 		results = append(results, row)
 	}
 
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
+	// Decrypt chat_messages before returning to client
+	if tableName == "chat_messages" {
+		for _, row := range results {
+			if enc, ok := row["content_encrypted"].(string); ok && enc != "" {
+				if decrypted, err := decryptMessageContent(enc); err == nil {
+					row["content"] = decrypted
+				}
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(results))
@@ -1140,52 +1125,37 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		return
 	}
 
-	// Create validator
-	validator := NewMessengerValidator()
-
-	// Begin transaction for RLS context + atomicity
-	tx, err := h.db.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-	defer tx.Rollback()
-
-	// Set Row-Level Security context — scoped to this transaction
-	_, err = tx.Exec("SELECT set_config('app.current_user_id', $1, true)", claims.UserID)
-	if err != nil {
-		log.Printf("[RLS] Warning: failed to set app.current_user_id: %v", err)
-	}
-
 	// Validate access based on table
 	switch tableName {
-	case "chat_user_keys":
-		// Ensure user_id matches authenticated user
-		data["user_id"] = claims.UserID
-
 	case "chat_messages":
-		// Validate message data
-		if err := validator.ValidateMessageData(data); err != nil {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		// Encrypt content before storing
+		content, hasContent := data["content"].(string)
+		if !hasContent || content == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("content is required"))
 			return
 		}
 
+		encrypted, err := encryptMessageContent(content)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to encrypt message"))
+			return
+		}
+		data["content_encrypted"] = encrypted
+		delete(data, "content")
+
 		// Check if user is a member of the conversation
 		conversationID, _ := data["conversation_id"].(string)
-
 		var isMember bool
-		err := tx.QueryRow(`
+		err = h.db.QueryRow(`
 			SELECT EXISTS(
 				SELECT 1 FROM chat_conversation_members
 				WHERE conversation_id = $1 AND user_id = $2 AND archived_at IS NULL
 			)
 		`, conversationID, claims.UserID).Scan(&isMember)
-
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
-
 		if !isMember {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Access denied: not a member of this conversation"))
 			return
@@ -1203,7 +1173,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		}
 
 		var isMember bool
-		err := tx.QueryRow(`
+		err := h.db.QueryRow(`
 			SELECT EXISTS(
 				SELECT 1 FROM chat_messages m
 				INNER JOIN chat_conversation_members cm ON m.conversation_id = cm.conversation_id
@@ -1250,7 +1220,7 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 
 	insertQuery += joinStrings(columns, ", ") + ") VALUES (" + joinStrings(placeholders, ", ") + ") RETURNING *"
 
-	rows, err := tx.Query(insertQuery, args...)
+	rows, err := h.db.Query(insertQuery, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
@@ -1268,14 +1238,15 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 		return
 	}
 
-	// Commit transaction before publishing events
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	// Publish WebSocket events for new chat messages (after commit)
+	// Decrypt content for response and WebSocket/bot events
 	if tableName == "chat_messages" {
+		if enc, ok := result["content_encrypted"].(string); ok && enc != "" {
+			if decrypted, err := decryptMessageContent(enc); err == nil {
+				result["content"] = decrypted
+			}
+		}
+
+		// Publish WebSocket event
 		if h.hub != nil {
 			conversationID := rowUserID(result["conversation_id"])
 			if conversationID != "" {
@@ -1289,13 +1260,6 @@ func (h *UniversalHandler) handleMessengerTablePost(c *gin.Context, tableName st
 
 		// Publish to bot events
 		if h.botEventPublisher != nil {
-			// Extract plaintext from BOT_PLAINTEXT: prefix for bots
-			if ciphertext, ok := result["ciphertext"].(string); ok {
-				if strings.HasPrefix(ciphertext, "BOT_PLAINTEXT:") {
-					plaintext := strings.TrimPrefix(ciphertext, "BOT_PLAINTEXT:")
-					result["plaintext"] = plaintext
-				}
-			}
 			h.botEventPublisher.PublishChatMessage(result)
 		}
 	}
