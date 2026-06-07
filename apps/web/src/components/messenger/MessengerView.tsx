@@ -458,13 +458,13 @@ export const MessengerView = () => {
       if (error || !data) throw error ?? new Error("Не удалось отправить сообщение");
       if (!mountedRef.current) return;
 
-    setMessages((prev) => {
-      // Remove the local pending message by client_message_id, add server version
-      const filtered = prev.filter((m) => m.client_message_id !== clientMessageId);
-      const serverMsg = data as ChatMessageRecord;
-      return [...filtered, { ...serverMsg, plainText, peerDeliveredAt: null, peerReadAt: null }]
-        .sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
-    });
+      // Replace pending with server version, then fetch incremental to sync receipts
+      setMessages((prev) => {
+        const filtered = prev.filter((m) => m.client_message_id !== clientMessageId);
+        const serverMsg = data as ChatMessageRecord;
+        return [...filtered, { ...serverMsg, plainText, peerDeliveredAt: null, peerReadAt: null }]
+          .sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
+      });
       await refreshCurrentConversation(true);
       setErrorMessage(null);
     } catch (error) {
@@ -510,15 +510,14 @@ export const MessengerView = () => {
           return [...filtered, { ...(data as ChatMessageRecord), plainText: message.plainText, peerDeliveredAt: null, peerReadAt: null }]
             .sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
         });
-        void refreshCurrentConversation(true).catch(() => undefined);
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Не удалось отправить сообщение");
-      } finally {
-        if (mountedRef.current) setSending(false);
-      }
-    },
-    [me, sending],
-  );
+        void refreshCurrentConversation(true).catch(() => undefined);    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось отправить сообщение");
+    } finally {
+      if (mountedRef.current) setSending(false);
+    }
+  },
+  [me, sending],
+);
 
   useEffect(() => { resizeComposer(); }, [draft, resizeComposer]);
 
@@ -637,19 +636,84 @@ export const MessengerView = () => {
       void markRead(selectedConversation.id, latestMessage.id).catch(() => undefined);
   }, [markDelivered, markRead, me, messages, selectedConversation]);
 
-  // WebSocket subscription (debounced — skip if recently fetched)
-  const lastWsRefresh = useRef(0);
+  // WebSocket subscription — process message data directly from event, no full re-fetch
+  const processedWsMessageIds = useRef(new Set<string>());
   useEffect(() => {
     if (!selectedConversation) return;
     const chatRoom = `chat_${selectedConversation.id}`;
     ws.subscribe(chatRoom);
-    const unsubscribe = ws.on("new_chat_message", () => {
-      const now = Date.now();
-      if (now - lastWsRefresh.current < 2000) return;
-      lastWsRefresh.current = now;
-      void refreshCurrentConversation(true).catch(() => undefined);
+
+    const unsubscribe = ws.on("new_chat_message", (event) => {
+      const currentConv = selectedConversationRef.current;
+      const currentMe = meRef.current;
+      if (!currentConv || !currentMe) return;
+
+      // WS event payload shape: { type, room, data: { id, conversation_id, ... }, timestamp }
+      const msgData = (event.data ?? {}) as Record<string, unknown>;
+      const serverId = msgData.id as string | undefined;
+
+      // Re-fetch if message already processed or data is incomplete
+      if (!serverId || !msgData.conversation_id) {
+        void refreshCurrentConversation(true).catch(() => undefined);
+        return;
+      }
+
+      // Dedup: skip if we've already seen this message ID
+      if (processedWsMessageIds.current.has(serverId)) return;
+      processedWsMessageIds.current.add(serverId);
+
+      // Cleanup: keep set from growing indefinitely
+      if (processedWsMessageIds.current.size > 200) {
+        processedWsMessageIds.current.clear();
+      }
+
+      // If WS event is for a DIFFERENT conversation — just refresh sidebar
+      if (String(msgData.conversation_id) !== currentConv.id) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === String(msgData.conversation_id)
+              ? { ...c, lastMessageAt: (msgData.sent_at as string) ?? c.lastMessageAt, unreadCount: c.unreadCount + 1 }
+              : c,
+          ),
+        );
+        return;
+      }
+
+      // Message is for the current conversation — merge into messages
+      const newMsg = msgData as unknown as ChatMessageRecord;
+
+      setMessages((prev) => {
+        // Already present (could be pending that server confirmed)
+        if (prev.some((m) => m.id === newMsg.id || m.client_message_id === newMsg.client_message_id)) {
+          return prev;
+        }
+        // Also skip if it's our own message that will be confirmed via HTTP response
+        if (prev.some((m) => m.client_message_id === newMsg.client_message_id)) {
+          return prev;
+        }
+        return mergeMessages(prev, [{
+          ...newMsg,
+          plainText: newMsg.content || "[Сообщение]",
+          peerDeliveredAt: null,
+          peerReadAt: null,
+        }], currentMe.id);
+      });
+
+      // Move conversation to top of sidebar
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === currentConv.id
+            ? { ...c, lastMessageAt: (newMsg.sent_at) ?? c.lastMessageAt }
+            : c,
+        ),
+      );
     });
-    return () => { unsubscribe(); ws.unsubscribe(chatRoom); };
+
+    return () => {
+      unsubscribe();
+      ws.unsubscribe(chatRoom);
+      processedWsMessageIds.current.clear();
+    };
   }, [refreshCurrentConversation, selectedConversation, ws]);
 
   // Pinned message
@@ -699,13 +763,13 @@ export const MessengerView = () => {
     [me, refreshCurrentConversation],
   );
 
-  // Focus handler (no conversation reload — was the main cause of flickering)
+  // Focus handler (debounced, no conversation reload — was the main cause of flickering)
   const lastFocusRefresh = useRef(0);
   useEffect(() => {
     if (!selectedConversation) return;
     const onFocus = () => {
       const now = Date.now();
-      if (now - lastFocusRefresh.current < 5000) return;
+      if (now - lastFocusRefresh.current < 3000) return;
       lastFocusRefresh.current = now;
       if (!mountedRef.current || !visibleConversationIdRef.current) return;
       const latestMessage = messagesRef.current.at(-1);
