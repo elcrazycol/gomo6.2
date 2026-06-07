@@ -646,7 +646,8 @@ export const MessengerView = () => {
     const chatRoom = `chat_${selectedConversation.id}`;
     ws.subscribe(chatRoom);
 
-    const unsubscribe = ws.on("new_chat_message", (event) => {
+    const unsubscribe = ws.on("new_chat_message", (rawEvent) => {
+      const event = rawEvent as Record<string, unknown>;
       const currentConv = selectedConversationRef.current;
       const currentMe = meRef.current;
       if (!currentConv || !currentMe) return;
