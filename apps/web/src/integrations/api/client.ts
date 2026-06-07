@@ -179,7 +179,7 @@ class ApiClient {
     }
 
     // Check unified {success, data} format
-    if (data.success === false) {
+    if (data != null && data.success === false) {
       throw new Error(data.error || 'Request failed');
     }
     return data;

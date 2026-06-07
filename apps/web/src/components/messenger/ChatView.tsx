@@ -193,7 +193,7 @@ export const ChatView = memo(function ChatView({
           </div>
         ) : null}
 
-        {messagesLoading ? (
+        {messagesLoading && messages.length === 0 ? (
           <div className="inline-loader">
             <PentagramLoader size="md" />
           </div>
@@ -205,6 +205,11 @@ export const ChatView = memo(function ChatView({
           </div>
         ) : (
           <>
+            {messagesLoading ? (
+              <div className="inline-loader subtle">
+                <PentagramLoader size="sm" />
+              </div>
+            ) : null}
             {hasMoreMessages ? (
               <div className="load-more-container">
                 {loadingMore ? (
