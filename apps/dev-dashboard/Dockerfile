@@ -14,7 +14,7 @@ COPY apps/docs/package.json ./apps/docs/
 
 # Install ALL workspace dependencies at root
 # BuildKit cache mount persists /root/.npm across builds
-ENV NODE_OPTIONS="--max-old-space-size=512"
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
