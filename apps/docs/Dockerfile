@@ -13,7 +13,8 @@ COPY apps/web/package.json ./apps/web/
 COPY apps/dev-dashboard/package.json ./apps/dev-dashboard/
 
 # Install ALL workspace dependencies at root
-RUN npm ci
+ENV NODE_OPTIONS="--max-old-space-size=512"
+RUN npm ci --maxsockets=1 --prefer-offline
 
 # Copy the docs app source
 COPY apps/docs/ ./apps/docs/
