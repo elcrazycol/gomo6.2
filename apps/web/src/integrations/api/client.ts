@@ -257,7 +257,11 @@ class ApiClient {
       const response = await this.request<User>('/api/v1/auth/me');
       return response.data as User;
     } catch (error) {
-      this.clearToken();
+      // Only clear token on explicit 401 (expired/invalid).
+      // Network errors (502, CORS, timeout) should NOT log out the user.
+      if (error instanceof Error && error.message.includes('HTTP 401')) {
+        this.clearToken();
+      }
       return null;
     }
   }
