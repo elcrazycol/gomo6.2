@@ -14,6 +14,8 @@ COPY vendor/ ./vendor/
 COPY . .
 
 # Build using vendored dependencies (no network)
+# GOMEMLIMIT prevents OOM on low-RAM VPS during compilation
+ENV GOMEMLIMIT=256MiB
 RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o main cmd/server/main.go
 
 # Final stage

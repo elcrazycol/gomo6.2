@@ -45,15 +45,19 @@ echo "[2/4] Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
 
 # ── Rebuild and restart ─────────────────────────────────────────────────────
 echo "[3/4] Rebuilding Docker images (commit: $GIT_COMMIT)..."
-echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && docker compose build --build-arg VITE_GIT_COMMIT=$OLD_COMMIT web && docker compose up -d"
+echo "       If this fails, rollback: git reset --hard $OLD_COMMIT && docker build -t gomo6-backend -f apps/backend-go/Dockerfile apps/backend-go && docker build --build-arg VITE_GIT_COMMIT=$OLD_COMMIT -t gomo6-web -f apps/web/Dockerfile . && docker build -t gomo6-docs -f apps/docs/Dockerfile . && docker build -t gomo6-dev-dashboard -f apps/dev-dashboard/Dockerfile . && docker compose up -d"
 # Pass GIT_COMMIT explicitly via --build-arg (bypasses docker-compose.yml interpolation + .env)
-# Build sequentially — VPS has limited RAM, parallel npm ci exhausts memory
-# 1. Backend (Go) first — no npm
-docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" backend
-# 2. Frontends one at a time — each runs npm ci (384MB heap)
-docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" web
-docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" docs
-docker compose build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" dev-dashboard
+# Build sequentially with docker build (not docker compose build) —
+# bash awaits each build, so they're truly sequential (no OOM).
+# BuildKit stays enabled → npm cache mount works across builds.
+echo "  [3.1/4] Building backend (Go)..."
+docker build -t gomo6-backend -f apps/backend-go/Dockerfile apps/backend-go
+echo "  [3.2/4] Building web frontend..."
+docker build --build-arg VITE_GIT_COMMIT="$GIT_COMMIT" -t gomo6-web -f apps/web/Dockerfile .
+echo "  [3.3/4] Building docs frontend..."
+docker build -t gomo6-docs -f apps/docs/Dockerfile .
+echo "  [3.4/4] Building dev-dashboard frontend..."
+docker build -t gomo6-dev-dashboard -f apps/dev-dashboard/Dockerfile .
 docker compose up -d --remove-orphans
 
 # ── Clean up old images ─────────────────────────────────────────────────────
