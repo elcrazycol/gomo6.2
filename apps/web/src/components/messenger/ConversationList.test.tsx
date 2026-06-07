@@ -44,10 +44,7 @@ const makeConversation = (overrides: Partial<ConversationView> = {}): Conversati
   lastReadAt: null,
   lastMessageAt: null,
   pinnedMessageId: null,
-  otherUser: {
-    ...makeProfile({ id: "other-1", username: "otheruser" }),
-    publicKey: null,
-  },
+  otherUser: makeProfile({ id: "other-1", username: "otheruser" }),
   ...overrides,
 });
 
@@ -176,29 +173,23 @@ describe("ConversationList", () => {
     const conversations = [
       makeConversation({
         id: "conv-1",
-        otherUser: {
-          ...makeProfile({
-            id: "other-1",
-            username: "alice",
-            avatar_url: null,
-            account_number: 1001,
-          }),
-          publicKey: null,
-        },
+        otherUser: makeProfile({
+          id: "other-1",
+          username: "alice",
+          avatar_url: null,
+          account_number: 1001,
+        }),
         unreadCount: 2,
       }),
       makeConversation({
         id: "conv-2",
-        otherUser: {
-          ...makeProfile({
-            id: "other-2",
-            username: "bob",
-            avatar_url: "avatar.jpg",
-            account_number: 1002,
-            is_online: true,
-          }),
-          publicKey: null,
-        },
+        otherUser: makeProfile({
+          id: "other-2",
+          username: "bob",
+          avatar_url: "avatar.jpg",
+          account_number: 1002,
+          is_online: true,
+        }),
         unreadCount: 0,
       }),
     ];
@@ -276,10 +267,7 @@ describe("ConversationList", () => {
   describe("edge cases", () => {
     it("handles missing account_number gracefully", () => {
       const conv = makeConversation({
-        otherUser: {
-          ...makeProfile({ account_number: null }),
-          publicKey: null,
-        },
+        otherUser: makeProfile({ account_number: null }),
       });
       render(<ConversationList {...defaultProps} conversations={[conv]} />);
       expect(screen.getByText("#?")).toBeInTheDocument();

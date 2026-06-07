@@ -31,10 +31,8 @@ export type ChatMessageRecord = {
   sender_user_id: string;
   client_message_id: string;
   sent_at: string;
-  ciphertext: string | null;
-  nonce: string | null;
-  sender_public_key: string | null;
-  recipient_public_key: string | null;
+  content_encrypted: string;
+  content: string; // decrypted by server before sending to client
 };
 
 export type ChatReceiptRecord = {
@@ -50,9 +48,7 @@ export type ConversationView = {
   lastReadAt: string | null;
   lastMessageAt: string | null;
   pinnedMessageId: string | null;
-  otherUser: ProfileSummary & {
-    publicKey: string | null;
-  };
+  otherUser: ProfileSummary;
 };
 
 export type PinnedMessageInfo = {
