@@ -68,16 +68,14 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
         case 'chat_mark_delivered':
         case 'chat_mark_read': {
           // Go handler returns c.JSON(http.StatusOK, nil) → body is null, not {success, data}
-          // rawRequest throws on null.success, so we catch and treat null as success
-          try {
-            await apiClient.rawRequest(`/api/rpc/${functionName}`, {
-              method: 'POST',
-              body: JSON.stringify(params || {}),
-            });
-            return { data: null, error: null };
-          } catch (error) {
-            return { data: null, error: error as { message: string } };
-          }
+          // client.ts request() now handles null body safely (data != null && data.success === false)
+          // On success: response is null → return { data: null, error: null }
+          // On failure: request() throws → error propagates to caller
+          await apiClient.rawRequest(`/api/rpc/${functionName}`, {
+            method: 'POST',
+            body: JSON.stringify(params || {}),
+          });
+          return { data: null, error: null };
         }
         default:
           return { data: null, error: { message: 'Unknown RPC function' } };
