@@ -13,7 +13,9 @@ COPY apps/web/package.json ./apps/web/
 COPY apps/docs/package.json ./apps/docs/
 
 # Install ALL workspace dependencies at root
-ENV NODE_OPTIONS="--max-old-space-size=512"
+# HTTP registry — VPS blocks outbound port 443 from Docker containers
+RUN npm config set registry http://registry.npmjs.org/
+ENV NODE_OPTIONS="--max-old-space-size=384"
 RUN npm ci --maxsockets=1 --prefer-offline
 
 # Copy the dev-dashboard app source
