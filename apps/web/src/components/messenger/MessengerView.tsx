@@ -77,7 +77,6 @@ export const MessengerView = () => {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(requestedConversationId);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(true);
   const [conversationsLoading, setConversationsLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -517,10 +516,10 @@ export const MessengerView = () => {
 
   useEffect(() => { resizeComposer(); }, [draft, resizeComposer]);
 
-  // Bootstrap
+  // Bootstrap — fetch data in background, shell renders immediately (no full-screen loader)
   useEffect(() => {
     const bootstrap = async () => {
-      setLoading(true);
+      setConversationsLoading(true);
       try {
         const { data: { user } } = await api.auth.getUser();
         if (!user) { navigate("/auth"); return; }
@@ -538,7 +537,7 @@ export const MessengerView = () => {
       } catch (error) {
         if (mountedRef.current) setErrorMessage(error instanceof Error ? error.message : "Не удалось инициализировать messenger");
       } finally {
-        if (mountedRef.current) setLoading(false);
+        if (mountedRef.current) setConversationsLoading(false);
       }
     };
     void bootstrap();
@@ -786,13 +785,8 @@ export const MessengerView = () => {
     return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, [markRead, refreshCurrentConversation, selectedConversation]);
 
-  if (loading || !me) {
-    return (
-      <MessengerErrorBoundary>
-        <div className="messenger-loading-page"><PentagramLoader size="lg" /></div>
-      </MessengerErrorBoundary>
-    );
-  }
+  // Shell renders immediately — no full-screen loader blocking the UI
+  // Skeleton states are handled by conversationsLoading / messagesLoading within child components
 
   const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
 
@@ -817,7 +811,7 @@ export const MessengerView = () => {
             />
           </aside>
           <section className={`chat-panel ${shouldShowMobileChat ? "is-open" : ""}`}>
-            {selectedConversation ? (
+            {selectedConversation && me ? (
               <ChatView
                 selectedConversation={selectedConversation}
                 messages={messages}
