@@ -536,9 +536,9 @@ export const MessengerView = () => {
         setMe(profile);
         await loadConversations(user.id);
 
+        // Keep the conversation selected by loadConversations, just open sidebar on desktop
         if (!targetUserId && mountedRef.current) {
           setMobileSidebarOpen(true);
-          setSelectedConversationId(null);
         }
       } catch (error) {
         if (mountedRef.current) setErrorMessage(error instanceof Error ? error.message : "Не удалось инициализировать messenger");
