@@ -1,5 +1,0 @@
-# hadolint configuration
-# Ignore DL3018 (pin versions in apk add) — build-stage deps don't need exact pins,
-# and the VPS environment has intermittent TLS issues with version-qualified fetches.
-ignored:
-  - DL3018

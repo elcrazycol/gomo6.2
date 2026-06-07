@@ -2,25 +2,23 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
-# Install git and ca-certificates (use HTTP mirror — VPS has TLS issues with CDN)
-RUN sed -i 's/https/http/g' /etc/apk/repositories && \
-    apk add --no-cache git ca-certificates
+# Install git and ca-certificates
+RUN apk add --no-cache git ca-certificates
 
-# Copy go mod files + vendor (all deps vendored — no network needed for build)
+# Copy go mod files
 COPY go.mod go.sum ./
-COPY vendor/ ./vendor/
+RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Build using vendored dependencies (no network)
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o main cmd/server/main.go
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/main.go
 
 # Final stage
 FROM alpine:3.23
 
-RUN sed -i 's/https/http/g' /etc/apk/repositories && \
-    apk --no-cache add ca-certificates curl
+RUN apk --no-cache add ca-certificates curl
 WORKDIR /root/
 
 # Copy the binary from builder stage
