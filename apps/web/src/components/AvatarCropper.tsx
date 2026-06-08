@@ -210,9 +210,6 @@ export const AvatarCropper = ({ imageSrc, onCropComplete, onCancel }: AvatarCrop
       const sourceHeight = frameSize / imageScale;
 
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, 0, Math.PI * 2);
-      ctx.clip();
       ctx.drawImage(
         img,
         sourceX,
