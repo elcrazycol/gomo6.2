@@ -269,18 +269,35 @@ func (ac *AchievementChecker) statForGroup(groupKey string, category string, sta
 
 // ──────────────── Level upgrade ────────────────
 
-// upgradeLevel upserts user_achievements with the new level.
-// Returns achievement info if the level actually increased (or was newly unlocked).
+// upgradeLevel upserts user_achievements: always updates progress_current, and
+// bumps current_level when a new threshold is reached.
+// Returns achievement info only if the level actually increased (for notification).
 func (ac *AchievementChecker) upgradeLevel(userID string, ach achievementRow, levels []levelDef, newLevel int, progress int) *UnlockedAchievement {
-	// Get current level
+	// Get current level and progress
 	var currentLevel int
+	var currentProgress int
 	ac.db.QueryRow(
-		"SELECT COALESCE(current_level, 0) FROM user_achievements WHERE user_id = $1 AND achievement_id = $2",
+		"SELECT COALESCE(current_level, 0), COALESCE(progress_current, 0) FROM user_achievements WHERE user_id = $1 AND achievement_id = $2",
 		userID, ach.ID,
-	).Scan(&currentLevel)
+	).Scan(&currentLevel, &currentProgress)
 
+	// Always update progress_current (so the frontend sees real-time counts),
+	// even if the level hasn't changed yet.
+	if progress > currentProgress || newLevel > currentLevel {
+		_, err := ac.db.Exec(`
+			INSERT INTO user_achievements (user_id, achievement_id, current_level, progress_current)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (user_id, achievement_id)
+			DO UPDATE SET current_level = $3, progress_current = $4, unlocked_at = NOW()
+		`, userID, ach.ID, newLevel, progress)
+		if err != nil {
+			log.Printf("[Achievements] upgradeLevel upsert: %v", err)
+		}
+	}
+
+	// No level increase — no notification needed
 	if newLevel <= currentLevel {
-		return nil // already at this level or higher
+		return nil
 	}
 
 	idx := newLevel - 1
@@ -289,25 +306,12 @@ func (ac *AchievementChecker) upgradeLevel(userID string, ach achievementRow, le
 	}
 	levelInfo := levels[idx]
 
-	// Upsert
-	_, err := ac.db.Exec(`
-		INSERT INTO user_achievements (user_id, achievement_id, current_level, progress_current)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id, achievement_id)
-		DO UPDATE SET current_level = $3, progress_current = $4, unlocked_at = NOW()
-	`, userID, ach.ID, newLevel, progress)
-
-	if err != nil {
-		log.Printf("[Achievements] upgradeLevel upsert: %v", err)
-		return nil
-	}
-
 	// Apply reward (only for the delta — first time for each level)
 	ac.applyReward(userID, levelInfo.RewardType, levelInfo.RewardValue)
 
 	isFirstTime := currentLevel == 0
-	log.Printf("[Achievements] %s (%s) L%d → L%d for user %s (first=%v)",
-		ach.GroupKey, levelInfo.Name, currentLevel, newLevel, userID, isFirstTime)
+	log.Printf("[Achievements] %s (%s) L%d → L%d for user %s (first=%v, progress=%d)",
+		ach.GroupKey, levelInfo.Name, currentLevel, newLevel, userID, isFirstTime, progress)
 
 	return &UnlockedAchievement{
 		ID:          ach.ID,
