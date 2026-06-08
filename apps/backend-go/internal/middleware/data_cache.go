@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,12 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 
 		// Skip if Redis is not available
 		if redisClient == nil {
+			c.Next()
+			return
+		}
+
+		// Skip caching for achievement endpoints — they must be real-time
+		if strings.Contains(c.Request.URL.Path, "achievements") {
 			c.Next()
 			return
 		}
