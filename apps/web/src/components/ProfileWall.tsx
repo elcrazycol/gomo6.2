@@ -935,7 +935,7 @@ const WallPostCard = ({
           tabIndex={postHref && !isEditing ? 0 : undefined}
         >{post.content?.trim() && (
               <div className="mb-4 break-words text-[14px] leading-6 sm:text-[15px] sm:leading-7">
-              <ProcessedContent            content={(post.content as string) || ""} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
+              <ProcessedContent            content={(post.content as string) || ""} contentJson={post.content_json} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
             </div>
           )}
 
