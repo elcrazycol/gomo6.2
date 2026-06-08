@@ -41,6 +41,41 @@ const mergeServerMessages = (prev: MessageView[], server: MessageView[]): Messag
     (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
   );
 };
+
+/** Fetch receipts and update messages with delivered/read status.
+ *  Returns updated messages array (same reference if no changes). */
+const refreshReceipts = async (
+  currentMessages: MessageView[],
+  myId: string,
+): Promise<MessageView[]> => {
+  const visibleIds = currentMessages.filter((m) => !m.id.startsWith("local-")).map((m) => m.id);
+  if (visibleIds.length === 0) return currentMessages;
+
+  const rParams = new URLSearchParams({ select: "message_id,user_id,delivered_at,read_at" });
+  rParams.append("message_id", `in.(${visibleIds.join(",")})`);
+  const token = localStorage.getItem("auth_token");
+
+  try {
+    const rRes = await fetch(`/api/v1/chat_receipts?${rParams}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const rJson = await rRes.json();
+    const receipts = (rJson.data ?? []) as ChatReceiptRecord[];
+
+    // Only update if something changed
+    let changed = false;
+    const updated = currentMessages.map((m) => {
+      const peer = receipts.find((r) => r.message_id === m.id && r.user_id !== myId) ?? null;
+      if (!peer) return m;
+      if (m.peerDeliveredAt === (peer.delivered_at ?? null) && m.peerReadAt === (peer.read_at ?? null)) return m;
+      changed = true;
+      return { ...m, peerDeliveredAt: peer.delivered_at ?? null, peerReadAt: peer.read_at ?? null };
+    });
+    return changed ? updated : currentMessages;
+  } catch {
+    return currentMessages;
+  }
+};
 const loadConversationsFromApi = async (userId: string): Promise<ConversationView[]> => {
   const { data: memberships, error: mErr } = await api
     .from("chat_conversation_members" as never)
@@ -547,65 +582,40 @@ export const MessengerView = () => {
     [me, selectedId],
   );
 
-  // ── Focus: merge server messages + mark read ──────────────────────────
+  // ── Visibility change: reload + receipts on tab becoming visible ─────
   useEffect(() => { msgsRef.current = messages; }, [messages]);
-  const lastFocus = useRef(0);
   useEffect(() => {
     if (!selectedId || !me) return;
-    const onFocus = () => {
-      const now = Date.now();
-      if (now - lastFocus.current < 5000) return;
-      lastFocus.current = now;
-
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
       const conv = conversations.find((c) => c.id === selectedId);
       if (!conv) return;
 
-      // Merge server messages with pending (don't lose optimistic inserts during reload)
-      const cid = selectedId;
-      loadMessagesFromApi(cid, me.id, conv.otherUser.id)
+      // Reload messages from server (catch up on offline period)
+      loadMessagesFromApi(selectedId, me.id, conv.otherUser.id)
         .then((serverMsgs) => {
-          if (selectedId !== cid) return;
           setMessages((prev) => mergeServerMessages(prev, serverMsgs));
         })
         .catch(() => {});
 
+      // Refresh receipts for existing messages (delivered/read status)
+      const current = msgsRef.current;
+      if (current.length > 0) {
+        refreshReceipts(current, me.id).then((updated) => {
+          setMessages(updated);
+        }).catch(() => {});
+      }
+
+      // Mark last message as read
       const last = msgsRef.current.at(-1);
       if (last && last.localStatus !== "pending" && !last.id.startsWith("local-")) {
         markRead(selectedId, last.id);
       }
-
-      // Refresh receipts for all visible messages (read/delivered status)
-      if (msgsRef.current.length > 0) {
-        const visibleIds = msgsRef.current.filter((m) => !m.id.startsWith("local-")).map((m) => m.id);
-        if (visibleIds.length > 0) {
-          const rParams = new URLSearchParams({ select: "message_id,user_id,delivered_at,read_at" });
-          rParams.append("message_id", `in.(${visibleIds.join(",")})`);
-          const token = localStorage.getItem("auth_token");
-          fetch(`/api/v1/chat_receipts?${rParams}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          })
-            .then((r) => r.json())
-            .then((json) => {
-              const receipts = (json.data ?? []) as ChatReceiptRecord[];
-              setMessages((prev) =>
-                prev.map((m) => {
-                  const peer = receipts.find((r) => r.message_id === m.id && r.user_id !== me!.id) ?? null;
-                  if (!peer) return m;
-                  if (m.peerDeliveredAt === peer.delivered_at && m.peerReadAt === peer.read_at) return m;
-                  return { ...m, peerDeliveredAt: peer.delivered_at ?? null, peerReadAt: peer.read_at ?? null };
-                }),
-              );
-            })
-            .catch(() => {});
-        }
-      }
     };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onFocus);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onFocus);
-    };
+    document.addEventListener("visibilitychange", onVisible);
+    // Also fire once immediately on mount (in case tab is already visible)
+    if (document.visibilityState === "visible") onVisible();
+    return () => document.removeEventListener("visibilitychange", onVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, me, conversations, markRead]);
 

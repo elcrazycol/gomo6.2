@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, MessageCircle, Pin } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -55,31 +55,46 @@ export const ChatView = memo(function ChatView({
 }: ChatViewProps) {
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
-  const prevMessagesLength = useRef(messages.length);
+  const prevMessagesLength = useRef(0);
+  const shouldAutoScroll = useRef(true);
 
+  // Fire-and-forget: set scrollTop directly. Called from effects only.
+  const pinToBottom = () => {
+    const c = messageScrollRef.current;
+    if (c) c.scrollTop = c.scrollHeight;
+  };
+
+  const isUpRef = useRef(false);
+
+  // Track scroll position — update shouldAutoScroll flag (stable handler)
   const handleScroll = useCallback(() => {
-    const container = messageScrollRef.current;
-    if (!container) return;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const scrolledUp = distanceFromBottom > 128;
+    const c = messageScrollRef.current;
+    if (!c) return;
+    const dist = c.scrollHeight - c.scrollTop - c.clientHeight;
+    shouldAutoScroll.current = dist <= 64;
+    const up = dist > 128;
+    if (up !== isUpRef.current) { isUpRef.current = up; setIsScrolledUp(up); }
+    if (!up) setNewMessageCount(0);
+  }, []);
 
-    if (scrolledUp !== isScrolledUp) {
-      setIsScrolledUp(scrolledUp);
-    }
-
-    // If manually scrolled down, reset new message count
-    if (!scrolledUp && newMessageCount > 0) {
-      setNewMessageCount(0);
-    }
-  }, [isScrolledUp, newMessageCount, messageScrollRef]);
-
-  // Track new messages while scrolled up
+  // Track unread count when scrolled up
   useEffect(() => {
     if (isScrolledUp && messages.length > prevMessagesLength.current) {
-      setNewMessageCount((prev) => prev + (messages.length - prevMessagesLength.current));
+      setNewMessageCount((c) => c + (messages.length - prevMessagesLength.current));
     }
     prevMessagesLength.current = messages.length;
   }, [messages.length, isScrolledUp]);
+
+  // Auto-scroll on every render when at bottom (fires after any state change)
+  useLayoutEffect(() => {
+    if (shouldAutoScroll.current) pinToBottom();
+  });
+
+  // Reset scroll flag on conversation switch
+  useLayoutEffect(() => {
+    shouldAutoScroll.current = true;
+    pinToBottom();
+  }, [selectedConversation.id]);
 
   const scrollToPinned = useCallback(() => {
     if (!pinnedMessageInfo) return;
@@ -123,28 +138,6 @@ export const ChatView = memo(function ChatView({
     setIsScrolledUp(false);
     setNewMessageCount(0);
   }, [messageScrollRef, endRef]);
-
-  // Auto-scroll when messages change and user is at bottom (not scrolled up)
-  useEffect(() => {
-    if (messages.length > 0 && !isScrolledUp) {
-      const increased = messages.length > prevMessagesLength.current || prevMessagesLength.current === 0;
-      if (increased) {
-        requestAnimationFrame(() => scrollToBottom());
-      }
-    }
-    prevMessagesLength.current = messages.length;
-  }, [messages.length, isScrolledUp, scrollToBottom]);
-
-  // Scroll to bottom when switching conversations (reset position)
-  const prevConvId = useRef(selectedConversation.id);
-  useEffect(() => {
-    if (prevConvId.current !== selectedConversation.id) {
-      prevConvId.current = selectedConversation.id;
-      if (messages.length > 0) {
-        requestAnimationFrame(() => scrollToBottom());
-      }
-    }
-  }, [selectedConversation.id, messages.length, scrollToBottom]);
 
   return (
     <>
