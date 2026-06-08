@@ -77,6 +77,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)
 	universalHandler.SetBotEventPublisher(botEventPublisher)
 	universalHandler.SetRedis(redis)
+
+	// Initialize achievement checker and wire into handlers
+	achChecker := handlers.NewAchievementChecker(db)
+	achChecker.SetRedis(redis)
+	achChecker.SetWebSocketHub(wsHub)
+	rpcHandler.SetAchievementChecker(achChecker)
+	universalHandler.SetAchievementChecker(achChecker)
 	audioHandler := handlers.NewAudioHandler()
 	botHandler := handlers.NewBotHandler(db)
 	botHandler.SetBotManager(botManager)
