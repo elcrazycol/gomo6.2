@@ -40,6 +40,7 @@ const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
 const Bots = lazy(() => import("./pages/Bots"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
+const Achievements = lazy(() => import("./pages/Achievements"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Prefetch critical routes on app start
@@ -140,6 +141,7 @@ const App = () => {
                     <Route index element={<LazyPage component={Index} />} />
                     <Route path="boards" element={<LazyPage component={BoardsView} />} />
                     <Route path="messages" element={<LazyPage component={Messages} />} />
+                    <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
                     <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
                     <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
                     <Route path="moderation" element={<LazyPage component={Moderation} />} />

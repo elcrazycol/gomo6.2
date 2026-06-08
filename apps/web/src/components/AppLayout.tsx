@@ -10,6 +10,7 @@ import { MobileMenu } from "@/components/MobileMenu";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
+import { AchievementToastListener } from "@/components/AchievementToastListener";
 import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
@@ -905,6 +906,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
   return (
     <div className="bg-background min-h-screen flex flex-col">
+      <AchievementToastListener />
       {!hideChrome ? (
       <motion.header
         data-app-layout-header="true"
