@@ -747,6 +747,10 @@ const Profile = () => {
   const handleCropConfirm = async (croppedImageData?: string) => {
     if (!userId) return;
 
+    // Show loader immediately and close crop dialog
+    setCropImage(null);
+    setAvatarUploading(true);
+
     try {
       let blob: Blob;
 
@@ -759,6 +763,7 @@ const Profile = () => {
         const response = await fetch(cropImage);
         blob = await response.blob();
       } else {
+        setAvatarUploading(false);
         return;
       }
 
@@ -770,7 +775,6 @@ const Profile = () => {
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      setAvatarUploading(true);
       const updateRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
         method: 'PUT',
         headers,
@@ -785,7 +789,6 @@ const Profile = () => {
       }
 
       setAvatarUrl(fileName);
-      setCropImage(null);
       setAvatarUploading(false);
       toast.success("Аватар обновлен");
 
@@ -1135,7 +1138,6 @@ const Profile = () => {
                     <AvatarCropper
                       imageSrc={cropImage}
                       onCropComplete={async (croppedImage) => {
-                        setCropImage(null);
                         await handleCropConfirm(croppedImage);
                       }}
                       onCancel={() => setCropImage(null)}
