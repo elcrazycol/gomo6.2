@@ -249,6 +249,13 @@ export const MessengerView = () => {
     return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Prevent body scroll (footer peeking) while messenger is mounted ──
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // ── Mobile detection ───────────────────────────────────────────────────
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 980px)");
@@ -427,6 +434,21 @@ export const MessengerView = () => {
     [],
   );
 
+  // ── WebSocket reconnect: reload messages (catch up on offline messages) ─
+  const prevConnected = useRef(ws.isConnected);
+  useEffect(() => {
+    if (ws.isConnected && !prevConnected.current && selectedId && me) {
+      // WS just reconnected — reload messages to catch up on offline period
+      const conv = conversations.find((c) => c.id === selectedId);
+      if (conv) {
+        loadMessagesFromApi(selectedId, me.id, conv.otherUser.id)
+          .then((msgs) => setMessages((prev) => mergeServerMessages(prev, msgs)))
+          .catch(() => {});
+      }
+    }
+    prevConnected.current = ws.isConnected;
+  }, [ws.isConnected, selectedId, me, conversations]);
+
   // ── WebSocket: subscribe to current conversation ──────────────────────
   useEffect(() => {
     if (!selectedId) return;
@@ -550,6 +572,32 @@ export const MessengerView = () => {
       const last = msgsRef.current.at(-1);
       if (last && last.localStatus !== "pending" && !last.id.startsWith("local-")) {
         markRead(selectedId, last.id);
+      }
+
+      // Refresh receipts for all visible messages (read/delivered status)
+      if (msgsRef.current.length > 0) {
+        const visibleIds = msgsRef.current.filter((m) => !m.id.startsWith("local-")).map((m) => m.id);
+        if (visibleIds.length > 0) {
+          const rParams = new URLSearchParams({ select: "message_id,user_id,delivered_at,read_at" });
+          rParams.append("message_id", `in.(${visibleIds.join(",")})`);
+          const token = localStorage.getItem("auth_token");
+          fetch(`/api/v1/chat_receipts?${rParams}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          })
+            .then((r) => r.json())
+            .then((json) => {
+              const receipts = (json.data ?? []) as ChatReceiptRecord[];
+              setMessages((prev) =>
+                prev.map((m) => {
+                  const peer = receipts.find((r) => r.message_id === m.id && r.user_id !== me!.id) ?? null;
+                  if (!peer) return m;
+                  if (m.peerDeliveredAt === peer.delivered_at && m.peerReadAt === peer.read_at) return m;
+                  return { ...m, peerDeliveredAt: peer.delivered_at ?? null, peerReadAt: peer.read_at ?? null };
+                }),
+              );
+            })
+            .catch(() => {});
+        }
       }
     };
     window.addEventListener("focus", onFocus);
