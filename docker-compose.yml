@@ -132,7 +132,6 @@ services:
 
   # ── Backend (Go API) ──────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/scramble22/gomo6-backend:latest
     build:
       context: ./apps/backend-go
       dockerfile: Dockerfile
@@ -170,7 +169,6 @@ services:
 
   # ── Frontend: Main Web App ────────────────────────────────────────────────
   web:
-    image: ghcr.io/scramble22/gomo6-web:latest
     build:
       context: .
       dockerfile: apps/web/Dockerfile
@@ -180,7 +178,6 @@ services:
 
   # ── Frontend: Documentation ───────────────────────────────────────────────
   docs:
-    image: ghcr.io/scramble22/gomo6-docs:latest
     build:
       context: .
       dockerfile: apps/docs/Dockerfile
@@ -188,7 +185,6 @@ services:
 
   # ── Frontend: Dev Dashboard ───────────────────────────────────────────────
   dev-dashboard:
-    image: ghcr.io/scramble22/gomo6-dev-dashboard:latest
     build:
       context: .
       dockerfile: apps/dev-dashboard/Dockerfile
