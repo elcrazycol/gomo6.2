@@ -124,6 +124,28 @@ export const ChatView = memo(function ChatView({
     setNewMessageCount(0);
   }, [messageScrollRef, endRef]);
 
+  // Auto-scroll when messages change and user is at bottom (not scrolled up)
+  useEffect(() => {
+    if (messages.length > 0 && !isScrolledUp) {
+      const increased = messages.length > prevMessagesLength.current || prevMessagesLength.current === 0;
+      if (increased) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
+    }
+    prevMessagesLength.current = messages.length;
+  }, [messages.length, isScrolledUp, scrollToBottom]);
+
+  // Scroll to bottom when switching conversations (reset position)
+  const prevConvId = useRef(selectedConversation.id);
+  useEffect(() => {
+    if (prevConvId.current !== selectedConversation.id) {
+      prevConvId.current = selectedConversation.id;
+      if (messages.length > 0) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
+    }
+  }, [selectedConversation.id, messages.length, scrollToBottom]);
+
   return (
     <>
       <div className="chat-topbar">
