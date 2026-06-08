@@ -91,8 +91,14 @@ export default function Achievements() {
 
       // Load all available achievements
       const allRes = await fetch(`/api/v1/achievements?order=sort_order.asc`);
-      const allResult = await allRes.json();
-      const allAchs: AchievementRow[] = allResult.data || [];
+      const allText = await allRes.text();
+      let allAchs: AchievementRow[] = [];
+      try {
+        const allResult = JSON.parse(allText);
+        allAchs = allResult.data || [];
+      } catch {
+        console.error("Failed to parse achievements JSON, response:", allText.slice(0, 200));
+      }
 
       // Merge
       const merged: AchievementData[] = allAchs.map((a: AchievementRow) => {
