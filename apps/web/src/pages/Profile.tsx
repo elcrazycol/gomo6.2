@@ -16,7 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2 } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -30,7 +30,7 @@ import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { AvatarGallery } from "@/components/AvatarGallery";
-import { AchievementCard, type AchievementData } from "@/components/AchievementCard";
+import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
 
 interface Profile {
   id: string;
@@ -62,17 +62,26 @@ interface Achievement {
 }
 
 interface UserAchievementRaw {
+  current_level?: number;
   level?: number;
   unlocked_at?: string;
   is_pinned?: boolean;
   pinned_order?: number;
-  achievement_type?: string;
+  progress_current?: number;
   achievements?: {
     id: string;
+    group_key?: string;
+    title?: string;
     name: string;
     description: string;
+    icon?: string;
+    category?: string;
+    rarity?: string;
+    achievement_type?: string;
+    hidden?: boolean;
     reward_type?: string;
     reward_value?: string;
+    levels?: AchievementLevel[];
   };
 }
 
@@ -428,53 +437,50 @@ const Profile = () => {
   };
 
   const loadAchievements = async () => {
-    const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=level.desc&order=unlocked_at.desc`);
+    const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${userId}&order=is_pinned.desc&order=pinned_order.asc&order=current_level.desc&order=unlocked_at.desc`);
     const achResult = await achRes.json();
     const data = achResult.data || [];
 
     if (data) {
       // Map to AchievementData format using DB data
       const processedAchievements: AchievementData[] = data.map((ua: UserAchievementRaw) => {
-        const a = ua.achievements ?? ({} as Partial<NonNullable<UserAchievementRaw["achievements"]>>);
+        const a = ua.achievements ?? ({} as NonNullable<UserAchievementRaw["achievements"]>);
+        const currentLevel = ua.current_level ?? ua.level ?? 0;
+        const levels = a.levels || [];
+        const levelDef = currentLevel > 0 && levels.length >= currentLevel ? levels[currentLevel - 1] : null;
+        
         return {
-          id: a.id || ua.achievement_type || "",
-          name: a.name ?? "—",
-          description: a.description ?? "",
-          icon: (a as any).icon || "🏆",
-          category: (a as any).category || "",
-          rarity: (a as any).rarity || "common",
-          level: ua.level || 1,
+          id: a.id || "",
+          group_key: a.group_key,
+          title: a.title,
+          name: levelDef?.name || a.name || "—",
+          description: levelDef?.description || a.description || "",
+          icon: a.icon || "sparkles",
+          category: a.category || "",
+          rarity: levelDef?.rarity || a.rarity || "common",
+          level: currentLevel,
+          current_level: currentLevel,
+          maxLevel: levels.length || 1,
+          max_level: levels.length || 1,
           is_pinned: ua.is_pinned || false,
           pinned_order: ua.pinned_order || null,
           unlocked_at: ua.unlocked_at,
-          progress_current: (ua as any).progress_current || 0,
-          progress_target: (ua as any).progress_target || 0,
-          achievement_type: (a as any).achievement_type || "one_time",
-          reward_type: a.reward_type ?? undefined,
-          reward_value: a.reward_value ?? undefined,
+          progress_current: ua.progress_current || 0,
+          achievement_type: a.achievement_type || "one_time",
+          reward_type: levelDef?.reward_type || a.reward_type || undefined,
+          reward_value: levelDef?.reward_value || a.reward_value || undefined,
+          hidden: a.hidden || false,
+          levels: levels,
         } as AchievementData;
       });
 
-      // Group progressive achievements by category, keep highest level
-      const achievementMap = new Map<string, AchievementData>();
-      
-      for (const ach of processedAchievements) {
-        const key = ach.category && ach.achievement_type === "progressive" ? ach.category : ach.id;
-        const existing = achievementMap.get(key);
-        if (!existing || (ach.level || 1) > (existing.level || 1)) {
-          achievementMap.set(key, ach);
-        }
-      }
-      
-      const grouped = Array.from(achievementMap.values());
-
       // Split into pinned and regular
-      const pinned = grouped.filter(a => a.is_pinned);
-      const regular = grouped.filter(a => !a.is_pinned);
+      const pinned = processedAchievements.filter(a => a.is_pinned);
+      const regular = processedAchievements.filter(a => !a.is_pinned);
 
       setPinnedAchievements(pinned);
       setRegularAchievements(regular);
-      setAchievements(grouped);
+      setAchievements(processedAchievements);
     }
   };
 
@@ -1058,7 +1064,7 @@ const Profile = () => {
               <p className="text-muted-foreground">Достижений пока нет</p>
             ) : (
               <div className="space-y-6">
-                {/* Закрепленные достижения */}
+                {/* Pinned achievements */}
                 {pinnedAchievements.length > 0 && (
                   <div className={isEditing ? "" : "mb-8"}>
                     {isEditing && (
@@ -1080,14 +1086,14 @@ const Profile = () => {
                   </div>
                 )}
 
-                {/* Обычные достижения */}
+                {/* Regular achievements */}
                 {regularAchievements.length > 0 && (
                   <div>
                     {isEditing && pinnedAchievements.length > 0 && (
                       <h3 className="text-lg font-semibold mb-3">Все достижения</h3>
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {regularAchievements.map((achievement) => (
+                      {regularAchievements.slice(0, 4).map((achievement) => (
                         <AchievementCard
                           key={achievement.id}
                           achievement={achievement}
@@ -1098,6 +1104,21 @@ const Profile = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Link to full achievements page */}
+                <div className="pt-2">
+                  <Link
+                    to={`/achievements/${userId}`}
+                    className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors group/link"
+                  >
+                    <Trophy className="w-4 h-4 group-hover/link:text-amber-400 transition-colors" />
+                    Все достижения
+                    <span className="text-xs text-muted-foreground/50">
+                      ({achievements.length})
+                    </span>
+                    <span className="ml-1 group-hover/link:translate-x-0.5 transition-transform">→</span>
+                  </Link>
+                </div>
               </div>
             )}
           </div>

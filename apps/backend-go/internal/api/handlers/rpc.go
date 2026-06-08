@@ -612,10 +612,6 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 
 		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = TRUE, pinned_order = $1, updated_at = NOW() WHERE id = $2", newOrder, postID)
 
-		// Award pin achievement
-		if h.achievementChecker != nil {
-			go h.achievementChecker.AwardOneTime(userID, "a0000001-0000-0000-0000-000000000027")
-		}
 	} else {
 		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = FALSE, pinned_order = NULL, updated_at = NOW() WHERE id = $1", postID)
 	}
