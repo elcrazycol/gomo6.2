@@ -39,6 +39,8 @@ type UnlockedAchievement struct {
 	Category    string `json:"category"`
 	Level       int    `json:"level"`
 	MaxLevel    int    `json:"max_level"`
+	IsFirstTime bool   `json:"is_first_time"`
+	PrevLevel   int    `json:"prev_level"`
 }
 
 // ──────────────── Internal DB-row types ────────────────
@@ -210,6 +212,7 @@ func (ac *AchievementChecker) CheckAndAward(userID string) []UnlockedAchievement
 }
 
 // AwardOneTime awards a one-time achievement (avatar, bio, style) by group_key.
+// Sends WebSocket notification for toast display.
 func (ac *AchievementChecker) AwardOneTime(userID string, groupKey string) *UnlockedAchievement {
 	if userID == "" || groupKey == "" {
 		return nil
@@ -225,7 +228,11 @@ func (ac *AchievementChecker) AwardOneTime(userID string, groupKey string) *Unlo
 		return nil
 	}
 
-	return ac.upgradeLevel(userID, *ach, levels, 1, 1)
+	result := ac.upgradeLevel(userID, *ach, levels, 1, 1)
+	if result != nil {
+		ac.sendUnlockNotification(userID, *result)
+	}
+	return result
 }
 
 // statForGroup returns the relevant stat count based on group_key (primary) or category (fallback).
@@ -295,11 +302,12 @@ func (ac *AchievementChecker) upgradeLevel(userID string, ach achievementRow, le
 		return nil
 	}
 
-	// Apply reward
+	// Apply reward (only for the delta — first time for each level)
 	ac.applyReward(userID, levelInfo.RewardType, levelInfo.RewardValue)
 
-	log.Printf("[Achievements] %s (%s) L%d → L%d for user %s",
-		ach.GroupKey, levelInfo.Name, currentLevel, newLevel, userID)
+	isFirstTime := currentLevel == 0
+	log.Printf("[Achievements] %s (%s) L%d → L%d for user %s (first=%v)",
+		ach.GroupKey, levelInfo.Name, currentLevel, newLevel, userID, isFirstTime)
 
 	return &UnlockedAchievement{
 		ID:          ach.ID,
@@ -311,6 +319,8 @@ func (ac *AchievementChecker) upgradeLevel(userID string, ach achievementRow, le
 		Category:    ach.Category,
 		Level:       newLevel,
 		MaxLevel:    len(levels),
+		IsFirstTime: isFirstTime,
+		PrevLevel:   currentLevel,
 	}
 }
 
@@ -353,14 +363,16 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 				"title":   title,
 				"message": message,
 				"achievement": map[string]interface{}{
-					"id":          ach.ID,
-					"group_key":   ach.GroupKey,
-					"name":        ach.Name,
-					"description": ach.Description,
-					"icon":        ach.Icon,
-					"rarity":      ach.Rarity,
-					"level":       ach.Level,
-					"max_level":   ach.MaxLevel,
+					"id":            ach.ID,
+					"group_key":     ach.GroupKey,
+					"name":          ach.Name,
+					"description":   ach.Description,
+					"icon":          ach.Icon,
+					"rarity":        ach.Rarity,
+					"level":         ach.Level,
+					"max_level":     ach.MaxLevel,
+					"is_first_time": ach.IsFirstTime,
+					"prev_level":    ach.PrevLevel,
 				},
 			}); err != nil {
 				log.Printf("[Achievements] WS notification error: %v", err)
