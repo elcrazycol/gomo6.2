@@ -10,25 +10,30 @@ import (
 	"github.com/gomo6/backend/internal/models"
 )
 
-// handleUserAchievementsGet returns rows shaped like PostgREST embeds: nested "achievements" object.
+// handleUserAchievementsGet returns rows shaped like PostgREST embeds: nested "achievements" object
+// with multi-level support (levels JSONB, current_level, max_level).
 func (h *UniversalHandler) handleUserAchievementsGet(c *gin.Context) {
 	query := `
 SELECT ua.id, ua.user_id, ua.achievement_id, ua.unlocked_at,
-  COALESCE(ua.level, 1) AS level,
+  COALESCE(ua.current_level, 0) AS level,
   COALESCE(ua.is_pinned, false) AS is_pinned,
   ua.pinned_order,
+  ua.progress_current,
   COALESCE(
     json_build_object(
       'id', a.id::text,
+      'group_key', a.group_key,
+      'title', COALESCE(a.title, a.name),
       'name', a.name,
       'description', a.description,
-      'icon', a.icon,
+      'icon', COALESCE(a.icon, 'sparkles'),
       'category', a.category,
       'rarity', COALESCE(a.rarity, 'common'),
       'achievement_type', COALESCE(a.achievement_type, 'one_time'),
       'reward_type', a.reward_type,
       'reward_value', a.reward_value,
-      'hidden', COALESCE(a.hidden, false)
+      'hidden', COALESCE(a.hidden, false),
+      'levels', COALESCE(a.levels::text, '[]')::json
     ),
     '{}'::json
   ) AS achievements

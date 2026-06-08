@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -27,316 +28,313 @@ func (ac *AchievementChecker) SetRedis(redis interface{}) { ac.redis = redis }
 // SetWebSocketHub sets the WebSocket hub for real-time notifications.
 func (ac *AchievementChecker) SetWebSocketHub(hub interface{}) { ac.wsHub = hub }
 
-// Achievement represents an unlocked achievement for notification purposes.
+// UnlockedAchievement represents an unlocked or upgraded achievement for notification purposes.
 type UnlockedAchievement struct {
 	ID          string `json:"id"`
+	GroupKey    string `json:"group_key"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
 	Rarity      string `json:"rarity"`
 	Category    string `json:"category"`
+	Level       int    `json:"level"`
+	MaxLevel    int    `json:"max_level"`
 }
 
-// CheckAndAward checks all relevant achievements for a user action and awards any newly unlocked ones.
-// Returns the list of newly unlocked achievements (for notification).
-func (ac *AchievementChecker) CheckAndAward(userID string) []UnlockedAchievement {
-	if userID == "" || ac.db == nil {
-		return nil
-	}
+// ──────────────── Internal DB-row types ────────────────
 
-	var unlocked []UnlockedAchievement
-
-	// Get user stats
-	stats := ac.getUserStats(userID)
-	if stats == nil {
-		return nil
-	}
-
-	// Check each category
-	unlocked = append(unlocked, ac.checkPostAchievements(userID, stats.postCount)...)
-	unlocked = append(unlocked, ac.checkThreadAchievements(userID, stats.threadCount)...)
-	unlocked = append(unlocked, ac.checkLikesReceivedAchievements(userID, stats.likesReceived)...)
-	unlocked = append(unlocked, ac.checkLikesGivenAchievements(userID, stats.likesGiven)...)
-	unlocked = append(unlocked, ac.checkImageAchievements(userID, stats.imageCount)...)
-	unlocked = append(unlocked, ac.checkAnonymousPostsAchievements(userID, stats.anonymousPostCount)...)
-	unlocked = append(unlocked, ac.checkAnonymousLikesAchievements(userID, stats.anonymousLikesReceived)...)
-
-	// Send notification for each newly unlocked achievement
-	for _, ach := range unlocked {
-		ac.sendUnlockNotification(userID, ach)
-	}
-
-	return unlocked
+type achievementRow struct {
+	ID              string
+	GroupKey        string
+	Title           string
+	Description     string
+	Category        string
+	Icon            string
+	Rarity          string
+	AchievementType string
+	Hidden          bool
+	LevelsJSON      string
 }
 
-// userStats holds aggregated user statistics for achievement checking.
+type levelDef struct {
+	Level       int    `json:"level"`
+	Threshold   int    `json:"threshold"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Rarity      string `json:"rarity"`
+	RewardType  string `json:"reward_type"`
+	RewardValue string `json:"reward_value"`
+}
+
+// ──────────────── User stats ────────────────
+
 type userStats struct {
-	postCount              int
-	threadCount            int
-	likesReceived          int
-	likesGiven             int
-	imageCount             int
-	anonymousPostCount     int
-	anonymousLikesReceived int
+	postCount     int
+	threadCount   int
+	likesReceived int
+	likesGiven    int
+	imageCount    int
 }
 
-// getUserStats loads all relevant stats for a user.
-// Uses direct COUNT(*) queries instead of users.post_count/thread_count
-// because RecomputeUserProfileStats runs asynchronously — there's a race.
+// getUserStats loads all relevant stats for a user using direct COUNT(*) queries.
 func (ac *AchievementChecker) getUserStats(userID string) *userStats {
 	s := &userStats{}
 
-	// Post count — direct count, avoids race with async RecomputeUserProfileStats
 	ac.db.QueryRow("SELECT COUNT(*) FROM posts WHERE user_id = $1", userID).Scan(&s.postCount)
-
-	// Thread count — direct count
 	ac.db.QueryRow("SELECT COUNT(*) FROM threads WHERE user_id = $1", userID).Scan(&s.threadCount)
 
-	// Likes received (likes on user's posts)
 	ac.db.QueryRow(`
 		SELECT COUNT(*) FROM post_likes pl
 		JOIN posts p ON pl.post_id = p.id
 		WHERE p.user_id = $1
 	`, userID).Scan(&s.likesReceived)
 
-	// Likes given
 	ac.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE user_id = $1", userID).Scan(&s.likesGiven)
 
-	// Image count (posts with images)
 	ac.db.QueryRow(`
 		SELECT COUNT(*) FROM posts
 		WHERE user_id = $1 AND image_url IS NOT NULL
 	`, userID).Scan(&s.imageCount)
 
-	// Anonymous posts
-	ac.db.QueryRow(`
-		SELECT COUNT(*) FROM posts p
-		JOIN users u ON p.user_id = u.id
-		WHERE p.user_id = $1 AND u.is_anonymous = TRUE
-	`, userID).Scan(&s.anonymousPostCount)
-
-	// Anonymous likes received
-	ac.db.QueryRow(`
-		SELECT COUNT(*) FROM post_likes pl
-		JOIN posts p ON pl.post_id = p.id
-		JOIN users u ON p.user_id = u.id
-		WHERE p.user_id = $1 AND u.is_anonymous = TRUE
-	`, userID).Scan(&s.anonymousLikesReceived)
-
 	return s
 }
 
-// checkPostAchievements checks posting milestones.
-func (ac *AchievementChecker) checkPostAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	milestones := map[int]string{
-		1:     "a0000001-0000-0000-0000-000000000001", // Первое слово
-		50:    "a0000001-0000-0000-0000-000000000002", // Писатель
-		500:   "a0000001-0000-0000-0000-000000000003", // Романист
-		5000:  "a0000001-0000-0000-0000-000000000004", // Классик
-		10000: "a0000001-0000-0000-0000-000000000005", // Графоман
-	}
-	for threshold, achID := range milestones {
-		if count >= threshold {
-			if ach := ac.awardIfNew(userID, achID, count, threshold); ach != nil {
-				unlocked = append(unlocked, *ach)
-			}
-		}
-	}
-	return unlocked
-}
+// ──────────────── DB loading ────────────────
 
-// checkThreadAchievements checks thread creation milestones.
-func (ac *AchievementChecker) checkThreadAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	milestones := map[int]string{
-		1:   "a0000001-0000-0000-0000-000000000006", // Первая нить
-		10:  "a0000001-0000-0000-0000-000000000007", // Ткач
-		50:  "a0000001-0000-0000-0000-000000000008", // Архитектор
-		100: "a0000001-0000-0000-0000-000000000009", // Вселенная
-	}
-	for threshold, achID := range milestones {
-		if count >= threshold {
-			if ach := ac.awardIfNew(userID, achID, count, threshold); ach != nil {
-				unlocked = append(unlocked, *ach)
-			}
-		}
-	}
-	return unlocked
-}
-
-// checkLikesReceivedAchievements checks likes received milestones.
-func (ac *AchievementChecker) checkLikesReceivedAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	milestones := map[int]string{
-		1:     "a0000001-0000-0000-0000-000000000010", // Замеченный
-		100:   "a0000001-0000-0000-0000-000000000011", // Популярный
-		1000:  "a0000001-0000-0000-0000-000000000012", // Звезда
-		10000: "a0000001-0000-0000-0000-000000000013", // Легенда
-	}
-	for threshold, achID := range milestones {
-		if count >= threshold {
-			if ach := ac.awardIfNew(userID, achID, count, threshold); ach != nil {
-				unlocked = append(unlocked, *ach)
-			}
-		}
-	}
-	return unlocked
-}
-
-// checkLikesGivenAchievements checks likes given milestones.
-func (ac *AchievementChecker) checkLikesGivenAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	milestones := map[int]string{
-		1:    "a0000001-0000-0000-0000-000000000014", // Добрый
-		100:  "a0000001-0000-0000-0000-000000000015", // Щедрый
-		1000: "a0000001-0000-0000-0000-000000000016", // Меценат
-	}
-	for threshold, achID := range milestones {
-		if count >= threshold {
-			if ach := ac.awardIfNew(userID, achID, count, threshold); ach != nil {
-				unlocked = append(unlocked, *ach)
-			}
-		}
-	}
-	return unlocked
-}
-
-// checkImageAchievements checks image upload milestones.
-func (ac *AchievementChecker) checkImageAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	milestones := map[int]string{
-		1:    "a0000001-0000-0000-0000-000000000024", // Фотограф
-		100:  "a0000001-0000-0000-0000-000000000025", // Галерист
-		1000: "a0000001-0000-0000-0000-000000000026", // Фотохудожник
-	}
-	for threshold, achID := range milestones {
-		if count >= threshold {
-			if ach := ac.awardIfNew(userID, achID, count, threshold); ach != nil {
-				unlocked = append(unlocked, *ach)
-			}
-		}
-	}
-	return unlocked
-}
-
-// checkAnonymousPostsAchievements checks anonymous posting milestones.
-func (ac *AchievementChecker) checkAnonymousPostsAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	if count >= 10 {
-		if ach := ac.awardIfNew(userID, "a0000001-0000-0000-0000-000000000029", count, 10); ach != nil {
-			unlocked = append(unlocked, *ach)
-		}
-	}
-	return unlocked
-}
-
-// checkAnonymousLikesAchievements checks anonymous likes milestones.
-func (ac *AchievementChecker) checkAnonymousLikesAchievements(userID string, count int) []UnlockedAchievement {
-	var unlocked []UnlockedAchievement
-	if count >= 50 {
-		if ach := ac.awardIfNew(userID, "a0000001-0000-0000-0000-000000000030", count, 50); ach != nil {
-			unlocked = append(unlocked, *ach)
-		}
-	}
-	return unlocked
-}
-
-// AwardOneTime awards a one-time achievement (e.g., first avatar, first bio, pin post, repost).
-func (ac *AchievementChecker) AwardOneTime(userID string, achievementID string) *UnlockedAchievement {
-	return ac.awardIfNew(userID, achievementID, 1, 1)
-}
-
-// awardIfNew inserts the achievement if not already unlocked. Returns achievement info if newly unlocked.
-func (ac *AchievementChecker) awardIfNew(userID string, achievementID string, progress, target int) *UnlockedAchievement {
-	if userID == "" || achievementID == "" {
-		return nil
-	}
-
-	// Check if already unlocked
-	var exists bool
-	err := ac.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM user_achievements WHERE user_id = $1 AND achievement_id = $2)",
-		userID, achievementID,
-	).Scan(&exists)
-	if err != nil || exists {
-		return nil
-	}
-
-	// Get achievement details
-	var name, description, icon, rarity string
-	err = ac.db.QueryRow(
-		"SELECT name, description, COALESCE(icon, ''), COALESCE(rarity, 'common') FROM achievements WHERE id = $1",
-		achievementID,
-	).Scan(&name, &description, &icon, &rarity)
+func (ac *AchievementChecker) loadAchievements() []achievementRow {
+	rows, err := ac.db.Query(`
+		SELECT id, COALESCE(group_key, ''), COALESCE(title, name),
+		       COALESCE(description, ''), COALESCE(category, ''),
+		       COALESCE(icon, 'sparkles'), COALESCE(rarity, 'common'),
+		       COALESCE(achievement_type, 'one_time'), COALESCE(hidden, false),
+		       COALESCE(levels::text, '[]')
+		FROM achievements
+		ORDER BY COALESCE(sort_order, 0)
+	`)
 	if err != nil {
-		log.Printf("[Achievements] awardIfNew: achievement %s not found: %v", achievementID, err)
+		log.Printf("[Achievements] loadAchievements: %v", err)
 		return nil
 	}
+	defer rows.Close()
 
-	// Insert user achievement with progress
-	_, err = ac.db.Exec(`
-		INSERT INTO user_achievements (user_id, achievement_id, level, progress_current, progress_target)
-		VALUES ($1, $2, 1, $3, $4)
-		ON CONFLICT (user_id, achievement_id) DO NOTHING
-	`, userID, achievementID, progress, target)
+	var out []achievementRow
+	for rows.Next() {
+		var r achievementRow
+		if err := rows.Scan(&r.ID, &r.GroupKey, &r.Title, &r.Description,
+			&r.Category, &r.Icon, &r.Rarity, &r.AchievementType, &r.Hidden, &r.LevelsJSON); err != nil {
+			log.Printf("[Achievements] loadAchievements scan: %v", err)
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (ac *AchievementChecker) loadAchievementByKey(groupKey string) *achievementRow {
+	var r achievementRow
+	err := ac.db.QueryRow(`
+		SELECT id, COALESCE(group_key, ''), COALESCE(title, name),
+		       COALESCE(description, ''), COALESCE(category, ''),
+		       COALESCE(icon, 'sparkles'), COALESCE(rarity, 'common'),
+		       COALESCE(achievement_type, 'one_time'), COALESCE(hidden, false),
+		       COALESCE(levels::text, '[]')
+		FROM achievements
+		WHERE group_key = $1
+	`, groupKey).Scan(&r.ID, &r.GroupKey, &r.Title, &r.Description,
+		&r.Category, &r.Icon, &r.Rarity, &r.AchievementType, &r.Hidden, &r.LevelsJSON)
 	if err != nil {
-		log.Printf("[Achievements] awardIfNew: insert error: %v", err)
+		log.Printf("[Achievements] loadAchievementByKey(%s): %v", groupKey, err)
+		return nil
+	}
+	return &r
+}
+
+func (ac *AchievementChecker) parseLevels(jsonStr string) []levelDef {
+	var levels []levelDef
+	if err := json.Unmarshal([]byte(jsonStr), &levels); err != nil {
+		log.Printf("[Achievements] parseLevels: %v", err)
+		return nil
+	}
+	return levels
+}
+
+// ──────────────── Main check loop ────────────────
+
+// CheckAndAward checks all progressive achievements for a user and
+// upgrades levels where thresholds are met. Returns newly unlocked achievements.
+func (ac *AchievementChecker) CheckAndAward(userID string) []UnlockedAchievement {
+	if userID == "" || ac.db == nil {
 		return nil
 	}
 
-	// Check if it was actually inserted (handle ON CONFLICT)
-	err = ac.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM user_achievements WHERE user_id = $1 AND achievement_id = $2)",
-		userID, achievementID,
-	).Scan(&exists)
-	if err != nil || !exists {
+	stats := ac.getUserStats(userID)
+	if stats == nil {
+		return nil
+	}
+
+	achievements := ac.loadAchievements()
+
+	var unlocked []UnlockedAchievement
+
+	for _, ach := range achievements {
+		if ach.AchievementType != "progressive" {
+			continue
+		}
+
+		count := ac.statForGroup(ach.GroupKey, ach.Category, stats)
+		levels := ac.parseLevels(ach.LevelsJSON)
+		if len(levels) == 0 {
+			continue
+		}
+
+		// Find highest qualifying level
+		maxQualified := 0
+		for _, lvl := range levels {
+			if count >= lvl.Threshold && lvl.Level > maxQualified {
+				maxQualified = lvl.Level
+			}
+		}
+
+		if maxQualified > 0 {
+			if result := ac.upgradeLevel(userID, ach, levels, maxQualified, count); result != nil {
+				unlocked = append(unlocked, *result)
+			}
+		}
+	}
+
+	for i := range unlocked {
+		ac.sendUnlockNotification(userID, unlocked[i])
+	}
+
+	return unlocked
+}
+
+// AwardOneTime awards a one-time achievement (avatar, bio, style) by group_key.
+func (ac *AchievementChecker) AwardOneTime(userID string, groupKey string) *UnlockedAchievement {
+	if userID == "" || groupKey == "" {
+		return nil
+	}
+
+	ach := ac.loadAchievementByKey(groupKey)
+	if ach == nil {
+		return nil
+	}
+
+	levels := ac.parseLevels(ach.LevelsJSON)
+	if len(levels) == 0 {
+		return nil
+	}
+
+	return ac.upgradeLevel(userID, *ach, levels, 1, 1)
+}
+
+// statForGroup returns the relevant stat count based on group_key (primary) or category (fallback).
+func (ac *AchievementChecker) statForGroup(groupKey string, category string, stats *userStats) int {
+	// Check group_key first — handles secret achievements mapped to real stats
+	switch groupKey {
+	case "posting", "secret_posts":
+		return stats.postCount
+	case "threads":
+		return stats.threadCount
+	case "likes_received":
+		return stats.likesReceived
+	case "likes_given", "secret_likes":
+		return stats.likesGiven
+	case "images":
+		return stats.imageCount
+	}
+
+	// Fallback to category
+	switch category {
+	case "posting":
+		return stats.postCount
+	case "threads":
+		return stats.threadCount
+	case "likes_received":
+		return stats.likesReceived
+	case "likes_given":
+		return stats.likesGiven
+	case "images":
+		return stats.imageCount
+	}
+	return 0
+}
+
+// ──────────────── Level upgrade ────────────────
+
+// upgradeLevel upserts user_achievements with the new level.
+// Returns achievement info if the level actually increased (or was newly unlocked).
+func (ac *AchievementChecker) upgradeLevel(userID string, ach achievementRow, levels []levelDef, newLevel int, progress int) *UnlockedAchievement {
+	// Get current level
+	var currentLevel int
+	ac.db.QueryRow(
+		"SELECT COALESCE(current_level, 0) FROM user_achievements WHERE user_id = $1 AND achievement_id = $2",
+		userID, ach.ID,
+	).Scan(&currentLevel)
+
+	if newLevel <= currentLevel {
+		return nil // already at this level or higher
+	}
+
+	idx := newLevel - 1
+	if idx < 0 || idx >= len(levels) {
+		return nil
+	}
+	levelInfo := levels[idx]
+
+	// Upsert
+	_, err := ac.db.Exec(`
+		INSERT INTO user_achievements (user_id, achievement_id, current_level, progress_current)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, achievement_id)
+		DO UPDATE SET current_level = $3, progress_current = $4, unlocked_at = NOW()
+	`, userID, ach.ID, newLevel, progress)
+
+	if err != nil {
+		log.Printf("[Achievements] upgradeLevel upsert: %v", err)
 		return nil
 	}
 
 	// Apply reward
-	ac.applyReward(userID, achievementID)
+	ac.applyReward(userID, levelInfo.RewardType, levelInfo.RewardValue)
 
-	log.Printf("[Achievements] Awarded %s (%s) to user %s", name, achievementID, userID)
+	log.Printf("[Achievements] %s (%s) L%d → L%d for user %s",
+		ach.GroupKey, levelInfo.Name, currentLevel, newLevel, userID)
 
 	return &UnlockedAchievement{
-		ID:          achievementID,
-		Name:        name,
-		Description: description,
-		Icon:        icon,
-		Rarity:      rarity,
-		Category:    "",
+		ID:          ach.ID,
+		GroupKey:    ach.GroupKey,
+		Name:        levelInfo.Name,
+		Description: levelInfo.Description,
+		Icon:        ach.Icon,
+		Rarity:      levelInfo.Rarity,
+		Category:    ach.Category,
+		Level:       newLevel,
+		MaxLevel:    len(levels),
 	}
 }
 
-// applyReward applies the achievement's reward (garma bonus, username color, etc.)
-func (ac *AchievementChecker) applyReward(userID string, achievementID string) {
-	var rewardType, rewardValue sql.NullString
-	err := ac.db.QueryRow(
-		"SELECT reward_type, reward_value FROM achievements WHERE id = $1",
-		achievementID,
-	).Scan(&rewardType, &rewardValue)
-	if err != nil || !rewardType.Valid {
+// ──────────────── Reward ────────────────
+
+func (ac *AchievementChecker) applyReward(userID string, rewardType string, rewardValue string) {
+	if rewardType == "" {
 		return
 	}
 
-	switch rewardType.String {
+	switch rewardType {
 	case "garma":
-		if rewardValue.Valid {
-			_, err = ac.db.Exec("UPDATE users SET garma = COALESCE(garma, 0) + $1::integer WHERE id = $2", rewardValue.String, userID)
-			if err != nil {
-				log.Printf("[Achievements] Error awarding garma: %v", err)
-			} else {
-				log.Printf("[Achievements] Awarded %s garma to user %s", rewardValue.String, userID)
-			}
+		_, err := ac.db.Exec("UPDATE users SET garma = COALESCE(garma, 0) + $1::integer WHERE id = $2", rewardValue, userID)
+		if err != nil {
+			log.Printf("[Achievements] garma reward error: %v", err)
+		} else {
+			log.Printf("[Achievements] +%s garma → user %s", rewardValue, userID)
 		}
-		// username_color is handled separately when checking for highest color achievement
 	}
 }
 
-// sendUnlockNotification creates a notification and broadcasts via WebSocket.
+// ──────────────── Notification ────────────────
+
 func (ac *AchievementChecker) sendUnlockNotification(userID string, ach UnlockedAchievement) {
-	// Create DB notification
 	title := fmt.Sprintf("🏆 %s", ach.Name)
 	message := ach.Description
 	_, err := ac.db.Exec(`
@@ -344,10 +342,9 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 		VALUES ($1, 'achievement_unlock', $2, $3, $4)
 	`, userID, title, message, time.Now())
 	if err != nil {
-		log.Printf("[Achievements] Error creating notification: %v", err)
+		log.Printf("[Achievements] notification insert error: %v", err)
 	}
 
-	// WebSocket real-time notification
 	if ac.wsHub != nil {
 		if hub, ok := ac.wsHub.(*websocket.Hub); ok {
 			if err := hub.PublishNewNotification(map[string]interface{}{
@@ -357,13 +354,16 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 				"message": message,
 				"achievement": map[string]interface{}{
 					"id":          ach.ID,
+					"group_key":   ach.GroupKey,
 					"name":        ach.Name,
 					"description": ach.Description,
 					"icon":        ach.Icon,
 					"rarity":      ach.Rarity,
+					"level":       ach.Level,
+					"max_level":   ach.MaxLevel,
 				},
 			}); err != nil {
-				log.Printf("[Achievements] Error publishing WS notification: %v", err)
+				log.Printf("[Achievements] WS notification error: %v", err)
 			}
 		}
 	}

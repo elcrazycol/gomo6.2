@@ -555,13 +555,6 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
 		}
-
-		// Award repost achievement (Эхо)
-		if h.achievementChecker != nil {
-			if uid, ok := result["user_id"].(string); ok && uid != "" {
-				go h.achievementChecker.AwardOneTime(uid, "a0000001-0000-0000-0000-000000000028")
-			}
-		}
 	}
 
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
@@ -837,13 +830,6 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
-		}
-
-		// Award repost achievement (Эхо)
-		if h.achievementChecker != nil {
-			if uid, ok := result["user_id"].(string); ok && uid != "" {
-				go h.achievementChecker.AwardOneTime(uid, "a0000001-0000-0000-0000-000000000028")
-			}
 		}
 	}
 
