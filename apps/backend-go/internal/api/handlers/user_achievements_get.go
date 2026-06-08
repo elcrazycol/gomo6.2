@@ -86,7 +86,8 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			}
 			joined += o
 		}
-		if s, ok := parseOrderClause(joined, "ua"); ok {
+		// No table alias for ORDER BY — columns are aliases in SELECT (e.g., level = COALESCE(ua.current_level, 0))
+		if s, ok := parseOrderClause(joined, ""); ok {
 			query += " ORDER BY " + s
 		}
 	}
