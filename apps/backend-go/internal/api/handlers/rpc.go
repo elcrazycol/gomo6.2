@@ -33,11 +33,12 @@ func bearerClaims(c *gin.Context) (*auth.Claims, bool) {
 }
 
 type RPCHandler struct {
-	db                *sql.DB
-	redis             *redis.Client
-	wsHub             interface{}
-	botEventPublisher *BotEventPublisher
-	recomputeStatsFn  func(*sql.DB, string)
+	db                 *sql.DB
+	redis              *redis.Client
+	wsHub              interface{}
+	botEventPublisher  *BotEventPublisher
+	recomputeStatsFn   func(*sql.DB, string)
+	achievementChecker *AchievementChecker
 }
 
 func NewRPCHandler(db *sql.DB) *RPCHandler {
@@ -47,6 +48,10 @@ func NewRPCHandler(db *sql.DB) *RPCHandler {
 			RecomputeUserProfileStats(db, userID)
 		},
 	}
+}
+
+func (h *RPCHandler) SetAchievementChecker(ac *AchievementChecker) {
+	h.achievementChecker = ac
 }
 
 func (h *RPCHandler) SetRedis(redis *redis.Client) {
@@ -606,6 +611,11 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 		}
 
 		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = TRUE, pinned_order = $1, updated_at = NOW() WHERE id = $2", newOrder, postID)
+
+		// Award pin achievement
+		if h.achievementChecker != nil {
+			go h.achievementChecker.AwardOneTime(userID, "a0000001-0000-0000-0000-000000000027")
+		}
 	} else {
 		_, err = h.db.Exec("UPDATE profile_wall_posts SET is_pinned = FALSE, pinned_order = NULL, updated_at = NOW() WHERE id = $1", postID)
 	}
@@ -1420,6 +1430,11 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	// Recompute user stats
 	h.recomputeStatsFn(h.db, claims.UserID)
 
+	// Check achievements after creating a post
+	if h.achievementChecker != nil {
+		go h.achievementChecker.CheckAndAward(claims.UserID)
+	}
+
 	// Create notification for thread owner (if replying to someone else's thread)
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
@@ -1593,6 +1608,11 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	}
 
 	h.recomputeStatsFn(h.db, claims.UserID)
+
+	// Check achievements after creating a thread
+	if h.achievementChecker != nil {
+		go h.achievementChecker.CheckAndAward(claims.UserID)
+	}
 
 	// Invalidate cache for this board's threads
 	if h.redis != nil {

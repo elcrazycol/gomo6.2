@@ -102,10 +102,11 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 
 // UniversalHandler handles generic CRUD operations for any table
 type UniversalHandler struct {
-	db                *sql.DB
-	hub               *websocket.Hub
-	redis             *redis.Client
-	botEventPublisher *BotEventPublisher
+	db                 *sql.DB
+	hub                *websocket.Hub
+	redis              *redis.Client
+	botEventPublisher  *BotEventPublisher
+	achievementChecker *AchievementChecker
 }
 
 func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
@@ -120,6 +121,11 @@ func (h *UniversalHandler) SetRedis(redis *redis.Client) {
 // SetBotEventPublisher sets the bot event publisher
 func (h *UniversalHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
 	h.botEventPublisher = publisher
+}
+
+// SetAchievementChecker sets the achievement checker for auto-unlock
+func (h *UniversalHandler) SetAchievementChecker(ac *AchievementChecker) {
+	h.achievementChecker = ac
 }
 
 // HandleTableRequest handles requests to any table
@@ -146,6 +152,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"gomosub_memberships":          true,
 		"user_session_time":            true,
 		"user_achievements":            true,
+		"achievements":                 true,
 		"user_terms_acceptance":        true,
 		"profile_customization":        true,
 		"user_placeholders":            true,
@@ -548,6 +555,13 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
 		}
+
+		// Award repost achievement (Эхо)
+		if h.achievementChecker != nil {
+			if uid, ok := result["user_id"].(string); ok && uid != "" {
+				go h.achievementChecker.AwardOneTime(uid, "a0000001-0000-0000-0000-000000000028")
+			}
+		}
 	}
 
 	if h.tryRespondProfileWallEnriched(c, tableName, result) {
@@ -823,6 +837,13 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+		}
+
+		// Award repost achievement (Эхо)
+		if h.achievementChecker != nil {
+			if uid, ok := result["user_id"].(string); ok && uid != "" {
+				go h.achievementChecker.AwardOneTime(uid, "a0000001-0000-0000-0000-000000000028")
+			}
 		}
 	}
 
