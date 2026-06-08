@@ -2,7 +2,7 @@
 # deploy.yml — Build images on GitHub Actions, push to ghcr.io, deploy to VPS
 # =============================================================================
 # Docker layers are cached via GitHub Actions cache (type=gha).
-# First build: 5-7 min. Subsequent builds (cached): ~30-60 sec per changed layer.
+# Backend always deploys. Frontend builds are non-blocking (continue-on-error).
 #
 # Required GitHub Secrets (Settings → Secrets and variables → Actions):
 #   VPS_HOST     — VPS IP or hostname
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Parallel Docker builds (all 4 images built simultaneously) ─────────
+  # ── Backend build (critical — always deploys) ───────────────────────────
   build-backend:
     name: Build Backend
     runs-on: ubuntu-latest
@@ -46,9 +46,11 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
+  # ── Frontend builds (non-blocking — Docker Hub can be flaky) ────────────
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
@@ -75,6 +77,7 @@ jobs:
   build-docs:
     name: Build Docs
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
@@ -100,6 +103,7 @@ jobs:
   build-dev-dashboard:
     name: Build Dev Dashboard
     runs-on: ubuntu-latest
+    continue-on-error: true
     permissions:
       contents: read
       packages: write
@@ -124,7 +128,8 @@ jobs:
 
   deploy:
     name: Deploy to VPS
-    needs: [build-backend, build-web, build-docs, build-dev-dashboard]
+    needs: [build-backend]  # Only block on backend — frontends are optional
+    if: always() && !cancelled() && needs.build-backend.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Pull images on VPS and restart
