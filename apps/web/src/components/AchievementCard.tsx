@@ -72,14 +72,14 @@ const RARITY_CONFIG = {
     badge: "bg-emerald-500 text-white",
   },
   common: {
-    gradient: "from-gray-400 via-slate-500 to-zinc-500",
-    border: "border-border",
-    shadow: "",
+    gradient: "from-sky-400 via-sky-500 to-indigo-500",
+    border: "border-sky-400/30",
+    shadow: "shadow-md shadow-sky-400/10",
     glow: "",
-    bg: "bg-post-header",
-    text: "",
+    bg: "bg-gradient-to-br from-sky-950/20 to-sky-900/10",
+    text: "text-sky-200",
     label: "Обычное",
-    badge: "bg-muted-foreground/50 text-white",
+    badge: "bg-sky-500 text-white",
   },
 };
 
