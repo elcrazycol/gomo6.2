@@ -17,6 +17,10 @@ ALTER TABLE user_achievements ADD COLUMN IF NOT EXISTS progress_target INTEGER D
 DELETE FROM user_achievements;
 DELETE FROM achievements;
 
+-- Add performance indexes for achievement stat queries
+CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);
+CREATE INDEX IF NOT EXISTS idx_threads_user_id ON threads(user_id);
+
 -- ============================================================
 -- SEED ACHIEVEMENTS
 -- ============================================================

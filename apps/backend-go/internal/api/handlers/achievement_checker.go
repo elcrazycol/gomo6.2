@@ -81,14 +81,16 @@ type userStats struct {
 }
 
 // getUserStats loads all relevant stats for a user.
+// Uses direct COUNT(*) queries instead of users.post_count/thread_count
+// because RecomputeUserProfileStats runs asynchronously — there's a race.
 func (ac *AchievementChecker) getUserStats(userID string) *userStats {
 	s := &userStats{}
 
-	// Post count
-	ac.db.QueryRow("SELECT COALESCE(post_count, 0) FROM users WHERE id = $1", userID).Scan(&s.postCount)
+	// Post count — direct count, avoids race with async RecomputeUserProfileStats
+	ac.db.QueryRow("SELECT COUNT(*) FROM posts WHERE user_id = $1", userID).Scan(&s.postCount)
 
-	// Thread count
-	ac.db.QueryRow("SELECT COALESCE(thread_count, 0) FROM users WHERE id = $1", userID).Scan(&s.threadCount)
+	// Thread count — direct count
+	ac.db.QueryRow("SELECT COUNT(*) FROM threads WHERE user_id = $1", userID).Scan(&s.threadCount)
 
 	// Likes received (likes on user's posts)
 	ac.db.QueryRow(`
