@@ -16,7 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, LogOut, User, Settings, Pin, PinOff, Hammer, Trash2 } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -30,6 +30,7 @@ import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { AvatarGallery } from "@/components/AvatarGallery";
+import { AchievementCard, type AchievementData } from "@/components/AchievementCard";
 
 interface Profile {
   id: string;
@@ -81,14 +82,7 @@ interface AvatarHistoryItem {
   is_current: boolean;
 }
 
-interface AchievementCardProps {
-  achievement: Achievement;
-  onTogglePin: (achievementId: string) => void;
-  isPinned: boolean;
-  isEditing: boolean;
-}
 
- 
 const formatGarmaLabel = (value: number) => {
   const abs = Math.abs(value);
   const mod10 = abs % 10;
@@ -99,88 +93,13 @@ const formatGarmaLabel = (value: number) => {
   return "gарм";
 };
 
-const AchievementCard: React.FC<AchievementCardProps> = ({ achievement, onTogglePin, isPinned, isEditing }) => {
-  // Определяем стиль в зависимости от уровня
-  const getAchievementStyle = (level: number) => {
-    let baseClasses = "p-3 flex items-start gap-3 relative overflow-hidden";
-
-    if (isEditing) {
-      baseClasses += " group";
-    }
-
-    if (level >= 10) {
-      return `${baseClasses} bg-gradient-to-br from-purple-900/20 to-purple-600/20 border-2 border-purple-400 shadow-lg shadow-purple-400/20`;
-    } else if (level >= 8) {
-      return `${baseClasses} bg-gradient-to-br from-red-900/20 to-red-600/20 border-2 border-red-400 shadow-lg shadow-red-400/20`;
-    } else if (level >= 6) {
-      return `${baseClasses} bg-gradient-to-br from-orange-900/20 to-orange-600/20 border-2 border-orange-400 shadow-lg shadow-orange-400/20`;
-    } else if (level >= 4) {
-      return `${baseClasses} bg-gradient-to-br from-yellow-900/20 to-yellow-600/20 border-2 border-yellow-400 shadow-lg shadow-yellow-400/20`;
-    } else if (level >= 2) {
-      return `${baseClasses} bg-gradient-to-br from-blue-900/20 to-blue-600/20 border-2 border-blue-400 shadow-lg shadow-blue-400/20`;
-    } else {
-      return `${baseClasses} bg-post-header border border-border`;
-    }
-  };
-
-  const getLevelBadge = (level: number) => {
-    if (level <= 1) return null;
-
-    const colors = {
-      2: "bg-blue-500",
-      3: "bg-blue-600",
-      4: "bg-yellow-500",
-      5: "bg-yellow-600",
-      6: "bg-orange-500",
-      7: "bg-orange-600",
-      8: "bg-red-500",
-      9: "bg-red-600",
-      10: "bg-purple-500",
-    };
-
-    return (
-      <div className={`absolute top-2 right-2 ${colors[level as keyof typeof colors] || "bg-gray-500"} text-white text-xs px-2 py-1 rounded-full font-bold`}>
-        {level}
-      </div>
-    );
-  };
-
-  return (
-    <div className={getAchievementStyle(achievement.level || 1)}>
-      {getLevelBadge(achievement.level || 1)}
-
-      {/* Pin button - only visible in edit mode */}
-      {isEditing && (
-        <button
-          onClick={() => onTogglePin(achievement.id)}
-          className="absolute bottom-1 right-1 w-7 h-7 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors shadow-md z-20"
-          title={isPinned ? "Открепить достижение" : "Закрепить достижение"}
-        >
-          {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-        </button>
-      )}
-
-      <span className="text-3xl relative z-10">{achievement.icon}</span>
-      <div className="flex-1 relative z-10">
-        <p className="font-bold">{achievement.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {achievement.description}
-        </p>
-        <p className="text-xs text-primary mt-1">
-          Уровень {achievement.level || 1} • {achievement.unlocked_at ? safeDate(achievement.unlocked_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Недавно'}
-        </p>
-      </div>
-    </div>
-  );
-};
-
 const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [pinnedAchievements, setPinnedAchievements] = useState<Achievement[]>([]);
-  const [regularAchievements, setRegularAchievements] = useState<Achievement[]>([]);
+  const [achievements, setAchievements] = useState<AchievementData[]>([]);
+  const [pinnedAchievements, setPinnedAchievements] = useState<AchievementData[]>([]);
+  const [regularAchievements, setRegularAchievements] = useState<AchievementData[]>([]);
   const [likesReceived, setLikesReceived] = useState(0);
   const [currentUser, setCurrentUser] = useState<{ id: string } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -514,172 +433,48 @@ const Profile = () => {
     const data = achResult.data || [];
 
     if (data) {
-      // Process achievements without grouping by type (show all levels separately)
-      const processedAchievements = data.map((ua: UserAchievementRaw) => {
-        const achievement = ua.achievements ?? ({} as Partial<NonNullable<UserAchievementRaw["achievements"]>>);
-        let displayName = achievement.name ?? "—";
-        let displayDescription = achievement.description ?? "";
-
-        // Achievement processing based on achievement ID and level
-
-        // Customize name and description based on achievement ID (base achievements)
-        if (achievement.id === 'time_10min') {
-          const timeNames: Record<number, string> = {
-            1: 'Дуралей I',
-            2: 'Дуралей II',
-            3: 'Дуралей III',
-            4: 'Дуралей IV',
-            5: 'Дуралей V',
-            6: 'Дуралей VI',
-            7: 'Дуралей VII',
-            8: 'Дуралей VIII',
-            9: 'Дуралей IX',
-            10: 'Дуралей X'
-          };
-          const timeDescriptions: Record<number, string> = {
-            1: 'Провёл на сайте 10 минут',
-            2: 'Провёл на сайте 30 минут',
-            3: 'Провёл на сайте 1 час',
-            4: 'Провёл на сайте 5 часов',
-            5: 'Провёл на сайте 10 часов',
-            6: 'Провёл на сайте 25 часов',
-            7: 'Провёл на сайте 50 часов',
-            8: 'Провёл на сайте 100 часов',
-            9: 'Провёл на сайте 250 часов',
-            10: 'Провёл на сайте 500 часов'
-          };
-          displayName = (timeNames[ua.level || 1] || achievement.name) ?? "—";
-          displayDescription = (timeDescriptions[ua.level || 1] || achievement.description) ?? "";
-        } else if (achievement.id === 'posts_10') {
-          const postNames: Record<number, string> = {
-            1: 'Первые 10 сообщений',
-            2: 'Первые 100 сообщений',
-            3: 'Болтливый',
-            4: 'Многословный',
-            5: 'Кладезь мудрости',
-            6: 'Мастер слова',
-            7: 'Легенда форума'
-          };
-          const postDescriptions: Record<number, string> = {
-            1: 'Написал 10 сообщений',
-            2: 'Написал 100 сообщений',
-            3: 'Написал 250 сообщений',
-            4: 'Написал 500 сообщений',
-            5: 'Написал 1000 сообщений',
-            6: 'Написал 2500 сообщений',
-            7: 'Написал 5000 сообщений'
-          };
-          displayName = (postNames[ua.level || 1] || achievement.name) ?? "—";
-          displayDescription = (postDescriptions[ua.level || 1] || achievement.description) ?? "";
-        } else if (achievement.id === 'threads_5') {
-          const threadNames: Record<number, string> = {
-            1: 'Создатель',
-            2: 'Творец',
-            3: 'Генератор идей',
-            4: 'Архитектор сообщества',
-            5: 'Мастер дискуссий',
-            6: 'Легенда форума'
-          };
-          const threadDescriptions: Record<number, string> = {
-            1: 'Создал 5 тредов',
-            2: 'Создал 10 тредов',
-            3: 'Создал 25 тредов',
-            4: 'Создал 50 тредов',
-            5: 'Создал 80 тредов',
-            6: 'Создал 100 тредов'
-          };
-          displayName = (threadNames[ua.level || 1] || achievement.name) ?? "—";
-          displayDescription = (threadDescriptions[ua.level || 1] || achievement.description) ?? "";
-        } else if (achievement.id === 'images_1' || achievement.id === 'images_10' || achievement.id === 'images_25' || achievement.id === 'images_50' || achievement.id === 'images_100' || achievement.id === 'images_250' || achievement.id === 'images_500' || achievement.id === 'images_1000') {
-          const imageNames: Record<number, string> = {
-            1: 'Фотограф-новичок',
-            2: 'Коллекционер',
-            3: 'Фотолюбитель',
-            4: 'Фотограф',
-            5: 'Мастер фотографии',
-            6: 'Профессионал',
-            7: 'Легенда фотографии',
-            8: 'Икона фотографии'
-          };
-          const imageDescriptions: Record<number, string> = {
-            1: 'Загрузил первое изображение',
-            2: 'Загрузил 10 изображений',
-            3: 'Загрузил 25 изображений',
-            4: 'Загрузил 50 изображений',
-            5: 'Загрузил 100 изображений',
-            6: 'Загрузил 250 изображений',
-            7: 'Загрузил 500 изображений',
-            8: 'Загрузил 1000 изображений'
-          };
-          displayName = (imageNames[ua.level || 1] || achievement.name) ?? "—";
-          displayDescription = (imageDescriptions[ua.level || 1] || achievement.description) ?? "";
-        } else if (achievement.id === 'likes_received_1' || achievement.id === 'likes_received_10' || achievement.id === 'likes_received_25' || achievement.id === 'likes_received_50' || achievement.id === 'likes_received_100' || achievement.id === 'likes_received_250' || achievement.id === 'likes_received_500' || achievement.id === 'likes_received_1000') {
-          const likesNames: Record<number, string> = {
-            1: 'Замеченный',
-            2: 'Популярный',
-            3: 'Уважаемый',
-            4: 'Влиятельный',
-            5: 'Лидер мнений',
-            6: 'Мастер сообщества',
-            7: 'Легенда форума',
-            8: 'Икона сообщества'
-          };
-          const likesDescriptions: Record<number, string> = {
-            1: 'Получил свой первый лайк',
-            2: 'Получил 10 лайков',
-            3: 'Получил 25 лайков',
-            4: 'Получил 50 лайков',
-            5: 'Получил 100 лайков',
-            6: 'Получил 250 лайков',
-            7: 'Получил 500 лайков',
-            8: 'Получил 1000 лайков'
-          };
-          displayName = (likesNames[ua.level || 1] || achievement.name) ?? "—";
-          displayDescription = (likesDescriptions[ua.level || 1] || achievement.description) ?? "";
-        }
-
+      // Map to AchievementData format using DB data
+      const processedAchievements: AchievementData[] = data.map((ua: UserAchievementRaw) => {
+        const a = ua.achievements ?? ({} as Partial<NonNullable<UserAchievementRaw["achievements"]>>);
         return {
-          ...achievement,
-          name: displayName,
-          description: displayDescription,
+          id: a.id || ua.achievement_type || "",
+          name: a.name ?? "—",
+          description: a.description ?? "",
+          icon: (a as any).icon || "🏆",
+          category: (a as any).category || "",
+          rarity: (a as any).rarity || "common",
           level: ua.level || 1,
-          unlocked_at: ua.unlocked_at || new Date().toISOString(),
           is_pinned: ua.is_pinned || false,
-          pinned_order: ua.pinned_order || null
-        };
+          pinned_order: ua.pinned_order || null,
+          unlocked_at: ua.unlocked_at,
+          progress_current: (ua as any).progress_current || 0,
+          progress_target: (ua as any).progress_target || 0,
+          achievement_type: (a as any).achievement_type || "one_time",
+          reward_type: a.reward_type ?? undefined,
+          reward_value: a.reward_value ?? undefined,
+        } as AchievementData;
       });
 
-      // Group achievements by type and keep only the highest level for each type
-      // Only group achievements that have achievement_type (time, posts, threads, images, likes_received, likes_given)
-      const achievementMap = new Map<string, typeof processedAchievements[0]>();
-      const groupedTypes = ['time', 'posts', 'threads', 'images', 'likes_received', 'likes_given'];
+      // Group progressive achievements by category, keep highest level
+      const achievementMap = new Map<string, AchievementData>();
       
-      processedAchievements.forEach((achievement: typeof processedAchievements[0]) => {
-        // If achievement has a type that should be grouped, group by type
-        // Otherwise, keep as individual achievement
-        if (achievement.achievement_type && groupedTypes.includes(achievement.achievement_type)) {
-          const key = achievement.achievement_type;
-          const existing = achievementMap.get(key);
-          
-          if (!existing || (achievement.level || 1) > (existing.level || 1)) {
-            achievementMap.set(key, achievement);
-          }
-        } else {
-          // For non-grouped achievements, use their ID as key
-          achievementMap.set(achievement.id, achievement);
+      for (const ach of processedAchievements) {
+        const key = ach.category && ach.achievement_type === "progressive" ? ach.category : ach.id;
+        const existing = achievementMap.get(key);
+        if (!existing || (ach.level || 1) > (existing.level || 1)) {
+          achievementMap.set(key, ach);
         }
-      });
+      }
       
-      // Convert map back to array
-      const groupedAchievements = Array.from(achievementMap.values());
+      const grouped = Array.from(achievementMap.values());
 
-      // Split achievements into pinned and regular
-      const pinned = groupedAchievements.filter(a => a.is_pinned);
-      const regular = groupedAchievements.filter(a => !a.is_pinned);
+      // Split into pinned and regular
+      const pinned = grouped.filter(a => a.is_pinned);
+      const regular = grouped.filter(a => !a.is_pinned);
 
       setPinnedAchievements(pinned);
       setRegularAchievements(regular);
-      setAchievements(groupedAchievements);
+      setAchievements(grouped);
     }
   };
 
@@ -1278,7 +1073,6 @@ const Profile = () => {
                     key={achievement.id}
                           achievement={achievement}
                           onTogglePin={toggleAchievementPin}
-                          isPinned={true}
                           isEditing={isEditing}
                         />
                       ))}
@@ -1298,7 +1092,6 @@ const Profile = () => {
                           key={achievement.id}
                           achievement={achievement}
                           onTogglePin={toggleAchievementPin}
-                          isPinned={false}
                           isEditing={isEditing}
                         />
                       ))}
