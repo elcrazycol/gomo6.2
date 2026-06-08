@@ -112,37 +112,55 @@ const CreateGomoThread = () => {
     }
 
     setCreating(true);
-    const { data: { user } } = await api.auth.getUser();
-    if (!user) {
-      setCreating(false);
-      toast.error("Нужно войти в аккаунт");
-      navigate("/auth");
-      return;
-    }
-
-    const { data, error } = await api
-      .from("threads")
-      .insert({
+    try {
+      // Use RPC backend API (not old PostgREST-style POST /api/v1/threads)
+      const threadPayload: any = {
         board_id: board.id,
-        user_id: user.id,
         title: title.trim(),
         content: content.trim(),
         content_json: contentJson,
-        image_url: imageUrl,
+        image_urls: imageUrl ? [imageUrl] : [],
         attachments: attachments.length ? attachments : null,
-        tags: selectedTags.length ? { gomosub_tags: selectedTags } : null
-      })
-      .select("id")
-      .single();
+      };
 
-    setCreating(false);
-    if (error) {
-      toast.error((error as { message?: string }).message || "Ошибка при создании треда");
-      return;
+      const session = await api.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) {
+        toast.error("Нужно войти в аккаунт");
+        navigate("/auth");
+        return;
+      }
+
+      const response = await fetch('/api/rpc/create_thread', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(threadPayload),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        toast.error(errData.error || 'Ошибка при создании треда');
+        return;
+      }
+
+      const responseData = await response.json();
+      const threadData = responseData.data || responseData;
+      if (!threadData?.id) {
+        toast.error('Не удалось получить ID треда');
+        return;
+      }
+
+      toast.success("Тред создан");
+      navigate(`/g/${board.slug}/thread/${threadData.id}`);
+    } catch (err) {
+      console.error('CreateGomoThread error:', err);
+      toast.error('Ошибка при создании треда');
+    } finally {
+      setCreating(false);
     }
-
-    toast.success("Тред создан");
-    navigate(`/g/${board.slug}/thread/${data.id}`);
   };
 
   if (loadingBoard) {
