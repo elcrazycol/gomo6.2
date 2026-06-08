@@ -281,10 +281,10 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	// Check profile achievements (avatar, bio)
 	if h.achievementChecker != nil {
 		if updates.AvatarURL != nil && *updates.AvatarURL != "" {
-			go h.achievementChecker.AwardOneTime(id, "a0000001-0000-0000-0000-000000000021")
+			go h.achievementChecker.AwardOneTime(id, "avatar")
 		}
 		if updates.Bio != nil && *updates.Bio != "" {
-			go h.achievementChecker.AwardOneTime(id, "a0000001-0000-0000-0000-000000000022")
+			go h.achievementChecker.AwardOneTime(id, "bio")
 		}
 	}
 

@@ -176,24 +176,38 @@ type Notification struct {
 	CreatedAt       *time.Time `json:"created_at" db:"created_at"`
 }
 
-// Achievement
+// Achievement — multi-level grouped achievement definition.
+// Each row represents one achievement group (e.g., "posting", "threads").
+// The "levels" JSONB column defines thresholds, names, rarities per level.
 type Achievement struct {
-	ID          string     `json:"id" db:"id"`
-	Name        string     `json:"name" db:"name"`
-	Description string     `json:"description" db:"description"`
-	Category    string     `json:"category" db:"category"`
-	Icon        *string    `json:"icon" db:"icon"`
-	RewardType  *string    `json:"reward_type" db:"reward_type"`
-	RewardValue *string    `json:"reward_value" db:"reward_value"`
-	CreatedAt   *time.Time `json:"created_at" db:"created_at"`
+	ID              string           `json:"id" db:"id"`
+	GroupKey        *string          `json:"group_key" db:"group_key"`
+	Title           *string          `json:"title" db:"title"`
+	Name            string           `json:"name" db:"name"`
+	Description     string           `json:"description" db:"description"`
+	Category        string           `json:"category" db:"category"`
+	Icon            *string          `json:"icon" db:"icon"`
+	Rarity          *string          `json:"rarity" db:"rarity"`
+	AchievementType *string          `json:"achievement_type" db:"achievement_type"`
+	Hidden          bool             `json:"hidden" db:"hidden"`
+	SortOrder       *int             `json:"sort_order" db:"sort_order"`
+	RewardType      *string          `json:"reward_type" db:"reward_type"`
+	RewardValue     *string          `json:"reward_value" db:"reward_value"`
+	Levels          *json.RawMessage `json:"levels" db:"levels"`
+	CreatedAt       *time.Time       `json:"created_at" db:"created_at"`
 }
 
-// UserAchievement
+// UserAchievement — tracks a user's progress in one achievement group.
 type UserAchievement struct {
-	ID            string     `json:"id" db:"id"`
-	UserID        string     `json:"user_id" db:"user_id"`
-	AchievementID string     `json:"achievement_id" db:"achievement_id"`
-	UnlockedAt    *time.Time `json:"unlocked_at" db:"unlocked_at"`
+	ID              string     `json:"id" db:"id"`
+	UserID          string     `json:"user_id" db:"user_id"`
+	AchievementID   string     `json:"achievement_id" db:"achievement_id"`
+	CurrentLevel    int        `json:"current_level" db:"current_level"`
+	ProgressCurrent *int       `json:"progress_current" db:"progress_current"`
+	ProgressTarget  *int       `json:"progress_target" db:"progress_target"`
+	UnlockedAt      *time.Time `json:"unlocked_at" db:"unlocked_at"`
+	IsPinned        bool       `json:"is_pinned" db:"is_pinned"`
+	PinnedOrder     *int       `json:"pinned_order" db:"pinned_order"`
 }
 
 // Federation server info
