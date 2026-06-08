@@ -29,8 +29,8 @@ DELETE FROM achievements;
 -- ============================================================
 
 -- POSTING (посты)
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1001-4001-8001-000000000001', 'posting', 'Посты', 'Публикация постов', 'posting', 'message-square',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1001-4001-8001-000000000001', 'posting', 'Посты', 'Посты', 'Публикация постов', 'posting', 'message-square',
    'common', 'progressive', FALSE, 1,
    '[
      {"level": 1, "threshold": 1,    "name": "Первое слово", "description": "Опубликовать первый пост",               "rarity": "common",    "reward_type": "garma",          "reward_value": "10"},
@@ -41,8 +41,8 @@ INSERT INTO achievements (id, group_key, title, description, category, icon, rar
    ]'::jsonb);
 
 -- THREADS
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1002-4002-8002-000000000002', 'threads', 'Треды', 'Создание тредов', 'threads', 'layers',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1002-4002-8002-000000000002', 'threads', 'Треды', 'Треды', 'Создание тредов', 'threads', 'layers',
    'common', 'progressive', FALSE, 2,
    '[
      {"level": 1, "threshold": 1,   "name": "Первая нить", "description": "Создать первый тред",                 "rarity": "common",   "reward_type": "garma",          "reward_value": "25"},
@@ -52,8 +52,8 @@ INSERT INTO achievements (id, group_key, title, description, category, icon, rar
    ]'::jsonb);
 
 -- LIKES RECEIVED
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1003-4003-8003-000000000003', 'likes_received', 'Признание', 'Получение лайков', 'likes_received', 'heart',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1003-4003-8003-000000000003', 'likes_received', 'Признание', 'Признание', 'Получение лайков', 'likes_received', 'heart',
    'common', 'progressive', FALSE, 3,
    '[
      {"level": 1, "threshold": 1,     "name": "Замеченный",  "description": "Получить первый лайк",                "rarity": "common",    "reward_type": "garma",          "reward_value": "15"},
@@ -63,8 +63,8 @@ INSERT INTO achievements (id, group_key, title, description, category, icon, rar
    ]'::jsonb);
 
 -- LIKES GIVEN
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1004-4004-8004-000000000004', 'likes_given', 'Щедрость', 'Раздача лайков', 'likes_given', 'thumbs-up',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1004-4004-8004-000000000004', 'likes_given', 'Щедрость', 'Щедрость', 'Раздача лайков', 'likes_given', 'thumbs-up',
    'common', 'progressive', FALSE, 4,
    '[
      {"level": 1, "threshold": 1,    "name": "Добрый",   "description": "Поставить первый лайк",                 "rarity": "common",   "reward_type": "garma", "reward_value": "5"},
@@ -73,8 +73,8 @@ INSERT INTO achievements (id, group_key, title, description, category, icon, rar
    ]'::jsonb);
 
 -- IMAGES
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1005-4005-8005-000000000005', 'images', 'Галерея', 'Загрузка изображений', 'images', 'image',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1005-4005-8005-000000000005', 'images', 'Галерея', 'Галерея', 'Загрузка изображений', 'images', 'image',
    'common', 'progressive', FALSE, 5,
    '[
      {"level": 1, "threshold": 1,    "name": "Фотограф",      "description": "Загрузить первое изображение",       "rarity": "common",   "reward_type": "garma", "reward_value": "10"},
@@ -83,40 +83,40 @@ INSERT INTO achievements (id, group_key, title, description, category, icon, rar
    ]'::jsonb);
 
 -- PROFILE: Avatar
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1006-4006-8006-000000000006', 'avatar', 'Аватар', 'Установка аватара', 'profile', 'camera',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1006-4006-8006-000000000006', 'avatar', 'Аватар', 'Аватар', 'Установка аватара', 'profile', 'camera',
    'common', 'one_time', FALSE, 6,
    '[
      {"level": 1, "threshold": 1, "name": "Лицо", "description": "Установить аватар", "rarity": "common", "reward_type": "garma", "reward_value": "20"}
    ]'::jsonb);
 
 -- PROFILE: Bio
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1007-4007-8007-000000000007', 'bio', 'Биография', 'Заполнение био', 'profile', 'file-text',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1007-4007-8007-000000000007', 'bio', 'Биография', 'Биография', 'Заполнение био', 'profile', 'file-text',
    'common', 'one_time', FALSE, 7,
    '[
      {"level": 1, "threshold": 1, "name": "О себе", "description": "Заполнить информацию о себе", "rarity": "common", "reward_type": "garma", "reward_value": "15"}
    ]'::jsonb);
 
 -- PROFILE: Customization
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1008-4008-8008-000000000008', 'style', 'Стиль', 'Кастомизация профиля', 'profile', 'palette',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1008-4008-8008-000000000008', 'style', 'Стиль', 'Стиль', 'Кастомизация профиля', 'profile', 'palette',
    'rare', 'one_time', FALSE, 8,
    '[
      {"level": 1, "threshold": 1, "name": "Стиль", "description": "Кастомизировать оформление профиля", "rarity": "rare", "reward_type": "garma", "reward_value": "50"}
    ]'::jsonb);
 
 -- SECRET: Hidden achievement for giving many likes
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1009-4009-8009-000000000009', 'secret_likes', '???', '???', 'secret', 'sparkles',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1009-4009-8009-000000000009', 'secret_likes', '???', '???', '???', 'secret', 'sparkles',
    'epic', 'progressive', TRUE, 9,
    '[
      {"level": 1, "threshold": 500, "name": "Тайный поклонник", "description": "Поставить 500 лайков", "rarity": "epic", "reward_type": "garma", "reward_value": "500"}
    ]'::jsonb);
 
 -- SECRET: Hidden achievement for many posts
-INSERT INTO achievements (id, group_key, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
-  ('a0000001-1010-4010-8010-000000000010', 'secret_posts', '???', '???', 'secret', 'zap',
+INSERT INTO achievements (id, group_key, name, title, description, category, icon, rarity, achievement_type, hidden, sort_order, levels) VALUES
+  ('a0000001-1010-4010-8010-000000000010', 'secret_posts', '???', '???', '???', 'secret', 'zap',
    'epic', 'progressive', TRUE, 10,
    '[
      {"level": 1, "threshold": 2000, "name": "Бессонный", "description": "Опубликовать 2000 постов", "rarity": "epic", "reward_type": "garma", "reward_value": "800"}
