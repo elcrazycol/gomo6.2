@@ -12,6 +12,7 @@ apps/backend-go/
 # Git
 .git/
 .gitignore
+.githooks/
 
 # IDE
 .idea/
@@ -28,6 +29,9 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 
+# CI / GitHub
+.github/
+
 # Misc
 *.md
 .env
@@ -42,3 +46,12 @@ Thumbs.db
 **/__tests__/
 **/*.test.ts
 **/*.test.tsx
+
+# OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
