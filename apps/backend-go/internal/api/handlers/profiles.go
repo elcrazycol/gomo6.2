@@ -16,12 +16,17 @@ import (
 )
 
 type ProfilesHandler struct {
-	db    *sql.DB
-	redis *redis.Client
+	db                 *sql.DB
+	redis              *redis.Client
+	achievementChecker *AchievementChecker
 }
 
 func NewProfilesHandler(db *sql.DB) *ProfilesHandler {
 	return &ProfilesHandler{db: db}
+}
+
+func (h *ProfilesHandler) SetAchievementChecker(ac *AchievementChecker) {
+	h.achievementChecker = ac
 }
 
 // SetRedis sets the Redis client for cache invalidation
@@ -271,6 +276,16 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	// Invalidate cache for this profile
 	if h.redis != nil {
 		middleware.InvalidateCacheForProfile(h.redis, id)
+	}
+
+	// Check profile achievements (avatar, bio)
+	if h.achievementChecker != nil {
+		if updates.AvatarURL != nil && *updates.AvatarURL != "" {
+			go h.achievementChecker.AwardOneTime(id, "a0000001-0000-0000-0000-000000000021")
+		}
+		if updates.Bio != nil && *updates.Bio != "" {
+			go h.achievementChecker.AwardOneTime(id, "a0000001-0000-0000-0000-000000000022")
+		}
 	}
 
 	// Return updated profile

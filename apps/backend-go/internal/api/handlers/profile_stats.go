@@ -53,6 +53,13 @@ FROM (
       COALESCE(
         (SELECT FLOOR((total_minutes)::numeric / 30) FROM user_session_time WHERE user_id = $1),
         0
+      )::numeric +
+      COALESCE(
+        (SELECT SUM(CAST(COALESCE(a.reward_value, '0') AS integer))
+         FROM user_achievements ua
+         JOIN achievements a ON a.id = ua.achievement_id
+         WHERE ua.user_id = $1 AND a.reward_type = 'garma'),
+        0
       )::numeric
     )::int)) AS g
 ) s

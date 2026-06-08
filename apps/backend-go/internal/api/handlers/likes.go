@@ -18,9 +18,10 @@ import (
 )
 
 type LikesHandler struct {
-	db    *sql.DB
-	redis *redis.Client
-	hub   *websocket.Hub
+	db                 *sql.DB
+	redis              *redis.Client
+	hub                *websocket.Hub
+	achievementChecker *AchievementChecker
 }
 
 func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
@@ -32,6 +33,10 @@ func NewLikesHandler(db *sql.DB, redis *redis.Client) *LikesHandler {
 
 func (h *LikesHandler) SetWebSocketHub(hub *websocket.Hub) {
 	h.hub = hub
+}
+
+func (h *LikesHandler) SetAchievementChecker(ac *AchievementChecker) {
+	h.achievementChecker = ac
 }
 
 func (h *LikesHandler) LikeThread(c *gin.Context) {
@@ -100,6 +105,14 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	if threadOwner != "" && threadOwner != userClaims.UserID {
 		title := fmt.Sprintf("@%s оценил(а) ваш тред", userClaims.Username)
 		_, _ = CreateNotification(h.db, h.redis, h.hub, threadOwner, "like", title, "", &threadID, nil)
+	}
+
+	// Check achievements for both the liker and the thread author
+	if h.achievementChecker != nil {
+		go h.achievementChecker.CheckAndAward(userClaims.UserID)
+		if threadOwner != "" && threadOwner != userClaims.UserID {
+			go h.achievementChecker.CheckAndAward(threadOwner)
+		}
 	}
 
 	// Invalidate cache for thread and its posts
@@ -247,6 +260,14 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 		title := fmt.Sprintf("@%s оценил(а) ваш пост", userClaims.Username)
 		// Try to create notification (best-effort)
 		_, _ = CreateNotification(h.db, h.redis, h.hub, postAuthor, "like", title, "", &threadID, &postID)
+	}
+
+	// Check achievements for both the liker and the post author
+	if h.achievementChecker != nil {
+		go h.achievementChecker.CheckAndAward(userClaims.UserID)
+		if postAuthor != "" && postAuthor != userClaims.UserID {
+			go h.achievementChecker.CheckAndAward(postAuthor)
+		}
 	}
 
 	// Invalidate cache for post and its thread
