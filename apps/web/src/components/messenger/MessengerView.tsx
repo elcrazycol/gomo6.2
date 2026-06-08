@@ -20,6 +20,27 @@ import type {
 } from "./types";
 
 // ─── Pure helpers (outside component, no closures) ──────────────────────────
+
+/** Merge server messages into existing state without losing in-flight data.
+ *  Preserves: (a) pending optimistic inserts not yet confirmed by server,
+ *  (b) messages added via WebSocket during the fetch window that aren't
+ *  yet in the server response (DB replication lag). */
+const mergeServerMessages = (prev: MessageView[], server: MessageView[]): MessageView[] => {
+  const serverMsgIds = new Set(server.map((m) => m.id));
+  const serverCids = new Set(server.map((m) => m.client_message_id).filter(Boolean));
+
+  const pending = prev.filter((m) => m.localStatus === "pending");
+  const stillPending = pending.filter((m) => !serverCids.has(m.client_message_id));
+
+  // Keep non-pending messages that server doesn't know about yet (WS race)
+  const unknown = prev.filter(
+    (m) => m.localStatus !== "pending" && !m.id.startsWith("local-") && !serverMsgIds.has(m.id),
+  );
+
+  return [...stillPending, ...unknown, ...server].sort(
+    (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
+  );
+};
 const loadConversationsFromApi = async (userId: string): Promise<ConversationView[]> => {
   const { data: memberships, error: mErr } = await api
     .from("chat_conversation_members" as never)
@@ -262,7 +283,7 @@ export const MessengerView = () => {
     loadMessagesFromApi(selectedId, me.id, conv.otherUser.id, ctrl.signal)
       .then((msgs) => {
         if (!ctrl.signal.aborted) {
-          setMessages(msgs);
+          setMessages((prev) => mergeServerMessages(prev, msgs));
           setMsgsLoading(false);
         }
       })
@@ -518,17 +539,11 @@ export const MessengerView = () => {
       if (!conv) return;
 
       // Merge server messages with pending (don't lose optimistic inserts during reload)
-      loadMessagesFromApi(selectedId, me.id, conv.otherUser.id)
+      const cid = selectedId;
+      loadMessagesFromApi(cid, me.id, conv.otherUser.id)
         .then((serverMsgs) => {
-          setMessages((prev) => {
-            const pending = prev.filter((m) => m.localStatus === "pending");
-            // Remove pending that have been confirmed on server (matched by client_message_id)
-            const serverIds = new Set(serverMsgs.map((m) => m.client_message_id).filter(Boolean));
-            const stillPending = pending.filter((m) => !serverIds.has(m.client_message_id));
-            return [...stillPending, ...serverMsgs].sort(
-              (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
-            );
-          });
+          if (selectedId !== cid) return;
+          setMessages((prev) => mergeServerMessages(prev, serverMsgs));
         })
         .catch(() => {});
 
