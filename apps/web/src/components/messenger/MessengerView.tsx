@@ -144,6 +144,7 @@ export const MessengerView = () => {
 
   // Abort controller for message loads
   const abortRef = useRef<AbortController | null>(null);
+  const lastLoadedConvId = useRef<string | null>(null);
 
   // Refs for DOM
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -238,9 +239,17 @@ export const MessengerView = () => {
 
   // ── Load messages when conversation changes ────────────────────────────
   useEffect(() => {
-    if (!me || !selectedId) { setMessages([]); return; }
+    if (!me || !selectedId) {
+      setMessages([]);
+      lastLoadedConvId.current = null;
+      return;
+    }
     const conv = conversations.find((c) => c.id === selectedId);
     if (!conv) return;
+
+    // Skip reload if same conversation (metadata-only update: unread, pin, lastMessageAt)
+    if (lastLoadedConvId.current === selectedId) return;
+    lastLoadedConvId.current = selectedId;
 
     // Abort any in-flight load from previous conversation
     abortRef.current?.abort();
@@ -260,8 +269,8 @@ export const MessengerView = () => {
       .catch((e) => {
         if (!ctrl.signal.aborted && e.name !== "AbortError") {
           setError("Не удалось загрузить сообщения");
-          setMsgsLoading(false);
         }
+        setMsgsLoading(false);
       });
 
     return () => ctrl.abort();
@@ -495,7 +504,7 @@ export const MessengerView = () => {
     [me, selectedId],
   );
 
-  // ── Focus: refresh messages + mark read ───────────────────────────────
+  // ── Focus: merge server messages + mark read ──────────────────────────
   useEffect(() => { msgsRef.current = messages; }, [messages]);
   const lastFocus = useRef(0);
   useEffect(() => {
@@ -507,8 +516,20 @@ export const MessengerView = () => {
 
       const conv = conversations.find((c) => c.id === selectedId);
       if (!conv) return;
+
+      // Merge server messages with pending (don't lose optimistic inserts during reload)
       loadMessagesFromApi(selectedId, me.id, conv.otherUser.id)
-        .then(setMessages)
+        .then((serverMsgs) => {
+          setMessages((prev) => {
+            const pending = prev.filter((m) => m.localStatus === "pending");
+            // Remove pending that have been confirmed on server (matched by client_message_id)
+            const serverIds = new Set(serverMsgs.map((m) => m.client_message_id).filter(Boolean));
+            const stillPending = pending.filter((m) => !serverIds.has(m.client_message_id));
+            return [...stillPending, ...serverMsgs].sort(
+              (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
+            );
+          });
+        })
         .catch(() => {});
 
       const last = msgsRef.current.at(-1);
