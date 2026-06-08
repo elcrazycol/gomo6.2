@@ -192,6 +192,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/user_achievements", universalHandler.HandleTableRequest)
 		rest.Any("/user_achievements/*path", universalHandler.HandleTableRequest)
 
+		rest.Any("/achievements", universalHandler.HandleTableRequest)
+		rest.Any("/achievements/*path", universalHandler.HandleTableRequest)
+
 		rest.Any("/user_terms_acceptance", universalHandler.HandleTableRequest)
 		rest.Any("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
 
@@ -472,4 +475,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Debug endpoint for online users count (protected, admin only in production)
 		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
 	}
+
+	// Direct routes for achievements — registered at router level (no group middleware) for reliability
+	router.GET("/api/v1/achievements", universalHandler.HandleTableRequest)
+	router.GET("/api/v1/achievements/*path", universalHandler.HandleTableRequest)
 }
