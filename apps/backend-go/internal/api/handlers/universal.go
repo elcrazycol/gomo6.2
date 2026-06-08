@@ -500,16 +500,30 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Also invalidate via the new cache system
 		h.invalidateCacheForTableResult(tableName, result)
 
-		if h.hub != nil {
-			if err := h.hub.PublishNewWallPost(result); err != nil {
-				fmt.Printf("[WebSocket] Error publishing wall post event: %v\n", err)
+		// Build enriched payload with author data for WebSocket and bot events
+		if h.hub != nil || h.botEventPublisher != nil {
+			var wsPayload map[string]interface{}
+			if idStr := fmt.Sprint(result["id"]); idStr != "" {
+				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr); enrichErr == nil && enriched != nil {
+					wsPayload = enriched
+				} else {
+					wsPayload = result
+				}
 			} else {
-				fmt.Printf("[WebSocket] Published wall post event for post %s\n", result["id"])
+				wsPayload = result
 			}
-		}
-		// Publish event to bots
-		if h.botEventPublisher != nil {
-			h.botEventPublisher.PublishWallPost(result)
+
+			if h.hub != nil {
+				if err := h.hub.PublishNewWallPost(wsPayload); err != nil {
+					fmt.Printf("[WebSocket] Error publishing wall post event: %v\n", err)
+				} else {
+					fmt.Printf("[WebSocket] Published wall post event for post %s\n", result["id"])
+				}
+			}
+			// Publish event to bots
+			if h.botEventPublisher != nil {
+				h.botEventPublisher.PublishWallPost(wsPayload)
+			}
 		}
 	}
 
@@ -648,8 +662,20 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
 		}
 
+		// Build enriched payload with author data for WebSocket broadcast
 		if h.hub != nil {
-			if err := h.hub.PublishUpdateWallPost(result); err != nil {
+			var wsPayload map[string]interface{}
+			if idStr := fmt.Sprint(result["id"]); idStr != "" {
+				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr); enrichErr == nil && enriched != nil {
+					wsPayload = enriched
+				} else {
+					wsPayload = result
+				}
+			} else {
+				wsPayload = result
+			}
+
+			if err := h.hub.PublishUpdateWallPost(wsPayload); err != nil {
 				fmt.Printf("[WebSocket] Error publishing wall post update event: %v\n", err)
 			} else {
 				fmt.Printf("[WebSocket] Published wall post update event for post %s\n", result["id"])
