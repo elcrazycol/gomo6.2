@@ -59,6 +59,13 @@ func main() {
 	// Initialize Gin router
 	router := gin.Default()
 
+	// Register /health IMMEDIATELY — before all heavy initialization.
+	// Docker healthcheck: start_period=30s + retries=5×interval=10s = 80s grace.
+	// DB, Redis, migrations, WebSocket, bots are all initialized AFTER.
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	// Add middleware
 	router.Use(middleware.CORS())
 	router.Use(middleware.Logger())
