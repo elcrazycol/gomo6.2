@@ -9,6 +9,7 @@ import type { ConversationView } from "./types";
 
 interface Props {
   onStartChat?: (userId: string) => void;
+  onSelectConversation?: (id: string) => void;
   startingChat?: boolean;
   targetUserId?: string | null;
 }
@@ -72,6 +73,7 @@ const ConversationCard = memo(function ConversationCard({
 
 export const ConversationList = memo(function ConversationList({
   onStartChat,
+  onSelectConversation,
   startingChat,
   targetUserId,
 }: Props) {
@@ -86,6 +88,14 @@ export const ConversationList = memo(function ConversationList({
   const handleStartChat = useCallback(() => {
     if (onStartChat && targetUserId) onStartChat(targetUserId);
   }, [onStartChat, targetUserId]);
+
+  const handleSelect = useCallback((id: string) => {
+    if (onSelectConversation) {
+      onSelectConversation(id);
+    } else {
+      selectConversation(id);
+    }
+  }, [onSelectConversation, selectConversation]);
 
   return (
     <>
@@ -142,7 +152,7 @@ export const ConversationList = memo(function ConversationList({
             key={conv.id}
             conversation={conv}
             isSelected={conv.id === selectedId}
-            onSelect={() => selectConversation(conv.id)}
+            onSelect={() => handleSelect(conv.id)}
           />
         ))}
       </div>
