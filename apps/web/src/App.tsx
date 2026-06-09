@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { LazyPage } from "@/components/LazyPage";
+import { AuthGuard } from "@/components/AuthGuard";
 import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { wsService } from "./services/websocket";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
@@ -138,30 +139,30 @@ const App = () => {
                   <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
                     <Route index element={<LazyPage component={Index} />} />
                     <Route path="boards" element={<LazyPage component={BoardsView} />} />
-                    <Route path="messages" element={<LazyPage component={Messages} />} />
+                    <Route path="messages" element={<AuthGuard><LazyPage component={Messages} /></AuthGuard>} />
                     <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
                     <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />
                     <Route path="profile/:userId" element={<LazyPage component={Profile} />} />
-                    <Route path="moderation" element={<LazyPage component={Moderation} />} />
-                    <Route path="moderation/posts" element={<LazyPage component={ModerationPosts} />} />
-                    <Route path="moderation/emojis" element={<LazyPage component={EmojiModeration} />} />
-                    <Route path="moderation/emojis/create" element={<LazyPage component={EmojiCreate} />} />
-                    <Route path="moderation/emojis/edit" element={<LazyPage component={EmojiEdit} />} />
-                    <Route path="moderation/emojis/edit/:emojiId" element={<LazyPage component={EmojiEditForm} />} />
-                    <Route path="settings/custom" element={<LazyPage component={CustomProfile} />} />
-                    <Route path="settings/placeholders" element={<LazyPage component={Placeholders} />} />
-                    <Route path="settings/:section" element={<LazyPage component={Settings} />} />
-                    <Route path="settings" element={<LazyPage component={Settings} />} />
-                    <Route path="bots" element={<LazyPage component={Bots} />} />
-                    <Route path="stats" element={<LazyPage component={Stats} />} />
-                    <Route path="notify" element={<LazyPage component={Notify} />} />
+                    <Route path="moderation" element={<AuthGuard><LazyPage component={Moderation} /></AuthGuard>} />
+                    <Route path="moderation/posts" element={<AuthGuard><LazyPage component={ModerationPosts} /></AuthGuard>} />
+                    <Route path="moderation/emojis" element={<AuthGuard><LazyPage component={EmojiModeration} /></AuthGuard>} />
+                    <Route path="moderation/emojis/create" element={<AuthGuard><LazyPage component={EmojiCreate} /></AuthGuard>} />
+                    <Route path="moderation/emojis/edit" element={<AuthGuard><LazyPage component={EmojiEdit} /></AuthGuard>} />
+                    <Route path="moderation/emojis/edit/:emojiId" element={<AuthGuard><LazyPage component={EmojiEditForm} /></AuthGuard>} />
+                    <Route path="settings/custom" element={<AuthGuard><LazyPage component={CustomProfile} /></AuthGuard>} />
+                    <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
+                    <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
+                    <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
+                    <Route path="bots" element={<AuthGuard><LazyPage component={Bots} /></AuthGuard>} />
+                    <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />
+                    <Route path="notify" element={<AuthGuard><LazyPage component={Notify} /></AuthGuard>} />
                     <Route path="search" element={<LazyPage component={SearchResults} />} />
                   <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />
                   <Route path="g" element={<LazyPage component={GomoSubs} />} />
-                  <Route path="g/create" element={<LazyPage component={GomoSubCreate} />} />
-                  <Route path="g/:slug/create" element={<LazyPage component={CreateGomoThread} />} />
-                  <Route path="g/:slug/settings" element={<LazyPage component={GomoSubSettings} />} />
-                  <Route path="create" element={<LazyPage component={CreateThread} />} />
+                  <Route path="g/create" element={<AuthGuard><LazyPage component={GomoSubCreate} /></AuthGuard>} />
+                  <Route path="g/:slug/create" element={<AuthGuard><LazyPage component={CreateGomoThread} /></AuthGuard>} />
+                  <Route path="g/:slug/settings" element={<AuthGuard><LazyPage component={GomoSubSettings} /></AuthGuard>} />
+                  <Route path="create" element={<AuthGuard><LazyPage component={CreateThread} /></AuthGuard>} />
                   <Route path="g/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
                   <Route path="g/:slug" element={<LazyPage component={Board} />} />
                   <Route path=":slug" element={<LazyPage component={Board} />} />

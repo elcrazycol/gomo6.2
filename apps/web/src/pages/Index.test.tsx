@@ -6,9 +6,31 @@ import { BrowserRouter } from "react-router-dom";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-const mockFrom = vi.fn();
-const mockRpc = vi.fn();
+const mockFrom = vi.fn(() => makePromiseChain({ data: [], error: null }));
+const mockRpc = vi.fn(() => Promise.resolve({ data: null, error: null }));
 const mockAuth = { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn() };
+
+// makePromiseChain must be defined BEFORE mockFrom uses it
+function makePromiseChain(resolvedValue: any): any {
+  const chain: Record<string, any> = {
+    select: () => chain,
+    eq: () => chain,
+    order: () => chain,
+    in: () => chain,
+    limit: () => chain,
+    range: () => chain,
+    single: () => chain,
+    maybeSingle: () => chain,
+    insert: () => chain,
+    update: () => chain,
+    delete: () => chain,
+    head: () => chain,
+    neq: () => chain,
+    or: () => chain,
+    then: (cb: any) => Promise.resolve(resolvedValue).then(cb),
+  };
+  return chain;
+}
 
 vi.mock("@/integrations/api/compat", () => ({
   api: {
@@ -62,29 +84,6 @@ vi.mock("react-router-dom", async () => {
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Creates a chainable API mock where ALL methods return `this`,
- *  so deeply chained calls like `.select().eq().eq().order()` all resolve to the same value. */
-function makePromiseChain(resolvedValue: any): any {
-  const chain: Record<string, any> = {
-    select: () => chain,
-    eq: () => chain,
-    order: () => chain,
-    in: () => chain,
-    limit: () => chain,
-    range: () => chain,
-    single: () => chain,
-    maybeSingle: () => chain,
-    insert: () => chain,
-    update: () => chain,
-    delete: () => chain,
-    head: () => chain,
-    neq: () => chain,
-    or: () => chain,
-    then: (cb: any) => Promise.resolve(resolvedValue).then(cb),
-  };
-  return chain;
-}
 
 function setupLoggedIn() {
   const user = { id: "user-1" };

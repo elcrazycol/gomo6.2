@@ -91,7 +91,7 @@ describe("Auth Page", () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/");
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
   });
 
@@ -218,7 +218,7 @@ describe("Auth Page", () => {
         email: "testuser@gomo6.local",
         password: "secret123",
       });
-      expect(mockNavigate).toHaveBeenCalledWith("/");
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
 
     expect(toast.success).toHaveBeenCalledWith("Вход выполнен");
@@ -420,7 +420,7 @@ describe("Auth Page", () => {
         "123456",
         false, // trustDevice defaults to false
       );
-      expect(mockNavigate).toHaveBeenCalledWith("/");
+      expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
   });
 

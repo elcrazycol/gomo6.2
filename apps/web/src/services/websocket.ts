@@ -73,6 +73,11 @@ class WebSocketService {
     this.handleClose = this.handleClose.bind(this);
     this.handleError = this.handleError.bind(this);
     this.handleOpen = this.handleOpen.bind(this);
+
+    // Listen for forced logout (token expired, refresh failed)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('auth:expired', this.disconnect);
+    }
   }
 
   /**
@@ -178,14 +183,18 @@ class WebSocketService {
   /**
    * Handle WebSocket error
    */
-  private handleError(error: Event): void {
-    // Error will trigger close event, which handles reconnection
+  private handleError(_error: Event): void {
+    // Don't log — 401 auth errors are normal and handled by close event.
+    // Close event checks for auth failure and stops reconnection.
   }
 
   /**
    * Schedule reconnection with exponential backoff
    */
   private scheduleReconnect(): void {
+    // Don't reconnect if there's no valid token
+    if (!this.getToken()) return;
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       return;
     }
