@@ -5,6 +5,9 @@
 # Images are built on GitHub Actions runners (fast, HTTPS works) and pushed to
 # GitHub Container Registry (ghcr.io). This script just pulls and restarts.
 #
+# IMPORTANT: git pull is done by deploy.yml BEFORE running this script,
+# so this script always runs the latest version of itself.
+#
 # GHCR_PAT is passed from GitHub Actions and used for docker login.
 # =============================================================================
 set -euo pipefail
@@ -17,32 +20,16 @@ fi
 [ -n "$PROJECT_DIR" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
 cd "$PROJECT_DIR"
 
-echo "=== Deploy started at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+GIT_COMMIT=$(git rev-parse --short HEAD)
+echo "=== Deploy started: $GIT_COMMIT ==="
 
 # ── Login to ghcr.io ───────────────────────────────────────────────────────
 if [ -n "${GHCR_PAT:-}" ]; then
-  echo "[0/3] Logging in to ghcr.io..."
+  echo "[1/3] Logging in to ghcr.io..."
   echo "$GHCR_PAT" | docker login ghcr.io -u scramble22 --password-stdin
 else
-  echo "[0/3] GHCR_PAT not set, assuming already logged in"
+  echo "[1/3] GHCR_PAT not set, assuming already logged in"
 fi
-
-# ── Capture current commit ──────────────────────────────────────────────────
-OLD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-echo "[1/3] Current commit: $OLD_COMMIT"
-
-# ── Pull latest git (for docker-compose.yml, Caddyfile, .env changes) ──────
-echo "       Pulling latest changes..."
-rm -f .env.deploy-backup
-if [ -f .env ]; then cp .env .env.deploy-backup; fi
-trap 'if [ -f .env.deploy-backup ]; then mv .env.deploy-backup .env; fi' EXIT
-git fetch origin main
-git reset --hard origin/main
-if [ -f .env.deploy-backup ]; then mv .env.deploy-backup .env; fi
-trap - EXIT
-
-GIT_COMMIT=$(git rev-parse --short HEAD)
-echo "       Deploying commit: $GIT_COMMIT (was: $OLD_COMMIT)"
 
 # ── Pull pre-built images from ghcr.io ─────────────────────────────────────
 echo "[2/3] Pulling Docker images from ghcr.io..."
@@ -52,7 +39,6 @@ pull_and_check() {
   echo "       Pulling $img..."
   docker pull "$img:latest" || {
     echo "ERROR: Failed to pull $img:latest"
-    echo "Rollback: git reset --hard $OLD_COMMIT && docker compose up -d --no-build"
     exit 1
   }
 }
