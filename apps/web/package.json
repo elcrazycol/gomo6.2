@@ -82,7 +82,8 @@
     "totp-generator": "^2.0.1",
     "vaul": "^0.9.9",
     "vite-plugin-pwa": "^1.2.0",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

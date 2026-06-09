@@ -1,19 +1,32 @@
-export const formatDate = (value: string | null): string => {
-  if (!value) return "сейчас";
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+export const formatTime = (dateStr: string | null): string => {
+  if (!dateStr) return "";
+  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
 };
 
-export const formatTime = (value: string | null): string => {
-  if (!value) return "сейчас";
-  return new Intl.DateTimeFormat("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+export const formatDate = (dateStr: string | null): string => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (d.toDateString() === today.toDateString()) return "Сегодня";
+  if (d.toDateString() === yesterday.toDateString()) return "Вчера";
+
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(d);
+};
+
+export const formatConversationDate = (dateStr: string | null): string => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return formatTime(dateStr);
+  if (diffDays === 1) return "Вчера";
+  if (diffDays < 7) return `${diffDays} дн.`;
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(d);
 };
 
 export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | null): string => {
@@ -24,27 +37,6 @@ export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | nu
 
 export const getInitials = (username: string): string => username.slice(0, 2).toUpperCase();
 
-/**
- * Group messages so consecutive messages from the same sender within `gapMinutes`
- * share a visual group (no avatar / sender label for subsequent messages).
- * Returns an array of booleans: `true` means "show sender info for this message".
- */
-export const computeGroupFlags = (messages: Array<{ sender_user_id: string; sent_at: string }>, gapMinutes = 2): boolean[] => {
-  if (messages.length === 0) return [];
-
-  const gapMs = gapMinutes * 60 * 1000;
-  const flags: boolean[] = [messages.length > 0]; // first message always shows sender
-
-  for (let i = 1; i < messages.length; i++) {
-    const prev = messages[i - 1];
-    const curr = messages[i];
-
-    const sameSender = curr.sender_user_id === prev.sender_user_id;
-    const timeDiff = new Date(curr.sent_at).getTime() - new Date(prev.sent_at).getTime();
-
-    // Show sender info if different sender OR time gap > gapMinutes
-    flags.push(!sameSender || timeDiff > gapMs);
-  }
-
-  return flags;
+export const generateClientId = (): string => {
+  return `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 };
