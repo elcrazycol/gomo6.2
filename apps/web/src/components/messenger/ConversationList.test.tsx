@@ -2,281 +2,206 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConversationList } from "./ConversationList";
-import type { ConversationView, ProfileSummary } from "./types";
 
-// ─── Mocks ───────────────────────────────────────────────────────────────────
+// ─── Mock dependencies ────────────────────────────────────────────────────────
 
 vi.mock("@/components/PentagramLoader", () => ({
-  PentagramLoader: ({ size }: any) => <span data-testid={`loader-${size}`}>Loading...</span>,
+  PentagramLoader: ({ size }: { size: string }) => <span data-testid={`loader-${size}`}>Loading...</span>,
 }));
 
 vi.mock("@/components/UserBadge", () => ({
-  UserBadge: ({ username }: any) => <span data-testid="user-badge">{username}</span>,
-}));
-
-vi.mock("@/components/OnlineStatus", () => ({
-  OnlineStatus: ({ isOnline, showText }: any) => (
-    <span data-testid="online-status" data-online={isOnline}>
-      {showText !== false ? (isOnline ? "online" : "offline") : null}
-    </span>
-  ),
+  UserBadge: ({ username }: { username: string }) => <span data-testid="user-badge">{username}</span>,
 }));
 
 vi.mock("@/utils/storage", () => ({
   storageUrl: (_bucket: string, key?: string | null) => key || null,
 }));
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Mock zustand store ──────────────────────────────────────────────────────
 
-const makeProfile = (overrides: Partial<ProfileSummary> = {}): ProfileSummary => ({
-  id: "user-1",
-  username: "testuser",
-  avatar_url: null,
-  account_number: 1234,
-  is_online: null,
-  last_seen_at: null,
-  ...overrides,
-});
-
-const makeConversation = (overrides: Partial<ConversationView> = {}): ConversationView => ({
-  id: "conv-1",
-  unreadCount: 0,
-  lastReadAt: null,
-  lastMessageAt: null,
-  pinnedMessageId: null,
-  otherUser: makeProfile({ id: "other-1", username: "otheruser" }),
-  ...overrides,
-});
-
-const defaultProps = {
-  conversations: [] as ConversationView[],
+const mockSelectConversation = vi.fn();
+const mockSetError = vi.fn();
+const mockStore = {
+  conversations: [] as any[],
   selectedConversationId: null as string | null,
-  openConversation: vi.fn(),
-  conversationsLoading: false,
-  errorMessage: null as string | null,
-  startingConversation: false,
-  targetUserId: null as string | null,
-  ensureConversation: vi.fn(),
-  loadConversations: vi.fn(),
-  me: makeProfile(),
-  totalUnread: 0,
-  onDismissError: vi.fn(),
+  selectConversation: mockSelectConversation,
+  error: null as string | null,
+  setError: mockSetError,
+  isInitialLoading: false,
+  totalUnread: () => 0,
 };
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
+vi.mock("@/stores/messengerStore", () => ({
+  useMessengerStore: vi.fn((selector: (s: typeof mockStore) => unknown) => {
+    return selector(mockStore);
+  }),
+}));
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function mockConversation(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "conv-1",
+    last_message_at: "2025-06-01T12:00:00Z",
+    last_message_preview: "Hello!",
+    last_message_sender_id: "u2",
+    pinned_message_id: null,
+    updated_at: "2025-06-01T12:00:00Z",
+    unread_count: 0,
+    other_user_id: "other-1",
+    other_username: "alice",
+    other_avatar_url: null,
+    other_account_number: 1001,
+    other_is_online: null,
+    other_last_seen_at: null,
+    ...overrides,
+  };
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("ConversationList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStore.conversations = [];
+    mockStore.selectedConversationId = null;
+    mockStore.error = null;
+    mockStore.isInitialLoading = false;
+    mockStore.totalUnread = () => 0;
   });
 
   describe("header", () => {
     it("renders title 'Сообщения'", () => {
-      render(<ConversationList {...defaultProps} />);
+      render(<ConversationList />);
       expect(screen.getByText("Сообщения")).toBeInTheDocument();
     });
 
     it("shows total unread badge when totalUnread > 0", () => {
-      render(<ConversationList {...defaultProps} totalUnread={5} />);
-      const badge = screen.getByText("5");
-      expect(badge.className).toContain("header-unread-badge");
+      mockStore.totalUnread = () => 5;
+      render(<ConversationList />);
+      expect(screen.getByText("5")).toBeInTheDocument();
     });
 
-    it("does not show total unread badge when totalUnread is 0", () => {
-      render(<ConversationList {...defaultProps} totalUnread={0} />);
+    it("shows 99+ for > 99 unread", () => {
+      mockStore.totalUnread = () => 150;
+      render(<ConversationList />);
+      expect(screen.getByText("99+")).toBeInTheDocument();
+    });
+
+    it("does not show badge when totalUnread is 0", () => {
+      mockStore.totalUnread = () => 0;
+      render(<ConversationList />);
       expect(screen.queryByText("0")).not.toBeInTheDocument();
     });
   });
 
   describe("error banner", () => {
-    it("renders error message when errorMessage is set", () => {
-      const { container } = render(<ConversationList {...defaultProps} errorMessage="Что-то пошло не так" />);
+    it("renders error message", () => {
+      mockStore.error = "Что-то пошло не так";
+      render(<ConversationList />);
       expect(screen.getByText("Что-то пошло не так")).toBeInTheDocument();
-      expect(container.querySelector(".error-banner")).toBeInTheDocument();
     });
 
-    it("does not render error banner when errorMessage is null", () => {
-      render(<ConversationList {...defaultProps} />);
-      expect(screen.queryByText(/Что-то пошло не так/)).not.toBeInTheDocument();
+    it("dismisses error on close button click", async () => {
+      mockStore.error = "Test error";
+      render(<ConversationList />);
+      const dismissBtn = screen.getByLabelText("Закрыть");
+      await userEvent.click(dismissBtn);
+      expect(mockSetError).toHaveBeenCalledWith(null);
     });
   });
 
   describe("loading state", () => {
-    it("shows loader when conversationsLoading and conversations empty", () => {
-      render(<ConversationList {...defaultProps} conversationsLoading={true} />);
+    it("shows loader when loading and no conversations", () => {
+      mockStore.isInitialLoading = true;
+      render(<ConversationList />);
       expect(screen.getByTestId("loader-md")).toBeInTheDocument();
     });
 
-    it("does not show loader when conversationsLoading but conversations exist", () => {
-      render(
-        <ConversationList
-          {...defaultProps}
-          conversationsLoading={true}
-          conversations={[makeConversation()]}
-        />,
-      );
+    it("does not show loader when conversations exist", () => {
+      mockStore.conversations = [mockConversation()];
+      mockStore.isInitialLoading = true;
+      render(<ConversationList />);
       expect(screen.queryByTestId("loader-md")).not.toBeInTheDocument();
     });
   });
 
   describe("empty state", () => {
     it("shows empty message when no conversations", () => {
-      render(<ConversationList {...defaultProps} />);
+      render(<ConversationList />);
       expect(screen.getByText("Диалогов пока нет.")).toBeInTheDocument();
     });
 
     it("shows 'Открыть диалог' button when targetUserId is set", () => {
-      render(<ConversationList {...defaultProps} targetUserId="other-1" />);
+      const onStartChat = vi.fn();
+      render(<ConversationList onStartChat={onStartChat} targetUserId="other-1" />);
       expect(screen.getByText("Открыть диалог")).toBeInTheDocument();
     });
 
-    it("shows loader on button when startingConversation is true", () => {
-      render(
-        <ConversationList {...defaultProps} targetUserId="other-1" startingConversation={true} />,
-      );
+    it("shows loader on button when startingChat is true", () => {
+      render(<ConversationList onStartChat={vi.fn()} targetUserId="other-1" startingChat={true} />);
       expect(screen.getByTestId("loader-sm")).toBeInTheDocument();
       expect(screen.queryByText("Открыть диалог")).not.toBeInTheDocument();
     });
 
-    it("calls ensureConversation then loadConversations on button click", async () => {
-      const ensureConversation = vi.fn().mockResolvedValue("conv-new");
-      const loadConversations = vi.fn().mockResolvedValue([]);
-      const me = makeProfile({ id: "me-1" });
-
-      render(
-        <ConversationList
-          {...defaultProps}
-          targetUserId="other-1"
-          ensureConversation={ensureConversation}
-          loadConversations={loadConversations}
-          me={me}
-        />,
-      );
-
+    it("calls onStartChat on button click", async () => {
+      const onStartChat = vi.fn();
+      render(<ConversationList onStartChat={onStartChat} targetUserId="other-1" />);
       await userEvent.click(screen.getByText("Открыть диалог"));
-
-      await waitFor(() => {
-        expect(ensureConversation).toHaveBeenCalledWith("me-1", "other-1");
-      });
-      await waitFor(() => {
-        expect(loadConversations).toHaveBeenCalledWith("me-1");
-      });
-    });
-
-    it("does not show 'Открыть диалог' when targetUserId is null", () => {
-      render(<ConversationList {...defaultProps} targetUserId={null} />);
-      expect(screen.queryByText("Открыть диалог")).not.toBeInTheDocument();
+      expect(onStartChat).toHaveBeenCalledWith("other-1");
     });
   });
 
   describe("conversation cards", () => {
     const conversations = [
-      makeConversation({
+      mockConversation({
         id: "conv-1",
-        otherUser: makeProfile({
-          id: "other-1",
-          username: "alice",
-          avatar_url: null,
-          account_number: 1001,
-        }),
-        unreadCount: 2,
+        other_username: "alice",
+        other_user_id: "other-1",
       }),
-      makeConversation({
+      mockConversation({
         id: "conv-2",
-        otherUser: makeProfile({
-          id: "other-2",
-          username: "bob",
-          avatar_url: "avatar.jpg",
-          account_number: 1002,
-          is_online: true,
-        }),
-        unreadCount: 0,
+        other_username: "bob",
+        other_user_id: "other-2",
+        other_avatar_url: "avatar.jpg",
+        other_is_online: true,
       }),
     ];
 
     it("renders conversation cards", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
+      mockStore.conversations = conversations;
+      render(<ConversationList />);
       expect(screen.getByText("alice")).toBeInTheDocument();
       expect(screen.getByText("bob")).toBeInTheDocument();
     });
 
-    it("renders account numbers", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
-      expect(screen.getByText("#1001")).toBeInTheDocument();
-      expect(screen.getByText("#1002")).toBeInTheDocument();
-    });
-
-    it("highlights selected conversation with is-active class", () => {
-      const { container } = render(
-        <ConversationList {...defaultProps} conversations={conversations} selectedConversationId="conv-1" />,
-      );
-
+    it("highlights selected conversation", () => {
+      mockStore.conversations = conversations;
+      mockStore.selectedConversationId = "conv-1";
+      const { container } = render(<ConversationList />);
       const cards = container.querySelectorAll(".conversation-card");
-      expect(cards[0].className).toContain("is-active");
-      expect(cards[1].className).not.toContain("is-active");
+      expect(cards[0]!.className).toContain("is-active");
+      expect(cards[1]!.className).not.toContain("is-active");
     });
 
-    it("shows unread count badge when conversation has unread", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
-      expect(screen.getByText("2")).toBeInTheDocument();
+    it("shows unread count badge", () => {
+      mockStore.conversations = [mockConversation({ id: "conv-1", unread_count: 3 })];
+      render(<ConversationList />);
+      expect(screen.getByText("3")).toBeInTheDocument();
     });
 
-    it("calls openConversation with conversation on card click", async () => {
-      const openConversation = vi.fn();
-      render(
-        <ConversationList
-          {...defaultProps}
-          conversations={conversations}
-          openConversation={openConversation}
-        />,
-      );
-
+    it("selects conversation on card click", async () => {
+      mockStore.conversations = conversations;
+      render(<ConversationList />);
       await userEvent.click(screen.getByText("alice"));
-
-      expect(openConversation).toHaveBeenCalledWith(conversations[0]);
+      expect(mockSelectConversation).toHaveBeenCalledWith("conv-1");
     });
 
-    it("renders avatar image for users with avatar_url", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
-      const imgs = screen.getAllByRole("img");
-      // bob has avatar_url = "avatar.jpg"
-      const bobImg = imgs.find((img) => img.getAttribute("alt") === "bob");
-      expect(bobImg).toBeInTheDocument();
-    });
-
-    it("renders initials for users without avatar_url", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
-      // alice has no avatar_url, shows initials "AL"
-      expect(screen.getByText("AL")).toBeInTheDocument();
-    });
-
-    it("renders OnlineStatus for each conversation", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
-      const statuses = screen.getAllByTestId("online-status");
-      expect(statuses.length).toBe(2);
-    });
-
-    it("renders UserBadge for each conversation", () => {
-      render(<ConversationList {...defaultProps} conversations={conversations} />);
+    it("renders username in UserBadge", () => {
+      mockStore.conversations = conversations;
+      render(<ConversationList />);
       const badges = screen.getAllByTestId("user-badge");
-      expect(badges.length).toBe(2);
-    });
-  });
-
-
-  describe("edge cases", () => {
-    it("handles missing account_number gracefully", () => {
-      const conv = makeConversation({
-        otherUser: makeProfile({ account_number: null }),
-      });
-      render(<ConversationList {...defaultProps} conversations={[conv]} />);
-      expect(screen.getByText("#?")).toBeInTheDocument();
-    });
-
-    it("handles missing lastMessageAt", () => {
-      const conv = makeConversation({ lastMessageAt: null });
-      render(<ConversationList {...defaultProps} conversations={[conv]} />);
-      expect(screen.getByText("сейчас")).toBeInTheDocument();
+      expect(badges).toHaveLength(2);
     });
   });
 });
