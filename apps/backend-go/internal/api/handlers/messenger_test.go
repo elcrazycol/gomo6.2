@@ -614,7 +614,7 @@ func TestEditMessage_Success(t *testing.T) {
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
 	body := EditMessageRequest{Content: "Edited content"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$1, is_edited = true, edited_at = NOW\(\).*WHERE id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
 		WithArgs("Edited content", "msg-1", "u1").
@@ -640,7 +640,7 @@ func TestEditMessage_EmptyContent(t *testing.T) {
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
 	body := EditMessageRequest{Content: "   "}
-	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 
 	handler.EditMessage(c)
 
@@ -654,7 +654,7 @@ func TestEditMessage_HtmlRejected(t *testing.T) {
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
 	body := EditMessageRequest{Content: "<b>bold</b>"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 
 	handler.EditMessage(c)
 
@@ -668,7 +668,7 @@ func TestEditMessage_NotFound(t *testing.T) {
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
 	body := EditMessageRequest{Content: "Edited content"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-999", body, claims, map[string]string{"convId": "conv-1", "msgId": "msg-999"})
+	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-999", body, claims, map[string]string{"id": "conv-1", "msgId": "msg-999"})
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET content.*WHERE id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
 		WithArgs("Edited content", "msg-999", "u1").
@@ -684,7 +684,7 @@ func TestEditMessage_NotFound(t *testing.T) {
 func TestEditMessage_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 	body := EditMessageRequest{Content: "Edited"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, nil, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, nil, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 
 	handler.EditMessage(c)
 
@@ -698,7 +698,7 @@ func TestEditMessage_DBError(t *testing.T) {
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
 	body := EditMessageRequest{Content: "Edited content"}
-	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newPUTContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", body, claims, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 
 	mock.ExpectExec(`UPDATE chat_messages.*`).
 		WithArgs("Edited content", "msg-1", "u1").
@@ -717,7 +717,7 @@ func TestDeleteMessage_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", nil, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", nil, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*WHERE id = \$1.*AND sender_user_id = \$2.*AND is_deleted = false.*AND conversation_id = \$3.*AND EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$3 AND user_id = \$2\)`).
@@ -735,7 +735,7 @@ func TestDeleteMessage_NotFound(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/messages/msg-999", nil, map[string]string{"convId": "conv-1", "msgId": "msg-999"})
+	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/messages/msg-999", nil, map[string]string{"id": "conv-1", "msgId": "msg-999"})
 	c.Set("claims", claims)
 
 	mock.ExpectExec(`UPDATE chat_messages.*SET is_deleted = true.*`).
@@ -751,7 +751,7 @@ func TestDeleteMessage_NotFound(t *testing.T) {
 
 func TestDeleteMessage_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", nil, map[string]string{"convId": "conv-1", "msgId": "msg-1"})
+	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/messages/msg-1", nil, map[string]string{"id": "conv-1", "msgId": "msg-1"})
 
 	handler.DeleteMessage(c)
 

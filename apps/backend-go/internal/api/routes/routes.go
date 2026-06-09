@@ -300,8 +300,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			{
 				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
 				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
-				messengerWrite.PUT("/messenger/conversations/:convId/messages/:msgId", messengerHandler.EditMessage)
-				messengerWrite.DELETE("/messenger/conversations/:convId/messages/:msgId", messengerHandler.DeleteMessage)
+				messengerWrite.PUT("/messenger/conversations/:id/messages/:msgId", messengerHandler.EditMessage)
+				messengerWrite.DELETE("/messenger/conversations/:id/messages/:msgId", messengerHandler.DeleteMessage)
 				messengerWrite.POST("/messenger/conversations/:id/read", messengerHandler.MarkRead)
 				messengerWrite.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
 				messengerWrite.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)

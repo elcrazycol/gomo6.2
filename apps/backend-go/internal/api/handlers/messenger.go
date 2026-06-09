@@ -898,7 +898,7 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 	}
 
 	messageID := c.Param("msgId")
-	conversationID := c.Param("convId")
+	conversationID := c.Param("id")
 
 	// Verify user is a conversation member AND message sender
 	// This prevents users from deleting messages in conversations they're not part of
