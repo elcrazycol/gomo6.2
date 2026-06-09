@@ -125,16 +125,25 @@ func (c *Client) readPump() {
 			}
 
 		case MessageTypeChatTyping:
-			// Broadcast chat typing indicator to the room specified in message.Room
-			// (not extracted from data — data contains the typing payload, not the room)
+			// Broadcast chat typing indicator to the room specified in message.Room.
+			// Read is_typing from the incoming data (client sends both true and false).
 			if message.Room != "" {
+				// Parse is_typing from incoming data
+				isTyping := true // default
+				var typingPayload struct {
+					IsTyping bool `json:"is_typing"`
+				}
+				if err := json.Unmarshal(message.Data, &typingPayload); err == nil {
+					isTyping = typingPayload.IsTyping
+				}
+
 				typingMsg := Message{
 					Type: MessageTypeChatTyping,
 					Room: message.Room,
 					Data: mustMarshalJSON(map[string]interface{}{
 						"user_id":   c.UserID,
 						"username":  c.Username,
-						"is_typing": true,
+						"is_typing": isTyping,
 					}),
 					UserID:    c.UserID,
 					Username:  c.Username,

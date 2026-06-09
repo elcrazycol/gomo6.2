@@ -175,13 +175,14 @@ export const ChatView = memo(function ChatView({
               <span>{getInitials(conversation.other_username)}</span>
             )}
           </div>
-          <div>
-            <div className="chat-user-badge">
-              <UserBadge userId={conversation.other_user_id} username={conversation.other_username} showOutline={false} />
-            </div>
+          <div className="chat-topbar-info">
+            <strong className="chat-topbar-name">{conversation.other_username}</strong>
             <p className="presence-copy">
               {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
             </p>
+          </div>
+          <div className="chat-user-badge desktop-only">
+            <UserBadge userId={conversation.other_user_id} username={conversation.other_username} showOutline={false} />
           </div>
         </div>
       </div>

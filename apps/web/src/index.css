@@ -436,6 +436,24 @@ html, body {
   min-width: 0;
 }
 
+.chat-topbar-info {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-topbar-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desktop-only {
+  display: inline-flex;
+}
+
 .chat-topbar strong {
   display: block;
   font-size: 14px;
@@ -1234,6 +1252,14 @@ html, body {
 
   .presence-copy {
     font-size: 11px;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .chat-topbar-name {
+    font-size: 13px;
   }
 
   .messenger-back-button {

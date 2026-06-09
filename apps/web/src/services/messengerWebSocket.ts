@@ -189,11 +189,11 @@ class MessengerWebSocket {
         case "chat_typing": {
           const d = msg.data;
           store.setTyping(d.user_id, d.username ?? "", d.is_typing ?? true);
-          // Auto-clear typing after 6 seconds
+          // Auto-clear typing after 3 seconds (fallback if is_typing:false is lost)
           if (d.is_typing) {
             setTimeout(() => {
               store.setTyping(d.user_id, d.username ?? "", false);
-            }, 6000);
+            }, 3000);
           }
           break;
         }
