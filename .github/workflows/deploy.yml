@@ -91,7 +91,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          command_timeout: 5m
+          command_timeout: 10m
           envs: GHCR_PAT
           script: |
             export GHCR_PAT="$GHCR_PAT"
@@ -101,6 +101,10 @@ jobs:
               [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
             done
             [ "${PWD##*/}" = "gomo6.2" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
+            # Pull latest code FIRST so deploy-vps.sh itself is up to date
+            git fetch origin main
+            git reset --hard origin/main
+            # Now run the freshly-updated deploy script
             bash scripts/deploy-vps.sh
         env:
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
