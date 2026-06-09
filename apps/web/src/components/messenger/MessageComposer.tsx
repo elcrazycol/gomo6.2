@@ -2,7 +2,7 @@ import { memo, useCallback, useRef, useState, type KeyboardEvent, type RefObject
 import { SendHorizontal } from "lucide-react";
 
 const MAX_LENGTH = 4000;
-const TYPING_DEBOUNCE_MS = 1500;
+const TYPING_DEBOUNCE_MS = 300;
 
 interface Props {
   draft: string;
@@ -29,17 +29,28 @@ export const MessageComposer = memo(function MessageComposer({
       const value = e.target.value;
       if (value.length <= MAX_LENGTH) setDraft(value);
 
-      // Typing indicator
+      // Typing indicator — instant start, debounced stop
       if (onTyping) {
-        if (value.length > 0 && !wasTyping) {
-          setWasTyping(true);
-          onTyping(true);
+        if (value.length > 0) {
+          // Start typing immediately on first character
+          if (!wasTyping) {
+            setWasTyping(true);
+            onTyping(true);
+          }
+          // Reset debounce timer — will fire stop after TYPING_DEBOUNCE_MS of inactivity
+          if (typingTimer.current) clearTimeout(typingTimer.current);
+          typingTimer.current = setTimeout(() => {
+            setWasTyping(false);
+            onTyping(false);
+          }, TYPING_DEBOUNCE_MS);
+        } else {
+          // Draft cleared (e.g. after send) — stop typing immediately
+          if (wasTyping) {
+            setWasTyping(false);
+            onTyping(false);
+          }
+          if (typingTimer.current) clearTimeout(typingTimer.current);
         }
-        if (typingTimer.current) clearTimeout(typingTimer.current);
-        typingTimer.current = setTimeout(() => {
-          setWasTyping(false);
-          onTyping(false);
-        }, TYPING_DEBOUNCE_MS);
       }
     },
     [setDraft, onTyping, wasTyping],
@@ -49,10 +60,11 @@ export const MessageComposer = memo(function MessageComposer({
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
-        onSend();
-        // Clear typing
+        // Clear typing immediately before sending
         if (onTyping) onTyping(false);
         setWasTyping(false);
+        if (typingTimer.current) clearTimeout(typingTimer.current);
+        onSend();
       }
     },
     [onSend, onTyping],
@@ -62,9 +74,11 @@ export const MessageComposer = memo(function MessageComposer({
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!isSending && draft.trim()) {
-        onSend();
+        // Clear typing immediately before sending
         if (onTyping) onTyping(false);
         setWasTyping(false);
+        if (typingTimer.current) clearTimeout(typingTimer.current);
+        onSend();
       }
     },
     [onSend, isSending, draft, onTyping],
