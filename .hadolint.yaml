@@ -3,3 +3,4 @@
 # and the VPS blocks outbound HTTPS so version-qualified fetches fail.
 ignored:
   - DL3018
+  - SC2034

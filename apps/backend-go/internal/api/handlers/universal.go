@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -314,7 +315,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 			val := values[i]
 			b, ok := val.([]byte)
 			if ok {
-				row[col] = string(b)
+				row[col] = decodeColumnValue(b)
 			} else {
 				row[col] = val
 			}
@@ -409,7 +410,7 @@ func scanRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
 	for i, col := range columns {
 		val := values[i]
 		if b, ok := val.([]byte); ok {
-			result[col] = string(b)
+			result[col] = decodeColumnValue(b)
 		} else {
 			result[col] = val
 		}
@@ -656,7 +657,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		val := values[i]
 		b, ok := val.([]byte)
 		if ok {
-			result[col] = string(b)
+			result[col] = decodeColumnValue(b)
 		} else {
 			result[col] = val
 		}
@@ -777,7 +778,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		val := values[i]
 		b, ok := val.([]byte)
 		if ok {
-			result[col] = string(b)
+			result[col] = decodeColumnValue(b)
 		} else {
 			result[col] = val
 		}
@@ -837,6 +838,26 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	h.invalidateCacheForTableResult(tableName, result)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
+}
+
+// decodeColumnValue converts a database column value to a JSON-safe representation.
+// JSONB columns come as []byte from the driver — we parse them into proper JSON
+// objects/arrays. Other []byte values (UUIDs, text) are returned as strings.
+func decodeColumnValue(val interface{}) interface{} {
+	b, ok := val.([]byte)
+	if !ok {
+		return val
+	}
+	// Only try JSON parsing for values that look like JSON objects or arrays.
+	// This avoids converting numeric strings (like "42" in a text column) to float64.
+	s := strings.TrimSpace(string(b))
+	if len(s) > 0 && (s[0] == '{' || s[0] == '[') {
+		var jsonVal interface{}
+		if err := json.Unmarshal(b, &jsonVal); err == nil {
+			return jsonVal
+		}
+	}
+	return string(b)
 }
 
 func joinStrings(strs []string, sep string) string {
@@ -1121,7 +1142,7 @@ func (h *UniversalHandler) handleMessengerTableGet(c *gin.Context, tableName str
 			val := values[i]
 			b, ok := val.([]byte)
 			if ok {
-				row[col] = string(b)
+				row[col] = decodeColumnValue(b)
 			} else {
 				row[col] = val
 			}
