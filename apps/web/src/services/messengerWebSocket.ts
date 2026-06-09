@@ -204,13 +204,8 @@ class MessengerWebSocket {
 
         case "chat_typing": {
           const d = msg.data;
+          // Instantly reflect typing state — server sends both start/stop events
           store.setTyping(d.user_id, d.username ?? "", d.is_typing ?? true);
-          // Auto-clear typing after 3 seconds (fallback if is_typing:false is lost)
-          if (d.is_typing) {
-            setTimeout(() => {
-              store.setTyping(d.user_id, d.username ?? "", false);
-            }, 3000);
-          }
           break;
         }
 

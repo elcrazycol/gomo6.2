@@ -410,6 +410,12 @@ html, body {
   100% { transform: scale(1.8); opacity: 0; }
 }
 
+/* ── Chat header group (topbar + pinned) ── */
+
+.chat-header-group {
+  flex-shrink: 0;
+}
+
 /* ── Chat topbar ── */
 
 .chat-topbar {
@@ -419,8 +425,6 @@ html, body {
   padding: 10px 14px;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
-  position: sticky;
-  top: 0;
   z-index: 2;
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.04);
 }
@@ -441,38 +445,14 @@ html, body {
   overflow: hidden;
 }
 
-.chat-topbar-name {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .desktop-only {
   display: inline-flex;
 }
 
-.chat-topbar strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chat-user-badge {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.chat-user-badge a,
-.chat-user-badge span {
-  min-width: 0;
+@media (max-width: 640px) {
+  .desktop-only {
+    display: none;
+  }
 }
 
 .presence-copy {
@@ -507,12 +487,13 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 5px 12px;
   background: hsl(var(--primary) / 0.08);
-  border-bottom: 1px solid hsl(var(--primary) / 0.12);
+  border-top: 1px solid hsl(var(--primary) / 0.12);
   font-size: 12px;
   cursor: pointer;
   transition: background-color 0.15s ease;
+  flex-shrink: 0;
 }
 
 .pinned-message-banner:hover {
@@ -1244,22 +1225,6 @@ html, body {
   .chat-topbar-main > div:last-child {
     flex: 1 1 auto;
     min-width: 0;
-  }
-
-  .chat-topbar strong {
-    font-size: 13px;
-  }
-
-  .presence-copy {
-    font-size: 11px;
-  }
-
-  .desktop-only {
-    display: none;
-  }
-
-  .chat-topbar-name {
-    font-size: 13px;
   }
 
   .messenger-back-button {
