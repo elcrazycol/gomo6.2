@@ -14,6 +14,7 @@ describe("messengerApi", () => {
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: status >= 200 && status < 300,
       status,
+      headers: new Headers({ "Content-Type": "application/json" }),
       json: async () => ({ success: status < 400, data, error: status >= 400 ? "test error" : undefined }),
     } as Response);
   }
@@ -22,13 +23,14 @@ describe("messengerApi", () => {
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: status >= 200 && status < 300,
       status,
+      headers: new Headers({ "Content-Type": "application/json" }),
       json: async () => response,
     } as Response);
   }
 
   describe("getMyProfile", () => {
     it("returns profile data", async () => {
-      mockFetchRaw({ user: { id: "u1", username: "test" } });
+      mockFetchRaw({ success: true, data: { id: "u1", username: "test" } });
       const profile = await messengerApi.getMyProfile();
       expect(profile).toEqual({ id: "u1", username: "test" });
     });

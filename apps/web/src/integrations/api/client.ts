@@ -102,6 +102,8 @@ export interface AuthResponse {
   token: string;
   user: User;
   needs_2fa?: boolean;
+  refresh_token?: string;
+  expires_in?: number;
 }
 
 // 2FA Types
@@ -123,66 +125,178 @@ export interface ApiResponse<T> {
   error?: string | null;
 }
 
+// Decode JWT payload without verification (for expiry check only)
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    // Decode base64url
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(base64);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 // HTTP Client with auth
 class ApiClient {
   private token: string | null = null;
+  private refreshToken: string | null = null;
+  private tokenExpiresAt: number | null = null;
+  private refreshPromise: Promise<string | null> | null = null;
 
   constructor() {
-    // Load token from localStorage on init
+    // Load tokens from localStorage on init
     this.token = localStorage.getItem('auth_token');
+    this.refreshToken = localStorage.getItem('auth_refresh_token');
+    if (this.token) {
+      const payload = decodeJwtPayload(this.token);
+      if (payload?.exp && typeof payload.exp === 'number') {
+        this.tokenExpiresAt = payload.exp * 1000; // JWT exp is in seconds
+      }
+    }
   }
 
   setToken(token: string) {
-    this.token = token;
-    localStorage.setItem('auth_token', token);
+    this.setTokens(token, this.refreshToken);
+  }
+
+  setTokens(accessToken: string, refreshToken: string | null) {
+    this.token = accessToken;
+    this.refreshToken = refreshToken || null;
+    localStorage.setItem('auth_token', accessToken);
+    if (refreshToken) {
+      localStorage.setItem('auth_refresh_token', refreshToken);
+    }
+    const payload = decodeJwtPayload(accessToken);
+    this.tokenExpiresAt = (payload?.exp && typeof payload.exp === 'number') ? payload.exp * 1000 : null;
   }
 
   clearToken() {
+    this.clearTokens();
+  }
+
+  clearTokens() {
     this.token = null;
+    this.refreshToken = null;
+    this.tokenExpiresAt = null;
+    this.cachedUser = null;
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_refresh_token');
   }
 
   getToken(): string | null {
     return this.token;
   }
 
+  getRefreshToken(): string | null {
+    return this.refreshToken;
+  }
+
+  /** Try to refresh the access token using the stored refresh token. */
+  async tryRefreshToken(): Promise<string | null> {
+    // Deduplicate concurrent refresh attempts
+    if (this.refreshPromise) return this.refreshPromise;
+
+    this.refreshPromise = (async () => {
+      try {
+        if (!this.refreshToken) return null;
+        const res = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(this.token && { Authorization: `Bearer ${this.token}` }),
+          },
+          body: JSON.stringify({ refresh_token: this.refreshToken }),
+        });
+        if (!res.ok) return null;
+        const json = await res.json();
+        const data = json.data ?? json;
+        const newToken = data.token;
+        const newRefresh = data.refresh_token;
+        if (newToken) {
+          this.setTokens(newToken, newRefresh || this.refreshToken);
+          return newToken;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
+  }
+
   public async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
-      ...options.headers,
+    // Proactive refresh: if token expires in < 5 minutes, refresh now
+    if (this.token && this.tokenExpiresAt && Date.now() > this.tokenExpiresAt - 5 * 60 * 1000) {
+      await this.tryRefreshToken();
+    }
+
+    const doFetch = async (): Promise<ApiResponse<T>> => {
+      const url = `${API_BASE_URL}${endpoint}`;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
+        ...(options.headers as Record<string, string> || {}),
+      };
+
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      let data;
+
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        // For non-JSON responses, create error object
+        const text = await response.text();
+        data = { error: text || `HTTP ${response.status}` };
+      }
+
+      if (!response.ok) {
+        const err = new Error(data.error || `HTTP ${response.status}`);
+        (err as Record<string, unknown>).status = response.status;
+        throw err;
+      }
+
+      // Check unified {success, data} format
+      if (data != null && data.success === false) {
+        const err = new Error(data.error || 'Request failed');
+        throw err;
+      }
+      return data;
     };
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
-
-    // Check if response is JSON
-    const contentType = response.headers.get('content-type');
-    let data;
-    
-    if (contentType && contentType.includes('application/json')) {
-      data = await response.json();
-    } else {
-      // For non-JSON responses, create error object
-      const text = await response.text();
-      data = { error: text || `HTTP ${response.status}` };
+    try {
+      return await doFetch();
+    } catch (error) {
+      const err = error as Error & { status?: number };
+      // On 401, try refreshing the token and retry once (only for authenticated requests)
+      if (err.status === 401 && this.token) {
+        if (this.refreshToken) {
+          const newToken = await this.tryRefreshToken();
+          if (newToken) {
+            return await doFetch();
+          }
+        }
+        // No refresh token or refresh failed — force logout
+        this.clearTokens();
+        window.dispatchEvent(new CustomEvent('auth:expired'));
+        throw new Error('Session expired. Please log in again.');
+      }
+      throw error;
     }
-
-    if (!response.ok) {
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-
-    // Check unified {success, data} format
-    if (data != null && data.success === false) {
-      throw new Error(data.error || 'Request failed');
-    }
-    return data;
   }
 
   // Public method for compatibility layer
@@ -195,16 +309,17 @@ class ApiClient {
 
   // Auth Methods
   async register(email: string, username: string, password: string): Promise<AuthResponse> {
-    const response = await this.request<AuthResponse>('/api/v1/auth/register', {
+    const response = await this.request<Record<string, unknown>>('/api/v1/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, username, password }),
     });
 
-    if (response.data) {
-      this.setToken((response.data as AuthResponse).token);
+    const data = response.data as Record<string, unknown> | null;
+    if (data) {
+      this.setTokens(data.token as string, (data.refresh_token as string) || null);
     }
 
-    return response.data as AuthResponse;
+    return data as unknown as AuthResponse;
   }
 
   async login(email: string, password: string, deviceId?: string): Promise<AuthResponse & { needs_2fa?: boolean }> {
@@ -213,20 +328,20 @@ class ApiClient {
       body.device_id = deviceId;
     }
 
-    const response = await this.request<AuthResponse>('/api/v1/auth/login', {
+    const response = await this.request<Record<string, unknown>>('/api/v1/auth/login', {
       method: 'POST',
       body: JSON.stringify(body),
     });
 
-    const data = response.data as AuthResponse & { needs_2fa?: boolean } | null;
+    const data = response.data as Record<string, unknown> & { needs_2fa?: boolean } | null;
     if (data) {
-      // Only set token if 2FA is not needed (full token)
+      // Only set tokens if 2FA is not needed (full token pair)
       if (!data.needs_2fa) {
-        this.setToken(data.token);
+        this.setTokens(data.token as string, (data.refresh_token as string) || null);
       }
     }
 
-    return data as AuthResponse & { needs_2fa?: boolean };
+    return data as unknown as AuthResponse & { needs_2fa?: boolean };
   }
 
   async verify2FA(token: string, code: string, deviceId?: string, trustDevice?: boolean): Promise<AuthResponse> {
@@ -238,16 +353,17 @@ class ApiClient {
       body.trust_device = true;
     }
 
-    const response = await this.request<AuthResponse>('/api/v1/auth/verify-2fa', {
+    const response = await this.request<Record<string, unknown>>('/api/v1/auth/verify-2fa', {
       method: 'POST',
       body: JSON.stringify(body),
     });
 
-    if (response.data) {
-      this.setToken((response.data as AuthResponse).token);
+    const data = response.data as Record<string, unknown> | null;
+    if (data) {
+      this.setTokens(data.token as string, (data.refresh_token as string) || null);
     }
 
-    return response.data as AuthResponse;
+    return data as unknown as AuthResponse;
   }
 
   // Last known good user profile (survives network errors)
@@ -262,22 +378,19 @@ class ApiClient {
       if (user) this.cachedUser = user;
       return user;
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      // Only clear token on explicit 401 (expired/invalid).
-      // Network errors (502, CORS, timeout) should NOT log out the user.
-      if (msg.includes('HTTP 401') || msg.includes('Unauthorized')) {
-        this.clearToken();
-        this.cachedUser = null;
-        return null;
-      }
+      // If tokens were cleared (401 + refresh failed), we're logged out
+      if (!this.token) return null;
+      const err = error as Error & { status?: number };
+      // Direct 401 (no refresh token available) — also logged out
+      if (err.status === 401) return null;
       // Network error (502, timeout, DNS) — return cached user if available
-      console.warn('[API] getCurrentUser network error, using cached profile:', msg);
+      console.warn('[API] getCurrentUser network error, using cached profile:', err.message);
       return this.cachedUser;
     }
   }
 
   logout() {
-    this.clearToken();
+    this.clearTokens();
   }
 
   async updatePassword(password: string): Promise<void> {

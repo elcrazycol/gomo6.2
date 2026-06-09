@@ -1,41 +1,11 @@
 import type { ConversationView, MessageView, ReceiptRow } from "@/components/messenger/types";
+import { apiClient } from "@/integrations/api/client";
 
 const BASE = "/api/v1/messenger";
 const TOKEN = () => localStorage.getItem("auth_token") ?? "";
 
-let _refreshPromise: Promise<string | null> | null = null;
-
 async function tryRefreshToken(): Promise<string | null> {
-  // Deduplicate concurrent refresh attempts
-  if (_refreshPromise) return _refreshPromise;
-
-  _refreshPromise = (async () => {
-    try {
-      const token = TOKEN();
-      if (!token) return null;
-      const res = await fetch("/api/v1/auth/refresh", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!res.ok) return null;
-      const json = await res.json();
-      const newToken = json.token ?? json.data?.token;
-      if (newToken) {
-        localStorage.setItem("auth_token", newToken);
-        return newToken;
-      }
-      return null;
-    } catch {
-      return null;
-    } finally {
-      _refreshPromise = null;
-    }
-  })();
-
-  return _refreshPromise;
+  return apiClient.tryRefreshToken();
 }
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -69,6 +39,9 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (newToken) {
         return await doFetch(newToken);
       }
+      // Refresh failed — force logout
+      apiClient.clearTokens();
+      window.dispatchEvent(new CustomEvent('auth:expired'));
       throw new Error("Сессия истекла — обнови страницу (F5)");
     }
     throw e;
@@ -78,16 +51,17 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const messengerApi = {
   // ── Profile ───────────────────────────────────────────────────────────
   async getMyProfile(): Promise<{ id: string; username: string }> {
-    const res = await fetch("/api/v1/auth/me", {
-      headers: { Authorization: `Bearer ${TOKEN()}` },
-    });
-    if (!res.ok) {
-      const token = TOKEN();
-      if (token) throw new Error("server_unreachable");
-      throw new Error("not authenticated");
+    try {
+      const result = await apiClient.request<{ id: string; username: string }>('/api/v1/auth/me');
+      return result.data as { id: string; username: string };
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      // 401 is handled by apiClient.request() — tokens cleared + auth:expired dispatched
+      if (err.status === 401 || !localStorage.getItem("auth_token")) {
+        throw new Error("not authenticated");
+      }
+      throw new Error("server_unreachable");
     }
-    const json = await res.json();
-    return json.user ?? json.data;
   },
 
   // ── Conversations ─────────────────────────────────────────────────────

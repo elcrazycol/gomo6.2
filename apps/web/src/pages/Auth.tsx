@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient, getDeviceId } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,12 @@ const Auth = () => {
   const [showTerms, setShowTerms] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+
+  // Get redirect URL from query params (set by AuthGuard or auth:expired handler)
+  // Only allow same-origin paths to prevent open redirect attacks
+  const rawRedirect = searchParams.get("redirect") || "/";
+  const redirectTo = rawRedirect.startsWith("/") ? rawRedirect : "/";
 
   // 2FA state
   const [needs2FA, setNeeds2FA] = useState(false);
@@ -41,11 +47,11 @@ const Auth = () => {
     const checkSession = async () => {
       const { data: { session } } = await api.auth.getSession();
       if (session) {
-        navigate("/");
+        navigate(redirectTo, { replace: true });
       }
     };
     checkSession();
-  }, [navigate]);
+  }, [navigate, redirectTo]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,7 +105,7 @@ const Auth = () => {
         await wsService.connect();
 
         toast.success("Вход выполнен");
-        navigate("/");
+        navigate(redirectTo, { replace: true });
       } else {
         const { error } = await api.auth.signUp({
           email,
@@ -176,7 +182,7 @@ const Auth = () => {
       await wsService.connect();
 
       toast.success("Вход выполнен");
-      navigate("/");
+      navigate(redirectTo, { replace: true });
     } catch (error: any) {
       toast.error("Ошибка проверки кода");
     } finally {

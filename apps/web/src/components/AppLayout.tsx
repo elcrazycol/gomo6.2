@@ -15,6 +15,7 @@ import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { useAuth } from "@/hooks/useAuth";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -34,6 +35,7 @@ type NowPlayingState = {
 export const AppLayout = ({ children }: AppLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { user } = useAuth(); // Use cached auth hook instead of local state
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -878,6 +880,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     navigate(`/search?q=${encodeURIComponent(term)}`);
     setSearchOpen(false);
   };
+
+  // Global auth:expired handler — redirect to login when refresh token fails
+  useEffect(() => {
+    const handler = () => {
+      queryClient.invalidateQueries({ queryKey: ['auth'] });
+      navigate('/auth');
+    };
+    window.addEventListener('auth:expired', handler);
+    return () => window.removeEventListener('auth:expired', handler);
+  }, [navigate, queryClient]);
 
   useEffect(() => {
     const syncMessengerChrome = () => {
