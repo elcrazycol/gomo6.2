@@ -188,6 +188,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 
 // ─── Get or Create Conversation ─────────────────────────────────────────────
 // POST /api/v1/messenger/conversations
+// Pure raw SQL — no RPC, no current_setting, no migration dependency.
 
 func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	claims := ensureAuth(c)
@@ -208,9 +209,52 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 		return
 	}
 
+	// 1. Find existing 1:1 conversation (exactly 2 members: me + other)
 	var convID string
-	err := h.db.QueryRow("SELECT rpc_get_or_create_direct_chat($1, $2)", claims.UserID, req.UserID).Scan(&convID)
+	err := h.db.QueryRow(`
+		SELECT cm1.conversation_id
+		FROM chat_members cm1
+		INNER JOIN chat_members cm2
+			ON cm1.conversation_id = cm2.conversation_id
+		WHERE cm1.user_id = $1
+		  AND cm2.user_id = $2
+		  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
+		LIMIT 1
+	`, claims.UserID, req.UserID).Scan(&convID)
+
+	if err == nil {
+		// Found existing conversation
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
+		return
+	}
+
+	if err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// 2. No existing conversation — create one with both members
+	tx, err := h.db.Begin()
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	defer tx.Rollback()
+
+	err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`,
+		convID, claims.UserID, req.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
@@ -773,6 +817,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 
 // ─── Toggle Pin ─────────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/pin
+// Pure raw SQL — no RPC, no current_setting, no migration dependency.
 
 func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	claims := ensureAuth(c)
@@ -790,17 +835,41 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		return
 	}
 
-	var newPinID sql.NullString
-	err := h.db.QueryRow("SELECT rpc_toggle_pin_message($1, $2, $3)", claims.UserID, conversationID, req.MessageID).Scan(&newPinID)
+	// Check membership
+	var isMember bool
+	err := h.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
+		conversationID, claims.UserID,
+	).Scan(&isMember)
+	if err != nil || !isMember {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
+		return
+	}
+
+	// Get current pinned message
+	var currentPin sql.NullString
+	err = h.db.QueryRow("SELECT pinned_message_id FROM chat_conversations WHERE id = $1", conversationID).Scan(&currentPin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	if newPinID.Valid {
-		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": newPinID.String}))
-	} else {
+	if currentPin.Valid && currentPin.String == req.MessageID {
+		// Unpin
+		_, err = h.db.Exec("UPDATE chat_conversations SET pinned_message_id = NULL WHERE id = $1", conversationID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			return
+		}
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": nil}))
+	} else {
+		// Pin
+		_, err = h.db.Exec("UPDATE chat_conversations SET pinned_message_id = $2 WHERE id = $1", conversationID, req.MessageID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			return
+		}
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": req.MessageID}))
 	}
 }
 

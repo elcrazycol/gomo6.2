@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -148,10 +149,10 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 	body := map[string]string{"user_id": "u2"}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
-	rows := sqlmock.NewRows([]string{"rpc_get_or_create_direct_chat"}).AddRow("conv-new-123")
-	mock.ExpectQuery(`SELECT rpc_get_or_create_direct_chat\(\$1, \$2\)`).
+	// Find existing — returns one
+	mock.ExpectQuery(`SELECT cm1.conversation_id.*FROM chat_members cm1.*INNER JOIN chat_members cm2`).
 		WithArgs("u1", "u2").
-		WillReturnRows(rows)
+		WillReturnRows(sqlmock.NewRows([]string{"conversation_id"}).AddRow("conv-existing"))
 
 	handler.GetOrCreateConversation(c)
 
@@ -164,8 +165,51 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 	data := resp.Data.(map[string]interface{})
-	if data["conversation_id"] != "conv-new-123" {
-		t.Fatalf("expected conv-new-123, got %v", data["conversation_id"])
+	if data["conversation_id"] != "conv-existing" {
+		t.Fatalf("expected conv-existing, got %v", data["conversation_id"])
+	}
+}
+
+func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]string{"user_id": "u2"}
+	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
+
+	// Find existing — no rows
+	mock.ExpectQuery(`SELECT cm1.conversation_id.*FROM chat_members cm1`).
+		WithArgs("u1", "u2").
+		WillReturnError(sql.ErrNoRows)
+
+	// Transaction: begin
+	mock.ExpectBegin()
+
+	// Insert conversation
+	mock.ExpectQuery(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("conv-new"))
+
+	// Insert members
+	mock.ExpectExec(`INSERT INTO chat_members`).
+		WithArgs("conv-new", "u1", "u2").
+		WillReturnResult(sqlmock.NewResult(1, 2))
+
+	// Commit
+	mock.ExpectCommit()
+
+	handler.GetOrCreateConversation(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	data := resp.Data.(map[string]interface{})
+	if data["conversation_id"] != "conv-new" {
+		t.Fatalf("expected conv-new, got %v", data["conversation_id"])
 	}
 }
 
@@ -848,9 +892,20 @@ func TestTogglePin_Success(t *testing.T) {
 	body := map[string]string{"message_id": "msg-1"}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/conv-1/pin", body, claims, map[string]string{"id": "conv-1"})
 
-	mock.ExpectQuery(`SELECT rpc_toggle_pin_message\(\$1, \$2, \$3\)`).
-		WithArgs("u1", "conv-1", "msg-1").
-		WillReturnRows(sqlmock.NewRows([]string{"rpc_toggle_pin_message"}).AddRow("msg-1"))
+	// Membership check
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs("conv-1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// Get current pin — NULL (no pin yet)
+	mock.ExpectQuery(`SELECT pinned_message_id FROM chat_conversations WHERE id = \$1`).
+		WithArgs("conv-1").
+		WillReturnRows(sqlmock.NewRows([]string{"pinned_message_id"}).AddRow(nil))
+
+	// Pin the message
+	mock.ExpectExec(`UPDATE chat_conversations SET pinned_message_id = \$2 WHERE id = \$1`).
+		WithArgs("conv-1", "msg-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.TogglePin(c)
 
@@ -866,15 +921,25 @@ func TestTogglePin_Unpin(t *testing.T) {
 	body := map[string]string{"message_id": "msg-1"}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/conv-1/pin", body, claims, map[string]string{"id": "conv-1"})
 
-	// Returns NULL (unpinned)
-	mock.ExpectQuery(`SELECT rpc_toggle_pin_message\(\$1, \$2, \$3\)`).
-		WithArgs("u1", "conv-1", "msg-1").
-		WillReturnRows(sqlmock.NewRows([]string{"rpc_toggle_pin_message"}).AddRow(nil))
+	// Membership check
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
+		WithArgs("conv-1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// Get current pin — already pinned to msg-1
+	mock.ExpectQuery(`SELECT pinned_message_id FROM chat_conversations WHERE id = \$1`).
+		WithArgs("conv-1").
+		WillReturnRows(sqlmock.NewRows([]string{"pinned_message_id"}).AddRow("msg-1"))
+
+	// Unpin (set to NULL)
+	mock.ExpectExec(`UPDATE chat_conversations SET pinned_message_id = NULL WHERE id = \$1`).
+		WithArgs("conv-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.TogglePin(c)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
 	var resp models.APIResponse
