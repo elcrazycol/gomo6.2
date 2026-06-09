@@ -282,17 +282,31 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.GET("/notifications/unread-count", notificationsHandler.GetUnreadCount)
 
 			// -- Messenger (clean API) --
-			protected.GET("/messenger/unread-count", messengerHandler.GetUnreadCount)
-			protected.GET("/messenger/conversations", messengerHandler.ListConversations)
-			protected.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
-			protected.GET("/messenger/conversations/:id/messages", messengerHandler.GetMessages)
-			protected.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
-			protected.PUT("/messenger/conversations/:convId/messages/:msgId", messengerHandler.EditMessage)
-			protected.DELETE("/messenger/conversations/:convId/messages/:msgId", messengerHandler.DeleteMessage)
-			protected.POST("/messenger/conversations/:id/read", messengerHandler.MarkRead)
-			protected.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
-			protected.GET("/messenger/conversations/:id/receipts", messengerHandler.GetReceipts)
-			protected.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
+			// Read-only endpoints — higher rate limit (300 req/min)
+			messengerRead := protected.Group("")
+			messengerRead.Use(middleware.MessengerRateLimitMiddleware(
+				middleware.NewMessengerRateLimiter(300, 1*time.Minute)))
+			{
+				messengerRead.GET("/messenger/unread-count", messengerHandler.GetUnreadCount)
+				messengerRead.GET("/messenger/conversations", messengerHandler.ListConversations)
+				messengerRead.GET("/messenger/conversations/:id/messages", messengerHandler.GetMessages)
+				messengerRead.GET("/messenger/conversations/:id/receipts", messengerHandler.GetReceipts)
+			}
+
+			// Write endpoints — lower rate limit (60 req/min for sends/edits/deletes)
+			messengerWrite := protected.Group("")
+			messengerWrite.Use(middleware.MessengerRateLimitMiddleware(
+				middleware.NewMessengerRateLimiter(60, 1*time.Minute)))
+			{
+				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
+				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
+				messengerWrite.PUT("/messenger/conversations/:convId/messages/:msgId", messengerHandler.EditMessage)
+				messengerWrite.DELETE("/messenger/conversations/:convId/messages/:msgId", messengerHandler.DeleteMessage)
+				messengerWrite.POST("/messenger/conversations/:id/read", messengerHandler.MarkRead)
+				messengerWrite.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
+				messengerWrite.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
+				messengerWrite.DELETE("/messenger/conversations/:id/leave", messengerHandler.LeaveConversation)
+			}
 		}
 	}
 
