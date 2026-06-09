@@ -125,11 +125,12 @@ func (c *Client) readPump() {
 			}
 
 		case MessageTypeChatTyping:
-			// Broadcast chat typing indicator to room
-			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
+			// Broadcast chat typing indicator to the room specified in message.Room
+			// (not extracted from data — data contains the typing payload, not the room)
+			if message.Room != "" {
 				typingMsg := Message{
 					Type: MessageTypeChatTyping,
-					Room: room,
+					Room: message.Room,
 					Data: mustMarshalJSON(map[string]interface{}{
 						"user_id":   c.UserID,
 						"username":  c.Username,
@@ -141,7 +142,7 @@ func (c *Client) readPump() {
 				}
 
 				if msgBytes, err := json.Marshal(typingMsg); err == nil {
-					c.Hub.BroadcastToRoom(room, msgBytes)
+					c.Hub.BroadcastToRoom(message.Room, msgBytes)
 				}
 			}
 

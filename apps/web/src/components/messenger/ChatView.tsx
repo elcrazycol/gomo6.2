@@ -39,6 +39,7 @@ export const ChatView = memo(function ChatView({
   const editMessage = useMessengerStore((s) => s.editMessage);
   const deleteMessage = useMessengerStore((s) => s.deleteMessage);
   const markRead = useMessengerStore((s) => s.markRead);
+  const markDelivered = useMessengerStore((s) => s.markDelivered);
   const togglePin = useMessengerStore((s) => s.togglePin);
 
   const [draft, setDraft] = useState("");
@@ -81,13 +82,18 @@ export const ChatView = memo(function ChatView({
     prevLength.current = messages.length;
   }, [messages.length, isScrolledUp]);
 
-  // Mark last message read
+  // Mark last message delivered + read when new messages arrive
   useEffect(() => {
-    const last = messages.at(-1);
-    if (last && last.sender_user_id !== me?.id && !last.localStatus) {
-      markRead(last.id);
+    if (!me?.id || messages.length === 0) return;
+    // Only mark the last received message from the other user as delivered + read
+    const lastOther = [...messages].reverse().find(
+      (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.localStatus,
+    );
+    if (lastOther) {
+      markDelivered(lastOther.id);
+      markRead(lastOther.id);
     }
-  }, [messages.length, me?.id]);
+  }, [messages.length, conversation?.id]);
 
   // Pinned message fetch
   useEffect(() => {

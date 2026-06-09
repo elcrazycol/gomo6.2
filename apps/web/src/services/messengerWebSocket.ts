@@ -70,17 +70,14 @@ class MessengerWebSocket {
   }
 
   sendTyping(conversationId: string, isTyping: boolean): void {
+    // Only room is sent — server fills user_id/username from auth context
     this.send({
       type: "chat_typing",
       room: `chat_${conversationId}`,
       data: {
-        user_id: "",
-        username: "",
-        typing: isTyping,
+        is_typing: isTyping,
         conversation_id: conversationId,
       },
-      is_typing: isTyping,
-      conversation_id: conversationId,
     });
   }
 
@@ -88,10 +85,14 @@ class MessengerWebSocket {
 
   private send(data: Record<string, unknown>): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      // Data is sent as-is — no double JSON.stringify.
+      // The server expects data to be either a string (for subscribe/unsubscribe room names)
+      // or a JSON object (for typing payloads, etc.).
+      const payload = data.data ?? data;
       this.ws.send(JSON.stringify({
         type: data.type,
         room: data.room,
-        data: JSON.stringify(data.data ?? data),
+        data: typeof payload === "string" ? payload : JSON.stringify(payload),
         timestamp: Date.now(),
       }));
     }
@@ -109,7 +110,7 @@ class MessengerWebSocket {
 
   private resubscribeAll(): void {
     for (const room of this.subscribedRooms) {
-      this.send({ type: "subscribe", room });
+      this.send({ type: "subscribe", data: room });
     }
   }
 
@@ -149,6 +150,18 @@ class MessengerWebSocket {
             last_message_preview: data.content?.slice(0, 80) ?? "",
             last_message_sender_id: data.sender_user_id,
           });
+
+          // Auto-mark as delivered + read if this chat is currently open
+          const isMine = store.me?.id === data.sender_user_id;
+          if (!isMine) {
+            const convId = store.selectedConversationId;
+            // Mark delivered for the sender to see ✓✓ status
+            store.markDelivered(data.id);
+            // If this conversation is open, mark as read immediately
+            if (convId === data.conversation_id) {
+              store.markRead(data.id);
+            }
+          }
           break;
         }
 
