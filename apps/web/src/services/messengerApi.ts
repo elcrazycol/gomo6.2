@@ -3,18 +3,76 @@ import type { ConversationView, MessageView, ReceiptRow } from "@/components/mes
 const BASE = "/api/v1/messenger";
 const TOKEN = () => localStorage.getItem("auth_token") ?? "";
 
+let _refreshPromise: Promise<string | null> | null = null;
+
+async function tryRefreshToken(): Promise<string | null> {
+  // Deduplicate concurrent refresh attempts
+  if (_refreshPromise) return _refreshPromise;
+
+  _refreshPromise = (async () => {
+    try {
+      const token = TOKEN();
+      if (!token) return null;
+      const res = await fetch("/api/v1/auth/refresh", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const newToken = json.token ?? json.data?.token;
+      if (newToken) {
+        localStorage.setItem("auth_token", newToken);
+        return newToken;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+
+  return _refreshPromise;
+}
+
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${TOKEN()}`,
-      ...options.headers,
-    },
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-  return json.data as T;
+  const doFetch = async (token: string) => {
+    const res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...options.headers,
+      },
+    });
+    // Try to parse JSON even on error
+    let json: Record<string, unknown> = {};
+    try { json = await res.json(); } catch { /* non-JSON response */ }
+    if (!res.ok) {
+      const err = new Error((json.error as string) || `HTTP ${res.status}`);
+      (err as Record<string, unknown>).status = res.status;
+      throw err;
+    }
+    return json.data as T;
+  };
+
+  try {
+    return await doFetch(TOKEN());
+  } catch (e) {
+    const err = e as Error & { status?: number };
+    // On 401, try to refresh the token and retry once
+    if (err.status === 401) {
+      const newToken = await tryRefreshToken();
+      if (newToken) {
+        return await doFetch(newToken);
+      }
+      throw new Error("Сессия истекла — обнови страницу (F5)");
+    }
+    throw e;
+  }
 }
 
 export const messengerApi = {
