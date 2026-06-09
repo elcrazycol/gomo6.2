@@ -1,8 +1,8 @@
-import { memo, useCallback, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { memo, useCallback, useRef, type KeyboardEvent, type RefObject } from "react";
 import { SendHorizontal } from "lucide-react";
 
 const MAX_LENGTH = 4000;
-const TYPING_DEBOUNCE_MS = 300;
+const TYPING_DEBOUNCE_MS = 500;
 
 interface Props {
   draft: string;
@@ -22,66 +22,64 @@ export const MessageComposer = memo(function MessageComposer({
   onTyping,
 }: Props) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [wasTyping, setWasTyping] = useState(false);
+  const isTypingRef = useRef(false);
+
+  const stopTyping = useCallback(() => {
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      onTyping?.(false);
+    }
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+      typingTimer.current = null;
+    }
+  }, [onTyping]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const value = e.target.value;
       if (value.length <= MAX_LENGTH) setDraft(value);
 
-      // Typing indicator — instant start, debounced stop
-      if (onTyping) {
-        if (value.length > 0) {
-          // Start typing immediately on first character
-          if (!wasTyping) {
-            setWasTyping(true);
-            onTyping(true);
-          }
-          // Reset debounce timer — will fire stop after TYPING_DEBOUNCE_MS of inactivity
-          if (typingTimer.current) clearTimeout(typingTimer.current);
-          typingTimer.current = setTimeout(() => {
-            setWasTyping(false);
-            onTyping(false);
-          }, TYPING_DEBOUNCE_MS);
-        } else {
-          // Draft cleared (e.g. after send) — stop typing immediately
-          if (wasTyping) {
-            setWasTyping(false);
-            onTyping(false);
-          }
-          if (typingTimer.current) clearTimeout(typingTimer.current);
+      // Typing indicator — instant start via ref, debounced stop
+      if (onTyping && value.length > 0) {
+        if (!isTypingRef.current) {
+          isTypingRef.current = true;
+          onTyping(true);
         }
+        if (typingTimer.current) clearTimeout(typingTimer.current);
+        typingTimer.current = setTimeout(() => {
+          isTypingRef.current = false;
+          onTyping(false);
+          typingTimer.current = null;
+        }, TYPING_DEBOUNCE_MS);
+      } else if (onTyping) {
+        // Value is empty — stop typing immediately (e.g. backspaced all text)
+        stopTyping();
       }
     },
-    [setDraft, onTyping, wasTyping],
+    [setDraft, onTyping],
   );
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
-        // Clear typing immediately before sending
-        if (onTyping) onTyping(false);
-        setWasTyping(false);
-        if (typingTimer.current) clearTimeout(typingTimer.current);
+        stopTyping();
         onSend();
       }
     },
-    [onSend, onTyping],
+    [onSend, stopTyping],
   );
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
       if (!isSending && draft.trim()) {
-        // Clear typing immediately before sending
-        if (onTyping) onTyping(false);
-        setWasTyping(false);
-        if (typingTimer.current) clearTimeout(typingTimer.current);
+        stopTyping();
         onSend();
       }
     },
-    [onSend, isSending, draft, onTyping],
+    [onSend, isSending, draft, stopTyping],
   );
 
   const remaining = MAX_LENGTH - draft.length;
