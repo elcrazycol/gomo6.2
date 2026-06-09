@@ -124,6 +124,27 @@ func (c *Client) readPump() {
 				}
 			}
 
+		case MessageTypeChatTyping:
+			// Broadcast chat typing indicator to room
+			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
+				typingMsg := Message{
+					Type: MessageTypeChatTyping,
+					Room: room,
+					Data: mustMarshalJSON(map[string]interface{}{
+						"user_id":   c.UserID,
+						"username":  c.Username,
+						"is_typing": true,
+					}),
+					UserID:    c.UserID,
+					Username:  c.Username,
+					Timestamp: time.Now().Unix(),
+				}
+
+				if msgBytes, err := json.Marshal(typingMsg); err == nil {
+					c.Hub.BroadcastToRoom(room, msgBytes)
+				}
+			}
+
 		case MessageTypePing:
 			// Respond with pong
 			pongMsg := Message{

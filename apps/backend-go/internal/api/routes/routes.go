@@ -48,7 +48,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	devDashboardHandler := handlers.NewDevDashboardHandler(db, oauthService)
 
 	// Initialize rate limiters
-	messengerRateLimiter := middleware.NewMessengerRateLimiter()
 	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute)      // 100 requests per minute for auth/me
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute) // 20/min for token, 10/min for revoke
 
@@ -88,6 +87,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	universalHandler.SetBotEventPublisher(botEventPublisher)
 	universalHandler.SetRedis(redis)
 	universalHandler.SetAchievementChecker(achChecker)
+	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
+	messengerHandler.SetRedis(redis)
 	audioHandler := handlers.NewAudioHandler()
 	botHandler := handlers.NewBotHandler(db)
 	botHandler.SetBotManager(botManager)
@@ -252,20 +253,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		{
-			// Messenger tables (protected, rate-limited for POST)
-			messenger := protected.Group("")
-			messenger.Use(middleware.MessengerRateLimitMiddleware(messengerRateLimiter))
-			{
-				messenger.GET("/chat_conversations", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_conversations/*path", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_conversation_members", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_conversation_members/*path", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_messages", universalHandler.HandleTableRequest)
-				messenger.POST("/chat_messages", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_messages/*path", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_receipts", universalHandler.HandleTableRequest)
-				messenger.GET("/chat_receipts/*path", universalHandler.HandleTableRequest)
-			}
 
 			protected.POST("/profiles", func(c *gin.Context) {
 				c.JSON(501, gin.H{"error": "Profile creation not implemented"})
@@ -293,6 +280,19 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PUT("/notifications/:id/read", notificationsHandler.MarkAsRead)
 			protected.PUT("/notifications/read-all", notificationsHandler.MarkAllAsRead)
 			protected.GET("/notifications/unread-count", notificationsHandler.GetUnreadCount)
+
+			// -- Messenger (clean API) --
+			protected.GET("/messenger/unread-count", messengerHandler.GetUnreadCount)
+			protected.GET("/messenger/conversations", messengerHandler.ListConversations)
+			protected.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
+			protected.GET("/messenger/conversations/:id/messages", messengerHandler.GetMessages)
+			protected.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
+			protected.PUT("/messenger/conversations/:convId/messages/:msgId", messengerHandler.EditMessage)
+			protected.DELETE("/messenger/conversations/:convId/messages/:msgId", messengerHandler.DeleteMessage)
+			protected.POST("/messenger/conversations/:id/read", messengerHandler.MarkRead)
+			protected.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
+			protected.GET("/messenger/conversations/:id/receipts", messengerHandler.GetReceipts)
+			protected.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
 		}
 	}
 
@@ -308,7 +308,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Protected RPC functions
 		protected := rpc.Group("")
 		protected.Use(middleware.AuthMiddleware(authService))
-		protected.Use(middleware.MessengerRateLimitMiddleware(messengerRateLimiter))
 		{
 			protected.GET("/has_user_liked_post", rpcHandler.HasUserLikedPost)
 			protected.GET("/has_user_liked_thread", rpcHandler.HasUserLikedThread)
@@ -326,18 +325,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/award_achievement", rpcHandler.AwardAchievement)
 
 			// GomoSub RPC functions
-			protected.GET("/get_messenger_unread_count", rpcHandler.GetMessengerUnreadCount)
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
 
 			// Thread/Post RPC functions
 			protected.POST("/create_thread", rpcHandler.CreateThreadRPC)
 			protected.POST("/create_post", rpcHandler.CreatePostRPC)
 
-			// Messenger RPC functions
-			protected.POST("/get_or_create_direct_chat", rpcHandler.GetOrCreateDirectChat)
-			protected.POST("/chat_mark_delivered", rpcHandler.ChatMarkDelivered)
-			protected.POST("/chat_mark_read", rpcHandler.ChatMarkRead)
-			protected.POST("/chat_toggle_pin_message", rpcHandler.ChatTogglePinMessage)
 		}
 	}
 

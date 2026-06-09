@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/api/routes"
 	"github.com/gomo6/backend/internal/bots"
 	"github.com/gomo6/backend/internal/config"
@@ -21,11 +20,6 @@ func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found")
-	}
-
-	// Validate messenger encryption key at startup
-	if err := handlers.ValidateMessengerEncryptionKey(); err != nil {
-		log.Fatalf("MESSENGER_ENCRYPTION_KEY is invalid: %v", err)
 	}
 
 	// Load configuration
