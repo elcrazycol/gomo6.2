@@ -209,7 +209,7 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	}
 
 	var convID string
-	err := h.db.QueryRow("SELECT rpc_get_or_create_direct_chat($1)", req.UserID).Scan(&convID)
+	err := h.db.QueryRow("SELECT rpc_get_or_create_direct_chat($1, $2)", claims.UserID, req.UserID).Scan(&convID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
@@ -791,7 +791,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	}
 
 	var newPinID sql.NullString
-	err := h.db.QueryRow("SELECT rpc_toggle_pin_message($1, $2)", conversationID, req.MessageID).Scan(&newPinID)
+	err := h.db.QueryRow("SELECT rpc_toggle_pin_message($1, $2, $3)", claims.UserID, conversationID, req.MessageID).Scan(&newPinID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return

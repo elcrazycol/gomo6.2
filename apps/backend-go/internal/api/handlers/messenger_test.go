@@ -149,8 +149,8 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	rows := sqlmock.NewRows([]string{"rpc_get_or_create_direct_chat"}).AddRow("conv-new-123")
-	mock.ExpectQuery(`SELECT rpc_get_or_create_direct_chat\(\$1\)`).
-		WithArgs("u2").
+	mock.ExpectQuery(`SELECT rpc_get_or_create_direct_chat\(\$1, \$2\)`).
+		WithArgs("u1", "u2").
 		WillReturnRows(rows)
 
 	handler.GetOrCreateConversation(c)
@@ -848,8 +848,8 @@ func TestTogglePin_Success(t *testing.T) {
 	body := map[string]string{"message_id": "msg-1"}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/conv-1/pin", body, claims, map[string]string{"id": "conv-1"})
 
-	mock.ExpectQuery(`SELECT rpc_toggle_pin_message\(\$1, \$2\)`).
-		WithArgs("conv-1", "msg-1").
+	mock.ExpectQuery(`SELECT rpc_toggle_pin_message\(\$1, \$2, \$3\)`).
+		WithArgs("u1", "conv-1", "msg-1").
 		WillReturnRows(sqlmock.NewRows([]string{"rpc_toggle_pin_message"}).AddRow("msg-1"))
 
 	handler.TogglePin(c)
@@ -867,8 +867,8 @@ func TestTogglePin_Unpin(t *testing.T) {
 	c, w := newPOSTContext("/api/v1/messenger/conversations/conv-1/pin", body, claims, map[string]string{"id": "conv-1"})
 
 	// Returns NULL (unpinned)
-	mock.ExpectQuery(`SELECT rpc_toggle_pin_message\(\$1, \$2\)`).
-		WithArgs("conv-1", "msg-1").
+	mock.ExpectQuery(`SELECT rpc_toggle_pin_message\(\$1, \$2, \$3\)`).
+		WithArgs("u1", "conv-1", "msg-1").
 		WillReturnRows(sqlmock.NewRows([]string{"rpc_toggle_pin_message"}).AddRow(nil))
 
 	handler.TogglePin(c)
