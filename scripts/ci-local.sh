@@ -37,12 +37,12 @@ check() {
 # ──────────────────────────────────────────────────────────────
 header "Go Backend"
 
-check "go build (all packages)"  "cd apps/backend-go && go build ./..."
-check "gofmt (format check)"     "cd apps/backend-go && test -z \"\$(gofmt -l .)\""
-check "go vet"                   "cd apps/backend-go && go vet ./..."
+check "go build (all packages)"  "(cd apps/backend-go && go build ./...)"
+check "gofmt (format check)"     "(cd apps/backend-go && test -z \"\$(gofmt -l .)\")"
+check "go vet"                   "(cd apps/backend-go && go vet ./...)"
 
 if command -v golangci-lint &>/dev/null; then
-  check "golangci-lint"          "cd apps/backend-go && golangci-lint run --timeout=5m ./..."
+  check "golangci-lint"          "(cd apps/backend-go && golangci-lint run --timeout=5m ./...)"
 else
   skip  "golangci-lint not installed — install: brew install golangci-lint"
 fi
@@ -53,15 +53,15 @@ fi
 header "TypeScript"
 
 check "tsc — web"                "npx tsc --noEmit -p apps/web/tsconfig.app.json"
-check "tsc — dev-dashboard"     "cd apps/dev-dashboard && npx tsc --noEmit"
-check "tsc — docs"              "cd apps/docs && npx tsc --noEmit"
+check "tsc — dev-dashboard"     "(cd apps/dev-dashboard && npx tsc --noEmit)"
+check "tsc — docs"              "(cd apps/docs && npx tsc --noEmit)"
 
 # ──────────────────────────────────────────────────────────────
 #  Frontend — ESLint
 # ──────────────────────────────────────────────────────────────
 header "ESLint"
 
-check "eslint — web"             "cd apps/web && npx eslint ."
+check "eslint — web"             "(cd apps/web && npx eslint .)"
 
 # ──────────────────────────────────────────────────────────────
 #  Frontend — builds (full mode only)
