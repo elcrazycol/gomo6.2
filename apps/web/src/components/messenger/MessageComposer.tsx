@@ -2,7 +2,7 @@ import { memo, useCallback, useRef, useState, type KeyboardEvent, type RefObject
 import { SendHorizontal } from "lucide-react";
 
 const MAX_LENGTH = 4000;
-const TYPING_DEBOUNCE_MS = 2000;
+const TYPING_DEBOUNCE_MS = 1500;
 
 interface Props {
   draft: string;
