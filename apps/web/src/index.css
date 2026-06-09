@@ -414,6 +414,7 @@ html, body {
 
 .chat-header-group {
   flex-shrink: 0;
+  z-index: 2;
 }
 
 /* ── Chat topbar ── */
@@ -425,7 +426,6 @@ html, body {
   padding: 10px 14px;
   border-bottom: 1px solid hsl(var(--border));
   background: hsl(var(--card));
-  z-index: 2;
   box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.04);
 }
 
@@ -442,7 +442,13 @@ html, body {
 
 .chat-topbar-info {
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.chat-topbar-info .presence-copy {
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .desktop-only {

@@ -166,7 +166,7 @@ export const ChatView = memo(function ChatView({
       <div className="chat-header-group">
         <div className="chat-topbar">
           <div className="chat-topbar-main">
-            <button type="button" className="icon-button mobile-only messenger-back-button" onClick={onBack} aria-label="Назад">
+            <button type="button" className="mobile-only messenger-back-button" onClick={onBack} aria-label="Назад">
               <ArrowLeft size={16} />
             </button>
             <div className="avatar small">
