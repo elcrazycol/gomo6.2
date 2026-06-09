@@ -143,9 +143,9 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
-      timeout: 3s
-      start_period: 5s
-      retries: 3
+      timeout: 5s
+      start_period: 30s
+      retries: 5
     environment:
       DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://redis:6379
