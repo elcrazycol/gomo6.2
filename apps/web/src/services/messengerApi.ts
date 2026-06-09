@@ -90,6 +90,13 @@ export const messengerApi = {
     return req<ReceiptRow[]>(`/conversations/${conversationId}/receipts`);
   },
 
+  // ── Leave ────────────────────────────────────────────────────────────
+  async leaveConversation(conversationId: string): Promise<{ left: boolean }> {
+    return req(`/conversations/${conversationId}/leave`, {
+      method: "DELETE",
+    });
+  },
+
   // ── Pin ───────────────────────────────────────────────────────────────
   async togglePin(conversationId: string, messageId: string): Promise<{ pinned_message_id: string | null }> {
     return req(`/conversations/${conversationId}/pin`, {

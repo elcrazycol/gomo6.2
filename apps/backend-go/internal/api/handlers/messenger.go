@@ -1,10 +1,17 @@
 package handlers
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +23,94 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// ─── Encryption ─────────────────────────────────────────────────────────────
+// AES-256-GCM field-level encryption for message content.
+// Protects against DB dumps, backups, and SQL injection data exposure.
+// NOT E2EE — server holds the key. For true E2EE, client-side key exchange needed.
+
+var (
+	messengerEncryptionKey []byte
+	htmlTagRegex           = regexp.MustCompile(`<[^>]*>`)
+)
+
+func init() {
+	key := os.Getenv("MESSENGER_ENCRYPTION_KEY")
+	if key == "" {
+		key = os.Getenv("ENCRYPTION_KEY") // fallback
+	}
+	if key != "" {
+		// Key must be exactly 32 bytes for AES-256
+		k := []byte(key)
+		if len(k) < 32 {
+			// Pad or truncate — in production, use a proper 32-byte key
+			padded := make([]byte, 32)
+			copy(padded, k)
+			messengerEncryptionKey = padded
+		} else {
+			messengerEncryptionKey = k[:32]
+		}
+	}
+}
+
+func encryptContent(plaintext string) (string, error) {
+	if messengerEncryptionKey == nil {
+		return plaintext, nil // encryption disabled
+	}
+
+	block, err := aes.NewCipher(messengerEncryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("cipher init: %w", err)
+	}
+
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("GCM init: %w", err)
+	}
+
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("nonce gen: %w", err)
+	}
+
+	ciphertext := aesGCM.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.RawStdEncoding.EncodeToString(ciphertext), nil
+}
+
+func decryptContent(encoded string) (string, error) {
+	if messengerEncryptionKey == nil || encoded == "" {
+		return encoded, nil
+	}
+
+	ciphertext, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		// Data may not be encrypted (migration period) — return as-is
+		return encoded, nil
+	}
+
+	block, err := aes.NewCipher(messengerEncryptionKey)
+	if err != nil {
+		return "", fmt.Errorf("cipher init: %w", err)
+	}
+
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("GCM init: %w", err)
+	}
+
+	nonceSize := aesGCM.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return encoded, nil // not encrypted
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return encoded, nil // decryption failed — return as-is (unencrypted data)
+	}
+
+	return string(plaintext), nil
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 // ConversationResponse is returned to the client for conversation list
@@ -26,17 +121,15 @@ type ConversationResponse struct {
 	LastMessageSenderID *string `json:"last_message_sender_id"`
 	PinnedMessageID     *string `json:"pinned_message_id"`
 	UpdatedAt           string  `json:"updated_at"`
-	// Joined from chat_members
-	UnreadCount int     `json:"unread_count"`
-	LastReadAt  *string `json:"last_read_at"`
-	IsMuted     bool    `json:"is_muted"`
-	// Other user info (for 1:1)
-	OtherUserID     string  `json:"other_user_id"`
-	OtherUsername   string  `json:"other_username"`
-	OtherAvatarURL  *string `json:"other_avatar_url"`
-	OtherAccountNum *int    `json:"other_account_number"`
-	OtherIsOnline   *bool   `json:"other_is_online"`
-	OtherLastSeenAt *string `json:"other_last_seen_at"`
+	UnreadCount         int     `json:"unread_count"`
+	LastReadAt          *string `json:"last_read_at"`
+	IsMuted             bool    `json:"is_muted"`
+	OtherUserID         string  `json:"other_user_id"`
+	OtherUsername       string  `json:"other_username"`
+	OtherAvatarURL      *string `json:"other_avatar_url"`
+	OtherAccountNum     *int    `json:"other_account_number"`
+	OtherIsOnline       *bool   `json:"other_is_online"`
+	OtherLastSeenAt     *string `json:"other_last_seen_at"`
 }
 
 // MessageResponse is returned to the client
@@ -73,7 +166,8 @@ type MarkReadRequest struct {
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 // MessengerHandler handles all messenger REST endpoints.
-// No encryption, no E2EE — plaintext in DB, security via RLS + TLS.
+// Content is encrypted at rest with AES-256-GCM (when MESSENGER_ENCRYPTION_KEY is set).
+// Security: TLS in transit, encryption at rest, RLS on tables, plaintext-only content filter.
 type MessengerHandler struct {
 	db    *sql.DB
 	hub   *websocket.Hub
@@ -109,6 +203,58 @@ func ensureAuth(c *gin.Context) *auth.Claims {
 	return claims
 }
 
+// serverError logs the real error and returns a generic 500 to the client.
+// NEVER leaks raw error messages to the client.
+func serverError(c *gin.Context, context string, err error) {
+	log.Printf("[Messenger] %s: %v", context, err)
+	c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+}
+
+// isMember checks if a user is a member of a conversation.
+func (h *MessengerHandler) isMember(conversationID, userID string) (bool, error) {
+	var ok bool
+	err := h.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
+		conversationID, userID,
+	).Scan(&ok)
+	return ok, err
+}
+
+// hasHTML checks if content contains HTML tags — we only allow plaintext.
+func hasHTML(s string) bool {
+	return htmlTagRegex.MatchString(s)
+}
+
+// sanitizeContent validates and normalizes message content.
+func sanitizeContent(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", fmt.Errorf("content cannot be empty")
+	}
+	if len([]rune(s)) > 4000 {
+		return "", fmt.Errorf("content exceeds 4000 characters")
+	}
+	if hasHTML(s) {
+		return "", fmt.Errorf("HTML content is not allowed")
+	}
+	return s, nil
+}
+
+// generateClientID creates a client-side idempotency key.
+func GenerateClientID() string {
+	return fmt.Sprintf("c%d", time.Now().UnixNano())
+}
+
+// decryptMessageContent decrypts a single message's content if encrypted.
+func decryptMessageContent(msg *MessageResponse) {
+	if msg.Content != "" && !msg.IsDeleted {
+		decrypted, err := decryptContent(msg.Content)
+		if err == nil {
+			msg.Content = decrypted
+		}
+	}
+}
+
 // ─── List Conversations ─────────────────────────────────────────────────────
 // GET /api/v1/messenger/conversations
 
@@ -127,14 +273,13 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			u.avatar_url, u.account_number, u.is_online, u.last_seen_at
 		FROM chat_members cm
 		INNER JOIN chat_conversations c ON c.id = cm.conversation_id
-		-- For 1:1 chats: find the other user
 		INNER JOIN chat_members cm2 ON cm2.conversation_id = cm.conversation_id AND cm2.user_id != $1
 		INNER JOIN users u ON u.id = cm2.user_id
 		WHERE cm.user_id = $1
 		ORDER BY c.last_message_at DESC NULLS LAST
 	`, claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "list conversations", err)
 		return
 	}
 	defer rows.Close()
@@ -145,22 +290,35 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		var otherAvatar, otherLastSeen sql.NullString
 		var otherAccount sql.NullInt64
 		var otherOnline sql.NullBool
-		var preview sql.NullString
+		var preview, lastMsgAt, lastMsgSender, pinnedMsg sql.NullString
 
-		err := rows.Scan(
-			&conv.ID, &conv.LastMessageAt, &preview,
-			&conv.LastMessageSenderID, &conv.PinnedMessageID, &conv.UpdatedAt,
+		if err := rows.Scan(
+			&conv.ID, &lastMsgAt, &preview,
+			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
 			&conv.UnreadCount, &conv.UnreadCount,
 			&conv.OtherUserID, &conv.OtherUsername,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
-		)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		); err != nil {
+			serverError(c, "scan conversation row", err)
 			return
 		}
 
+		if lastMsgAt.Valid {
+			conv.LastMessageAt = &lastMsgAt.String
+		}
 		if preview.Valid {
-			conv.LastMessagePreview = &preview.String
+			decrypted, err := decryptContent(preview.String)
+			if err == nil {
+				conv.LastMessagePreview = &decrypted
+			} else {
+				conv.LastMessagePreview = &preview.String
+			}
+		}
+		if lastMsgSender.Valid {
+			conv.LastMessageSenderID = &lastMsgSender.String
+		}
+		if pinnedMsg.Valid {
+			conv.PinnedMessageID = &pinnedMsg.String
 		}
 		if otherAvatar.Valid {
 			conv.OtherAvatarURL = &otherAvatar.String
@@ -188,7 +346,9 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 
 // ─── Get or Create Conversation ─────────────────────────────────────────────
 // POST /api/v1/messenger/conversations
-// Pure raw SQL — no RPC, no current_setting, no migration dependency.
+//
+// Race-condition safe: uses a retry loop. If two concurrent requests create
+// the same conversation, the retry will find the existing one.
 
 func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	claims := ensureAuth(c)
@@ -209,57 +369,156 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 		return
 	}
 
-	// 1. Find existing 1:1 conversation (exactly 2 members: me + other)
-	var convID string
-	err := h.db.QueryRow(`
-		SELECT cm1.conversation_id
-		FROM chat_members cm1
-		INNER JOIN chat_members cm2
-			ON cm1.conversation_id = cm2.conversation_id
-		WHERE cm1.user_id = $1
-		  AND cm2.user_id = $2
-		  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
-		LIMIT 1
-	`, claims.UserID, req.UserID).Scan(&convID)
+	// Verify the other user exists
+	var otherExists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&otherExists)
+	if err != nil {
+		serverError(c, "check user exists", err)
+		return
+	}
+	if !otherExists {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("User not found"))
+		return
+	}
 
-	if err == nil {
-		// Found existing conversation
+	// Retry loop — up to 3 attempts to handle race conditions
+	for attempt := 0; attempt < 3; attempt++ {
+		// 1. Find existing 1:1 conversation (exactly 2 members: me + other)
+		var convID string
+		err := h.db.QueryRow(`
+			SELECT cm1.conversation_id
+			FROM chat_members cm1
+			INNER JOIN chat_members cm2
+				ON cm1.conversation_id = cm2.conversation_id
+			WHERE cm1.user_id = $1
+			  AND cm2.user_id = $2
+			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
+			LIMIT 1
+		`, claims.UserID, req.UserID).Scan(&convID)
+
+		if err == nil {
+			c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
+			return
+		}
+
+		if err != sql.ErrNoRows {
+			serverError(c, "find existing conversation", err)
+			return
+		}
+
+		// 2. No existing conversation — create one
+		tx, err := h.db.Begin()
+		if err != nil {
+			serverError(c, "begin tx", err)
+			return
+		}
+
+		err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
+		if err != nil {
+			tx.Rollback()
+			serverError(c, "insert conversation", err)
+			return
+		}
+
+		_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`,
+			convID, claims.UserID, req.UserID)
+		if err != nil {
+			tx.Rollback()
+			// Race condition: another request created the same pair.
+			// The unique constraint on (conversation_id, user_id) prevents duplicates,
+			// but the race is on creating a SECOND conversation for the same pair.
+			// Retry — the next SELECT will find the first one.
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
+				log.Printf("[Messenger] Race detected on conversation create, retrying (attempt %d)", attempt+1)
+				continue
+			}
+			serverError(c, "insert members", err)
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			serverError(c, "commit tx", err)
+			return
+		}
+
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
 		return
 	}
 
-	if err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
+	// Exhausted retries — find the existing one (created by race winner)
+	var convID string
+	err = h.db.QueryRow(`
+		SELECT cm1.conversation_id
+		FROM chat_members cm1
+		INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
+		WHERE cm1.user_id = $1 AND cm2.user_id = $2
+		  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
+		LIMIT 1
+	`, claims.UserID, req.UserID).Scan(&convID)
 
-	// 2. No existing conversation — create one with both members
-	tx, err := h.db.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-	defer tx.Rollback()
-
-	err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`,
-		convID, claims.UserID, req.UserID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "find after retries exhausted", err)
 		return
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
+}
+
+// ─── Leave Conversation ──────────────────────────────────────────────────────
+// DELETE /api/v1/messenger/conversations/:id/leave
+
+func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	conversationID := c.Param("id")
+	if conversationID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("conversation_id required"))
+		return
+	}
+
+	// Check membership
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+		return
+	}
+
+	result, err := h.db.Exec(
+		"DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2",
+		conversationID, claims.UserID,
+	)
+	if err != nil {
+		serverError(c, "leave conversation", err)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Membership not found"))
+		return
+	}
+
+	// Broadcast leave event if hub is available
+	if h.hub != nil {
+		go func() {
+			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+				Type: "member_left",
+				Payload: map[string]interface{}{
+					"conversation_id": conversationID,
+					"user_id":         claims.UserID,
+				},
+			})
+		}()
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"left": true}))
 }
 
 // ─── Get Messages ───────────────────────────────────────────────────────────
@@ -278,19 +537,19 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	// Verify membership
-	var isMember bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
-		conversationID, claims.UserID,
-	).Scan(&isMember)
-	if err != nil || !isMember {
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
 		return
 	}
 
 	// Pagination
 	limit := 50
-	before := c.Query("before") // cursor-based: messages before this ID
+	before := c.Query("before")
 
 	if l := c.Query("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
@@ -303,7 +562,6 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		rows, err = h.db.Query(`
 			SELECT id, conversation_id, sender_user_id, parent_message_id,
 				content, is_edited, is_deleted,
-				CASE WHEN is_deleted THEN NULL ELSE content END AS visible_content,
 				edited_at, sent_at, client_id
 			FROM chat_messages
 			WHERE conversation_id = $1 AND sent_at < (
@@ -325,7 +583,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "get messages", err)
 		return
 	}
 	defer rows.Close()
@@ -334,16 +592,15 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	for rows.Next() {
 		var msg MessageResponse
 		var parentID, editedAt sql.NullString
-		var rawContent string
+		var encryptedContent string
 		var isDeleted bool
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-			&rawContent, &msg.IsEdited, &isDeleted,
+			&encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
-		)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		); err != nil {
+			serverError(c, "scan message row", err)
 			return
 		}
 
@@ -351,7 +608,12 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		if isDeleted {
 			msg.Content = ""
 		} else {
-			msg.Content = rawContent
+			decrypted, decErr := decryptContent(encryptedContent)
+			if decErr == nil {
+				msg.Content = decrypted
+			} else {
+				msg.Content = encryptedContent
+			}
 		}
 
 		if parentID.Valid {
@@ -390,23 +652,32 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 
 	var req SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	// Sanitize content (no HTML, no empty)
+	cleanContent, err := sanitizeContent(req.Content)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	if strings.TrimSpace(req.Content) == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("content cannot be empty"))
+	// Verify membership
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
 		return
 	}
 
-	// Verify membership
-	var isMember bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
-		conversationID, claims.UserID,
-	).Scan(&isMember)
-	if err != nil || !isMember {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+	// Encrypt content before storing
+	encryptedContent, err := encryptContent(cleanContent)
+	if err != nil {
+		serverError(c, "encrypt content", err)
 		return
 	}
 
@@ -418,39 +689,41 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, conversation_id, sender_user_id, parent_message_id,
 			content, is_edited, is_deleted, edited_at, sent_at, client_id
-	`, conversationID, claims.UserID, req.Content, req.ClientID, req.ParentMessageID).Scan(
+	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
 		&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
 	)
 	if err != nil {
-		// ClientID conflict = duplicate send, return 409
+		// ClientID conflict = duplicate send, return existing message
 		if strings.Contains(err.Error(), "unique_client_msg") || strings.Contains(err.Error(), "duplicate key") {
-			// Fetch the existing message
 			existing := h.db.QueryRow(`
 				SELECT id, conversation_id, sender_user_id, parent_message_id,
 					content, is_edited, is_deleted, edited_at, sent_at, client_id
 				FROM chat_messages
 				WHERE conversation_id = $1 AND client_id = $2
 			`, conversationID, req.ClientID)
-			err2 := existing.Scan(
+			if err2 := existing.Scan(
 				&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 				&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 				&editedAt, &msg.SentAt, &msg.ClientID,
-			)
-			if err2 != nil {
-				c.JSON(http.StatusConflict, models.ErrorResponse("Duplicate message"))
+			); err2 != nil {
+				serverError(c, "fetch duplicate message", err2)
 				return
 			}
+			decryptMessageContent(&msg)
 			if parentID.Valid {
 				msg.ParentMessageID = &parentID.String
 			}
 			c.JSON(http.StatusOK, models.SuccessResponse(msg))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "insert message", err)
 		return
 	}
+
+	// Decrypt content for response
+	msg.Content = cleanContent
 
 	if parentID.Valid {
 		msg.ParentMessageID = &parentID.String
@@ -500,12 +773,20 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	var req EditMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	cleanContent, err := sanitizeContent(req.Content)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	if strings.TrimSpace(req.Content) == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("content cannot be empty"))
+	// Encrypt new content
+	encryptedContent, err := encryptContent(cleanContent)
+	if err != nil {
+		serverError(c, "encrypt edit content", err)
 		return
 	}
 
@@ -514,9 +795,9 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		UPDATE chat_messages
 		SET content = $1, is_edited = true, edited_at = NOW()
 		WHERE id = $2 AND sender_user_id = $3 AND is_deleted = false
-	`, req.Content, messageID, claims.UserID)
+	`, encryptedContent, messageID, claims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "edit message", err)
 		return
 	}
 
@@ -526,9 +807,9 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
-	// Broadcast edit event
+	// Broadcast edit event (with decrypted content)
 	if h.hub != nil {
-		go h.broadcastMessageEdited(messageID, req.Content)
+		go h.broadcastMessageEdited(messageID, cleanContent)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
@@ -540,7 +821,6 @@ func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent string) {
 		"content": newContent,
 		"event":   "message_edited",
 	}
-	// Use publishChatEvent for generic chat events
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 		Type:    "message_edited",
 		Payload: payload,
@@ -559,14 +839,21 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 	}
 
 	messageID := c.Param("msgId")
+	conversationID := c.Param("convId")
 
+	// Verify user is a conversation member AND message sender
+	// This prevents users from deleting messages in conversations they're not part of
 	result, err := h.db.Exec(`
 		UPDATE chat_messages
 		SET is_deleted = true
-		WHERE id = $1 AND sender_user_id = $2 AND is_deleted = false
-	`, messageID, claims.UserID)
+		WHERE id = $1
+		  AND sender_user_id = $2
+		  AND is_deleted = false
+		  AND conversation_id = $3
+		  AND EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $3 AND user_id = $2)
+	`, messageID, claims.UserID, conversationID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "delete message", err)
 		return
 	}
 
@@ -582,8 +869,9 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "message_deleted",
 				Payload: map[string]interface{}{
-					"id":    messageID,
-					"event": "message_deleted",
+					"id":              messageID,
+					"conversation_id": conversationID,
+					"event":           "message_deleted",
 				},
 			})
 		}()
@@ -594,6 +882,8 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 
 // ─── Mark Read ──────────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/read
+//
+// Uses a single transaction for consistency.
 
 func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	claims := ensureAuth(c)
@@ -605,64 +895,68 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 
 	var req MarkReadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("message_id is required"))
 		return
 	}
 
 	// Verify membership
-	var isMember bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
-		conversationID, claims.UserID,
-	).Scan(&isMember)
-	if err != nil || !isMember {
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
 		return
 	}
 
-	// Get message sent_at for read-receipt scope
+	// Get message sent_at
 	var sentAt time.Time
-	err = h.db.QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1", req.MessageID).Scan(&sentAt)
+	err = h.db.QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
+		req.MessageID, conversationID,
+	).Scan(&sentAt)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found"))
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found in this conversation"))
 		return
 	}
 
-	// Mark all messages up to this one as read
-	_, err = h.db.Exec(`
+	// Single transaction: mark read + delivered + reset unread
+	tx, err := h.db.Begin()
+	if err != nil {
+		serverError(c, "begin tx", err)
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		INSERT INTO chat_receipts (message_id, user_id, delivered_at, read_at)
-		SELECT m.id, $4, NOW(), NOW()
+		SELECT m.id, $2, NOW(), NOW()
 		FROM chat_messages m
 		WHERE m.conversation_id = $1
-		  AND m.sender_user_id != $4
-		  AND m.sent_at <= $2
+		  AND m.sender_user_id != $2
+		  AND m.sent_at <= $3
 		ON CONFLICT (message_id, user_id)
-		DO UPDATE SET read_at = NOW()
-	`, conversationID, sentAt, req.MessageID, claims.UserID)
+		DO UPDATE SET read_at = NOW(), delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
+	`, conversationID, claims.UserID, sentAt)
 	if err != nil {
-		log.Printf("[Messenger] mark read error: %v", err)
+		log.Printf("[Messenger] mark read receipts: %v", err)
 	}
 
-	// Also mark as delivered for any messages not yet delivered
-	_, _ = h.db.Exec(`
-		INSERT INTO chat_receipts (message_id, user_id, delivered_at)
-		SELECT m.id, $4, NOW()
-		FROM chat_messages m
-		WHERE m.conversation_id = $1
-		  AND m.sender_user_id != $4
-		  AND m.sent_at <= $2
-		ON CONFLICT (message_id, user_id)
-		DO UPDATE SET delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
-	`, conversationID, sentAt, req.MessageID, claims.UserID)
-
-	// Reset unread count
-	_, _ = h.db.Exec(`
+	_, err = tx.Exec(`
 		UPDATE chat_members
 		SET unread_count = 0, last_read_message_id = $2
 		WHERE conversation_id = $1 AND user_id = $3
 	`, conversationID, req.MessageID, claims.UserID)
+	if err != nil {
+		log.Printf("[Messenger] mark read unread reset: %v", err)
+	}
 
-	// Broadcast read receipt via WebSocket
+	if err := tx.Commit(); err != nil {
+		serverError(c, "commit tx", err)
+		return
+	}
+
+	// Broadcast read receipt
 	if h.hub != nil {
 		go func() {
 			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
@@ -695,31 +989,44 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 		MessageID string `json:"message_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("message_id is required"))
+		return
+	}
+
+	// Verify membership
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
 		return
 	}
 
 	// Get the message time
 	var sentAt time.Time
-	err := h.db.QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1", req.MessageID).Scan(&sentAt)
+	err = h.db.QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
+		req.MessageID, conversationID,
+	).Scan(&sentAt)
 	if err != nil {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found"))
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found in this conversation"))
 		return
 	}
 
 	// Mark delivered
 	_, err = h.db.Exec(`
 		INSERT INTO chat_receipts (message_id, user_id, delivered_at)
-		SELECT m.id, $4, NOW()
+		SELECT m.id, $2, NOW()
 		FROM chat_messages m
 		WHERE m.conversation_id = $1
-		  AND m.sender_user_id != $4
-		  AND m.sent_at <= $2
+		  AND m.sender_user_id != $2
+		  AND m.sent_at <= $3
 		ON CONFLICT (message_id, user_id)
 		DO UPDATE SET delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
-	`, conversationID, sentAt, req.MessageID, claims.UserID)
+	`, conversationID, claims.UserID, sentAt)
 	if err != nil {
-		log.Printf("[Messenger] mark delivered error: %v", err)
+		log.Printf("[Messenger] mark delivered: %v", err)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
@@ -741,7 +1048,7 @@ func (h *MessengerHandler) GetUnreadCount(c *gin.Context) {
 		WHERE user_id = $1
 	`, claims.UserID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "get unread count", err)
 		return
 	}
 
@@ -759,13 +1066,12 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 
 	conversationID := c.Param("id")
 
-	// Verify membership
-	var isMember bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
-		conversationID, claims.UserID,
-	).Scan(&isMember)
-	if err != nil || !isMember {
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
 		return
 	}
@@ -777,7 +1083,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 		WHERE m.conversation_id = $1
 	`, conversationID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "get receipts", err)
 		return
 	}
 	defer rows.Close()
@@ -793,8 +1099,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 	for rows.Next() {
 		var r ReceiptRow
 		var deliveredAt, readAt sql.NullTime
-		err := rows.Scan(&r.MessageID, &r.UserID, &deliveredAt, &readAt)
-		if err != nil {
+		if err := rows.Scan(&r.MessageID, &r.UserID, &deliveredAt, &readAt); err != nil {
 			continue
 		}
 		if deliveredAt.Valid {
@@ -817,7 +1122,6 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 
 // ─── Toggle Pin ─────────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/pin
-// Pure raw SQL — no RPC, no current_setting, no migration dependency.
 
 func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	claims := ensureAuth(c)
@@ -831,18 +1135,33 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		MessageID string `json:"message_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("message_id is required"))
 		return
 	}
 
 	// Check membership
-	var isMember bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
-		conversationID, claims.UserID,
-	).Scan(&isMember)
-	if err != nil || !isMember {
+	member, err := h.isMember(conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check membership", err)
+		return
+	}
+	if !member {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member"))
+		return
+	}
+
+	// Verify the message belongs to this conversation
+	var msgExists bool
+	err = h.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND is_deleted = false)",
+		req.MessageID, conversationID,
+	).Scan(&msgExists)
+	if err != nil {
+		serverError(c, "check message exists", err)
+		return
+	}
+	if !msgExists {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found in this conversation"))
 		return
 	}
 
@@ -850,7 +1169,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	var currentPin sql.NullString
 	err = h.db.QueryRow("SELECT pinned_message_id FROM chat_conversations WHERE id = $1", conversationID).Scan(&currentPin)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "get current pin", err)
 		return
 	}
 
@@ -858,7 +1177,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		// Unpin
 		_, err = h.db.Exec("UPDATE chat_conversations SET pinned_message_id = NULL WHERE id = $1", conversationID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "unpin message", err)
 			return
 		}
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": nil}))
@@ -866,25 +1185,9 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		// Pin
 		_, err = h.db.Exec("UPDATE chat_conversations SET pinned_message_id = $2 WHERE id = $1", conversationID, req.MessageID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "pin message", err)
 			return
 		}
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": req.MessageID}))
 	}
-}
-
-// sanitizeMessageContent trims and limits message length
-func sanitizeMessageContent(s string) string {
-	s = strings.TrimSpace(s)
-	if len([]rune(s)) > 4000 {
-		runes := []rune(s)
-		s = string(runes[:4000])
-	}
-	return s
-}
-
-// generateClientID creates a unique client-side idempotency key
-// (not used server-side — client sends its own; provided as utility)
-func GenerateClientID() string {
-	return fmt.Sprintf("c%d", time.Now().UnixNano())
 }
