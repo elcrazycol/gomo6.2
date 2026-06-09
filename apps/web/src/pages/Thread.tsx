@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
-import { useWebSocketSync } from "@/hooks/useWebSocketSync";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -211,8 +210,6 @@ const Thread = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // Use React Query hooks instead of manual state management
-  useWebSocketSync(); // Sync WebSocket events with React Query cache
   const { data: thread, isLoading: threadLoading } = useThread(threadId);
   const { data: posts = [], isLoading: postsLoading } = usePosts(threadId);
 
