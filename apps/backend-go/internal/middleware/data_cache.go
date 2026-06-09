@@ -37,6 +37,13 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Skip caching for messenger endpoints — they must be real-time
+		// Caching causes multi-minute delays in message delivery and conversation updates
+		if strings.Contains(c.Request.URL.Path, "messenger") {
+			c.Next()
+			return
+		}
+
 		// Build cache key from path and query params
 		cacheKey := fmt.Sprintf("data:%s?%s", c.Request.URL.Path, c.Request.URL.RawQuery)
 
