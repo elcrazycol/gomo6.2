@@ -46,8 +46,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_BACKEND }}:latest
             ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,scope=backend,mode=max
 
   # ── Frontend images (Node) ────────────────────────────────────────────────
   # Non-blocking: continue-on-error so deploy doesn't wait on npm flakes.
@@ -75,8 +73,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_WEB }}:latest
             ${{ env.IMAGE_WEB }}:${{ github.sha }}
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
 
   build-docs:
     name: Build docs image
@@ -101,8 +97,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_DOCS }}:latest
             ${{ env.IMAGE_DOCS }}:${{ github.sha }}
-          cache-from: type=gha,scope=docs
-          cache-to: type=gha,scope=docs,mode=max
 
   build-dev-dashboard:
     name: Build dev-dashboard image
@@ -127,8 +121,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_DEV_DASHBOARD }}:latest
             ${{ env.IMAGE_DEV_DASHBOARD }}:${{ github.sha }}
-          cache-from: type=gha,scope=dev-dashboard
-          cache-to: type=gha,scope=dev-dashboard,mode=max
 
   # ── Deploy to VPS ─────────────────────────────────────────────────────────
   # Only requires backend image. VPS pulls all images and restarts.
