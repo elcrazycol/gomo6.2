@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, useRef, useEffect } from "react";
-import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight } from "lucide-react";
+import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, MoreHorizontal } from "lucide-react";
 import { formatTime } from "./utils";
 import type { MessageView } from "./types";
 
@@ -32,8 +32,22 @@ export const MessageBubble = memo(function MessageBubble({
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(message.content);
-  const [showActions, setShowActions] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showDots, setShowDots] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (isEditing) editInputRef.current?.focus();
@@ -61,6 +75,11 @@ export const MessageBubble = memo(function MessageBubble({
     [handleSaveEdit, message.content],
   );
 
+  const handleAction = useCallback((fn: () => void) => {
+    fn();
+    setMenuOpen(false);
+  }, []);
+
   const getStatusIcon = () => {
     if (message.localStatus === "sending") return <span className="status-dot status-pending" />;
     if (message.localStatus === "failed") return null;
@@ -82,9 +101,55 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <div
       className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
-      onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
+      onMouseEnter={() => setShowDots(true)}
+      onMouseLeave={() => { setShowDots(false); setMenuOpen(false); }}
     >
+      {/* Three-dot action button — left for own messages, right for others */}
+      {showDots && !isEditing && (
+        <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}`} ref={menuRef}>
+          <button
+            type="button"
+            className="msg-actions-dots"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            aria-label="Действия"
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {menuOpen && (
+            <div className="msg-actions-dropdown">
+              {isMine && !message.is_deleted && (
+                <>
+                  <button
+                    type="button"
+                    className="msg-actions-item"
+                    onClick={() => handleAction(() => { setIsEditing(true); setEditText(message.content); })}
+                  >
+                    <Pencil size={14} />
+                    <span>Редактировать</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="msg-actions-item msg-actions-item-danger"
+                    onClick={() => handleAction(() => onDelete(message.id))}
+                  >
+                    <Trash2 size={14} />
+                    <span>Удалить</span>
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="msg-actions-item"
+                onClick={() => handleAction(() => onTogglePin(message.id))}
+              >
+                {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                <span>{isPinned ? "Открепить" : "Закрепить"}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div
         className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}`}
         data-message-id={message.id}
@@ -131,7 +196,7 @@ export const MessageBubble = memo(function MessageBubble({
           <p>{message.content}</p>
         )}
 
-        {/* Meta: time + status + actions */}
+        {/* Meta: time + status */}
         <div className="message-meta">
           <span className="message-time">{formatTime(message.sent_at)}</span>
           {message.is_edited && <span className="edited-label">изм.</span>}
@@ -139,25 +204,6 @@ export const MessageBubble = memo(function MessageBubble({
             <span className="message-status">{getStatusIcon()}</span>
           )}
         </div>
-
-        {/* Hover actions */}
-        {showActions && !isEditing && (
-          <div className="message-actions">
-            {isMine && !message.is_deleted && (
-              <>
-                <button type="button" onClick={() => { setIsEditing(true); setEditText(message.content); }} title="Редактировать">
-                  <Pencil size={12} />
-                </button>
-                <button type="button" onClick={() => onDelete(message.id)} title="Удалить">
-                  <Trash2 size={12} />
-                </button>
-              </>
-            )}
-            <button type="button" onClick={() => onTogglePin(message.id)} title={isPinned ? "Открепить" : "Закрепить"}>
-              {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

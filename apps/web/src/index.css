@@ -584,6 +584,8 @@ html, body {
 
 .bubble-row {
   display: flex;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 .bubble-row.is-mine {
@@ -689,39 +691,109 @@ html, body {
   color: hsl(var(--destructive));
 }
 
-/* ── Pin button (hover reveal) ── */
+/* ── Message actions (three-dot menu) — Telegram/Discord-style ── */
 
-.pin-button {
-  position: absolute;
-  top: -6px;
-  right: -6px;
+.msg-actions-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-self: flex-end;
+  margin-bottom: 2px;
+  animation: fade-in-scale 0.15s ease;
+}
+
+.msg-actions-wrap.is-mine {
+  order: -1; /* dots left of own bubble */
+}
+
+.msg-actions-wrap.is-other {
+  order: 1; /* dots right of other bubble */
+}
+
+.msg-actions-dots {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
+  border: none;
   border-radius: 50%;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
+  background: transparent;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
-  opacity: 0;
-  transform: scale(0.85);
-  transition: all 0.15s ease;
-  z-index: 1;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  opacity: 0.7;
 }
 
-.message-bubble:hover .pin-button,
-.message-bubble.is-pinned .pin-button {
+.msg-actions-dots:hover {
+  background: hsl(var(--thread-hover));
+  color: hsl(var(--foreground));
   opacity: 1;
-  transform: scale(1);
 }
 
-.pin-button:hover {
-  background: hsl(var(--primary) / 0.12);
-  color: hsl(var(--primary));
+/* Dropdown — Telegram-style floating menu */
+
+.msg-actions-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 170px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.14);
+  padding: 4px;
+  z-index: 10;
+  animation: fade-in-scale 0.12s ease;
 }
 
+/* Flip dropdown to the right for right-side bubbles to avoid overflow */
+.bubble-row.is-mine .msg-actions-dropdown {
+  right: 0;
+  left: auto;
+  transform: none;
+}
+
+.bubble-row:not(.is-mine) .msg-actions-dropdown {
+  left: 0;
+  right: auto;
+  transform: none;
+}
+
+.msg-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+
+.msg-actions-item:hover {
+  background: hsl(var(--thread-hover));
+}
+
+.msg-actions-item-danger {
+  color: hsl(var(--destructive));
+}
+
+.msg-actions-item-danger:hover {
+  background: hsl(var(--destructive) / 0.1);
+}@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Pinned message highlight */
 .message-bubble.is-pinned {
   border-color: hsl(var(--primary) / 0.35);
 }

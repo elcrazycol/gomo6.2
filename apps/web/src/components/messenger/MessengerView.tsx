@@ -137,6 +137,7 @@ export const MessengerView = () => {
           <aside className={`sidebar-panel ${sidebarOpen ? "is-open" : ""}`}>
             <ConversationList
               onStartChat={handleStartChat}
+              onSelectConversation={handleSelectConversation}
               targetUserId={searchParams.get("user")}
             />
           </aside>
