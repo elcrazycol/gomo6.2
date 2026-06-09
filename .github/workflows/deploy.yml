@@ -1,9 +1,10 @@
 # =============================================================================
-# deploy.yml — Fastest possible deploy
+# deploy.yml — CI Docker builds + ghcr.io push + VPS pull
 # =============================================================================
-# No Docker builds on CI. No image registry push/pull.
-# VPS pulls code, builds with local Docker layer cache, restarts.
-# Total: ~2-4 min (vs ~10-15 min with CI builds + ghcr push/pull).
+# GitHub Actions builds all images (reliable network to npmjs), pushes to 
+# ghcr.io. VPS only does docker compose pull + up -d (no local build).
+# Deploy triggers on backend build success — frontend builds are non-blocking.
+# Total deploy: ~2-3 min on VPS side (pull + restart).
 # =============================================================================
 
 name: Deploy to VPS
@@ -13,11 +14,132 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BACKEND: ghcr.io/${{ github.repository_owner }}/gomo6-backend
+  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/gomo6-web
+  IMAGE_DOCS: ghcr.io/${{ github.repository_owner }}/gomo6-docs
+  IMAGE_DEV_DASHBOARD: ghcr.io/${{ github.repository_owner }}/gomo6-dev-dashboard
+
 jobs:
+  # ── Backend image (Go) ────────────────────────────────────────────────────
+  # Must succeed — deploy depends on it.
+  build-backend:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/backend-go
+          file: ./apps/backend-go/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:latest
+            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+  # ── Frontend images (Node) ────────────────────────────────────────────────
+  # Non-blocking: continue-on-error so deploy doesn't wait on npm flakes.
+  build-web:
+    name: Build web image
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build & push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: true
+          build-args: VITE_GIT_COMMIT=${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE_WEB }}:latest
+            ${{ env.IMAGE_WEB }}:${{ github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+  build-docs:
+    name: Build docs image
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build & push docs
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/docs/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_DOCS }}:latest
+            ${{ env.IMAGE_DOCS }}:${{ github.sha }}
+          cache-from: type=gha,scope=docs
+          cache-to: type=gha,scope=docs,mode=max
+
+  build-dev-dashboard:
+    name: Build dev-dashboard image
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      - name: Build & push dev-dashboard
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/dev-dashboard/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_DEV_DASHBOARD }}:latest
+            ${{ env.IMAGE_DEV_DASHBOARD }}:${{ github.sha }}
+          cache-from: type=gha,scope=dev-dashboard
+          cache-to: type=gha,scope=dev-dashboard,mode=max
+
+  # ── Deploy to VPS ─────────────────────────────────────────────────────────
+  # Only requires backend image. VPS pulls all images and restarts.
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    needs: [build-backend]
+    if: always() && !cancelled() && needs.build-backend.result == 'success'
+    timeout-minutes: 10
+    env:
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.2
@@ -26,10 +148,12 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
+          envs: GHCR_PAT
           script: |
             set -e
             for d in /root/gomo6.2 /home/*/gomo6.2; do
               [ -d "$d" ] && [ -f "$d/scripts/deploy-vps.sh" ] && { cd "$d"; break; }
             done
             [ "${PWD##*/}" = "gomo6.2" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
+            export GHCR_PAT
             bash scripts/deploy-vps.sh

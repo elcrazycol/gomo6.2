@@ -16,7 +16,7 @@ COPY apps/dev-dashboard/package.json ./apps/dev-dashboard/
 # BuildKit cache mount persists /root/.npm across builds
 ENV NODE_OPTIONS="--max-old-space-size=1024"
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+    for i in 1 2 3; do npm ci && exit 0; sleep 10; done; exit 1
 
 # Copy the web app source
 COPY apps/web/ ./apps/web/

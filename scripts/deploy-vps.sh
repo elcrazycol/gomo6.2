@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy-vps.sh — Fast local build + restart
+# deploy-vps.sh — Pull pre-built images from ghcr.io + restart
 # =============================================================================
-# Builds all containers with Docker layer cache on the VPS (no registry needed).
-# Subsequent builds only rebuild changed layers — much faster than CI builds.
+# Images are built on GitHub Actions (reliable npmjs network) and pushed to
+# ghcr.io. VPS only pulls and restarts — no local npm ci, no network flakes.
 # =============================================================================
 set -euo pipefail
 
@@ -13,22 +13,21 @@ cd "$PROJECT_DIR"
 
 echo "=== Deploy started at $(date -u +%T) ==="
 
-OLD_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-echo "[1/3] Pulling latest code (was: $OLD_COMMIT)..."
+echo "[1/3] Pulling latest code..."
 git fetch origin main
 git reset --hard origin/main
 NEW_COMMIT=$(git rev-parse --short HEAD)
 echo "       Now at: $NEW_COMMIT"
 
-echo "[2/3] Building containers (Docker layer cache)..."
-export GIT_COMMIT=$(git rev-parse --short HEAD)
-docker compose build --parallel 2>&1
+echo "[2/3] Pulling latest images from ghcr.io..."
+echo "${GHCR_PAT:-}" | docker login ghcr.io -u scramble22 --password-stdin 2>/dev/null || true
+docker compose pull 2>&1
+docker logout ghcr.io 2>/dev/null || true
 
-echo "[3/3] Restarting..."
+echo "[3/3] Restarting containers..."
 docker compose up -d --remove-orphans
 
 # Cleanup old images and stale build cache
 docker image prune -f
-docker builder prune --filter until=48h -f
 
-echo "=== Deploy finished: $NEW_COMMIT ==="
+echo "=== Deploy finished ==="
