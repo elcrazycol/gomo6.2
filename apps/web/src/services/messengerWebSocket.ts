@@ -6,12 +6,21 @@ import type { WsEvent } from "@/components/messenger/types";
 const WS_BASE = import.meta.env.VITE_WS_URL || "/ws";
 
 class MessengerWebSocket {
+  private authExpiredHandler: (() => void) | null = null;
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private subscribedRooms = new Set<string>();
+
+  constructor() {
+    // Listen for forced logout (token expired, refresh failed)
+    this.authExpiredHandler = () => this.disconnect();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('auth:expired', this.authExpiredHandler);
+    }
+  }
 
   get connected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
@@ -22,6 +31,9 @@ class MessengerWebSocket {
 
     const token = localStorage.getItem("auth_token");
     if (!token) return;
+
+    // Don't reconnect if token was cleared (logout/auth expired)
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
 
     try {
       const url = `${WS_BASE}?token=${encodeURIComponent(token)}`;
@@ -51,12 +63,14 @@ class MessengerWebSocket {
   disconnect(): void {
     this.stopPing();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     this.subscribedRooms.clear();
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.close(1000, "disconnect");
       this.ws = null;
     }
+    // Don't remove auth:expired listener — singleton lives for page lifetime (like websocket.ts)
   }
 
   subscribe(room: string): void {
@@ -115,6 +129,8 @@ class MessengerWebSocket {
   }
 
   private scheduleReconnect(): void {
+    // Don't reconnect if no token (user logged out)
+    if (!localStorage.getItem("auth_token")) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
     const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 30_000);
     this.reconnectAttempts++;
