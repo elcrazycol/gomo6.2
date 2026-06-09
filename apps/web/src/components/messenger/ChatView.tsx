@@ -162,34 +162,30 @@ export const ChatView = memo(function ChatView({
 
   return (
     <>
-      {/* Top bar */}
-      <div className="chat-topbar">
-        <div className="chat-topbar-main">
-          <button type="button" className="icon-button mobile-only messenger-back-button" onClick={onBack} aria-label="Назад">
-            <ArrowLeft size={16} />
-          </button>
-          <div className="avatar small">
-            {conversation.other_avatar_url ? (
-              <img src={storageUrl("post-images", conversation.other_avatar_url) || undefined} alt={conversation.other_username} />
-            ) : (
-              <span>{getInitials(conversation.other_username)}</span>
-            )}
-          </div>
-          <div className="chat-topbar-info">
-            <strong className="chat-topbar-name">{conversation.other_username}</strong>
-            <p className="presence-copy">
-              {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
-            </p>
-          </div>
-          <div className="chat-user-badge desktop-only">
-            <UserBadge userId={conversation.other_user_id} username={conversation.other_username} showOutline={false} />
+      {/* Header group: topbar + pinned banner — one grid row */}
+      <div className="chat-header-group">
+        <div className="chat-topbar">
+          <div className="chat-topbar-main">
+            <button type="button" className="icon-button mobile-only messenger-back-button" onClick={onBack} aria-label="Назад">
+              <ArrowLeft size={16} />
+            </button>
+            <div className="avatar small">
+              {conversation.other_avatar_url ? (
+                <img src={storageUrl("post-images", conversation.other_avatar_url) || undefined} alt={conversation.other_username} />
+              ) : (
+                <span>{getInitials(conversation.other_username)}</span>
+              )}
+            </div>
+            <div className="chat-topbar-info">
+              <UserBadge userId={conversation.other_user_id} username={conversation.other_username} showOutline={false} />
+              <p className="presence-copy">
+                {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Messages */}
-      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll}>
-        {/* Pinned message banner */}
+        {/* Pinned message banner — below topbar, above messages */}
         {conversation.pinned_message_id && pinnedText && (
           <div className="pinned-message-banner" onClick={scrollToPinned}>
             <div className="pinned-message-icon"><Pin size={12} /></div>
@@ -201,7 +197,10 @@ export const ChatView = memo(function ChatView({
             </button>
           </div>
         )}
+      </div>
 
+      {/* Messages */}
+      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll}>
         {error && (
           <div className="error-banner chat-error-banner">
             <span>{error}</span>

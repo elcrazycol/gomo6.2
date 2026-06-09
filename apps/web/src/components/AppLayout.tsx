@@ -908,6 +908,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
   // Check if current page is special (no header/footer)
   const isSpecialPage = location.pathname.startsWith('/auth');
+  const isMessengerPage = location.pathname.startsWith('/messages');
   const hideChrome = isSpecialPage || hideMessengerChrome;
 
   if (isSpecialPage) {
@@ -1299,7 +1300,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         {children}
       </div>
 
-      {!hideChrome ? (
+      {!hideChrome && !isMessengerPage ? (
       <div className="mt-auto" data-app-layout-footer="true">
         <Footer />
         <CookieBanner />
