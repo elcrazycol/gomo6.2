@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -251,6 +252,47 @@ func decryptMessageContent(msg *MessageResponse) {
 		decrypted, err := decryptContent(msg.Content)
 		if err == nil {
 			msg.Content = decrypted
+		}
+	}
+}
+
+// truncatePreview truncates message content to 80 chars for conversation preview.
+func truncatePreview(s string) string {
+	runes := []rune(s)
+	if len(runes) <= 80 {
+		return s
+	}
+	return string(runes[:80])
+}
+
+// invalidateMessengerCaches clears Redis caches for messenger endpoints.
+func invalidateMessengerCaches(redis *redis.Client, conversationID, userID string) {
+	// Use wildcard patterns to invalidate all cached messenger data
+	patterns := []string{
+		"data:/api/v1/messenger/conversations*",
+		fmt.Sprintf("data:/api/v1/messenger/conversations/%s/messages*", conversationID),
+		fmt.Sprintf("data:/api/v1/messenger/conversations/%s/receipts*", conversationID),
+		"data:/api/v1/messenger/unread-count*",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	for _, pattern := range patterns {
+		var cursor uint64
+		for {
+			keys, nextCursor, err := redis.Scan(ctx, cursor, pattern, 100).Result()
+			if err != nil {
+				log.Printf("[Messenger] cache invalidation scan error: %v", err)
+				break
+			}
+			if len(keys) > 0 {
+				redis.Del(ctx, keys...)
+			}
+			cursor = nextCursor
+			if cursor == 0 {
+				break
+			}
 		}
 	}
 }
@@ -731,6 +773,23 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	if editedAt.Valid {
 		s := editedAt.String
 		msg.EditedAt = &s
+	}
+
+	// Update conversation preview fields (trigger handles last_message_at, but not preview)
+	go func() {
+		_, err := h.db.Exec(`
+			UPDATE chat_conversations
+			SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
+			WHERE id = $3
+		`, truncatePreview(cleanContent), claims.UserID, conversationID)
+		if err != nil {
+			log.Printf("[Messenger] update conversation preview: %v", err)
+		}
+	}()
+
+	// Invalidate messenger caches for this conversation
+	if h.redis != nil {
+		go invalidateMessengerCaches(h.redis, conversationID, claims.UserID)
 	}
 
 	// Broadcast via WebSocket
