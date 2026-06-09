@@ -478,7 +478,4 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
 	}
 
-	// Direct routes for achievements — registered at router level (no group middleware) for reliability
-	router.GET("/api/v1/achievements", universalHandler.HandleTableRequest)
-	router.GET("/api/v1/achievements/*path", universalHandler.HandleTableRequest)
 }
