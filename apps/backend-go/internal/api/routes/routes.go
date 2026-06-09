@@ -20,8 +20,10 @@ import (
 )
 
 func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub, botManager interface{}) {
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
+	// Readiness check (registered after all initialization is complete)
+	// Docker healthcheck uses /health (registered in main.go BEFORE heavy init)
+	// This /ready endpoint confirms the full stack is operational
+	router.GET("/ready", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
 	})
 
