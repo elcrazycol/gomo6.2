@@ -32,6 +32,11 @@ const (
 	MessageTypeUserOnline      = "user_online"
 	MessageTypeUserOffline     = "user_offline"
 	MessageTypeNewNotification = "new_notification"
+	// Messenger-specific events
+	MessageTypeMessageEdited  = "message_edited"
+	MessageTypeMessageDeleted = "message_deleted"
+	MessageTypeReadReceipt    = "read_receipt"
+	MessageTypeChatTyping     = "chat_typing"
 
 	// Redis channels
 	RedisChannelPosts         = "realtime:posts"
@@ -270,6 +275,13 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 
 	case MessageTypeNewChatMessage:
 		// Extract conversation_id from payload for chat broadcasting
+		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
+			chatRoom := fmt.Sprintf("chat_%s", conversationID)
+			h.BroadcastToRoom(chatRoom, messageBytes)
+		}
+
+	case MessageTypeMessageEdited, MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping:
+		// These messenger events carry conversation_id in their payload
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
 			h.BroadcastToRoom(chatRoom, messageBytes)

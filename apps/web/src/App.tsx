@@ -10,7 +10,6 @@ import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils
 import { wsService } from "./services/websocket";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
 import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
-import { WebSocketProvider } from "@/contexts/WebSocketContext";
 
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
@@ -126,7 +125,6 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <ProfileCacheProvider>
         <LikesCacheProvider>
-          <WebSocketProvider>
             <TooltipProvider>
               <Toaster />
               <Sonner />
@@ -175,8 +173,7 @@ const App = () => {
               </Routes>
             </BrowserRouter>
           </TooltipProvider>
-        </WebSocketProvider>
-      </LikesCacheProvider>
+        </LikesCacheProvider>
     </ProfileCacheProvider>
   </QueryClientProvider>
 );

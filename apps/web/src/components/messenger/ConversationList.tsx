@@ -1,77 +1,69 @@
 import { memo, useCallback } from "react";
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
-import { OnlineStatus } from "@/components/OnlineStatus";
 import { storageUrl } from "@/utils/storage";
-import { formatDate, getInitials } from "./utils";
-import type { ConversationView, ProfileSummary } from "./types";
+import { useMessengerStore } from "@/stores/messengerStore";
+import { formatConversationDate, formatPresence, getInitials } from "./utils";
+import type { ConversationView } from "./types";
 
-interface ConversationListProps {
-  conversations: ConversationView[];
-  selectedConversationId: string | null;
-  openConversation: (conversation: ConversationView) => void;
-  conversationsLoading: boolean;
-  errorMessage: string | null;
-  startingConversation: boolean;
-  targetUserId: string | null;
-  ensureConversation: (userId: string, targetId: string) => Promise<string | null>;
-  loadConversations: (userId: string) => Promise<ConversationView[]>;
-  me: ProfileSummary | null;
-  totalUnread: number;
-  onDismissError: () => void;
+interface Props {
+  onStartChat?: (userId: string) => void;
+  startingChat?: boolean;
+  targetUserId?: string | null;
 }
 
 const ConversationCard = memo(function ConversationCard({
   conversation,
   isSelected,
-  onOpen,
+  onSelect,
 }: {
   conversation: ConversationView;
   isSelected: boolean;
-  onOpen: () => void;
+  onSelect: () => void;
 }) {
-  return (      <button
+  const isOnline = conversation.other_is_online;
+  const unread = conversation.unread_count ?? 0;
+
+  return (
+    <button
       type="button"
-      className={`conversation-card${isSelected ? " is-active" : ""}${conversation.unreadCount > 0 ? " has-unread" : ""}`}
-      onClick={onOpen}
+      className={`conversation-card${isSelected ? " is-active" : ""}${unread > 0 ? " has-unread" : ""}`}
+      onClick={onSelect}
     >
       <div className="avatar">
-        {conversation.otherUser.avatar_url ? (
+        {conversation.other_avatar_url ? (
           <img
-            src={storageUrl("post-images", conversation.otherUser.avatar_url) || undefined}
-            alt={conversation.otherUser.username}
+            src={storageUrl("post-images", conversation.other_avatar_url) || undefined}
+            alt={conversation.other_username}
           />
         ) : (
-          <span>{getInitials(conversation.otherUser.username)}</span>
+          <span>{getInitials(conversation.other_username)}</span>
         )}
+        {isOnline && <span className="online-dot" title="Онлайн" />}
       </div>
       <div className="conversation-copy">
         <div className="conversation-head">
           <div className="conversation-user-badge">
             <UserBadge
-              userId={conversation.otherUser.id}
-              username={conversation.otherUser.username}
+              userId={conversation.other_user_id}
+              username={conversation.other_username}
               showOutline={false}
               disableLink
               disableHoverCard
             />
           </div>
+          <span className="conversation-time">
+            {formatConversationDate(conversation.last_message_at)}
+          </span>
         </div>
         <div className="conversation-meta">
-          <span>{formatDate(conversation.lastMessageAt)}</span>
-          <span>#{conversation.otherUser.account_number ?? "?"}</span>
-          {conversation.otherUser.is_online ? (
-            <span className="online-dot" title="Онлайн" />
+          {conversation.last_message_preview ? (
+            <span className="conversation-preview">{conversation.last_message_preview}</span>
           ) : (
-            <OnlineStatus
-              userId={conversation.otherUser.id}
-              isOnline={conversation.otherUser.is_online}
-              lastSeen={conversation.otherUser.last_seen_at}
-              showText={false}
-            />
+            <span className="conversation-preview muted">Нет сообщений</span>
           )}
-          {conversation.unreadCount > 0 ? <span className="count-badge">{conversation.unreadCount}</span> : null}
+          {unread > 0 && <span className="count-badge">{unread > 99 ? "99+" : unread}</span>}
         </div>
       </div>
     </button>
@@ -79,78 +71,80 @@ const ConversationCard = memo(function ConversationCard({
 });
 
 export const ConversationList = memo(function ConversationList({
-  conversations,
-  selectedConversationId,
-  openConversation,
-  conversationsLoading,
-  errorMessage,
-  startingConversation,
+  onStartChat,
+  startingChat,
   targetUserId,
-  ensureConversation,
-  loadConversations,
-  me,
-  totalUnread,
-  onDismissError,
-}: ConversationListProps) {
-  const handleEnsureConversation = useCallback(() => {
-    if (!me || !targetUserId) return;
-    void ensureConversation(me.id, targetUserId).then(() => loadConversations(me.id));
-  }, [ensureConversation, loadConversations, me, targetUserId]);
+}: Props) {
+  const conversations = useMessengerStore((s) => s.conversations);
+  const selectedId = useMessengerStore((s) => s.selectedConversationId);
+  const selectConversation = useMessengerStore((s) => s.selectConversation);
+  const error = useMessengerStore((s) => s.error);
+  const setError = useMessengerStore((s) => s.setError);
+  const initLoading = useMessengerStore((s) => s.isInitialLoading);
+  const totalUnread = useMessengerStore((s) => s.totalUnread);
+
+  const handleStartChat = useCallback(() => {
+    if (onStartChat && targetUserId) onStartChat(targetUserId);
+  }, [onStartChat, targetUserId]);
 
   return (
     <>
       <div className="sidebar-top">
-        <div>
+        <div className="sidebar-top-row">
           <h1>Сообщения</h1>
+          {totalUnread() > 0 && (
+            <span className="header-unread-badge" title={`${totalUnread()} непрочитанных`}>
+              {totalUnread() > 99 ? "99+" : totalUnread()}
+            </span>
+          )}
         </div>
-        {totalUnread > 0 ? (
-          <span className="header-unread-badge" title={`${totalUnread} непрочитанных`}>
-            {totalUnread > 99 ? "99+" : totalUnread}
-          </span>
-        ) : null}
       </div>
 
-      {errorMessage ? (
+      {error && (
         <div className="error-banner">
-          <span>{errorMessage}</span>
-          <button type="button" className="error-dismiss" onClick={onDismissError} aria-label="Закрыть">
+          <span>{error}</span>
+          <button type="button" className="error-dismiss" onClick={() => setError(null)} aria-label="Закрыть">
             <X size={14} />
           </button>
         </div>
-      ) : null}
+      )}
 
       <div className="conversation-list">
-        {conversationsLoading && conversations.length === 0 ? (
+        {initLoading && conversations.length === 0 && (
           <div className="panel-loader-overlay sidebar-loader">
             <PentagramLoader size="md" />
           </div>
-        ) : null}
+        )}
 
-        {conversations.length === 0 ? (
+        {conversations.length === 0 && !initLoading && (
           <div className="empty-card">
             <MessageCircle size={18} />
             <p>Диалогов пока нет.</p>
-            {targetUserId ? (
+            {targetUserId && onStartChat && (
               <button
                 type="button"
                 className="cta-button"
-                onClick={handleEnsureConversation}
-                disabled={startingConversation}
+                onClick={handleStartChat}
+                disabled={startingChat}
               >
-                {startingConversation ? <PentagramLoader size="sm" /> : "Открыть диалог"}
+                {startingChat ? <PentagramLoader size="sm" /> : (
+                  <>
+                    <UserPlus size={14} /> Открыть диалог
+                  </>
+                )}
               </button>
-            ) : null}
+            )}
           </div>
-        ) : (
-          conversations.map((conversation) => (
-            <ConversationCard
-              key={conversation.id}
-              conversation={conversation}
-              isSelected={conversation.id === selectedConversationId}
-              onOpen={() => openConversation(conversation)}
-            />
-          ))
         )}
+
+        {conversations.map((conv) => (
+          <ConversationCard
+            key={conv.id}
+            conversation={conv}
+            isSelected={conv.id === selectedId}
+            onSelect={() => selectConversation(conv.id)}
+          />
+        ))}
       </div>
     </>
   );
