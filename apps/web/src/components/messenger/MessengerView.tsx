@@ -69,6 +69,23 @@ export const MessengerView = () => {
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  // ── Hide AppLayout header on mobile when chat is open ─────────────────
+  useEffect(() => {
+    if (!isMobile) return;
+    if (showMobileChat) {
+      document.body.classList.add("messenger-mobile-chat-active");
+    } else {
+      document.body.classList.remove("messenger-mobile-chat-active");
+    }
+    window.dispatchEvent(new CustomEvent("gomo6:messenger-mobile-chat"));
+    return () => {
+      if (showMobileChat) {
+        document.body.classList.remove("messenger-mobile-chat-active");
+        window.dispatchEvent(new CustomEvent("gomo6:messenger-mobile-chat"));
+      }
+    };
+  }, [isMobile, showMobileChat]);
+
   // ── Mobile detection ──────────────────────────────────────────────────
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 980px)");
