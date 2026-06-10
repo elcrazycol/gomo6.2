@@ -343,10 +343,41 @@ docker compose up -d --build
 | `FEDERATION_KEY` | — | Ключ для ActivityPub-федерации |
 | `ENVIRONMENT` | `production` | Окружение (`production` / `development`) |
 | `ALLOWED_ORIGINS` | auto | CORS origins (через запятую) |
+| `WEBAUTHN_RP_ID` | `$DOMAIN` | WebAuthn Relying Party ID (домен без схемы/порта) |
+| `WEBAUTHN_RP_ORIGIN` | `https://$DOMAIN` | WebAuthn Relying Party Origin (полный origin с https://) |
+| `WEBAUTHN_RP_NAME` | `gomo6` | WebAuthn Relying Party display name |
 | `DATABASE_URL` | auto | Строка подключения к PostgreSQL |
 | `REDIS_URL` | auto | Строка подключения к Redis |
 
 Большинство переменных имеют разумные значения по умолчанию в `docker-compose.yml`. Обязательно задать нужно только **`DOMAIN`** — от него магическим образом работают все три поддомена.
+
+---
+
+### Passkeys (WebAuthn)
+
+Gomo6 поддерживает вход без пароля через Passkeys (WebAuthn). Passkeys используют биометрию устройства (Touch ID, Face ID, Windows Hello) или PIN для аутентификации.
+
+**Как это работает:**
+- Пользователь регистрирует passkey в настройках профиля
+- При входе нажимает «Войти по Passkey» — браузер предлагает выбрать сохранённый passkey
+- Юзернейм не требуется — passkey сам идентифицирует пользователя (discoverable credential)
+
+**Требования к домену:**
+- Passkeys работают **только на HTTPS** (или localhost для разработки)
+- RP ID должен совпадать с доменом сайта
+
+**Настройка:**
+```bash
+# .env (значения по умолчанию работают автоматически от DOMAIN)
+WEBAUTHN_RP_ID=your-domain.ru          # домен без https:// и порта
+WEBAUTHN_RP_ORIGIN=https://your-domain.ru  # полный origin
+WEBAUTHN_RP_NAME=gomo6                    # отображаемое имя
+```
+
+**Проверка в production:**
+- [ ] Сайт открывается по HTTPS
+- [ ] `WEBAUTHN_RP_ID` совпадает с доменом (без порта)
+- [ ] `WEBAUTHN_RP_ORIGIN` содержит `https://`
 
 ---
 
@@ -583,6 +614,7 @@ gomo6.2/
 - [ ] Убраны префиксы `http://` из всех директив в `Caddyfile`
 - [ ] Открыты порты 80 и 443 в файрволе
 - [ ] Настроен ежедневный бэкап базы данных (cron)
+- [ ] Passkeys настроены: HTTPS включён, `WEBAUTHN_RP_ID` и `WEBAUTHN_RP_ORIGIN` совпадают с доменом
 - [ ] Проверены все три сайта:
   - `curl https://ваш-домен.ru`
   - `curl https://docs.ваш-домен.ru`

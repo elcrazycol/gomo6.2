@@ -154,6 +154,10 @@ services:
       FEDERATION_KEY: ${FEDERATION_KEY:-your-federation-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
+      # WebAuthn / Passkeys
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-${DOMAIN:-localhost}}
+      WEBAUTHN_RP_ORIGIN: ${WEBAUTHN_RP_ORIGIN:-https://${DOMAIN:-localhost}}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-gomo6}
       ISSUER_URL: https://${DOMAIN:-localhost}
       FRONTEND_URL: https://${DOMAIN:-localhost}
       DEV_DASHBOARD_URL: https://dev.${DOMAIN:-localhost}
