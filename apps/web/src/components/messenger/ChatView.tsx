@@ -177,7 +177,9 @@ export const ChatView = memo(function ChatView({
               )}
             </div>
             <div className="chat-topbar-info">
-              <UserBadge userId={conversation.other_user_id} username={conversation.other_username} showOutline={false} />
+              <div className="chat-topbar-username">
+                <UserBadge userId={conversation.other_user_id} username={conversation.other_username} showOutline={false} />
+              </div>
               <p className="presence-copy">
                 {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
               </p>
