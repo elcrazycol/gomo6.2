@@ -121,16 +121,20 @@ func (h *Hub) Run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
-			h.presence[client.UserID] = client
+			// Only track in presence if already authenticated (post-auth message)
+			if client.UserID != "" {
+				h.presence[client.UserID] = client
+			}
 			h.mu.Unlock()
 
-			// Update user online status in database
-			go h.updateUserOnlineStatus(client.UserID, true)
-
-			// Broadcast user online event
-			go h.broadcastUserStatus(client.UserID, client.Username, true)
-
-			log.Printf("[WebSocket] Client connected: %s (%s)", client.Username, client.UserID)
+			// Only update status if the client has authenticated
+			if client.UserID != "" {
+				go h.updateUserOnlineStatus(client.UserID, true)
+				go h.broadcastUserStatus(client.UserID, client.Username, true)
+				log.Printf("[WebSocket] Client connected: %s (%s)", client.Username, client.UserID)
+			} else {
+				log.Printf("[WebSocket] Client connected (unauthenticated) — waiting for auth message")
+			}
 
 		case client := <-h.unregister:
 			h.mu.Lock()

@@ -47,9 +47,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	devHandler := handlers.NewDeveloperHandler(db, oauthService)
 	devDashboardHandler := handlers.NewDevDashboardHandler(db, oauthService)
 
-	// Initialize rate limiters
-	authRateLimiter := middleware.NewAuthRateLimiter(100, time.Minute)      // 100 requests per minute for auth/me
-	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute) // 20/min for token, 10/min for revoke
+	// Initialize rate limiters (Redis-backed for distributed deployment)
+	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute) // 100 req/min for auth/me
+	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)   // 20/min token, 10/min revoke
 
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
@@ -473,13 +473,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		dev.POST("/apps/:id/revoke-user-tokens", devHandler.RevokeUserTokens)
 	}
 
-	// WebSocket endpoint
+	// WebSocket endpoint — auth via first message, not URL query string.
 	if wsHandler != nil {
-		ws := router.Group("/ws")
-		ws.Use(middleware.AuthCacheMiddleware(authService, redis))
-		{
-			ws.GET("", wsHandler.HandleWebSocket)
-		}
+		router.GET("/ws", wsHandler.HandleWebSocket)
 
 		// Debug endpoint for online users count (protected, admin only in production)
 		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)

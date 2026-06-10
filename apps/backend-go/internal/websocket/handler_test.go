@@ -30,61 +30,31 @@ func TestNewHandler(t *testing.T) {
 }
 
 // =============================================================================
-// HandleWebSocket — missing claims
+// HandleWebSocket — no longer requires pre-authentication.
+// Auth is deferred to the first WebSocket message (type: "auth").
+// The handler just upgrades the connection; invalid clients are disconnected
+// by the readPump after the 5-second auth timeout.
 // =============================================================================
 
-func TestHandleWebSocket_NoClaims(t *testing.T) {
+func TestHandleWebSocket_NoAuthRequired(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	hub := NewHub(nil, nil)
-	handler := NewHandler(hub, nil)
+	authService := auth.NewAuthService()
+	handler := NewHandler(hub, authService)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/ws", nil)
 
+	// HandleWebSocket should NOT return 401 — it defers auth to the WS message.
+	// Since the test request has no Upgrade headers, the upgrader will fail,
+	// but the handler itself should not reject based on missing claims.
 	handler.HandleWebSocket(c)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", w.Code)
-	}
-
-	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("json unmarshal: %v", err)
-	}
-	if resp["error"] != "Authentication required" {
-		t.Errorf("expected 'Authentication required', got %q", resp["error"])
-	}
-}
-
-// =============================================================================
-// HandleWebSocket — invalid claims type
-// =============================================================================
-
-func TestHandleWebSocket_InvalidClaimsType(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	hub := NewHub(nil, nil)
-	handler := NewHandler(hub, nil)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/ws", nil)
-	c.Set("claims", "not-a-claims-struct")
-
-	handler.HandleWebSocket(c)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", w.Code)
-	}
-
-	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("json unmarshal: %v", err)
-	}
-	if resp["error"] != "Invalid authentication" {
-		t.Errorf("expected 'Invalid authentication', got %q", resp["error"])
+	// The handler should have attempted the upgrade (no 401 rejection)
+	if w.Code == http.StatusUnauthorized {
+		t.Error("HandleWebSocket should NOT return 401 — auth is deferred to first WS message")
 	}
 }
 
