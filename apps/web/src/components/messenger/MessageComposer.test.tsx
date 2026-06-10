@@ -56,7 +56,7 @@ describe("MessageComposer", () => {
   it("calls onSend when Enter is pressed (no shift)", async () => {
     const { textarea, onSend, onTyping } = setup({ draft: "Hello" });
 
-    fireEvent.change(textarea, { target: { value: "Hello" } });
+    await userEvent.type(textarea, "Hello");
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
 
     await waitFor(() => {
@@ -65,10 +65,11 @@ describe("MessageComposer", () => {
     });
   });
 
-  it("does not call onSend when Shift+Enter is pressed", () => {
+  it("does not call onSend when Shift+Enter is pressed", async () => {
     const { textarea, onSend } = setup({ draft: "Hello" });
 
-    fireEvent.change(textarea, { target: { value: "Hello" } });
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "Hello");
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: true });
 
     expect(onSend).not.toHaveBeenCalled();

@@ -6,8 +6,8 @@ import { BrowserRouter } from "react-router-dom";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-const mockFrom = vi.fn<any>();
-const mockRpc = vi.fn<any>();
+const mockFrom = vi.fn<any>().mockImplementation(() => makePromiseChain({ data: [], error: null }));
+const mockRpc = vi.fn<any>().mockResolvedValue({ data: null, error: null });
 const mockAuth = { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn() };
 
 // makePromiseChain must be defined BEFORE mockFrom uses it
