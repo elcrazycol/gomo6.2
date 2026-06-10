@@ -11,6 +11,8 @@ import { z } from "zod";
 import { TermsOfService } from "@/components/TermsOfService";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { useQueryClient } from "@tanstack/react-query";
+import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "@/services/passkeys";
+import { Shield } from "lucide-react";
 
 const authSchema = z.object({
   username: z.string().trim().min(3, "Юзернейм минимум 3 символа").max(20, "Юзернейм максимум 20 символов"),
@@ -190,6 +192,50 @@ const Auth = () => {
     }
   };
 
+  const handlePasskeyLogin = async () => {
+    if (!isLogin) return; // only for login mode
+
+    if (!supportsWebAuthn()) {
+      toast.error("Ваш браузер не поддерживает Passkeys");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Step 1: get login options from server (discoverable — no username needed)
+      const optionsData = await apiClient.beginPasskeyLogin();
+      const options = optionsData.options as Record<string, unknown>;
+      if (!options) throw new Error("No passkeys found");
+
+      // Step 2: get assertion from browser
+      const publicKey = prepareLoginOptions(options);
+      const credential = await navigator.credentials.get({ publicKey });
+      if (!credential) throw new Error("Authentication cancelled");
+
+      // Step 3: send assertion to server with session token
+      const serialized = serializeAuthentication(credential as PublicKeyCredential);
+      const result = await apiClient.finishPasskeyLogin(optionsData.session_token, serialized);
+
+      // Success — same post-login flow as password login
+      await queryClient.invalidateQueries({ queryKey: ['auth'] });
+      await queryClient.refetchQueries({ queryKey: ['auth', 'currentUser'] });
+
+      const { wsService } = await import("@/services/websocket");
+      await wsService.disconnect();
+      await wsService.connect();
+
+      toast.success("Вход выполнен");
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      const msg = (err as Error).message || "Ошибка входа по passkey";
+      if (!msg.includes("cancelled") && !msg.includes("AbortError")) {
+        toast.error(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleBackToLogin = () => {
     setNeeds2FA(false);
     setPartialToken("");
@@ -339,6 +385,29 @@ const Auth = () => {
             <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms)}>
               {loading ? "Загрузка..." : isLogin ? "Войти" : "Зарегистрироваться"}
             </Button>
+
+            {isLogin && supportsWebAuthn() && (
+              <>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">или</span>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2"
+                  onClick={handlePasskeyLogin}
+                  disabled={loading}
+                >
+                  <Shield className="h-4 w-4" />
+                  Войти по Passkey
+                </Button>
+              </>
+            )}
           </form>
 
           <div className="mt-4 text-center text-sm">

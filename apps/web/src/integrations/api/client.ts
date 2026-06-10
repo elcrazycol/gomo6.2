@@ -659,6 +659,48 @@ class ApiClient {
   async getMessengerUnreadCount(): Promise<ApiResponse<{ unread_count: number }>> {
     return this.request<{ unread_count: number }>('/api/rpc/get_messenger_unread_count');
   }
+
+  // ── Passkeys / WebAuthn ───────────────────────────────────────────────────
+
+  async beginPasskeyRegistration(): Promise<Record<string, unknown>> {
+    const resp = await this.request<Record<string, unknown>>('/api/v1/auth/webauthn/register/begin', { method: 'POST' });
+    return resp.data as Record<string, unknown>;
+  }
+
+  async finishPasskeyRegistration(name: string, credential: Record<string, unknown>): Promise<{ ok: boolean }> {
+    const resp = await this.request<{ ok: boolean }>(`/api/v1/auth/webauthn/register/finish?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify(credential),
+    });
+    return resp.data as { ok: boolean };
+  }
+
+  async beginPasskeyLogin(): Promise<{ options: Record<string, unknown>; session_token: string }> {
+    const resp = await this.request<Record<string, unknown>>('/api/v1/auth/webauthn/login/begin');
+    return resp.data as { options: Record<string, unknown>; session_token: string };
+  }
+
+  async finishPasskeyLogin(sessionToken: string, credential: Record<string, unknown>): Promise<AuthResponse> {
+    const resp = await this.request<Record<string, unknown>>(`/api/v1/auth/webauthn/login/finish?session_token=${encodeURIComponent(sessionToken)}`, {
+      method: 'POST',
+      body: JSON.stringify(credential),
+    });
+    const data = resp.data as Record<string, unknown> & { token?: string; refresh_token?: string } | null;
+    if (data?.token) {
+      this.setTokens(data.token as string, (data.refresh_token as string) || null);
+    }
+    return data as unknown as AuthResponse;
+  }
+
+  async listPasskeys(): Promise<Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string }>> {
+    const resp = await this.request<{ credentials: Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string }> }>('/api/v1/auth/webauthn/credentials');
+    return (resp.data as { credentials: Array<{ credential_id: string; name: string; attestation_type: string; created_at: string; last_used_at?: string }> })?.credentials ?? [];
+  }
+
+  async deletePasskey(credentialId: string): Promise<{ ok: boolean }> {
+    const resp = await this.request<{ ok: boolean }>(`/api/v1/auth/webauthn/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
+    return resp.data as { ok: boolean };
+  }
 }
 
 // Create singleton instance
