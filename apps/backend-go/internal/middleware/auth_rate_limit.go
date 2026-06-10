@@ -1,93 +1,60 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
-// AuthRateLimiter implements rate limiting for auth endpoints
+// AuthRateLimiter implements Redis-backed rate limiting for auth endpoints.
+// Uses a fixed-window counter per key. Distributed across all server instances.
 type AuthRateLimiter struct {
-	mu      sync.RWMutex
-	buckets map[string]*authTokenBucket
-	// Maximum requests per window
+	redis       *redis.Client
 	maxRequests int
-	// Time window duration
-	window time.Duration
+	window      time.Duration
 }
 
-type authTokenBucket struct {
-	tokens     int
-	lastRefill time.Time
-}
-
-// NewAuthRateLimiter creates a new rate limiter for auth endpoints
-func NewAuthRateLimiter(maxRequests int, window time.Duration) *AuthRateLimiter {
-	rl := &AuthRateLimiter{
-		buckets:     make(map[string]*authTokenBucket),
+// NewAuthRateLimiter creates a new Redis-backed rate limiter for auth endpoints.
+func NewAuthRateLimiter(redisClient *redis.Client, maxRequests int, window time.Duration) *AuthRateLimiter {
+	return &AuthRateLimiter{
+		redis:       redisClient,
 		maxRequests: maxRequests,
 		window:      window,
 	}
-
-	// Start cleanup goroutine
-	go rl.cleanup()
-
-	return rl
 }
 
-// Allow checks if a user is allowed to make a request
+// Allow checks if a user is allowed to make a request.
+// Uses Redis INCR with TTL for distributed rate limiting.
 func (rl *AuthRateLimiter) Allow(userID string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	bucket, exists := rl.buckets[userID]
-
-	if !exists {
-		// Create new bucket with full tokens
-		rl.buckets[userID] = &authTokenBucket{
-			tokens:     rl.maxRequests - 1,
-			lastRefill: now,
-		}
-		return true
+	if rl.redis == nil {
+		return true // no Redis, allow all (fail open)
 	}
 
-	// Refill tokens based on time passed
-	elapsed := now.Sub(bucket.lastRefill)
-	if elapsed >= rl.window {
-		// Full refill
-		bucket.tokens = rl.maxRequests - 1
-		bucket.lastRefill = now
-		return true
+	if rl.maxRequests <= 0 {
+		return false
 	}
 
-	// Check if tokens available
-	if bucket.tokens > 0 {
-		bucket.tokens--
-		return true
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	key := fmt.Sprintf("ratelimit:auth:%s", userID)
+
+	// INCR atomically increments and returns the new value
+	count, err := rl.redis.Incr(ctx, key).Result()
+	if err != nil {
+		return true // fail open on Redis errors
 	}
 
-	// Rate limit exceeded
-	return false
-}
-
-// cleanup removes old buckets periodically
-func (rl *AuthRateLimiter) cleanup() {
-	ticker := time.NewTicker(rl.window * 2)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		rl.mu.Lock()
-		now := time.Now()
-		for userID, bucket := range rl.buckets {
-			if now.Sub(bucket.lastRefill) > rl.window*2 {
-				delete(rl.buckets, userID)
-			}
-		}
-		rl.mu.Unlock()
+	// Set expiry on first request in the window
+	if count == 1 {
+		rl.redis.Expire(ctx, key, rl.window)
 	}
+
+	return count <= int64(rl.maxRequests)
 }
 
 // AuthRateLimitMiddleware applies rate limiting to auth endpoints

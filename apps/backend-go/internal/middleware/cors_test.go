@@ -19,7 +19,7 @@ func setupCORSContext(method string) (*gin.Context, *httptest.ResponseRecorder) 
 func TestCORS_SetsHeaders(t *testing.T) {
 	c, w := setupCORSContext("GET")
 
-	CORS()(c)
+	CORS(nil)(c)
 
 	if w.Header().Get("Access-Control-Allow-Origin") != "*" {
 		t.Errorf("expected Access-Control-Allow-Origin: *, got %q", w.Header().Get("Access-Control-Allow-Origin"))
@@ -35,7 +35,7 @@ func TestCORS_SetsHeaders(t *testing.T) {
 func TestCORS_OPTIONS_Returns204(t *testing.T) {
 	c, w := setupCORSContext("OPTIONS")
 
-	CORS()(c)
+	CORS(nil)(c)
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204 for OPTIONS, got %d", w.Code)
@@ -46,7 +46,7 @@ func TestCORS_OPTIONS_Returns204(t *testing.T) {
 }
 
 func TestCORS_GET_PassesThrough(t *testing.T) {
-	handler := CORS()
+	handler := CORS(nil)
 
 	// Use gin engine to properly test c.Next() passthrough
 	w := httptest.NewRecorder()
@@ -61,7 +61,7 @@ func TestCORS_GET_PassesThrough(t *testing.T) {
 }
 
 func TestCORS_POST_PassesThrough(t *testing.T) {
-	handler := CORS()
+	handler := CORS(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -75,7 +75,7 @@ func TestCORS_POST_PassesThrough(t *testing.T) {
 }
 
 func TestCORS_PUT_PassesThrough(t *testing.T) {
-	handler := CORS()
+	handler := CORS(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -89,7 +89,7 @@ func TestCORS_PUT_PassesThrough(t *testing.T) {
 }
 
 func TestCORS_DELETE_PassesThrough(t *testing.T) {
-	handler := CORS()
+	handler := CORS(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

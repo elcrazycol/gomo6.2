@@ -61,7 +61,7 @@ func main() {
 	})
 
 	// Add middleware
-	router.Use(middleware.CORS())
+	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
 

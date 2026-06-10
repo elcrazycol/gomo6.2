@@ -46,8 +46,9 @@ func (a *AuthService) SetRedis(rdb *redis.Client) {
 	a.redis = rdb
 }
 
-// GetJWTSecret returns the JWT secret from env or generates a secure random one.
-// In production, always set JWT_SECRET explicitly to keep tokens valid across restarts.
+// GetJWTSecret returns the JWT secret from env.
+// In production, JWT_SECRET is REQUIRED — the server will refuse to start without it.
+// In development, a random key is generated with a warning.
 func GetJWTSecret() string {
 	if secret := os.Getenv("JWT_SECRET"); secret != "" {
 		if len(secret) < 32 {
@@ -56,7 +57,12 @@ func GetJWTSecret() string {
 		return secret
 	}
 
-	// Auto-generate a secure random key
+	env := os.Getenv("ENVIRONMENT")
+	if env == "production" || env == "prod" {
+		log.Fatalf("FATAL: JWT_SECRET environment variable is required in production. Set a strong, fixed value (at least 64 hex characters).")
+	}
+
+	// Auto-generate a secure random key for development
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatalf("FATAL: Failed to generate random JWT secret: %v", err)

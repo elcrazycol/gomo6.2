@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gorilla/websocket"
 )
 
@@ -25,16 +26,21 @@ const (
 
 	// Send buffer size
 	sendBufferSize = 256
+
+	// Time allowed for the client to authenticate after connecting
+	authTimeout = 5 * time.Second
 )
 
 // Client represents a WebSocket connection
 type Client struct {
-	Hub      *Hub
-	Conn     *websocket.Conn
-	Send     chan []byte
-	UserID   string
-	Username string
-	Rooms    map[string]bool
+	Hub           *Hub
+	Conn          *websocket.Conn
+	Send          chan []byte
+	UserID        string
+	Username      string
+	Rooms         map[string]bool
+	authenticated bool
+	authService   *auth.AuthService
 }
 
 // readPump pumps messages from the WebSocket connection to the hub
@@ -50,6 +56,9 @@ func (c *Client) readPump() {
 		c.Conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
+
+	// Set initial deadline for auth
+	c.Conn.SetReadDeadline(time.Now().Add(authTimeout))
 
 	for {
 		_, messageBytes, err := c.Conn.ReadMessage()
@@ -67,22 +76,45 @@ func (c *Client) readPump() {
 			continue
 		}
 
+		// Handle auth message — must be the first message
+		if message.Type == "auth" {
+			if err := c.handleAuth(message.Data); err != nil {
+				log.Printf("[WebSocket] Auth failed: %v", err)
+				c.sendError("Authentication failed: " + err.Error())
+				return
+			}
+			c.authenticated = true
+			// Reset deadline to normal pong wait after successful auth
+			c.Conn.SetReadDeadline(time.Now().Add(pongWait))
+
+			// Send connected confirmation
+			connMsg := Message{
+				Type:      "connected",
+				Data:      mustMarshalJSON(map[string]string{"user_id": c.UserID, "username": c.Username}),
+				UserID:    c.UserID,
+				Username:  c.Username,
+				Timestamp: time.Now().Unix(),
+			}
+			if msgBytes, err := json.Marshal(connMsg); err == nil {
+				c.Send <- msgBytes
+			}
+
+			// Auto-subscribe to notification room
+			c.Hub.SubscribeToRoom(c, fmt.Sprintf("notifications_%s", c.UserID))
+			continue
+		}
+
+		// Require authentication for all other message types
+		if !c.authenticated {
+			c.sendError("Authentication required — send auth message first")
+			return
+		}
+
 		// Apply rate limiting (except for ping messages)
 		if message.Type != MessageTypePing {
 			if !c.Hub.rateLimiter.Allow(c.UserID) {
 				log.Printf("[WebSocket] Rate limit exceeded for user %s", c.UserID)
-				// Send rate limit error to client
-				errorMsg := Message{
-					Type:      "error",
-					Data:      mustMarshalJSON(map[string]string{"error": "Rate limit exceeded. Please slow down."}),
-					Timestamp: time.Now().Unix(),
-				}
-				if msgBytes, err := json.Marshal(errorMsg); err == nil {
-					select {
-					case c.Send <- msgBytes:
-					default:
-					}
-				}
+				c.sendError("Rate limit exceeded. Please slow down.")
 				continue
 			}
 		}
@@ -92,19 +124,16 @@ func (c *Client) readPump() {
 		case MessageTypeSubscribe:
 			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
 				c.Hub.SubscribeToRoom(c, room)
-				// Send confirmation
 				c.sendConfirmation(MessageTypeSubscribe, room)
 			}
 
 		case MessageTypeUnsubscribe:
 			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
 				c.Hub.UnsubscribeFromRoom(c, room)
-				// Send confirmation
 				c.sendConfirmation(MessageTypeUnsubscribe, room)
 			}
 
 		case MessageTypeTyping:
-			// Broadcast typing indicator to room
 			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
 				typingMsg := Message{
 					Type: MessageTypeTyping,
@@ -125,11 +154,8 @@ func (c *Client) readPump() {
 			}
 
 		case MessageTypeChatTyping:
-			// Broadcast chat typing indicator to the room specified in message.Room.
-			// Read is_typing from the incoming data (client sends both true and false).
 			if message.Room != "" {
-				// Parse is_typing from incoming data
-				isTyping := true // default
+				isTyping := true
 				var typingPayload struct {
 					IsTyping bool `json:"is_typing"`
 				}
@@ -156,7 +182,6 @@ func (c *Client) readPump() {
 			}
 
 		case MessageTypePing:
-			// Respond with pong
 			pongMsg := Message{
 				Type:      "pong",
 				Data:      mustMarshalJSON(map[string]string{"timestamp": fmt.Sprintf("%d", time.Now().Unix())}),
@@ -169,14 +194,58 @@ func (c *Client) readPump() {
 				select {
 				case c.Send <- msgBytes:
 				default:
-					// Send buffer full
 				}
 			}
 
 		default:
-			// Echo back unknown message types for debugging
 			log.Printf("[WebSocket] Unknown message type: %s", message.Type)
 		}
+	}
+}
+
+// handleAuth validates the auth token from a client's first message.
+func (c *Client) handleAuth(data json.RawMessage) error {
+	var authPayload struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(data, &authPayload); err != nil || authPayload.Token == "" {
+		return fmt.Errorf("invalid auth payload")
+	}
+
+	claims, err := c.authService.ValidateToken(authPayload.Token)
+	if err != nil {
+		return fmt.Errorf("invalid token")
+	}
+
+	c.UserID = claims.UserID
+	c.Username = claims.Username
+	if c.Username == "" {
+		c.Username = claims.UserID[:8]
+	}
+
+	// Add to presence map now that we have a UserID
+	c.Hub.mu.Lock()
+	c.Hub.presence[c.UserID] = c
+	c.Hub.mu.Unlock()
+
+	// Broadcast online status and update DB
+	go c.Hub.updateUserOnlineStatus(c.UserID, true)
+	go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
+
+	log.Printf("[WebSocket] Authenticated user: %s (%s)", c.Username, c.UserID)
+	return nil
+}
+
+// sendError sends an error message to the client and then closes the connection.
+func (c *Client) sendError(msg string) {
+	errMsg := Message{
+		Type:      "error",
+		Data:      mustMarshalJSON(map[string]string{"error": msg}),
+		Timestamp: time.Now().Unix(),
+	}
+	if msgBytes, err := json.Marshal(errMsg); err == nil {
+		c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+		c.Conn.WriteMessage(websocket.TextMessage, msgBytes)
 	}
 }
 
@@ -269,8 +338,9 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-// ServeWs handles WebSocket requests from the peer
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userID, username string) {
+// ServeWs handles WebSocket requests from the peer.
+// Authentication is deferred to the first message (type: "auth").
+func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, authService *auth.AuthService) {
 	// Set CheckOrigin based on hub's allowed origins
 	upgrader.CheckOrigin = func(req *http.Request) bool {
 		return hub.CheckOrigin(req)
@@ -283,33 +353,20 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, userID, username 
 	}
 
 	client := &Client{
-		Hub:      hub,
-		Conn:     conn,
-		Send:     make(chan []byte, sendBufferSize),
-		UserID:   userID,
-		Username: username,
-		Rooms:    make(map[string]bool),
+		Hub:           hub,
+		Conn:          conn,
+		Send:          make(chan []byte, sendBufferSize),
+		UserID:        "",
+		Username:      "",
+		Rooms:         make(map[string]bool),
+		authenticated: false,
+		authService:   authService,
 	}
 
 	client.Hub.register <- client
 
-	// Send initial connection success message
-	connMsg := Message{
-		Type:      "connected",
-		Data:      mustMarshalJSON(map[string]string{"user_id": userID, "username": username}),
-		UserID:    userID,
-		Username:  username,
-		Timestamp: time.Now().Unix(),
-	}
-
-	if msgBytes, err := json.Marshal(connMsg); err == nil {
-		client.Send <- msgBytes
-	}
-
-	// Auto-subscribe user to their notification room
-	hub.SubscribeToRoom(client, fmt.Sprintf("notifications_%s", userID))
-
-	// Start goroutines for reading and writing
+	// Start goroutines for reading and writing.
+	// The client must authenticate within authTimeout or be disconnected.
 	go client.writePump()
 	go client.readPump()
 }
