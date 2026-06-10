@@ -204,7 +204,10 @@ const Auth = () => {
     try {
       // Step 1: get login options from server (discoverable — no username needed)
       const optionsData = await apiClient.beginPasskeyLogin();
-      const options = optionsData.options as Record<string, unknown>;
+      const wrapped = optionsData.options as Record<string, unknown>;
+      if (!wrapped) throw new Error("No passkeys found");
+      // go-webauthn nests options under {publicKey: {challenge, ...}}
+      const options = wrapped.publicKey as Record<string, unknown>;
       if (!options) throw new Error("No passkeys found");
 
       // Step 2: get assertion from browser
