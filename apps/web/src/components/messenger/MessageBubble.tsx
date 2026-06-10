@@ -30,14 +30,17 @@ export const MessageBubble = memo(function MessageBubble({
   peerReadAt,
   peerDeliveredAt,
 }: Props) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(message.content);
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDots, setShowDots] = useState(false);
-  const editInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const isTouchDevice = useRef(false);
 
-  // Close menu on outside click
+  // Detect touch device on mount
+  useEffect(() => {
+    isTouchDevice.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  }, []);
+
+  // Close menu on outside click/tap
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
@@ -45,39 +48,29 @@ export const MessageBubble = memo(function MessageBubble({
         setMenuOpen(false);
       }
     };
+    const handlerTouch = (e: TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handlerTouch, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handlerTouch);
+    };
   }, [menuOpen]);
-
-  useEffect(() => {
-    if (isEditing) editInputRef.current?.focus();
-  }, [isEditing]);
-
-  const handleSaveEdit = useCallback(() => {
-    const trimmed = editText.trim();
-    if (trimmed && trimmed !== message.content) {
-      onEdit(message.id, trimmed);
-    }
-    setIsEditing(false);
-  }, [editText, message.content, message.id, onEdit]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSaveEdit();
-      }
-      if (e.key === "Escape") {
-        setIsEditing(false);
-        setEditText(message.content);
-      }
-    },
-    [handleSaveEdit, message.content],
-  );
 
   const handleAction = useCallback((fn: () => void) => {
     fn();
     setMenuOpen(false);
+  }, []);
+
+  // On mobile, tap the bubble to show menu
+  const handleBubbleTap = useCallback(() => {
+    if (isTouchDevice.current) {
+      setMenuOpen((v) => !v);
+    }
   }, []);
 
   const getStatusIcon = () => {
@@ -103,10 +96,11 @@ export const MessageBubble = memo(function MessageBubble({
       className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
       onMouseEnter={() => setShowDots(true)}
       onMouseLeave={() => { setShowDots(false); setMenuOpen(false); }}
+      onClick={handleBubbleTap}
     >
-      {/* Three-dot action button — left for own messages, right for others */}
-      {showDots && !isEditing && (
-        <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}`} ref={menuRef}>
+      {/* Three-dot action button — left for own messages, right for others. Always visible on touch devices */}
+      {(showDots || isTouchDevice.current) && (
+        <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}${isTouchDevice.current ? " is-touch" : ""}`} ref={menuRef}>
           <button
             type="button"
             className="msg-actions-dots"
@@ -122,7 +116,7 @@ export const MessageBubble = memo(function MessageBubble({
                   <button
                     type="button"
                     className="msg-actions-item"
-                    onClick={() => handleAction(() => { setIsEditing(true); setEditText(message.content); })}
+                    onClick={() => handleAction(() => onEdit(message.id, message.content))}
                   >
                     <Pencil size={14} />
                     <span>Редактировать</span>
@@ -179,22 +173,7 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         {/* Content */}
-        {isEditing ? (
-          <div className="edit-mode">
-            <input
-              ref={editInputRef}
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onBlur={handleSaveEdit}
-              className="edit-input"
-              maxLength={4000}
-            />
-            <span className="edit-hint">Enter — сохранить, Esc — отмена</span>
-          </div>
-        ) : (
-          <p>{message.content}</p>
-        )}
+        <p>{message.content}</p>
 
         {/* Meta: time + status */}
         <div className="message-meta">
