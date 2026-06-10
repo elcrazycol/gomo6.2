@@ -22,8 +22,8 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
     let json: Record<string, unknown> = {};
     try { json = await res.json(); } catch { /* non-JSON response */ }
     if (!res.ok) {
-      const err = new Error((json.error as string) || `HTTP ${res.status}`);
-      (err as Record<string, unknown>).status = res.status;
+      const err = new Error((json.error as string) || `HTTP ${res.status}`) as Error & { status?: number };
+      err.status = res.status;
       throw err;
     }
     return json.data as T;

@@ -265,8 +265,8 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const err = new Error(data.error || `HTTP ${response.status}`);
-        (err as Record<string, unknown>).status = response.status;
+        const err = new Error(data.error || `HTTP ${response.status}`) as Error & { status?: number };
+        err.status = response.status;
         throw err;
       }
 
