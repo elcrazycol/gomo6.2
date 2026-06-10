@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -11,7 +12,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,47 +20,24 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 // WebAuthn session TTL (registration and login must complete within this window).
 const webauthnSessionTTL = 5 * time.Minute
 
-type sessionEntry struct {
-	data      *webauthn.SessionData
-	expiresAt time.Time
-}
-
-// Session storage for WebAuthn flows (in-memory with TTL + periodic cleanup).
-var (
-	webauthnSessions   = make(map[string]*sessionEntry)
-	webauthnSessionsMu sync.RWMutex
-)
-
-func init() {
-	go func() {
-		for {
-			time.Sleep(1 * time.Minute)
-			webauthnSessionsMu.Lock()
-			now := time.Now()
-			for k, v := range webauthnSessions {
-				if now.After(v.expiresAt) {
-					delete(webauthnSessions, k)
-				}
-			}
-			webauthnSessionsMu.Unlock()
-		}
-	}()
-}
-
 // WebAuthnHandler handles Passkey registration and login.
+// Session storage is backed by Redis for horizontal scaling and crash safety.
 type WebAuthnHandler struct {
 	db          *sql.DB
+	redis       *redis.Client
 	wa          *webauthn.WebAuthn
 	authService *auth.AuthService
 }
 
 // NewWebAuthnHandler creates a WebAuthn handler. Returns nil if RP config is invalid.
-func NewWebAuthnHandler(db *sql.DB, authService *auth.AuthService) *WebAuthnHandler {
+// redisClient may be nil for single-instance deployments (sessions will be unavailable).
+func NewWebAuthnHandler(db *sql.DB, redisClient *redis.Client, authService *auth.AuthService) *WebAuthnHandler {
 	rpID := os.Getenv("WEBAUTHN_RP_ID")
 	if rpID == "" {
 		rpID = "localhost"
@@ -88,6 +65,7 @@ func NewWebAuthnHandler(db *sql.DB, authService *auth.AuthService) *WebAuthnHand
 
 	return &WebAuthnHandler{
 		db:          db,
+		redis:       redisClient,
 		wa:          wa,
 		authService: authService,
 	}
@@ -463,32 +441,70 @@ func (h *WebAuthnHandler) DeleteCredential(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
 
-// ─── Session Storage (in-memory with TTL + cleanup goroutine) ────────────────
+// ─── Redis-backed Session Storage ─────────────────────────────────────────────
+//
+// Sessions are stored as JSON-serialised *webauthn.SessionData with a TTL.
+// Redis key format: webauthn:session:<type>:<tokenOrUserID>
+// Redis automatically evicts expired keys — no cleanup goroutine needed.
 
-func (h *WebAuthnHandler) storeSession(userID, typ string, session *webauthn.SessionData) {
-	webauthnSessionsMu.Lock()
-	defer webauthnSessionsMu.Unlock()
-	key := fmt.Sprintf("%s:%s", typ, userID)
-	webauthnSessions[key] = &sessionEntry{
-		data:      session,
-		expiresAt: time.Now().Add(webauthnSessionTTL),
+func (h *WebAuthnHandler) sessionKey(typ, id string) string {
+	return fmt.Sprintf("webauthn:session:%s:%s", typ, id)
+}
+
+func (h *WebAuthnHandler) storeSession(id, typ string, session *webauthn.SessionData) {
+	if h.redis == nil {
+		log.Println("WebAuthn: Redis not available, session storage skipped")
+		return
+	}
+
+	data, err := json.Marshal(session)
+	if err != nil {
+		log.Printf("WebAuthn: failed to marshal session: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	key := h.sessionKey(typ, id)
+	if err := h.redis.SetEx(ctx, key, data, webauthnSessionTTL).Err(); err != nil {
+		log.Printf("WebAuthn: failed to store session in Redis: %v", err)
 	}
 }
 
-func (h *WebAuthnHandler) loadSession(userID, typ string) (*webauthn.SessionData, bool) {
-	webauthnSessionsMu.RLock()
-	defer webauthnSessionsMu.RUnlock()
-	key := fmt.Sprintf("%s:%s", typ, userID)
-	entry, ok := webauthnSessions[key]
-	if !ok || time.Now().After(entry.expiresAt) {
+func (h *WebAuthnHandler) loadSession(id, typ string) (*webauthn.SessionData, bool) {
+	if h.redis == nil {
 		return nil, false
 	}
-	return entry.data, true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	key := h.sessionKey(typ, id)
+	data, err := h.redis.Get(ctx, key).Bytes()
+	if err != nil {
+		return nil, false
+	}
+
+	var session webauthn.SessionData
+	if err := json.Unmarshal(data, &session); err != nil {
+		log.Printf("WebAuthn: failed to unmarshal session: %v", err)
+		return nil, false
+	}
+
+	return &session, true
 }
 
-func (h *WebAuthnHandler) deleteSession(userID, typ string) {
-	webauthnSessionsMu.Lock()
-	defer webauthnSessionsMu.Unlock()
-	key := fmt.Sprintf("%s:%s", typ, userID)
-	delete(webauthnSessions, key)
+func (h *WebAuthnHandler) deleteSession(id, typ string) {
+	if h.redis == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	key := h.sessionKey(typ, id)
+	if err := h.redis.Del(ctx, key).Err(); err != nil {
+		log.Printf("WebAuthn: failed to delete session from Redis: %v", err)
+	}
 }

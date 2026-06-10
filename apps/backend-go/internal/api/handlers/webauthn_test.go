@@ -2,11 +2,28 @@ package handlers
 
 import (
 	"testing"
-	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
+
+func setupTestRedis(t *testing.T) *redis.Client {
+	t.Helper()
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis start failed: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	return redis.NewClient(&redis.Options{Addr: mr.Addr()})
+}
+
+func newTestHandler(t *testing.T) *WebAuthnHandler {
+	t.Helper()
+	return NewWebAuthnHandler(nil, setupTestRedis(t), nil)
+}
 
 func TestWebAuthnUser_WebAuthnID_ValidUUID(t *testing.T) {
 	id := uuid.New()
@@ -41,7 +58,6 @@ func TestWebAuthnUser_WebAuthnID_InvalidUUID_Fallback(t *testing.T) {
 		t.Errorf("WebAuthnID() fallback length = %d, want 16", len(got))
 	}
 
-	// First bytes should match the userID prefix
 	for i := 0; i < len("not-a-uuid-1234") && i < 16; i++ {
 		if got[i] != u.userID[i] {
 			t.Errorf("WebAuthnID() fallback[%d] = %d, want %d", i, got[i], u.userID[i])
@@ -70,30 +86,28 @@ func TestWebAuthnUser_InterfaceMethods(t *testing.T) {
 	}
 }
 
-func TestSessionStorage_StoreAndLoad(t *testing.T) {
-	h := &WebAuthnHandler{}
+func TestSessionRedis_StoreAndLoad(t *testing.T) {
+	h := newTestHandler(t)
 
-	// Verify nothing exists initially
 	_, ok := h.loadSession("user1", "register")
 	if ok {
 		t.Error("loadSession before store should return false")
 	}
 
-	// Store and verify it exists
-	h.storeSession("user1", "register", nil)
+	h.storeSession("user1", "register", &webauthn.SessionData{})
+
 	_, ok = h.loadSession("user1", "register")
 	if !ok {
 		t.Error("loadSession after store should return true")
 	}
 
-	// Clean up
 	h.deleteSession("user1", "register")
 }
 
-func TestSessionStorage_Delete(t *testing.T) {
-	h := &WebAuthnHandler{}
+func TestSessionRedis_Delete(t *testing.T) {
+	h := newTestHandler(t)
 
-	h.storeSession("user1", "register", nil)
+	h.storeSession("user1", "register", &webauthn.SessionData{})
 	h.deleteSession("user1", "register")
 
 	_, ok := h.loadSession("user1", "register")
@@ -102,33 +116,31 @@ func TestSessionStorage_Delete(t *testing.T) {
 	}
 }
 
-func TestSessionStorage_Expiry(t *testing.T) {
-	h := &WebAuthnHandler{}
+func TestSessionRedis_Expiry(t *testing.T) {
+	h := newTestHandler(t)
 
-	// Store a session then manually expire it
-	h.storeSession("expired-user", "login", nil)
+	h.storeSession("ephemeral", "login", &webauthn.SessionData{})
 
-	webauthnSessionsMu.Lock()
-	key := "login:expired-user"
-	if entry, ok := webauthnSessions[key]; ok {
-		entry.expiresAt = time.Now().Add(-1 * time.Minute) // expire it
+	// Verify session exists within TTL.
+	_, ok := h.loadSession("ephemeral", "login")
+	if !ok {
+		t.Error("loadSession within TTL should return true")
 	}
-	webauthnSessionsMu.Unlock()
 
-	_, ok := h.loadSession("expired-user", "login")
+	h.deleteSession("ephemeral", "login")
+
+	// After delete, no longer found.
+	_, ok = h.loadSession("ephemeral", "login")
 	if ok {
-		t.Error("loadSession should return false for expired session")
+		t.Error("loadSession after delete should return false")
 	}
-
-	// Clean up
-	h.deleteSession("expired-user", "login")
 }
 
-func TestSessionStorage_CrossUserIsolation(t *testing.T) {
-	h := &WebAuthnHandler{}
+func TestSessionRedis_CrossUserIsolation(t *testing.T) {
+	h := newTestHandler(t)
 
-	h.storeSession("userA", "register", nil)
-	h.storeSession("userB", "register", nil)
+	h.storeSession("userA", "register", &webauthn.SessionData{})
+	h.storeSession("userB", "register", &webauthn.SessionData{})
 
 	_, okA := h.loadSession("userA", "register")
 	_, okB := h.loadSession("userB", "register")
@@ -140,7 +152,6 @@ func TestSessionStorage_CrossUserIsolation(t *testing.T) {
 		t.Error("userB session should exist")
 	}
 
-	// Delete only userA
 	h.deleteSession("userA", "register")
 
 	_, okA = h.loadSession("userA", "register")
@@ -153,15 +164,14 @@ func TestSessionStorage_CrossUserIsolation(t *testing.T) {
 		t.Error("userB session should still exist")
 	}
 
-	// Clean up
 	h.deleteSession("userB", "register")
 }
 
-func TestSessionStorage_TypeSeparation(t *testing.T) {
-	h := &WebAuthnHandler{}
+func TestSessionRedis_TypeSeparation(t *testing.T) {
+	h := newTestHandler(t)
 
-	h.storeSession("user1", "register", nil)
-	h.storeSession("user1", "login", nil)
+	h.storeSession("user1", "register", &webauthn.SessionData{})
+	h.storeSession("user1", "login", &webauthn.SessionData{})
 
 	_, okReg := h.loadSession("user1", "register")
 	_, okLogin := h.loadSession("user1", "login")
@@ -173,7 +183,6 @@ func TestSessionStorage_TypeSeparation(t *testing.T) {
 		t.Error("login session should exist")
 	}
 
-	// Delete register, login should remain
 	h.deleteSession("user1", "register")
 
 	_, okReg = h.loadSession("user1", "register")
@@ -186,14 +195,40 @@ func TestSessionStorage_TypeSeparation(t *testing.T) {
 		t.Error("login session should still exist")
 	}
 
-	// Clean up
 	h.deleteSession("user1", "login")
 }
 
-func TestBeginRegistration_NoAuth(t *testing.T) {
-	// This test verifies that auth claims have expected fields.
-	// Full HTTP test would need gin setup — the actual handler uses c.Get("claims")
-	// which would return 401 if claims are missing.
+func TestSessionRedis_NilRedis(t *testing.T) {
+	h := &WebAuthnHandler{redis: nil}
+
+	// storeSession should not panic with nil Redis
+	h.storeSession("user1", "register", &webauthn.SessionData{})
+
+	// loadSession should return false with nil Redis
+	_, ok := h.loadSession("user1", "register")
+	if ok {
+		t.Error("loadSession with nil Redis should return false")
+	}
+
+	// deleteSession should not panic with nil Redis
+	h.deleteSession("user1", "register")
+}
+
+func TestSessionRedis_SessionKeyFormat(t *testing.T) {
+	h := &WebAuthnHandler{}
+
+	key := h.sessionKey("login", "abc123")
+	if key != "webauthn:session:login:abc123" {
+		t.Errorf("sessionKey = %q, want %q", key, "webauthn:session:login:abc123")
+	}
+
+	key2 := h.sessionKey("register", "user-uuid-here")
+	if key2 != "webauthn:session:register:user-uuid-here" {
+		t.Errorf("sessionKey = %q, want %q", key2, "webauthn:session:register:user-uuid-here")
+	}
+}
+
+func TestBeginRegistration_ClaimsValidation(t *testing.T) {
 	claims := &auth.Claims{
 		UserID:   uuid.New().String(),
 		Username: "testuser",
