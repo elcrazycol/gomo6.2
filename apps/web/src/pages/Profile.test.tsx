@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vite
 const mockFrom = vi.fn();
 const mockRpc = vi.fn();
 const mockAuth = { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn(), updateUser: vi.fn() };
-const mockFetch = vi.fn((_url: string) =>
+const mockFetch: any = vi.fn((_url: string) =>
   Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) })
 );
 
