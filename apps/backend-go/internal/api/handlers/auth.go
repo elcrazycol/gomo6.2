@@ -3,13 +3,16 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 	"unicode"
 
@@ -43,6 +46,7 @@ func (h *AuthHandler) SetRedis(rdb *redis.Client) {
 // validatePassword checks that the password meets minimum requirements:
 // - At least 8 characters
 // - At least one letter and one digit
+// - Not found in known data breaches (uses HIBP k-anonymity API)
 func validatePassword(password string) error {
 	if len(password) < 8 {
 		return fmt.Errorf("password must be at least 8 characters")
@@ -63,7 +67,56 @@ func validatePassword(password string) error {
 		return fmt.Errorf("password must contain at least one letter and one digit")
 	}
 
+	// Check against Have I Been Pwned (k-anonymity — only first 5 chars of SHA-1 sent)
+	if isPwned(password) {
+		return fmt.Errorf("password has been exposed in a data breach — choose a different one")
+	}
+
 	return nil
+}
+
+// isPwned checks a password against the HIBP k-anonymity API.
+// Only the first 5 hex chars of the SHA-1 hash are sent over the network.
+// Returns true if the password appears in any known data breach.
+func isPwned(password string) bool {
+	hash := sha1.Sum([]byte(password))
+	hashHex := strings.ToUpper(hex.EncodeToString(hash[:]))
+	prefix := hashHex[:5]
+	suffix := hashHex[5:]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"https://api.pwnedpasswords.com/range/"+prefix, nil)
+	if err != nil {
+		return false // fail open: don't block registration on network errors
+	}
+	req.Header.Set("Add-Padding", "true") // HIBP padding for extra privacy
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false // fail open
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return false
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+
+	// Each line is "<suffix>:<count>"
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.HasPrefix(line, suffix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -79,8 +132,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	// Hash password (cost=12, ~250ms on modern hardware)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to hash password"))
 		return
@@ -657,7 +710,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), 12)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to hash password"))
 		return

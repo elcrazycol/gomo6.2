@@ -29,7 +29,7 @@ func TestRegister_Success(t *testing.T) {
 	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
-		Password: "secret123",
+		Password: "vE7xKp2mNq9rLw5t",
 	}, nil, nil)
 	h.Register(c)
 
@@ -67,7 +67,7 @@ func TestRegister_DBError(t *testing.T) {
 	c, w := newPOSTContext("/auth/v1/register", models.RegisterRequest{
 		Username: "testuser",
 		Email:    "test@example.com",
-		Password: "secret123",
+		Password: "vE7xKp2mNq9rLw5t",
 	}, nil, nil)
 	h.Register(c)
 
@@ -81,7 +81,7 @@ func TestRegister_DBError(t *testing.T) {
 func TestLogin_Success_No2FA(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
-	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("vE7xKp2mNq9rLw5t"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("failed to generate bcrypt hash: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestLogin_Success_No2FA(t *testing.T) {
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "test@example.com",
-		"password": "secret123",
+		"password": "vE7xKp2mNq9rLw5t",
 	}, nil, nil)
 	h.Login(c)
 
@@ -119,7 +119,7 @@ func TestLogin_InvalidCredentials_NoUser(t *testing.T) {
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "unknown@example.com",
-		"password": "secret123",
+		"password": "vE7xKp2mNq9rLw5t",
 	}, nil, nil)
 	h.Login(c)
 
@@ -137,7 +137,7 @@ func TestLogin_DBError(t *testing.T) {
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "test@example.com",
-		"password": "secret123",
+		"password": "vE7xKp2mNq9rLw5t",
 	}, nil, nil)
 	h.Login(c)
 
@@ -223,7 +223,7 @@ func TestUpdatePassword_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	c, w := newPOSTContext("/auth/v1/update-password", map[string]string{
-		"password": "newpassword123",
+		"password": "vE7xKp2mNq9rLw5t",
 	}, claims, nil)
 	h.UpdatePassword(c)
 
@@ -487,14 +487,14 @@ func TestValidatePassword_NoDigit(t *testing.T) {
 }
 
 func TestValidatePassword_Valid(t *testing.T) {
-	err := validatePassword("myPassword123")
+	err := validatePassword("Xm4kP9vL2nR7qW5")
 	if err != nil {
 		t.Fatalf("expected valid password, got error: %v", err)
 	}
 }
 
 func TestValidatePassword_Exactly8Chars(t *testing.T) {
-	err := validatePassword("Abc12345")
+	err := validatePassword("Tq8mKp3x")
 	if err != nil {
 		t.Fatalf("expected exactly-8-char password to be valid, got: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestValidatePassword_Exactly8Chars(t *testing.T) {
 
 func TestValidatePassword_Unicode(t *testing.T) {
 	// Unicode letters and digits should count
-	err := validatePassword("пароль123")
+	err := validatePassword("тестX7kM2pN")
 	if err != nil {
 		t.Fatalf("unicode password should be valid: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestLogout_NoExpiry(t *testing.T) {
 func TestLogin_WrongPassword(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
-	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("vE7xKp2mNq9rLw5t"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("failed to generate bcrypt hash: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 func TestLogin_With2FA_NoTrustedDevice(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
-	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("vE7xKp2mNq9rLw5t"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("failed to generate bcrypt hash: %v", err)
 	}
@@ -724,7 +724,7 @@ func TestLogin_With2FA_NoTrustedDevice(t *testing.T) {
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":    "test@example.com",
-		"password": "secret123",
+		"password": "vE7xKp2mNq9rLw5t",
 	}, nil, nil)
 	h.Login(c)
 
@@ -757,7 +757,7 @@ func TestLogin_With2FA_NoTrustedDevice(t *testing.T) {
 func TestLogin_With2FA_TrustedDevice(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
-	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("vE7xKp2mNq9rLw5t"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("failed to generate bcrypt hash: %v", err)
 	}
@@ -775,7 +775,7 @@ func TestLogin_With2FA_TrustedDevice(t *testing.T) {
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":     "test@example.com",
-		"password":  "secret123",
+		"password":  "vE7xKp2mNq9rLw5t",
 		"device_id": "my-device-1",
 	}, nil, nil)
 	h.Login(c)
@@ -806,7 +806,7 @@ func TestLogin_With2FA_TrustedDevice(t *testing.T) {
 func TestLogin_With2FA_ExpiredTrustedDevice(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
-	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.MinCost)
+	realHashBytes, err := bcrypt.GenerateFromPassword([]byte("vE7xKp2mNq9rLw5t"), bcrypt.MinCost)
 	if err != nil {
 		t.Fatalf("failed to generate bcrypt hash: %v", err)
 	}
@@ -824,7 +824,7 @@ func TestLogin_With2FA_ExpiredTrustedDevice(t *testing.T) {
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
 		"email":     "test@example.com",
-		"password":  "secret123",
+		"password":  "vE7xKp2mNq9rLw5t",
 		"device_id": "old-device",
 	}, nil, nil)
 	h.Login(c)
