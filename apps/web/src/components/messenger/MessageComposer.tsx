@@ -84,7 +84,7 @@ export const MessageComposer = memo(function MessageComposer({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent?.isComposing) {
         e.preventDefault();
         if (isEditing) {
           const trimmed = draft.trim();
