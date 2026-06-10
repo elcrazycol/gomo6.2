@@ -46,14 +46,14 @@ function optionsToPublicKey(opts: Record<string, unknown>) {
 export function prepareRegistrationOptions(
   options: Record<string, unknown>
 ): PublicKeyCredentialCreationOptions {
-  return optionsToPublicKey(options) as PublicKeyCredentialCreationOptions;
+  return optionsToPublicKey(options) as unknown as PublicKeyCredentialCreationOptions;
 }
 
 /** Convert server's PublicKeyCredentialRequestOptionsJSON to WebAuthn API format. */
 export function prepareLoginOptions(
   options: Record<string, unknown>
 ): PublicKeyCredentialRequestOptions {
-  return optionsToPublicKey(options) as PublicKeyCredentialRequestOptions;
+  return optionsToPublicKey(options) as unknown as PublicKeyCredentialRequestOptions;
 }
 
 /** Serialize a registration credential as a flat JSON object for go-webauthn. */
