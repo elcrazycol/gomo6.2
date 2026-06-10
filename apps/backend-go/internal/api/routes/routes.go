@@ -51,8 +51,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute) // 100 req/min for auth/me
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)   // 20/min token, 10/min revoke
 
-	// Initialize WebAuthn handler for passkey support
-	webauthnHandler := handlers.NewWebAuthnHandler(db, authService)
+	// Initialize WebAuthn handler for passkey support (Redis-backed sessions)
+	webauthnHandler := handlers.NewWebAuthnHandler(db, redis, authService)
 
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
