@@ -47,7 +47,10 @@ export function PasskeysSettings() {
     try {
       // Step 1: get registration options from server
       const optionsData = await apiClient.beginPasskeyRegistration();
-      const options = optionsData.options as Record<string, unknown>;
+      const wrapped = optionsData.options as Record<string, unknown>;
+      if (!wrapped) throw new Error("No options returned");
+      // go-webauthn nests options under {publicKey: {challenge, user, ...}}
+      const options = wrapped.publicKey as Record<string, unknown>;
       if (!options) throw new Error("No options returned");
 
       // Step 2: create credential in browser
