@@ -99,14 +99,14 @@ class MessengerWebSocket {
 
   private send(data: Record<string, unknown>): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      // Data is sent as-is — no double JSON.stringify.
-      // The server expects data to be either a string (for subscribe/unsubscribe room names)
-      // or a JSON object (for typing payloads, etc.).
-      const payload = data.data ?? data;
+      // Send data as-is — no double JSON.stringify.
+      // For strings (subscribe/unsubscribe room names), the outer JSON.stringify
+      // produces a JSON string value. For objects (typing payloads), it produces
+      // a JSON object. The server handles both correctly.
       this.ws.send(JSON.stringify({
         type: data.type,
         room: data.room,
-        data: typeof payload === "string" ? payload : JSON.stringify(payload),
+        data: data.data,
         timestamp: Date.now(),
       }));
     }

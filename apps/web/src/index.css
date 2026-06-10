@@ -443,6 +443,25 @@ html, body {
 .chat-topbar-info {
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.chat-topbar-username {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Prevent UserBadge's internal overflow:hidden + min-width:0 from collapsing */
+.chat-topbar-username a {
+  overflow: visible !important;
+  min-width: auto !important;
+  max-width: none !important;
+}
+.chat-topbar-username a > span {
+  overflow: visible !important;
+  min-width: auto !important;
 }
 
 .chat-topbar-info .presence-copy {
