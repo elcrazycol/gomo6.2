@@ -828,6 +828,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
+	conversationID := c.Param("id")
 	messageID := c.Param("msgId")
 
 	var req EditMessageRequest
@@ -868,17 +869,19 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	// Broadcast edit event (with decrypted content)
 	if h.hub != nil {
-		go h.broadcastMessageEdited(messageID, cleanContent)
+		go h.broadcastMessageEdited(messageID, cleanContent, conversationID)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
-func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent string) {
+func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string) {
 	payload := map[string]interface{}{
-		"id":      msgID,
-		"content": newContent,
-		"event":   "message_edited",
+		"id":              msgID,
+		"content":         newContent,
+		"conversation_id": conversationID,
+		"edited_at":       time.Now().UTC().Format(time.RFC3339),
+		"event":           "message_edited",
 	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 		Type:    "message_edited",

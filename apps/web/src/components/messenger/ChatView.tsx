@@ -46,6 +46,8 @@ export const ChatView = memo(function ChatView({
   const [isScrolledUp, setIsScrolledUp] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [pinnedText, setPinnedText] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState<string>("");
   const shouldAutoScroll = useRef(true);
   const prevLength = useRef(0);
 
@@ -112,9 +114,29 @@ export const ChatView = memo(function ChatView({
     const clientId = `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     sendMessage(draft.trim(), clientId);
     setDraft("");
-    // Scroll to bottom
     setTimeout(pinToBottom, 50);
   }, [draft, isSending, sendMessage, pinToBottom]);
+
+  const handleStartEdit = useCallback((msgId: string, content: string) => {
+    setEditingMessageId(msgId);
+    setEditingContent(content);
+    setDraft(content);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setEditingContent("");
+    setDraft("");
+  }, []);
+
+  const handleSaveEdit = useCallback((msgId: string, content: string) => {
+    if (content.trim() && content.trim() !== editingContent) {
+      editMessage(msgId, content.trim());
+    }
+    setEditingMessageId(null);
+    setEditingContent("");
+    setDraft("");
+  }, [editMessage, editingContent]);
 
   const scrollToBottom = useCallback(() => {
     pinToBottom();
@@ -238,7 +260,7 @@ export const ChatView = memo(function ChatView({
                     isMine={msg.sender_user_id === me.id}
                     isConsecutive={isConsecutive}
                     isPinned={conversation.pinned_message_id === msg.id}
-                    onEdit={editMessage}
+                    onEdit={(id, content) => handleStartEdit(id, content)}
                     onDelete={deleteMessage}
                     onTogglePin={(id) => togglePin(id)}
                     onRetry={(m) => sendMessage(m.content, m.client_id)}
@@ -271,6 +293,10 @@ export const ChatView = memo(function ChatView({
         onSend={handleSend}
         composerRef={composerRef}
         onTyping={onTyping}
+        editingMessageId={editingMessageId}
+        editingContent={editingContent}
+        onCancelEdit={handleCancelEdit}
+        onSaveEdit={handleSaveEdit}
       />
 
       {/* Scroll to bottom button */}
