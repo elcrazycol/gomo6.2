@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
 import { TwoFASection } from "@/components/TwoFASection";
+import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 const defaultPrivacySettings = {
@@ -859,6 +860,11 @@ const Settings = () => {
                           </div>
                         </DialogContent>
                       </Dialog>
+                    </div>
+
+                    {/* Passkeys Section */}
+                    <div className="border-t border-border pt-4 mt-4">
+                      <PasskeysSettings />
                     </div>
 
                     {/* 2FA Section */}

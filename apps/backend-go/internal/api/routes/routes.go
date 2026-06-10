@@ -51,6 +51,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute) // 100 req/min for auth/me
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)   // 20/min token, 10/min revoke
 
+	// Initialize WebAuthn handler for passkey support
+	webauthnHandler := handlers.NewWebAuthnHandler(db, authService)
+
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
 
@@ -158,6 +161,26 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			}
 			// Verify 2FA during login (uses partial token, no full auth middleware)
 			authGroup.POST("/verify-2fa", authHandler.Verify2FA)
+
+			// WebAuthn/Passkeys endpoints
+			if webauthnHandler != nil {
+				webauthnGroup := authGroup.Group("/webauthn")
+				{
+					// Login with passkey (no auth required upfront)
+					webauthnGroup.GET("/login/begin", webauthnHandler.BeginLogin)
+					webauthnGroup.POST("/login/finish", webauthnHandler.FinishLogin)
+
+					// Manage passkeys (requires auth)
+					webauthnProtected := webauthnGroup.Group("")
+					webauthnProtected.Use(middleware.AuthMiddleware(authService))
+					{
+						webauthnProtected.POST("/register/begin", webauthnHandler.BeginRegistration)
+						webauthnProtected.POST("/register/finish", webauthnHandler.FinishRegistration)
+						webauthnProtected.GET("/credentials", webauthnHandler.ListCredentials)
+						webauthnProtected.DELETE("/credentials/:credentialId", webauthnHandler.DeleteCredential)
+					}
+				}
+			}
 		}
 	}
 
