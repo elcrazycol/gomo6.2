@@ -288,9 +288,13 @@ type CreatePostRequest struct {
 }
 
 type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	ChallengeID  string `json:"challenge_id,omitempty"`  // PoW challenge ID
+	Solution     string `json:"solution,omitempty"`      // PoW solution string
+	CaptchaToken string `json:"captcha_token,omitempty"` // mCaptcha token (external)
+	Website      string `json:"website,omitempty"`       // Honeypot field — must be empty
 }
 
 type LoginRequest struct {
