@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient, getDeviceId } from "@/integrations/api/client";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { TermsOfService } from "@/components/TermsOfService";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { CaptchaWidget } from "@/components/CaptchaWidget";
 import { useQueryClient } from "@tanstack/react-query";
 import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "@/services/passkeys";
 import { Shield } from "lucide-react";
@@ -45,6 +46,15 @@ const Auth = () => {
   const [totpCode, setTotpCode] = useState("");
   const [trustDevice, setTrustDevice] = useState(false);
 
+  // CAPTCHA state
+  const captchaData = useRef<{
+    challengeId: string;
+    solution: string;
+    captchaToken: string;
+  }>({ challengeId: "", solution: "", captchaToken: "" });
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const [captchaError, setCaptchaError] = useState<string | null>(null);
+
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await api.auth.getSession();
@@ -74,10 +84,18 @@ const Auth = () => {
     try {
       const email = `${username}@gomo6.local`;
 
+      // Captcha data (honeypot: NOT included — bots that inject "website" get caught server-side)
+      const captchaPayload = {
+        challenge_id: captchaData.current.challengeId,
+        solution: captchaData.current.solution,
+        captcha_token: captchaData.current.captchaToken,
+      };
+
       if (isLogin) {
         const { data, error } = await api.auth.signInWithPassword({
           email,
           password,
+          ...captchaPayload,
         });
 
         if (error) {
@@ -118,6 +136,7 @@ const Auth = () => {
             },
             emailRedirectTo: `${window.location.origin}/`,
           },
+          ...captchaPayload,
         });
 
         if (error) {
@@ -385,7 +404,24 @@ const Auth = () => {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms)}>
+            {/* CAPTCHA + HoneyPot — invisible anti-bot protection */}
+            <CaptchaWidget
+              onReady={(data) => {
+                captchaData.current = data;
+                setCaptchaReady(true);
+                setCaptchaError(null);
+              }}
+              onError={(msg) => {
+                setCaptchaError(msg);
+                setCaptchaReady(false);
+              }}
+            />
+
+            {captchaError && (
+              <p className="text-xs text-destructive">{captchaError}</p>
+            )}
+
+            <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms) || !captchaReady}>
               {loading ? "Загрузка..." : isLogin ? "Войти" : "Зарегистрироваться"}
             </Button>
 
