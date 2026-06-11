@@ -165,19 +165,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// ── CAPTCHA verification (built-in PoW or external mCaptcha) ──
-	// Only verify if the client sent captcha data (backward compat with old frontends).
+	// ── CAPTCHA verification (always required when enabled) ──
 	if h.captchaHandler != nil {
 		if h.captchaHandler.IsConfigured() {
-			// External mCaptcha: only verify if token was provided
-			if req.CaptchaToken != "" {
-				if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
-					c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-					return
-				}
+			// External mCaptcha — token is mandatory
+			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+				return
 			}
-		} else if h.redis != nil && req.ChallengeID != "" {
-			// Built-in PoW: only verify if challenge_id was provided
+		} else if h.redis != nil {
+			// Built-in PoW — challenge_id and solution are mandatory
 			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
 				return
@@ -256,19 +253,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// ── CAPTCHA verification (built-in PoW or external mCaptcha) ──
-	// Only verify if the client sent captcha data (backward compat with old frontends).
+	// ── CAPTCHA verification (always required when enabled) ──
 	if h.captchaHandler != nil {
 		if h.captchaHandler.IsConfigured() {
-			// External mCaptcha: only verify if token was provided
-			if req.CaptchaToken != "" {
-				if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
-					c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-					return
-				}
+			// External mCaptcha — token is mandatory
+			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+				return
 			}
-		} else if h.redis != nil && req.ChallengeID != "" {
-			// Built-in PoW: only verify if challenge_id was provided
+		} else if h.redis != nil {
+			// Built-in PoW — challenge_id and solution are mandatory
 			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
 				return
