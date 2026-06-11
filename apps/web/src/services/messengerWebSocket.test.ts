@@ -120,18 +120,24 @@ describe("messengerWebSocket", () => {
   });
 
   describe("subscribe / unsubscribe", () => {
-    it("sends subscribe message after connection opens", () => {
+    it("sends auth on open, subscribe after server confirms", () => {
       messengerWs.connect();
       messengerWs.subscribe("chat_conv-1");
 
       const ws = MockWebSocket.instances[0]!;
       expect(ws.sentMessages.length).toBe(0); // Not connected yet
 
-      // Connection opens
+      // Connection opens — sends auth first
       ws.simulateOpen();
       expect(ws.sentMessages.length).toBeGreaterThanOrEqual(1);
-      const lastMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
-      expect(lastMsg.type).toBe("subscribe");
+      const authMsg = JSON.parse(ws.sentMessages[0]!);
+      expect(authMsg.type).toBe("auth");
+
+      // Server confirms auth — triggers resubscribeAll
+      ws.simulateMessage({ type: "connected", data: { user_id: "u1" } });
+      expect(ws.sentMessages.length).toBeGreaterThanOrEqual(2);
+      const subMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
+      expect(subMsg.type).toBe("subscribe");
     });
 
     it("sends unsubscribe message when connected", () => {
