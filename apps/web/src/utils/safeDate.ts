@@ -1,9 +1,8 @@
 /**
- * Creates a Date object from a possibly-null/undefined string value.
- * Returns fallback date (defaults to new Date()) if value is null, undefined, empty, or invalid.
+ * Safely parses a date string, returning current date if invalid/nil.
  */
-export const safeDate = (value: string | null | undefined, fallback?: Date): Date => {
-  if (!value) return fallback ?? new Date();
+export const safeDate = (value: string | null | undefined): Date => {
+  if (!value) return new Date();
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? (fallback ?? new Date()) : d;
+  return Number.isNaN(d.getTime()) ? new Date() : d;
 };

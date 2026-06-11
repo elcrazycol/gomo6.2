@@ -2,16 +2,10 @@ package handlers
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,93 +18,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// ─── Encryption ─────────────────────────────────────────────────────────────
-// AES-256-GCM field-level encryption for message content.
-// Protects against DB dumps, backups, and SQL injection data exposure.
-// NOT E2EE — server holds the key. For true E2EE, client-side key exchange needed.
-
-var (
-	messengerEncryptionKey []byte
-	htmlTagRegex           = regexp.MustCompile(`<[^>]*>`)
-)
-
-func init() {
-	key := os.Getenv("MESSENGER_ENCRYPTION_KEY")
-	if key == "" {
-		key = os.Getenv("ENCRYPTION_KEY") // fallback
-	}
-	if key != "" {
-		// Key must be exactly 32 bytes for AES-256
-		k := []byte(key)
-		if len(k) < 32 {
-			// Pad or truncate — in production, use a proper 32-byte key
-			padded := make([]byte, 32)
-			copy(padded, k)
-			messengerEncryptionKey = padded
-		} else {
-			messengerEncryptionKey = k[:32]
-		}
-	}
-}
-
-func encryptContent(plaintext string) (string, error) {
-	if messengerEncryptionKey == nil {
-		return plaintext, nil // encryption disabled
-	}
-
-	block, err := aes.NewCipher(messengerEncryptionKey)
-	if err != nil {
-		return "", fmt.Errorf("cipher init: %w", err)
-	}
-
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("GCM init: %w", err)
-	}
-
-	nonce := make([]byte, aesGCM.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("nonce gen: %w", err)
-	}
-
-	ciphertext := aesGCM.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.RawStdEncoding.EncodeToString(ciphertext), nil
-}
-
-func decryptContent(encoded string) (string, error) {
-	if messengerEncryptionKey == nil || encoded == "" {
-		return encoded, nil
-	}
-
-	ciphertext, err := base64.RawStdEncoding.DecodeString(encoded)
-	if err != nil {
-		// Data may not be encrypted (migration period) — return as-is
-		return encoded, nil
-	}
-
-	block, err := aes.NewCipher(messengerEncryptionKey)
-	if err != nil {
-		return "", fmt.Errorf("cipher init: %w", err)
-	}
-
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("GCM init: %w", err)
-	}
-
-	nonceSize := aesGCM.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return encoded, nil // not encrypted
-	}
-
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return encoded, nil // decryption failed — return as-is (unencrypted data)
-	}
-
-	return string(plaintext), nil
-}
+var htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
