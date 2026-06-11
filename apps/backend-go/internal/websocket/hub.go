@@ -263,6 +263,10 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 	case MessageTypeNewThread:
 		// Broadcast to global feed room
 		h.BroadcastToRoom("feed", messageBytes)
+		// Also broadcast to board-specific room so board pages update in realtime
+		if boardID := extractRoomID(event.Payload, "board_id"); boardID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("board_%s", boardID), messageBytes)
+		}
 
 	case MessageTypeLike, MessageTypeUnlike:
 		// Broadcast to relevant thread room

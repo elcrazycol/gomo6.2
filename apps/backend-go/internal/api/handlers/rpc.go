@@ -1241,6 +1241,23 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		middleware.InvalidateCacheForBoard(h.redis, req.BoardID)
 	}
 
+	// Publish WebSocket realtime event for new thread
+	if h.wsHub != nil {
+		if hub, ok := h.wsHub.(*websocket.Hub); ok {
+			threadData := map[string]interface{}{
+				"id":         thread.ID,
+				"board_id":   thread.BoardID,
+				"user_id":    thread.UserID,
+				"title":      thread.Title,
+				"content":    thread.Content,
+				"created_at": thread.CreatedAt,
+			}
+			if err := hub.PublishNewThread(threadData); err != nil {
+				fmt.Printf("[WebSocket] Error publishing new thread event: %v\n", err)
+			}
+		}
+	}
+
 	// Publish event to bots
 	if h.botEventPublisher != nil {
 		h.botEventPublisher.PublishThread(map[string]interface{}{

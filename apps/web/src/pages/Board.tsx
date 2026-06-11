@@ -63,6 +63,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 import { renderTags } from "@/components/ThreadCard";
 import { LikeButton } from "@/components/LikeButton";
+import { wsService } from "@/services/websocket";
 
 interface Board {
   id: string;
@@ -402,13 +403,24 @@ const Board = () => {
     loadMembership();
   }, [board?.id, board?.is_gomosub, user?.id]);
 
-  // Poll for new threads every 30s (replaces api realtime)
+  // Real-time WebSocket subscription — replaces 30s polling
   useEffect(() => {
     if (!board) return;
-    const interval = setInterval(() => {
-      loadThreads(board.id);
-    }, 30000);
-    return () => clearInterval(interval);
+    const room = `board_${board.id}`;
+    wsService.subscribe(room);
+
+    const unsub = wsService.on('new_thread', (message) => {
+      const data = message.data;
+      // Only reload if the new thread belongs to this board
+      if (data?.board_id === board.id) {
+        loadThreads(board.id);
+      }
+    });
+
+    return () => {
+      unsub();
+      wsService.unsubscribe(room);
+    };
   }, [board, loadThreads]);
 
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
