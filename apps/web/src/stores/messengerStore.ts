@@ -45,7 +45,7 @@ type MessengerStore = {
   removeMessage: (id: string) => void;
   setTyping: (userId: string, username: string, isTyping: boolean) => void;
   setUserOnline: (userId: string, online: boolean) => void;
-  updateConversationFromWs: (convId: string, updates: Partial<ConversationView>) => void;
+  updateConversationFromWs: (convId: string, updates: Partial<ConversationView>, incrementUnread?: boolean) => void;
 };
 
 // ─── Store implementation ───────────────────────────────────────────────────
@@ -297,9 +297,16 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     });
   },
 
-  updateConversationFromWs: (convId, updates) => {
+  updateConversationFromWs: (convId, updates, incrementUnread = false) => {
     set((s) => ({
-      conversations: s.conversations.map((c) => (c.id === convId ? { ...c, ...updates } : c)),
+      conversations: s.conversations.map((c) => {
+        if (c.id !== convId) return c;
+        const updated = { ...c, ...updates };
+        if (incrementUnread) {
+          updated.unread_count = (c.unread_count ?? 0) + 1;
+        }
+        return updated;
+      }),
     }));
   },
 }));

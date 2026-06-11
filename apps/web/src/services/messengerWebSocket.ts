@@ -36,13 +36,21 @@ class MessengerWebSocket {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
 
     try {
-      const url = `${WS_BASE}?token=${encodeURIComponent(token)}`;
+      // Auth happens via first message (type: "auth"), not URL.
+      // This prevents tokens from leaking into server logs and proxy logs.
+      const url = `${WS_BASE}`;
       this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
+        // Send auth as first message — server requires it within 5 seconds
+        this.ws!.send(JSON.stringify({
+          type: "auth",
+          data: { token },
+          timestamp: Date.now(),
+        }));
         this.startPing();
-        this.resubscribeAll();
+        // resubscribeAll will be called when server confirms with "connected"
       };
 
       this.ws.onmessage = (event) => this.handleMessage(event);
@@ -143,6 +151,12 @@ class MessengerWebSocket {
       const store = useMessengerStore.getState();
 
       switch (msg.type as WsEvent["type"]) {
+        case "connected": {
+          // Server confirmed auth — now safe to resubscribe to all rooms
+          this.resubscribeAll();
+          break;
+        }
+
         case "new_chat_message": {
           const data = msg.data;
           const message = {
@@ -160,15 +174,17 @@ class MessengerWebSocket {
           };
           store.addMessage(message);
 
-          // Update conversation preview
+          // Check if message is from another user (not us)
+          const isMine = store.me?.id === data.sender_user_id;
+
+          // Update conversation preview + increment unread if not from us
           store.updateConversationFromWs(data.conversation_id, {
             last_message_at: data.sent_at,
             last_message_preview: data.content?.slice(0, 80) ?? "",
             last_message_sender_id: data.sender_user_id,
-          });
+          }, !isMine /* incrementUnread */);
 
           // Auto-mark as delivered + read if this chat is currently open
-          const isMine = store.me?.id === data.sender_user_id;
           if (!isMine) {
             const convId = store.selectedConversationId;
             // Mark delivered for the sender to see ✓✓ status

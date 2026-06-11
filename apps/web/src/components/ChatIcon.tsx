@@ -1,31 +1,44 @@
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useCallback, useState } from "react";
-import { messengerApi } from "@/services/messengerApi";
+import { useEffect, useRef } from "react";
+import { useMessengerStore } from "@/stores/messengerStore";
+import { messengerWs } from "@/services/messengerWebSocket";
 
 export const ChatIcon = ({ userId }: { userId: string }) => {
   const navigate = useNavigate();
-  const [unreadCount, setUnreadCount] = useState(0);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const conversations = useMessengerStore((s) => s.conversations);
+  const init = useMessengerStore((s) => s.init);
 
-  const loadUnread = useCallback(async () => {
-    try {
-      const resp = await messengerApi.getUnreadCount();
-      setUnreadCount(resp.unread_count ?? 0);
-    } catch (err) {
-      console.error("[ChatIcon] Failed to load unread count:", err);
-    }
-  }, []);
+  // Compute unread from store — fully reactive, no polling needed
+  const unreadCount = conversations.reduce(
+    (sum, c) => sum + (c.unread_count ?? 0),
+    0,
+  );
 
+  // Initialize store + connect WS once when userId becomes available
   useEffect(() => {
     if (!userId) return;
-    loadUnread();
-    pollingRef.current = setInterval(loadUnread, 30_000);
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [userId, loadUnread]);
+    init().then(() => {
+      messengerWs.connect();
+    });
+  }, [userId, init]);
+
+  // Track subscribed conversation IDs to avoid re-subscribing on every store update
+  const subscribedIdsRef = useRef<Set<string>>(new Set());
+
+  // Subscribe to newly added conversation rooms reactively.
+  // This ensures newly created conversations get realtime events immediately,
+  // without needing a page reload.
+  useEffect(() => {
+    const currentIds = new Set(conversations.map((c) => c.id));
+    for (const id of currentIds) {
+      if (!subscribedIdsRef.current.has(id)) {
+        messengerWs.subscribe(`chat_${id}`);
+      }
+    }
+    subscribedIdsRef.current = currentIds;
+  }, [conversations]);
 
   return (
     <Button
