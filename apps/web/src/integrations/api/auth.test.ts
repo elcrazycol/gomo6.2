@@ -60,6 +60,7 @@ describe("apiAuth", () => {
         "test@gomo6.local",
         "testuser",
         "secret123",
+        { challenge_id: undefined, solution: undefined, captcha_token: undefined },
       );
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.data?.session?.access_token).toBe("token-1");
@@ -81,6 +82,7 @@ describe("apiAuth", () => {
         "test@gomo6.local",
         "test",
         "secret123",
+        { challenge_id: undefined, solution: undefined, captcha_token: undefined },
       );
       expect(result.error).toBeNull();
     });
@@ -117,6 +119,7 @@ describe("apiAuth", () => {
         "test@gomo6.local",
         "secret123",
         "test-device-id",
+        { challenge_id: undefined, solution: undefined, captcha_token: undefined },
       );
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.data?.session?.access_token).toBe("token-1");
