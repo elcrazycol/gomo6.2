@@ -31,10 +31,17 @@ func (h *PostsHandler) SetRedis(redis *redis.Client) {
 }
 
 func (h *PostsHandler) GetPosts(c *gin.Context) {
-	query := `
-		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
-		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
-		       u.username, u.avatar_url
+	// latest=true returns only the latest post per thread using DISTINCT ON.
+	// Requires thread_id=in.(...) filter. Used by Board.tsx for N+1-free batch loading.
+	latest := c.Query("latest") == "true"
+
+	baseSelect := `
+		p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
+		p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
+		u.username, u.avatar_url
+	`
+
+	query := `SELECT ` + baseSelect + `
 		FROM posts p
 		LEFT JOIN users u ON p.user_id = u.id
 	`
@@ -99,7 +106,9 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 	}
 
-	if len(conditions) > 0 {
+	// Apply WHERE conditions to non-latest query.
+	// For latest=true, query is rebuilt as a DISTINCT ON subquery below.
+	if !latest && len(conditions) > 0 {
 		query += " WHERE " + conditions[0]
 		for i := 1; i < len(conditions); i++ {
 			query += " AND " + conditions[i]
@@ -107,27 +116,67 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	}
 
 	// Handle ordering (format: column.asc/column.desc) — supports multiple order params
-	if orders := c.QueryArray("order"); len(orders) > 0 {
-		joined := ""
-		for i, o := range orders {
-			if i > 0 {
-				joined += ","
-			}
-			joined += o
+	if latest {
+		// Safeguard: latest=true requires thread_id=in.(...) to avoid full table scan
+		if len(conditions) == 0 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("latest=true requires thread_id=in.(...) filter"))
+			return
 		}
-		if s, ok := parseOrderClause(joined, "p"); ok {
-			query += " ORDER BY " + s
+		// DISTINCT ON requires p.thread_id as first ORDER BY column.
+		// Wrap in subquery, then apply user ordering (or default) on outer.
+		query = "SELECT * FROM (SELECT DISTINCT ON (p.thread_id) " + baseSelect +
+			" FROM posts p LEFT JOIN users u ON p.user_id = u.id" +
+			" WHERE " + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			query += " AND " + conditions[i]
 		}
+		query += " ORDER BY p.thread_id, p.created_at DESC) sub"
 	} else {
-		query += " ORDER BY p.created_at ASC"
+		if orders := c.QueryArray("order"); len(orders) > 0 {
+			joined := ""
+			for i, o := range orders {
+				if i > 0 {
+					joined += ","
+				}
+				joined += o
+			}
+			if s, ok := parseOrderClause(joined, "p"); ok {
+				query += " ORDER BY " + s
+			}
+		} else {
+			query += " ORDER BY p.created_at ASC"
+		}
+	}
+
+	// Handle ordering for latest subquery (outer sort)
+	if latest {
+		if orders := c.QueryArray("order"); len(orders) > 0 {
+			joined := ""
+			for i, o := range orders {
+				if i > 0 {
+					joined += ","
+				}
+				joined += o
+			}
+			if s, ok := parseOrderClause(joined, "sub"); ok {
+				query += " ORDER BY " + s
+			}
+		} else {
+			query += " ORDER BY sub.created_at DESC"
+		}
 	}
 
 	// Handle pagination
-	limit := 100
+	// latest=true allows up to 200 (one post per thread for ~100 threads)
+	maxLimit := 100
+	if latest {
+		maxLimit = 200
+	}
+	limit := maxLimit
 	offset := 0
 
 	if limitStr := c.Query("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= maxLimit {
 			limit = l
 		}
 	}
