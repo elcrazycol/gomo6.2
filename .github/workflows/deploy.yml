@@ -55,29 +55,57 @@ jobs:
         run: |
           IMG="${{ steps.meta.outputs.registry }}/gomo6-backend"
           docker build -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/backend-go/Dockerfile apps/backend-go
-          docker push "$IMG:latest"
-          docker push "$IMG:${{ steps.meta.outputs.sha_short }}"
+          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
+            for i in 1 2 3; do
+              echo "Push $IMG:$tag (attempt $i)"
+              docker push "$IMG:$tag" && continue 2
+              [ $i -lt 3 ] && sleep $((i * 10))
+            done
+            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
+            exit 1
+          done
 
       - name: Build & push web frontend
         run: |
           IMG="${{ steps.meta.outputs.registry }}/gomo6-web"
           docker build --build-arg VITE_GIT_COMMIT=${{ steps.meta.outputs.sha_short }} -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/web/Dockerfile .
-          docker push "$IMG:latest"
-          docker push "$IMG:${{ steps.meta.outputs.sha_short }}"
+          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
+            for i in 1 2 3; do
+              echo "Push $IMG:$tag (attempt $i)"
+              docker push "$IMG:$tag" && continue 2
+              [ $i -lt 3 ] && sleep $((i * 10))
+            done
+            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
+            exit 1
+          done
 
       - name: Build & push docs frontend
         run: |
           IMG="${{ steps.meta.outputs.registry }}/gomo6-docs"
           docker build -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/docs/Dockerfile .
-          docker push "$IMG:latest"
-          docker push "$IMG:${{ steps.meta.outputs.sha_short }}"
+          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
+            for i in 1 2 3; do
+              echo "Push $IMG:$tag (attempt $i)"
+              docker push "$IMG:$tag" && continue 2
+              [ $i -lt 3 ] && sleep $((i * 10))
+            done
+            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
+            exit 1
+          done
 
       - name: Build & push dev-dashboard frontend
         run: |
           IMG="${{ steps.meta.outputs.registry }}/gomo6-dev-dashboard"
           docker build -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/dev-dashboard/Dockerfile .
-          docker push "$IMG:latest"
-          docker push "$IMG:${{ steps.meta.outputs.sha_short }}"
+          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
+            for i in 1 2 3; do
+              echo "Push $IMG:$tag (attempt $i)"
+              docker push "$IMG:$tag" && continue 2
+              [ $i -lt 3 ] && sleep $((i * 10))
+            done
+            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
+            exit 1
+          done
 
   deploy:
     name: Deploy to VPS
