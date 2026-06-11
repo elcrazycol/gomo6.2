@@ -57,15 +57,21 @@ export const ThreadFeed = ({
       }
 
       // Build URL with cursor-based pagination
-      let url = `/api/v1/threads?order=updated_at.desc&limit=${limit}`;
+      let url = `/api/v1/threads?order=updated_at.desc&limit=${limit + 1}`;
       if (isLoadMore && cursor) {
         url += `&cursor=${encodeURIComponent(cursor)}`;
       }
 
       const response = await fetch(url);
       const result = await response.json();
-      const threadsData = (result.data || []) as Record<string, unknown>[];
+      let threadsData = (result.data || []) as Record<string, unknown>[];
       const nextCursor = result.next_cursor || null;
+
+      // Remove the extra item we fetched (limit+1) to detect hasMore
+      const hasMoreData = threadsData.length > limit;
+      if (hasMoreData) {
+        threadsData = threadsData.slice(0, limit);
+      }
 
       // If user is logged in and this is the initial load, try recommendations
       if (currentUserId && !isLoadMore && !initialLoadDone.current) {
@@ -141,7 +147,7 @@ export const ThreadFeed = ({
 
       // Update cursor for next page
       setCursor(nextCursor);
-      setHasMore(nextCursor !== null && threadsData.length >= limit);
+      setHasMore(hasMoreData && nextCursor !== null);
     } catch (error) {
       console.error("Error in loadThreads:", error);
     } finally {

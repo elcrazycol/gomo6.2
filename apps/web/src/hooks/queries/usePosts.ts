@@ -25,8 +25,16 @@ export interface Post {
 /**
  * Hook for fetching posts for a thread with pagination and caching.
  * Default page size is 50. Pass page/limit to paginate.
+ *
+ * @param threadId - The thread UUID
+ * @param options - Pagination options (limit, offset)
+ * @param extraOptions - Additional React Query options (e.g. placeholderData)
  */
-export function usePosts(threadId: string | undefined, options?: { limit?: number; offset?: number }) {
+export function usePosts(
+  threadId: string | undefined,
+  options?: { limit?: number; offset?: number },
+  extraOptions?: { placeholderData?: (prev: any) => any }
+) {
   const { limit = 50, offset = 0 } = options || {};
 
   return useQuery({
@@ -47,6 +55,7 @@ export function usePosts(threadId: string | undefined, options?: { limit?: numbe
     enabled: !!threadId,
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 2 * 60 * 1000, // 2 minutes
+    ...(extraOptions || {}),
   });
 }
 

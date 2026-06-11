@@ -119,6 +119,9 @@ const Board = () => {
   const pathPrefix = isGomoRoute ? "/g" : "";
   const [board, setBoard] = useState<Board | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
+  const [hasMoreThreads, setHasMoreThreads] = useState(true);
+  const [loadingMoreThreads, setLoadingMoreThreads] = useState(false);
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -195,17 +198,37 @@ const Board = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadThreads = useCallback(async (boardId: string) => {
+  const loadThreads = useCallback(async (boardId: string, isLoadMore = false) => {
+    if (isLoadMore) {
+      setLoadingMoreThreads(true);
+    }
+
     const contentFilter = searchParams.get('content');
     const formatFilter = searchParams.get('format');
     const atmosphereFilter = searchParams.get('atmosphere');
     const flagFilter = searchParams.get('flag');
     const oldTagFilter = searchParams.get('tag');
 
+    // Build URL with cursor-based pagination
+    let threadsUrl = `/api/v1/threads?board_id=eq.${boardId}&order=updated_at.desc&limit=${isLoadMore ? 21 : 20}`;
+    if (isLoadMore && threadsCursor) {
+      threadsUrl += `&cursor=${encodeURIComponent(threadsCursor)}`;
+    }
+
     // Fetch threads from Go backend
-    const threadsResponse = await fetch(`/api/v1/threads?board_id=eq.${boardId}&order=updated_at.desc&limit=100`);
+    const threadsResponse = await fetch(threadsUrl);
     const threadsResult = await threadsResponse.json();
     let threadsData: Record<string, unknown>[] = (threadsResult.data || []) as Record<string, unknown>[];
+    const nextCursor = threadsResult.next_cursor || null;
+
+    // Detect hasMore by fetching limit+1
+    const hasMoreData = threadsData.length > 20;
+    if (hasMoreData) {
+      threadsData = threadsData.slice(0, 20);
+    }
+
+    setThreadsCursor(nextCursor);
+    setHasMoreThreads(hasMoreData && nextCursor !== null);
 
     // Client-side tag filtering (Go backend doesn't support JSON ->> operators)
     if (!isGomoRoute && threadsData.length) {
@@ -236,7 +259,12 @@ const Board = () => {
     }
 
     if (!threadsData.length) {
-      setThreads([]);
+      if (isLoadMore) {
+        setHasMoreThreads(false);
+      } else {
+        setThreads([]);
+      }
+      setLoadingMoreThreads(false);
       return;
     }
 
@@ -289,8 +317,13 @@ const Board = () => {
       };
     });
 
-    setThreads(threadsWithData as Thread[]);
-  }, [searchParams, isGomoRoute]);
+    if (isLoadMore) {
+      setThreads(prev => [...prev, ...(threadsWithData as Thread[])]);
+    } else {
+      setThreads(threadsWithData as Thread[]);
+    }
+    setLoadingMoreThreads(false);
+  }, [searchParams, isGomoRoute, threadsCursor]);
 
   useEffect(() => {
     const loadBoard = async () => {
@@ -302,6 +335,8 @@ const Board = () => {
       setPageLoading(true);
       setBoard(null);
       setThreads([]);
+      setThreadsCursor(null);
+      setHasMoreThreads(true);
       setShowRulesDialog(false);
       setHasAcceptedRules(!isGomoRoute);
       setCheckingRules(isGomoRoute);
@@ -365,7 +400,7 @@ const Board = () => {
           }
         } else {
           await loadThreads(boardData.id);
-          setPageLoading(false);
+            setPageLoading(false);
         }
       } else {
         setCheckingRules(false);
@@ -1311,6 +1346,28 @@ const Board = () => {
         {threads.length === 0 && !pageLoading && (
           <div className="text-center text-muted-foreground p-8">
             Тредов пока нет. Будьте первым!
+          </div>
+        )}
+
+        {/* Load More */}
+        {threads.length > 0 && (
+          <div className="flex justify-center py-4">
+            {loadingMoreThreads ? (
+              <PentagramLoader size="md" />
+            ) : hasMoreThreads ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => board && loadThreads(board.id, true)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Загрузить ещё треды
+              </Button>
+            ) : (
+              <div className="text-center text-muted-foreground py-2 text-sm">
+                Все треды загружены
+              </div>
+            )}
           </div>
         )}
 
