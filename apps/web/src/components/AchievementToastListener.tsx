@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { wsService } from "@/services/websocket";
 import {
   AchievementUnlockToast,
@@ -7,6 +7,9 @@ import {
   clearToastQueue,
   type UnlockData,
 } from "@/components/AchievementUnlockToast";
+
+/** Set of notification IDs that have already been shown — prevents re-showing across polls/WS reconnects */
+const shownNotificationIds = new Set<string>();
 
 /**
  * Помечает нотификацию как прочитанную на бэке (fire-and-forget).
@@ -49,6 +52,10 @@ export function AchievementToastListener() {
     if (data.notification_id) {
       markNotificationRead(data.notification_id);
     }
+    // Track globally to prevent any future re-showing
+    if (data.notification_id) {
+      shownNotificationIds.add(data.notification_id);
+    }
   }, []);
 
   useEffect(() => {
@@ -58,6 +65,12 @@ export function AchievementToastListener() {
     const wsUnsub = wsService.on("new_notification", (msg) => {
       const notif = msg?.data;
       if (!notif || notif.type !== "achievement_unlock") return;
+
+      // Get notification_id from the WS payload (explicit field added by backend)
+      const notificationId = notif.notification_id || notif.id || "";
+
+      // Skip if already shown this session
+      if (notificationId && shownNotificationIds.has(notificationId)) return;
 
       const ach = notif.achievement;
       if (!ach?.name) return;
@@ -73,7 +86,7 @@ export function AchievementToastListener() {
         max_level: ach.max_level || 1,
         is_first_time: ach.is_first_time || false,
         prev_level: ach.prev_level || 0,
-        notification_id: notif.notification_id || "",
+        notification_id: notificationId,
       };
 
       queueAchievementUnlock(data, handleRender);
@@ -81,15 +94,15 @@ export function AchievementToastListener() {
 
     // ── Polling fallback (only when WebSocket is disconnected) ──
     const pollNotifications = async () => {
-      // Skip polling if WebSocket is already connected to avoid duplicate toasts
+      // Skip polling if WebSocket is already connected
       if (wsService.connected) return;
       try {
         const token = localStorage.getItem("auth_token");
         if (!token) return;
 
-        // Only fetch UNREAD notifications — once marked read they won't return
+        // Fetch only UNREAD + achievement_unlock type + most recent
         const res = await fetch(
-          "/api/v1/notifications?is_read=eq.false&order=created_at.desc&limit=5",
+          "/api/v1/notifications?is_read=false&order=created_at.desc&limit=5",
           { headers: { Authorization: `Bearer ${token}` } },
         );
         if (!res.ok) return;
@@ -100,8 +113,10 @@ export function AchievementToastListener() {
         for (const item of items) {
           if (item.type !== "achievement_unlock") continue;
 
+          // Skip if already shown this session
+          if (item.id && shownNotificationIds.has(item.id)) continue;
+
           // Parse achievement data from the notification title/message
-          // The backend stores it as: title="🏆 Achievement Name", message="Description"
           const name = (item.title || "").replace(/^🏆\s*/, "");
           if (!name) continue;
 
@@ -113,7 +128,7 @@ export function AchievementToastListener() {
             rarity: "common",
             level: 1,
             max_level: 1,
-            notification_id: item.id, // notification row ID — will be marked read
+            notification_id: item.id,
           };
 
           queueAchievementUnlock(data, handleRender);

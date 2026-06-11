@@ -17,44 +17,66 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
-  const loadNotifications = useCallback(async () => {
+  const loadUnreadCount = useCallback(async () => {
     try {
-      const [notifResp, countResp] = await Promise.all([
-        apiClient.getNotifications({ limit: 10 }),
-        apiClient.getUnreadNotificationsCount(),
-      ]);
-
-      if (notifResp.data && Array.isArray(notifResp.data)) {
-        setNotifications(notifResp.data as Notification[]);
-      }
-
+      const countResp = await apiClient.getUnreadNotificationsCount();
       if (countResp.data) {
         const d = countResp.data as { unread_count: number };
         setUnreadCount(d.unread_count);
       }
+    } catch {
+      // Silently ignore
+    }
+  }, []);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const notifResp = await apiClient.getNotifications({ limit: 10 });
+      if (notifResp.data && Array.isArray(notifResp.data)) {
+        const serverNotifs = notifResp.data as Notification[];
+        // Merge with existing: keep WS-delivered notifications, update from server
+        setNotifications(prev => {
+          const serverIds = new Set(serverNotifs.map(n => n.id));
+          // Start with server notifications
+          const merged = [...serverNotifs];
+          // Add any WS notifications not present in server response
+          for (const n of prev) {
+            if (!serverIds.has(n.id)) {
+              merged.push(n);
+            }
+          }
+          return merged.slice(0, 10);
+        });
+      }
+      // Always fetch actual unread count from dedicated endpoint
+      await loadUnreadCount();
     } catch (err) {
       console.error("[NotificationBell] Failed to load notifications:", err);
     }
-  }, []);
+  }, [loadUnreadCount]);
 
   // WebSocket real-time handler for new notifications
   const handleNewNotification = useCallback((message: WebSocketMessage) => {
     const notif = message.data as Notification;
     if (!notif || !notif.id) return;
 
-    // Prepend the new notification to the list
     setNotifications(prev => {
+      // Dedup: remove if already present, then prepend
       const filtered = prev.filter(n => n.id !== notif.id);
       return [notif, ...filtered].slice(0, 10);
     });
 
-    // Increment unread count
-    setUnreadCount(prev => prev + 1);
+    // Only increment if not already read
+    if (!notif.is_read) {
+      setUnreadCount(prev => prev + 1);
+    }
   }, []);
 
+  // Main effect: subscribe to WS, poll only when disconnected
   useEffect(() => {
     if (!userId) return;
 
+    // Initial load
     loadNotifications();
 
     // Subscribe to notification room
@@ -63,8 +85,12 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
     // Listen for real-time notification events
     const unsubscribe = wsService.on('new_notification', handleNewNotification);
 
-    // Poll every 30 seconds as fallback
-    pollingRef.current = setInterval(loadNotifications, 30000);
+    // Poll every 60 seconds ONLY as fallback when WS is disconnected
+    pollingRef.current = setInterval(() => {
+      if (!wsService.connected) {
+        loadNotifications();
+      }
+    }, 60000);
 
     return () => {
       if (pollingRef.current) {
@@ -83,18 +109,22 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
 
     const unsubscribeConnected = wsService.on('connected', () => {
       wsService.subscribeToNotifications(userId);
+      // Refresh notifications immediately on reconnect
+      loadNotifications();
     });
 
     return () => {
       unsubscribeConnected();
     };
-  }, [userId]);
+  }, [userId, loadNotifications]);
 
   const handleClick = () => {
     navigate("/notify");
   };
 
   const markAsRead = async (notif: Notification) => {
+    if (notif.is_read) return;
+
     // Optimistic UI update
     setNotifications(prev =>
       prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n)
@@ -132,7 +162,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
         <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-            {unreadCount}
+            {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
       </Button>
