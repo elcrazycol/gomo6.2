@@ -2,10 +2,23 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
-import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } from "vitest";
 import React from "react";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
+
+// Mock IntersectionObserver (not available in jsdom)
+const originalIntersectionObserver = (global as any).IntersectionObserver;
+beforeAll(() => {
+  (global as any).IntersectionObserver = class {
+    observe = vi.fn();
+    disconnect = vi.fn();
+    unobserve = vi.fn();
+  };
+});
+afterAll(() => {
+  (global as any).IntersectionObserver = originalIntersectionObserver;
+});
 
 const mockAuth = { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn() };
 const mockFetch = vi.fn();
