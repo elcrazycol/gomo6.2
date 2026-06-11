@@ -13,9 +13,24 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// DefaultDataCacheTTL is the default TTL for data cache entries.
-// Caches response data to reduce database load.
+// DefaultDataCacheTTL is the default TTL for data cache entries (2 minutes).
 const DefaultDataCacheTTL = 2 * time.Minute
+
+// cacheTTLByPath returns a differentiated TTL based on the request path:
+// - 30s for threads/posts (frequently updated content)
+// - 5min for boards/profiles (rarely changed)
+// - 2min default for everything else
+func cacheTTLByPath(path string, defaultTTL time.Duration) time.Duration {
+	// Threads and posts: short TTL — content changes frequently
+	if strings.Contains(path, "/threads") || strings.Contains(path, "/posts") {
+		return 30 * time.Second
+	}
+	// Boards and profiles: long TTL — rarely change
+	if strings.Contains(path, "/boards") || strings.Contains(path, "/profiles") {
+		return 5 * time.Minute
+	}
+	return defaultTTL
+}
 
 func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -43,6 +58,9 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			c.Next()
 			return
 		}
+
+		// Determine TTL based on path (threads/posts=30s, boards/profiles=5min)
+		effectiveTTL := cacheTTLByPath(c.Request.URL.Path, ttl)
 
 		// Build cache key from path and query params
 		cacheKey := fmt.Sprintf("data:%s?%s", c.Request.URL.Path, c.Request.URL.RawQuery)
@@ -88,7 +106,7 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 					defer cancel()
 
-					err := redisClient.Set(ctx, cacheKey, writer.body, ttl).Err()
+					err := redisClient.Set(ctx, cacheKey, writer.body, effectiveTTL).Err()
 					if err != nil {
 						log.Printf("[DataCache] Failed to cache response: %v", err)
 					}

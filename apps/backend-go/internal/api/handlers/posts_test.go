@@ -161,6 +161,64 @@ func TestGetPosts_DBError(t *testing.T) {
 	}
 }
 
+func TestGetPosts_Latest_RequiresThreadFilter(t *testing.T) {
+	handler, _ := setupPostsHandler(t)
+	c, w := newGETContext("/api/v1/posts", map[string]string{
+		"latest": "true",
+	})
+
+	handler.GetPosts(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for latest=true without thread filter, got %d", w.Code)
+	}
+}
+
+func TestGetPosts_Latest_Success(t *testing.T) {
+	handler, mock := setupPostsHandler(t)
+	c, w := newGETContext("/api/v1/posts", map[string]string{
+		"thread_id": "in.(t1,t2)",
+		"latest":    "true",
+	})
+
+	rows := sqlmock.NewRows([]string{
+		"id", "thread_id", "user_id", "content", "content_json",
+		"image_url", "image_urls", "attachments", "reply_to",
+		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
+		"username", "avatar_url",
+	}).AddRow(
+		"p1", "t1", "u1", "Latest in t1", nil,
+		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
+		"testuser", nil,
+	).AddRow(
+		"p2", "t2", "u2", "Latest in t2", nil,
+		nil, "[]", "[]", nil, false, nil, "localhost:8080", time.Now(), false,
+		"user2", nil,
+	)
+
+	// The DISTINCT ON subquery regex must match the generated SQL
+	mock.ExpectQuery(`SELECT \* FROM \(SELECT DISTINCT ON \(p\.thread_id\).*FROM posts p.*WHERE p\.thread_id IN \(\$1,\$2\).*ORDER BY p\.thread_id, p\.created_at DESC\) sub ORDER BY sub\.created_at DESC LIMIT \$3 OFFSET \$4`).
+		WithArgs("t1", "t2", 200, 0).
+		WillReturnRows(rows)
+
+	handler.GetPosts(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %s", *resp.Error)
+	}
+	if resp.Count == nil || *resp.Count != 2 {
+		t.Fatalf("expected count 2, got %v", resp.Count)
+	}
+}
+
 // ──────────────────────────── GetPost ────────────────────────────
 
 func TestGetPost_Success(t *testing.T) {

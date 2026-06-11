@@ -211,7 +211,65 @@ const Thread = () => {
   const queryClient = useQueryClient();
 
   const { data: thread, isLoading: threadLoading } = useThread(threadId);
-  const { data: posts = [], isLoading: postsLoading } = usePosts(threadId);
+  const [postOffset, setPostOffset] = useState(0);
+  const [allPosts, setAllPosts] = useState<PostWithExtras[]>([]);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const postsPerPage = 50;
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  const { data: postsPage = [], isLoading: postsLoading } = usePosts(threadId, { limit: postsPerPage, offset: postOffset });
+
+  // Sync first page into allPosts
+  useEffect(() => {
+    if (!postsLoading && postsPage.length > 0 && postOffset === 0) {
+      setAllPosts(postsPage as PostWithExtras[]);
+      setHasMorePosts(postsPage.length >= postsPerPage);
+      setLoadingMorePosts(false);
+    }
+  }, [postsPage, postsLoading, postOffset]);
+
+  // Append additional pages
+  const prevPostOffset = useRef(postOffset);
+  useEffect(() => {
+    if (postOffset > 0 && !postsLoading && postsPage.length > 0) {
+      setAllPosts(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const newPosts = (postsPage as PostWithExtras[]).filter(p => !existingIds.has(p.id));
+        if (newPosts.length === 0) return prev;
+        return [...prev, ...newPosts];
+      });
+      setHasMorePosts(postsPage.length >= postsPerPage);
+      setLoadingMorePosts(false);
+    }
+    prevPostOffset.current = postOffset;
+  }, [postsPage, postsLoading, postOffset]);
+
+  // Reset pagination when thread changes
+  useEffect(() => {
+    setPostOffset(0);
+    setAllPosts([]);
+    setHasMorePosts(true);
+    setLoadingMorePosts(false);
+  }, [threadId]);
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    if (!hasMorePosts || loadingMorePosts || postsLoading) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMorePosts && !loadingMorePosts) {
+          setLoadingMorePosts(true);
+          setPostOffset(prev => prev + postsPerPage);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMorePosts, loadingMorePosts, postsLoading, postsPerPage]);
+
+  const posts = allPosts;
 
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -1455,6 +1513,35 @@ const Thread = () => {
               </div>
             </div>
           ))}
+
+          {/* Load more trigger for infinite scroll */}
+          <div ref={loadMoreRef} className="py-4">
+            {loadingMorePosts && (
+              <div className="flex justify-center">
+                <PentagramLoader size="md" />
+              </div>
+            )}
+            {!hasMorePosts && allPosts.length > 0 && (
+              <div className="text-center text-muted-foreground py-2 text-sm">
+                Все посты загружены
+              </div>
+            )}
+            {hasMorePosts && !loadingMorePosts && (
+              <div className="text-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setLoadingMorePosts(true);
+                    setPostOffset(prev => prev + postsPerPage);
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Загрузить ещё посты
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Ban user dialog */}

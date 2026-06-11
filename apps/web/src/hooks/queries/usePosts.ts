@@ -23,11 +23,14 @@ export interface Post {
 }
 
 /**
- * Hook for fetching posts for a thread with caching
+ * Hook for fetching posts for a thread with pagination and caching.
+ * Default page size is 50. Pass page/limit to paginate.
  */
-export function usePosts(threadId: string | undefined) {
+export function usePosts(threadId: string | undefined, options?: { limit?: number; offset?: number }) {
+  const { limit = 50, offset = 0 } = options || {};
+
   return useQuery({
-    queryKey: ['posts', threadId],
+    queryKey: ['posts', threadId, { limit, offset }],
     queryFn: async () => {
       if (!threadId) return [];
 
@@ -35,7 +38,8 @@ export function usePosts(threadId: string | undefined) {
         .from('posts')
         .select('*, profiles:user_id(*)')
         .eq('thread_id', threadId)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .range(offset, offset + limit - 1);
 
       if (error) throw error;
       return (data as Post[]) ?? [];
