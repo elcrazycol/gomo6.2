@@ -4,33 +4,12 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { AttachmentMeta } from "@/types/forum";
+import type { AttachmentMeta } from "@/types/forum";
 import { api } from "@/integrations/api/compat";
 import { ImageIcon, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
-
-export interface WallPost {
-  id: string;
-  user_id: string;
-  author_id: string;
-  title: string;
-  content: string | null;
-  content_json?: unknown;
-  image_url: string | null;
-  attachments?: AttachmentMeta[] | null;
-  repost_of_post_id?: string | null;
-  original_post?: WallPost | null;
-  created_at: string;
-  updated_at: string;
-  is_pinned?: boolean;
-  pinned_order?: number | null;
-  author: {
-    username: string;
-    is_anonymous: boolean;
-    avatar_url?: string | null;
-  };
-}
+import type { WallPost } from "@/utils/wallNormalizers";
 
 interface CreateWallPostProps {
   profileUserId: string;
