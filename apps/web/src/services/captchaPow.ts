@@ -87,7 +87,7 @@ export function solveChallenge(
           let solution = 0n;
           const batchSize = 10000;
           const startTime = performance.now();
-          const deadline = startTime + 15000; // 15 second timeout
+          const deadline = startTime + 30000; // 30 second timeout for difficulty 20
 
           while (performance.now() < deadline) {
             // Process in batches, yielding to check for messages
