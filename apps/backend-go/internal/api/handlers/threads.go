@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -31,7 +32,7 @@ func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
 
 // Migration 036 added tags JSONB column to threads table.
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
-	query := `
+	baseQuery := `
 		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
@@ -98,14 +99,9 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		args = append(args, uid)
 	}
 
-	if len(conditions) > 0 {
-		query += " WHERE " + conditions[0]
-		for i := 1; i < len(conditions); i++ {
-			query += " AND " + conditions[i]
-		}
-	}
-
-	// Handle ordering (format: column.asc/column.desc) — supports multiple order params
+	// Determine ORDER BY (before cursor, since cursor direction depends on order)
+	var orderClause string
+	orderDir := "DESC" // default
 	if orders := c.QueryArray("order"); len(orders) > 0 {
 		joined := ""
 		for i, o := range orders {
@@ -113,13 +109,44 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 				joined += ","
 			}
 			joined += o
+			// Detect direction from first order param
+			if i == 0 {
+				if strings.Contains(strings.ToLower(o), ".asc") {
+					orderDir = "ASC"
+				} else if strings.Contains(strings.ToLower(o), ".desc") {
+					orderDir = "DESC"
+				}
+			}
 		}
 		if s, ok := parseOrderClause(joined, "t"); ok {
-			query += " ORDER BY " + s
+			orderClause = " ORDER BY " + s
 		}
 	} else {
-		query += " ORDER BY t.updated_at DESC"
+		orderClause = " ORDER BY t.updated_at DESC"
 	}
+
+	// Handle cursor-based pagination (replaces OFFSET for efficient deep scrolling)
+	// For DESC: cursor = last seen value, filter for earlier items (value < cursor)
+	// For ASC: cursor = last seen value, filter for later items (value > cursor)
+	cursor := c.Query("cursor")
+	if cursor != "" {
+		if orderDir == "ASC" {
+			conditions = append(conditions, "t.updated_at > $"+strconv.Itoa(len(args)+1))
+		} else {
+			conditions = append(conditions, "t.updated_at < $"+strconv.Itoa(len(args)+1))
+		}
+		args = append(args, cursor)
+	}
+
+	// Assemble query: base + WHERE + ORDER BY
+	query := baseQuery
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			query += " AND " + conditions[i]
+		}
+	}
+	query += orderClause
 
 	// Handle pagination
 	limit := 50
@@ -131,14 +158,20 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		}
 	}
 
-	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
+	if cursor == "" {
+		// Use OFFSET when cursor is not provided (backward compatible)
+		if offsetStr := c.Query("offset"); offsetStr != "" {
+			if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+				offset = o
+			}
 		}
+		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
+		args = append(args, limit, offset)
+	} else {
+		// Cursor mode: no OFFSET, just LIMIT
+		query += " LIMIT $" + strconv.Itoa(len(args)+1)
+		args = append(args, limit)
 	}
-
-	query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
-	args = append(args, limit, offset)
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -189,7 +222,16 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	}
 
 	threadCount := len(threads)
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: threads, Count: &threadCount})
+
+	// Build response with next_cursor for cursor-based pagination
+	resp := models.APIResponse{Success: true, Data: threads, Count: &threadCount}
+	if len(threads) > 0 && len(threads) >= limit {
+		// Always return next_cursor when there are more results (supports both cursor and offset modes)
+		lastUpdated := threads[len(threads)-1].UpdatedAt.Format(time.RFC3339Nano)
+		resp.NextCursor = &lastUpdated
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *ThreadsHandler) GetThread(c *gin.Context) {

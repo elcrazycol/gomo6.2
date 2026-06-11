@@ -100,41 +100,27 @@ const Index = () => {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        const { data: roles } = await api
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id);
+        // Parallelize all independent queries after session is available
+        const [rolesRes, profileRes, achievementsRes, termsRes] = await Promise.all([
+          api.from("user_roles").select("role").eq("user_id", session.user.id),
+          api.from("profiles").select("username").eq("id", session.user.id).single(),
+          api.from("user_achievements").select(`achievement_id, achievements(reward_type, reward_value)`).eq("user_id", session.user.id),
+          api.from("user_terms_acceptance").select("*").eq("user_id", session.user.id).maybeSingle(),
+        ]);
 
+        const roles = rolesRes.data;
         setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
-        const { data: profile } = await api
-          .from("profiles")
-          .select("username")
-          .eq("id", session.user.id)
-          .single();
-
+        const profile = profileRes.data;
         if (profile) {
           setCurrentUserUsername(profile.username);
         }
 
-        // Load current user color
-        const { data: achievements } = await api
-          .from("user_achievements")
-          .select(`
-            achievement_id,
-            achievements (
-              reward_type,
-              reward_value
-            )
-          `)
-          .eq("user_id", session.user.id);
-
+        const achievements = achievementsRes.data;
         if (achievements) {
           const colorRewards = achievements
             .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
             .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
-
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
             if (colorRewards.includes(p)) {
@@ -144,14 +130,7 @@ const Index = () => {
           }
         }
         
-        // Check if user has accepted terms
-        const { data: termsData } = await api
-          .from("user_terms_acceptance")
-          .select("*")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
-        
-        if (!termsData) {
+        if (!termsRes.data) {
           setShowTerms(true);
         } else {
           setTermsAccepted(true);
