@@ -166,15 +166,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	// ── CAPTCHA verification (built-in PoW or external mCaptcha) ──
+	// Only verify if the client sent captcha data (backward compat with old frontends).
 	if h.captchaHandler != nil {
 		if h.captchaHandler.IsConfigured() {
-			// External mCaptcha
-			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-				return
+			// External mCaptcha: only verify if token was provided
+			if req.CaptchaToken != "" {
+				if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
+					c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+					return
+				}
 			}
-		} else if h.redis != nil {
-			// Built-in PoW (requires Redis for challenge storage)
+		} else if h.redis != nil && req.ChallengeID != "" {
+			// Built-in PoW: only verify if challenge_id was provided
 			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
 				return
@@ -254,13 +257,18 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// ── CAPTCHA verification (built-in PoW or external mCaptcha) ──
+	// Only verify if the client sent captcha data (backward compat with old frontends).
 	if h.captchaHandler != nil {
 		if h.captchaHandler.IsConfigured() {
-			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-				return
+			// External mCaptcha: only verify if token was provided
+			if req.CaptchaToken != "" {
+				if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
+					c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+					return
+				}
 			}
-		} else if h.redis != nil {
+		} else if h.redis != nil && req.ChallengeID != "" {
+			// Built-in PoW: only verify if challenge_id was provided
 			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
 				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
 				return
