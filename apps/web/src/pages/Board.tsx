@@ -13,40 +13,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
-
-// Tag constants (duplicated from CreateThread.tsx for filtering)
-const CONTENT_TAGS = [
-  { value: 'anime', label: 'Аниме' },
-  { value: 'games', label: 'Игры' },
-  { value: 'music', label: 'Музыка' },
-  { value: 'movies', label: 'Фильмы' },
-  { value: 'comics', label: 'Комиксы' },
-  { value: 'humor', label: 'Юмор' },
-  { value: 'literature', label: 'Литература' },
-  { value: 'stories', label: 'Истории' }
-];
-
-const FORMAT_TAGS = [
-  { value: 'shitpost', label: 'Щитпост' },
-  { value: 'discussion', label: 'Обсуждение' },
-  { value: 'question', label: 'Вопрос' },
-  { value: 'confession', label: 'Признание' },
-  { value: 'story', label: 'Рассказ' },
-  { value: 'guide', label: 'Гайд' }
-];
-
-const ATMOSPHERE_TAGS = [
-  { value: 'serious', label: 'Серьёзно' },
-  { value: 'irony', label: 'Ирония' },
-  { value: 'vent', label: 'Выплеск' },
-  { value: 'doom', label: 'Тьма' }
-];
-
-const FLAG_TAGS = [
-  { value: 'normal', label: 'Обычный' },
-  { value: 'ephemeral', label: 'Временный' },
-  { value: 'night', label: 'Ночной' }
-];
+import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";

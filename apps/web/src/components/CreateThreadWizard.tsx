@@ -36,7 +36,7 @@ interface ThreadTags {
   flag: string; // required
 }
 
-const CONTENT_TAGS = [
+const CONTENT_TAGS_WITH_DESC = [
   { value: 'anime', label: 'Аниме', description: 'Обсуждение аниме и манги' },
   { value: 'games', label: 'Игры', description: 'Компьютерные и видеоигры' },
   { value: 'music', label: 'Музыка', description: 'Музыка и музыканты' },
@@ -47,7 +47,7 @@ const CONTENT_TAGS = [
   { value: 'stories', label: 'Истории', description: 'Рассказы и повествования' }
 ];
 
-const FORMAT_TAGS = [
+const FORMAT_TAGS_WITH_DESC = [
   { value: 'shitpost', label: 'Щитпост', description: 'Мемы, юмор, абсурд' },
   { value: 'discussion', label: 'Обсуждение', description: 'Обычная дискуссия' },
   { value: 'question', label: 'Вопрос', description: 'Вопросы, советы' },
@@ -56,14 +56,14 @@ const FORMAT_TAGS = [
   { value: 'guide', label: 'Гайд', description: 'Инструкции, гайды' }
 ];
 
-const ATMOSPHERE_TAGS = [
+const ATMOSPHERE_TAGS_WITH_DESC = [
   { value: 'serious', label: 'Серьёзно', description: 'Серьёзная дискуссия' },
   { value: 'irony', label: 'Ирония', description: 'Ироничные посты, сарказм' },
   { value: 'vent', label: 'Выплеск', description: 'Жалобы, эмоции' },
   { value: 'doom', label: 'Тьма', description: 'Пессимистические темы' }
 ];
 
-const FLAG_TAGS = [
+const FLAG_TAGS_WITH_DESC = [
   { value: 'normal', label: 'Обычный', description: 'Обычный тред' },
   { value: 'ephemeral', label: 'Временный', description: 'Самоуничтожение' },
   { value: 'night', label: 'Ночной', description: 'Ночные треды' }
@@ -333,7 +333,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
       <div>
         <h3 className="font-semibold mb-3 text-red-600">* Обязательно: Тип треда</h3>
         <div className="grid grid-cols-2 gap-2">
-          {FLAG_TAGS.map((tag) => (
+          {FLAG_TAGS_WITH_DESC.map((tag) => (
             <button
               key={tag.value}
               onClick={() => handleTagSelect('flag', tag.value)}
@@ -354,7 +354,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
       <div>
         <h3 className="font-semibold mb-3">Тематика (опционально)</h3>
         <div className="grid grid-cols-3 gap-2">
-          {CONTENT_TAGS.map((tag) => (
+          {CONTENT_TAGS_WITH_DESC.map((tag) => (
             <button
               key={tag.value}
               onClick={() => handleTagSelect('content', tag.value)}
@@ -374,7 +374,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
       <div>
         <h3 className="font-semibold mb-3">Формат (опционально)</h3>
         <div className="grid grid-cols-3 gap-2">
-          {FORMAT_TAGS.map((tag) => (
+          {FORMAT_TAGS_WITH_DESC.map((tag) => (
             <button
               key={tag.value}
               onClick={() => handleTagSelect('format', tag.value)}
@@ -394,7 +394,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
       <div>
         <h3 className="font-semibold mb-3">Атмосфера (опционально)</h3>
         <div className="grid grid-cols-2 gap-2">
-          {ATMOSPHERE_TAGS.map((tag) => (
+          {ATMOSPHERE_TAGS_WITH_DESC.map((tag) => (
             <button
               key={tag.value}
               onClick={() => handleTagSelect('atmosphere', tag.value)}
@@ -446,22 +446,22 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
           <div className="flex flex-wrap gap-1 mt-2">
             {tags.content && (
               <Badge variant="secondary" className="text-xs">
-                {CONTENT_TAGS.find(t => t.value === tags.content)?.label}
+                {CONTENT_TAGS_WITH_DESC.find(t => t.value === tags.content)?.label}
               </Badge>
             )}
             {tags.format && (
               <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600">
-                {FORMAT_TAGS.find(t => t.value === tags.format)?.label}
+                {FORMAT_TAGS_WITH_DESC.find(t => t.value === tags.format)?.label}
               </Badge>
             )}
             {tags.atmosphere && (
               <Badge variant="secondary" className="text-xs bg-purple-500/10 text-purple-600">
-                {ATMOSPHERE_TAGS.find(t => t.value === tags.atmosphere)?.label}
+                {ATMOSPHERE_TAGS_WITH_DESC.find(t => t.value === tags.atmosphere)?.label}
               </Badge>
             )}
             {tags.flag && tags.flag !== 'normal' && (
               <Badge variant="secondary" className="text-xs bg-orange-500/10 text-orange-600">
-                {FLAG_TAGS.find(t => t.value === tags.flag)?.label}
+                {FLAG_TAGS_WITH_DESC.find(t => t.value === tags.flag)?.label}
               </Badge>
             )}
           </div>

@@ -41,7 +41,7 @@ interface Poll {
   allow_change_vote: boolean;
 }
 
-const CONTENT_TAGS = [
+const CONTENT_TAGS_WITH_DESC = [
   { value: 'anime', label: 'Аниме', description: 'Обсуждение аниме и манги' },
   { value: 'games', label: 'Игры', description: 'Компьютерные и видеоигры' },
   { value: 'music', label: 'Музыка', description: 'Музыка и музыканты' },
@@ -52,7 +52,7 @@ const CONTENT_TAGS = [
   { value: 'stories', label: 'Истории', description: 'Рассказы и повествования' }
 ];
 
-const FORMAT_TAGS = [
+const FORMAT_TAGS_WITH_DESC = [
   { value: 'shitpost', label: 'Щитпост', description: 'Мемы, юмор, абсурд' },
   { value: 'discussion', label: 'Обсуждение', description: 'Обычная дискуссия' },
   { value: 'question', label: 'Вопрос', description: 'Вопросы, советы' },
@@ -61,14 +61,14 @@ const FORMAT_TAGS = [
   { value: 'guide', label: 'Гайд', description: 'Инструкции, гайды' }
 ];
 
-const ATMOSPHERE_TAGS = [
+const ATMOSPHERE_TAGS_WITH_DESC = [
   { value: 'serious', label: 'Серьёзно', description: 'Серьёзная дискуссия' },
   { value: 'irony', label: 'Ирония', description: 'Ироничные посты, сарказм' },
   { value: 'vent', label: 'Выплеск', description: 'Жалобы, эмоции' },
   { value: 'doom', label: 'Тьма', description: 'Пессимистические темы' }
 ];
 
-const FLAG_TAGS = [
+const FLAG_TAGS_WITH_DESC = [
   { value: 'normal', label: 'Обычный', description: 'Обычный тред' },
   { value: 'ephemeral', label: 'Временный', description: 'Самоуничтожение' },
   { value: 'night', label: 'Ночной', description: 'Ночные треды' }
@@ -650,7 +650,7 @@ const CreateThread = () => {
               <div>
                 <h4 className="font-medium mb-3 text-red-600">* Обязательно: Тип треда</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {FLAG_TAGS.map((tag) => (
+                  {FLAG_TAGS_WITH_DESC.map((tag) => (
                     <button
                       key={tag.value}
                       onClick={() => handleTagSelect('flag', tag.value)}
@@ -742,7 +742,7 @@ const CreateThread = () => {
               <div>
                 <h4 className="font-medium mb-3">Тематика (опционально)</h4>
                 <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-                  {CONTENT_TAGS.map((tag) => (
+                  {CONTENT_TAGS_WITH_DESC.map((tag) => (
                     <button
                       key={tag.value}
                       onClick={() => handleTagSelect('content', tag.value)}
@@ -760,7 +760,7 @@ const CreateThread = () => {
               <div>
                 <h4 className="font-medium mb-3">Формат (опционально)</h4>
                 <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-                  {FORMAT_TAGS.map((tag) => (
+                  {FORMAT_TAGS_WITH_DESC.map((tag) => (
                     <button
                       key={tag.value}
                       onClick={() => handleTagSelect('format', tag.value)}
@@ -778,7 +778,7 @@ const CreateThread = () => {
               <div>
                 <h4 className="font-medium mb-3">Атмосфера (опционально)</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {ATMOSPHERE_TAGS.map((tag) => (
+                  {ATMOSPHERE_TAGS_WITH_DESC.map((tag) => (
                     <button
                       key={tag.value}
                       onClick={() => handleTagSelect('atmosphere', tag.value)}
