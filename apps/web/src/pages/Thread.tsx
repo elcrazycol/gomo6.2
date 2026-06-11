@@ -1,7 +1,6 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -247,7 +246,6 @@ const Thread = () => {
           const existingIds = new Set(prev.map(p => p.id));
           const newPosts = (postsPage as PostWithExtras[]).filter(p => !existingIds.has(p.id));
           if (newPosts.length === 0) {
-            // No new unique posts — likely reached the end
             setHasMorePosts(false);
             return prev;
           }
@@ -255,7 +253,6 @@ const Thread = () => {
         });
         setHasMorePosts(postsPage.length >= postsPerPage);
       } else {
-        // Empty page means no more posts
         setHasMorePosts(false);
       }
     }
@@ -272,24 +269,11 @@ const Thread = () => {
   const posts = allPosts;
   const postsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Virtual scroll: only render visible posts for performance (large threads only).
-  // For small threads (≤30 posts), render directly without virtualization to avoid
-  // edge cases with window-based scroll calculation.
-  const USE_VIRTUAL_THRESHOLD = 30;
-  const useVirtualScroll = posts.length > USE_VIRTUAL_THRESHOLD;
-
-  const postVirtualizer = useVirtualizer({
-    count: useVirtualScroll ? (posts.length + (hasMorePosts ? 1 : 0)) : 0,
-    getScrollElement: () => null,
-    estimateSize: () => 160,
-    overscan: 5,
-  });
-  const virtualItems = useVirtualScroll ? postVirtualizer.getVirtualItems() : [];
-
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [currentUserAvatar, setCurrentUserAvatar] = useState<string | null>(null);
   const [currentUserColor, setCurrentUserColor] = useState("");
   const [content, setContent] = useState("");
   const [contentJson, setContentJson] = useState<unknown>(null);
@@ -326,7 +310,7 @@ const Thread = () => {
   const [galleryEditable, setGalleryEditable] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
-  const [pageLoading, setPageLoading] = useState(false); // Changed from true - React Query handles loading
+  const [pageLoading, setPageLoading] = useState(false);
   const [removeMetadata, setRemoveMetadata] = useState(true);
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as 'classic' | 'modern') || 'classic';
@@ -335,51 +319,6 @@ const Thread = () => {
   const shouldStickBottomRef = useRef(false);
   const SCROLL_STICKY_THRESHOLD = 240;
 
-  // Simple BBCode renderer for preview
-  const renderPreviewContent = (text: string): React.ReactNode[] => {
-    if (!text) return [];
-
-    // Process ||spoiler|| format first (simple inline spoilers)
-    const processedText = text;
-    const elements: React.ReactNode[] = [];
-    let key = 0;
-
-    const spoilerRegex = /\|\|(.*?)\|\|/g;
-    let match: RegExpExecArray | null;
-    let lastIndex = 0;
-    const textSegments: Array<{ type: 'text' | 'spoiler'; content: string }> = [];
-
-    while ((match = spoilerRegex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        textSegments.push({ type: 'text', content: text.substring(lastIndex, match.index) });
-      }
-      textSegments.push({ type: 'spoiler', content: match[1] });
-      lastIndex = match.index + match[0].length;
-    }
-
-    if (lastIndex < text.length) {
-      textSegments.push({ type: 'text', content: text.substring(lastIndex) });
-    }
-
-    // Render each segment
-    for (const segment of textSegments) {
-      if (segment.type === 'spoiler') {
-        elements.push(
-          <span key={`spoiler-${key++}`} className="bg-muted px-1 rounded cursor-pointer hover:bg-muted/80 select-none" title="Спойлер">
-            {segment.content}
-                    </span>
-                  );
-      } else {
-        // Use @bbob/react for BB code rendering
-        const rendered = renderBbCode(segment.content, { keyPrefix: `preview-${key++}` });
-        if (rendered) {
-          elements.push(rendered);
-            }
-          }
-        }
-
-    return elements;
-  };
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const isNearBottom = useCallback(() => {
@@ -416,16 +355,12 @@ const Thread = () => {
 
     window.addEventListener('storage', handleStorageChange);
 
-    // Also check for changes within the same tab
-    const checkDisplayType = () => {
+    const interval = setInterval(() => {
       const current = localStorage.getItem('sender-display-type') as 'classic' | 'modern';
       if (current && current !== senderDisplayType) {
         setSenderDisplayType(current || 'classic');
       }
-    };
-
-    // Check periodically for changes within the same tab
-    const interval = setInterval(checkDisplayType, 1000);
+    }, 1000);
 
     return () => {
       window.removeEventListener('storage', handleStorageChange);
@@ -460,7 +395,6 @@ const Thread = () => {
 
   // Handle input panel hide/show on mobile scroll
   useEffect(() => {
-    // Set initial scroll position
     setLastScrollY(window.scrollY);
 
     let ticking = false;
@@ -470,25 +404,19 @@ const Thread = () => {
         requestAnimationFrame(() => {
           const currentScrollY = window.scrollY;
 
-          // Only hide/show on mobile and when not in image preview
           if (window.innerWidth < 768 && !showImagePreview) {
-            // Check if there's content in the input
             const hasContent = content.trim().length > 0 || attachments.length > 0;
+            const nearBottom = window.innerHeight + currentScrollY >= document.body.scrollHeight - 100;
 
-            // Auto-show when reaching bottom of page
-            const isNearBottom = window.innerHeight + currentScrollY >= document.body.scrollHeight - 100;
-
-            if (isNearBottom) {
+            if (nearBottom) {
               setIsInputPanelVisible(true);
             } else if (!hasContent) {
-              // Only hide if no content and scrolling down
               if (currentScrollY > lastScrollY && currentScrollY > 100) {
                 setIsInputPanelVisible(false);
               } else if (currentScrollY < lastScrollY) {
                 setIsInputPanelVisible(true);
               }
             }
-            // If has content, always keep visible
           }
 
           setLastScrollY(currentScrollY);
@@ -507,7 +435,7 @@ const Thread = () => {
 
   useOnlineStatus(user?.id);
 
-  // Keep legacy imageUrls state in sync with attachments (used by existing preview/gallery code)
+  // Keep legacy imageUrls state in sync with attachments
   useEffect(() => {
     const imgs = attachments
       .filter((att) => att.type === "image")
@@ -530,16 +458,15 @@ const Thread = () => {
         setIsAdmin(roles?.some((r: { role: string }) => r.role === 'admin') || false);
         setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
 
-        // Load current user profile and color
         const profileRes = await fetch(`/api/v1/profiles?id=eq.${session.user.id}`, { headers });
         const profileResult = await profileRes.json();
         const profile = profileResult.data?.[0];
 
         if (profile) {
           setCurrentUserUsername(profile.username);
+          setCurrentUserAvatar(profile.avatar_url || null);
         }
 
-        // Load current user color
         const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${session.user.id}`, { headers });
         const achResult = await achRes.json();
         const achievements = achResult.data;
@@ -561,19 +488,15 @@ const Thread = () => {
     };
     checkAuth();
 
-    const { data: { subscription } } = api.auth.onAuthStateChange(          (_event: unknown, session: { user: { id: string } | null } | null) => {
-        setUser(session?.user ?? null);
-      }
-    );
+    const { data: { subscription } } = api.auth.onAuthStateChange((_event: unknown, session: { user: { id: string } | null } | null) => {
+      setUser(session?.user ?? null);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Keep postsRef in sync with posts state
-  // REMOVED: No longer needed with React Query
-
   // WebSocket realtime subscription for new posts from other users.
-  // Own posts are handled by query invalidation in handleSubmitPost.
+  // Own posts are handled by optimistic append in handleSubmitPost.
   useEffect(() => {
     if (!threadId) return;
 
@@ -581,13 +504,11 @@ const Thread = () => {
 
     const unsub = wsService.on('new_post', async (message) => {
       const data = message.data;
-      // Only process posts for this thread
       if (!data || data.thread_id !== threadId) return;
-      // Skip own posts (handled by query invalidation)
+      // Skip own posts (already added optimistically)
       if (user && data.user_id === user.id) return;
 
       try {
-        // Fetch the full post with profile data
         const res = await fetch(`/api/v1/posts?id=eq.${data.id}`);
         const result = await res.json();
         const postData = result?.data?.[0];
@@ -602,7 +523,6 @@ const Thread = () => {
             avatar_url: postData.profiles?.avatar_url,
           };
 
-          // Auto-scroll if user is near bottom
           if (isNearBottom()) {
             setTimeout(scrollToBottomSmooth, 100);
           }
@@ -651,36 +571,6 @@ const Thread = () => {
     }
   };
 
-  // DISABLED: Using WebSocket for realtime updates instead
-  // Realtime subscription removed to prevent duplicate posts
-  /*
-  useEffect(() => {
-    // Set up realtime subscription for new posts
-    const channel = api
-      .channel(`thread-${threadId}-posts`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'posts',
-          filter: `thread_id=eq.${threadId}`,
-        },
-        () => {
-          loadPosts();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      api.removeChannel(channel);
-    };
-  }, [threadId]);
-  */
-
-  // REMOVED: loadThread and loadPosts - handled by React Query hooks
-  // REMOVED: normalizePost, fetchPostWithProfile, mergePostIntoList - no longer needed
-
   // Load poll data when thread is loaded
   useEffect(() => {
     if (!thread?.id || !threadId) return;
@@ -706,7 +596,6 @@ const Thread = () => {
         setPollData({ ...poll, user_votes: userVotes });
       }
 
-      // Track thread visit for achievements
       if (user && thread && token) {
         try {
           const hasCustomMessage = (thread as ThreadWithExtras).custom_message && ((thread as ThreadWithExtras).custom_message ?? "").trim().length > 0;
@@ -728,7 +617,7 @@ const Thread = () => {
     loadPollData();
   }, [thread, threadId, user]);
 
-  // Keep view anchored when мы уже у низа или запланировали при отправке своего поста
+  // Keep view anchored when near bottom or after own post
   useEffect(() => {
     if (posts.length === 0) return;
     if (shouldStickBottomRef.current || isNearBottom()) {
@@ -736,51 +625,6 @@ const Thread = () => {
       shouldStickBottomRef.current = false;
     }
   }, [posts, isNearBottom, scrollToBottomSmooth]);
-
-  // Realtime subscription for posts changes (single channel, local merge)
-  // DISABLED: Realtime subscription disabled — using WebSocket instead
-  /*
-  useEffect(() => {
-    if (!threadId) return;
-
-    const channel = api
-      .channel(`posts-${threadId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'posts',
-          filter: `thread_id=eq.${threadId}`,
-        },
-        async (payload) => {
-          const shouldStick = shouldStickBottomRef.current || isNearBottom();
-
-          if (payload.eventType === 'INSERT') {
-            const fresh = await fetchPostWithProfile(payload.new.id);
-            if (fresh) {
-              setPosts((current) => mergePostIntoList(current, fresh));
-              if (shouldStick) scrollToBottomSmooth();
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            const fresh = await fetchPostWithProfile(payload.new.id);
-            if (fresh) {
-              setPosts((current) => mergePostIntoList(current, fresh));
-            }
-          } else if (payload.eventType === 'DELETE') {
-            setPosts((currentPosts) => currentPosts.filter(post => post.id !== payload.old.id));
-          }
-
-          shouldStickBottomRef.current = false;
-        }
-      )
-      .subscribe();
-
-    return () => {
-      api.removeChannel(channel);
-    };
-  }, [fetchPostWithProfile, isNearBottom, mergePostIntoList, scrollToBottomSmooth, threadId]);
-  */
 
   const handleSubmitPost = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -796,7 +640,6 @@ const Thread = () => {
       return;
     }
 
-    // Check if only admin can post (rules board)
     if (thread?.boards?.is_rules_board && !isAdmin) {
       toast.error("Только администраторы могут писать на этой доске");
       return;
@@ -805,14 +648,11 @@ const Thread = () => {
     setLoading(true);
     try {
       shouldStickBottomRef.current = isNearBottom();
-      // Convert array to JSON for storage, or use first image for backward compatibility
       const imageUrlsFromAttachments = attachments
         .filter(att => att.type === "image")
         .map(att => att.url);
-      const imageUrlForDb = imageUrlsFromAttachments[0] || null;
       const imageUrlsJson = imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : null;
       
-      // Use RPC backend API instead of REST endpoint
       const response = await fetch('/api/rpc/create_post', {
         method: 'POST',
         headers: {
@@ -836,22 +676,32 @@ const Thread = () => {
         throw new Error(errorData.error || 'Ошибка отправки');
       }
 
-      await response.json();
+      const result = await response.json();
+      const newPost = result.data;
 
-      // Invalidate cache and reset to page 1 so the new post appears
+      // Optimistically append the new post — no full reset, no flash
+      if (newPost && newPost.id) {
+        const optimisticPost: PostWithExtras = {
+          ...newPost,
+          username: currentUserUsername || 'Аноним',
+          avatar_url: currentUserAvatar || undefined,
+        };
+        setAllPosts(prev => [...prev, optimisticPost]);
+      }
+
+      // Background cache invalidation (no reset — placeholderData keeps old data visible)
       queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
       queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
-      setPostOffset(0);
-      setAllPosts([]);
-      setHasMorePosts(true);
 
-      // Start clearing mode
+      // Auto-scroll to bottom after own post
+      if (shouldStickBottomRef.current) {
+        requestAnimationFrame(scrollToBottomSmooth);
+      }
+      shouldStickBottomRef.current = false;
+
       setIsClearing(true);
-      
-      // Force clear GomoRichEditor by changing resetKey
       setResetKey(prev => prev + 1);
       
-      // Clear states
       setContentJson(null);
       setContent("");
       setImageUrls([]);
@@ -860,7 +710,6 @@ const Thread = () => {
       setIsPrivateMessage(false);
       setPrivateRecipientId(null);
       
-      // End clearing mode after a short delay
       setTimeout(() => {
         setIsClearing(false);
       }, 100);
@@ -919,7 +768,9 @@ const Thread = () => {
       toast.error("Ошибка удаления поста");
     } else {
       toast.success("Пост удален");
-      // React Query will auto-refetch via cache invalidation
+      // Remove from local state immediately for instant feedback
+      setAllPosts(prev => prev.filter(p => p.id !== postId));
+      queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
     }
   };
 
@@ -961,7 +812,8 @@ const Thread = () => {
       setEditingPostId(null);
       setEditContent("");
       setEditContentJson(null);
-      // React Query will auto-refetch via cache invalidation
+      queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
+      queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
     }
   };
 
@@ -997,76 +849,7 @@ const Thread = () => {
   };
 
   const handleEmojiSelect = (emojiCode: string) => {
-    // Insert into editor at caret. emojiCode is already like :name:
     editorRef.current?.insertText(emojiCode);
-  };
-
-  const renderContent = (text: string) => {
-    const elements: React.ReactNode[] = [];
-    const currentIndex = 0;
-    let key = 0;
-
-    // Process spoilers first
-    const spoilerRegex = /\|\|(.*?)\|\|/g;
-    let match;
-    let lastIndex = 0;
-
-    const processTextSegment = (segment: string) => {
-      // Process bold, italic, mentions, URLs and emojis
-      return segment.split(/(\*\*.*?\*\*|\*.*?\*|@\w+|https?:\/\/[^\s]+|:[^:\s]+:)/g).map((part, i) => {
-        if (part.startsWith('**') && part.endsWith('**')) {
-          return (
-            <strong key={`${key++}-${i}`} className="font-bold">
-              {part.slice(2, -2)}
-            </strong>
-          );
-        } else if (part.startsWith('*') && part.endsWith('*') && !part.startsWith('**')) {
-          return (
-            <em key={`${key++}-${i}`} className="italic">
-              {part.slice(1, -1)}
-            </em>
-          );
-        } else if (part.startsWith('@')) {
-          const username = part.substring(1); // Remove @ symbol
-          return (
-            <MentionLink key={`${key++}-${i}`} username={username} />
-          );
-        } else if (part.match(/^https?:\/\/[^\s]+$/)) {
-          return (
-            <LinkButton key={`${key++}-${i}`} url={part} />
-          );
-        } else if (part.startsWith(':') && part.endsWith(':') && part.length > 2) {
-          // Emoji code like :smile:
-          const emojiCode = part.slice(1, -1); // Remove colons
-          return (
-            <EmojiInline key={`${key++}-${i}`} code={emojiCode} />
-          );
-        }
-        return part;
-      });
-    };
-
-    while ((match = spoilerRegex.exec(text)) !== null) {
-      // Add text before spoiler
-      if (match.index > lastIndex) {
-        elements.push(...processTextSegment(text.substring(lastIndex, match.index)));
-      }
-
-      // Add spoiler
-      const spoilerContent = match[1];
-      elements.push(
-        <SpoilerText key={`spoiler-${key++}`} content={spoilerContent} />
-      );
-
-      lastIndex = spoilerRegex.lastIndex;
-    }
-
-    // Add remaining text
-    if (lastIndex < text.length) {
-      elements.push(...processTextSegment(text.substring(lastIndex)));
-    }
-
-    return elements;
   };
 
   const handleLogout = async () => {
@@ -1083,7 +866,6 @@ const Thread = () => {
     );
   }
 
-  // Thread not found or error
   if (threadError || !thread) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen flex-col gap-4">
@@ -1095,7 +877,7 @@ const Thread = () => {
 
   const canPost = user && (!thread.boards?.is_rules_board || isAdmin);
 
-  // Helper to render a single post card (used by both direct and virtual scroll modes)
+  // Helper to render a single post card
   const renderPostCard = (post: PostWithExtras) => (
     <>
       <div className="flex justify-between items-start gap-2">
@@ -1483,7 +1265,6 @@ const Thread = () => {
             {/* Thread tags */}
             {(thread as ThreadWithExtras).tags && (
               <div className="flex flex-wrap gap-1 mt-3">
-                {/* Ephemeral indicator */}
                 {(thread as ThreadWithExtras).ephemeral_type && (
                   <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 rounded-full border border-orange-200">
                     {(thread as ThreadWithExtras).ephemeral_type === 'time'
@@ -1492,8 +1273,6 @@ const Thread = () => {
                     }
                   </span>
                 )}
-
-                {/* Ephemeral tag */}
                 {(thread as ThreadWithExtras).ephemeral_type && (
                   <button
                     onClick={() => navigate('/b?flag=ephemeral')}
@@ -1504,8 +1283,6 @@ const Thread = () => {
                     Временный
                   </button>
                 )}
-
-                {/* Content tag */}
                 {(thread as ThreadWithExtras).tags!.content && (
                   <button
                     onClick={() => navigate(`/b?content=${(thread as ThreadWithExtras).tags!.content}`)}
@@ -1516,8 +1293,6 @@ const Thread = () => {
                     {getContentTagLabel((thread as ThreadWithExtras).tags!.content!)}
                   </button>
                 )}
-
-                {/* Format tag */}
                 {(thread as ThreadWithExtras).tags!.format && (
                   <button
                     onClick={() => navigate(`/b?format=${(thread as ThreadWithExtras).tags!.format}`)}
@@ -1528,8 +1303,6 @@ const Thread = () => {
                     {getFormatTagLabel((thread as ThreadWithExtras).tags!.format!)}
                   </button>
                 )}
-
-                {/* Atmosphere tag */}
                 {(thread as ThreadWithExtras).tags!.atmosphere && (
                   <button
                     onClick={() => navigate(`/b?atmosphere=${(thread as ThreadWithExtras).tags!.atmosphere}`)}
@@ -1540,8 +1313,6 @@ const Thread = () => {
                     {getAtmosphereTagLabel((thread as ThreadWithExtras).tags!.atmosphere!)}
                   </button>
                 )}
-
-                {/* Night tag */}
                 {(thread as ThreadWithExtras).tags!.flag === 'night' && (
                   <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full border border-blue-500/20">
                     Ночной
@@ -1573,7 +1344,7 @@ const Thread = () => {
             </div>
           )}
 
-          {/* Inline loader during initial posts loading (thread loaded, posts still coming) */}
+          {/* Inline loader during initial posts loading */}
           {postsInitialLoading && (
             <div className="flex justify-center py-8">
               <PentagramLoader size="md" />
@@ -1589,123 +1360,46 @@ const Thread = () => {
             />
           )}
 
-        {/* Posts — direct rendering for small threads, virtual scroll for large ones */}
-        {allPosts.length > 0 || postsError ? (
-          <div ref={postsContainerRef} className="relative">
-            {useVirtualScroll ? (
-              /* Virtual scroll mode (30+ posts) */
+          {/* Posts — direct rendering for all thread sizes */}
+          <div ref={postsContainerRef} className="space-y-4">
+            {posts.map((post) => (
               <div
-                style={{
-                  height: `${postVirtualizer.getTotalSize()}px`,
-                  width: '100%',
-                  position: 'relative',
-                }}
+                key={`${post.id}-${post.created_at}`}
+                id={`post-${post.id}`}
+                style={{ contentVisibility: "auto", containIntrinsicSize: "auto 160px" }}
+                className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
+                  pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
+                }`}
               >
-                {virtualItems.map((virtualItem) => {
-                  const isLoader = virtualItem.index >= posts.length;
-                  if (isLoader) {
-                    return (
-                      <div
-                        key="load-more"
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          transform: `translateY(${virtualItem.start}px)`,
-                        }}
-                        className="py-4"
-                      >
-                        {postsFetching && !postsInitialLoading && (
-                          <div className="flex justify-center">
-                            <PentagramLoader size="md" />
-                          </div>
-                        )}
-                        {!hasMorePosts && posts.length > 0 && (
-                          <div className="text-center text-muted-foreground py-2 text-sm">
-                            Все посты загружены
-                          </div>
-                        )}
-                        {hasMorePosts && !postsFetching && (
-                          <div className="text-center">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setPostOffset(prev => prev + postsPerPage);
-                              }}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              Загрузить ещё посты
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  const post = posts[virtualItem.index];
-                  return (
-                    <div
-                      key={`${post.id}-${post.created_at}`}
-                      ref={postVirtualizer.measureElement}
-                      data-index={virtualItem.index}
-                      id={`post-${post.id}`}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        transform: `translateY(${virtualItem.start}px)`,
-                      }}
-                      className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
-                        pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
-                      }`}
-                    >                      {renderPostCard(post as PostWithExtras)}</div>
-                  );
-                })}
+                {renderPostCard(post)}
               </div>
-            ) : (
-              /* Direct rendering mode (≤30 posts) — simpler and more reliable */
-              <div className="space-y-4">
-                {posts.map((post) => (
-                  <div
-                    key={`${post.id}-${post.created_at}`}
-                    id={`post-${post.id}`}
-                    className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
-                      pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
-                    }`}
-                  >                    {renderPostCard(post as PostWithExtras)}</div>
-                ))}
-                {/* Load more */}
-                {postsFetching && !postsInitialLoading && (
-                  <div className="flex justify-center py-4">
-                    <PentagramLoader size="md" />
-                  </div>
-                )}
-                {!hasMorePosts && posts.length > 0 && (
-                  <div className="text-center text-muted-foreground py-2 text-sm">
-                    Все посты загружены
-                  </div>
-                )}
-                {hasMorePosts && !postsFetching && (
-                  <div className="flex justify-center">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setPostOffset(prev => prev + postsPerPage);
-                      }}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      Загрузить ещё посты
-                    </Button>
-                  </div>
-                )}
+            ))}
+            {/* Load more */}
+            {postsFetching && !postsInitialLoading && (
+              <div className="flex justify-center py-4">
+                <PentagramLoader size="md" />
+              </div>
+            )}
+            {!hasMorePosts && posts.length > 0 && postsError === false && (
+              <div className="text-center text-muted-foreground py-2 text-sm">
+                Все посты загружены
+              </div>
+            )}
+            {hasMorePosts && !postsFetching && (
+              <div className="flex justify-center">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setPostOffset(prev => prev + postsPerPage);
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Загрузить ещё посты
+                </Button>
               </div>
             )}
           </div>
-        ) : null}
         </div>
 
         {/* Ban user dialog */}
@@ -1759,7 +1453,6 @@ const Thread = () => {
                 </div>
               )}
 
-              {/* Превью вложений над формой */}
               {attachments.length > 0 && !isExpandedView && (
                 <div className="mb-3 bg-card/70 border border-border/50 rounded-xl p-3">
                   <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
@@ -1822,7 +1515,6 @@ const Thread = () => {
                 </div>
               )}
 
-              {/* Mini panel for collapsed state */}
               {isInputPanelCollapsed && (
                 <div className="mx-auto max-w-xs">
                   <div className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-2 flex justify-center">
@@ -1839,10 +1531,8 @@ const Thread = () => {
                 </div>
               )}
 
-              {/* Full panel for expanded state */}
               {!isInputPanelCollapsed && (
                 <div className="max-w-2xl mx-auto relative">
-                  {/* Collapse button - only on desktop */}
                   <button
                     type="button"
                     onClick={() => setIsInputPanelCollapsed(true)}
@@ -1863,7 +1553,6 @@ const Thread = () => {
                         : 'p-4 space-y-3'
                     }`}
                   >
-                {/* Header with reply info */}
                 {replyingTo && (
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1987,7 +1676,6 @@ const Thread = () => {
                 </div>
               )}
 
-              {/* Image Preview Modal */}
               {showImagePreview && (
                 <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
                   <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[80vh] overflow-hidden">
@@ -2101,13 +1789,11 @@ const Thread = () => {
           </div>
         )}
 
-            {/* Scroll to bottom button */}
             {(!isMobile || !isInputPanelVisible) && (
               <ScrollToBottomButton />
         )}
       </main>
 
-      {/* Image Gallery */}
       {showGallery && (
         <ImageGallery
           images={galleryImages}
