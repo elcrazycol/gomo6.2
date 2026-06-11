@@ -3,18 +3,31 @@
 import { apiClient, getDeviceId } from './client';
 
 export const apiAuth = {
-  signUp: async ({ email, password, options }: any) => {
+  signUp: async ({ email, password, options, ...captcha }: any) => {
     try {
-      const result = await apiClient.register(email, options?.data?.username || email.split('@')[0], password);
+      const result = await apiClient.register(
+        email,
+        options?.data?.username || email.split('@')[0],
+        password,
+        {
+          challenge_id: captcha.challenge_id,
+          solution: captcha.solution,
+          captcha_token: captcha.captcha_token,
+        }
+      );
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
     } catch (error) {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  signInWithPassword: async ({ email, password }: any) => {
+  signInWithPassword: async ({ email, password, ...captcha }: any) => {
     try {
       const deviceId = getDeviceId();
-      const result = await apiClient.login(email, password, deviceId);
+      const result = await apiClient.login(email, password, deviceId, {
+        challenge_id: captcha.challenge_id,
+        solution: captcha.solution,
+        captcha_token: captcha.captcha_token,
+      });
       
       if (result.needs_2fa) {
         return { 
