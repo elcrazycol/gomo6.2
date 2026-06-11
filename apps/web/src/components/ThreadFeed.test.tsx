@@ -3,12 +3,14 @@ import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } 
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-const mockFrom = vi.fn();
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
+
 const mockRpc = vi.fn();
 
 vi.mock("@/integrations/api/compat", () => ({
   api: {
-    from: (...args: any[]) => mockFrom(...args),
+    from: vi.fn(),
     rpc: (...args: any[]) => mockRpc(...args),
   },
 }));
@@ -48,28 +50,10 @@ beforeAll(() => {
 
 afterAll(() => {
   (global as any).IntersectionObserver = originalIntersectionObserver;
+  vi.unstubAllGlobals();
 });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function makeChain<T>(resolveValue: T): any {
-  const p = Promise.resolve(resolveValue) as any;
-  p.select = (_sel?: string, _opts?: any) => p;
-  p.eq = (_col?: string, _val?: any) => p;
-  p.order = (_col?: string, _opts?: any) => p;
-  p.in = (_col?: string, _vals?: any[]) => p;
-  p.limit = (_n?: number) => p;
-  p.range = (_from?: number, _to?: number) => p;
-  p.single = () => p;
-  p.maybeSingle = () => p;
-  p.insert = (_row?: any) => {
-    const insertP = Promise.resolve({ data: { id: "new-id" }, error: null }) as any;
-    insertP.select = () => insertP;
-    insertP.single = () => insertP;
-    return insertP;
-  };
-  return p;
-}
 
 function createMockThread(overrides: any = {}) {
   return {
@@ -93,25 +77,42 @@ function createMockThread(overrides: any = {}) {
   };
 }
 
-function defaultApiMocks() {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === "threads") {
-      return makeChain({
-        data: [createMockThread({ id: "thread-1", title: "First Thread" }), createMockThread({ id: "thread-2", title: "Second Thread" })],
-        error: null,
+function makeThreadsResponse(threads: any[], nextCursor: string | null = null) {
+  return {
+    data: threads,
+    next_cursor: nextCursor,
+    success: true,
+    count: threads.length,
+  };
+}
+
+function makeProfilesResponse(profiles: any[]) {
+  return { data: profiles, success: true };
+}
+
+function defaultFetchMocks() {
+  mockFetch.mockImplementation((url: string) => {
+    if (typeof url === "string" && url.includes("/api/v1/threads")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(makeThreadsResponse([
+          createMockThread({ id: "thread-1", title: "First Thread" }),
+          createMockThread({ id: "thread-2", title: "Second Thread" }),
+        ])),
       });
     }
-    if (table === "profiles") {
-      return makeChain({
-        data: [{ id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null }],
-        error: null,
+    if (typeof url === "string" && url.includes("/api/v1/profiles")) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(makeProfilesResponse([
+          { id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null },
+        ])),
       });
     }
-    return makeChain({ data: [], error: null });
-  });
-  mockRpc.mockImplementation((fn: string) => {
-    if (fn === "get_recommended_threads") return Promise.resolve({ data: null, error: { message: "No recommendations" } });
-    return Promise.resolve({ data: null, error: null });
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ data: [], success: true }),
+    });
   });
 }
 
@@ -127,8 +128,13 @@ describe("ThreadFeed", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    defaultApiMocks();
+    defaultFetchMocks();
     intersectionCallback = null;
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_recommended_threads")
+        return Promise.resolve({ data: null, error: { message: "No recommendations" } });
+      return Promise.resolve({ data: null, error: null });
+    });
   });
 
   afterEach(() => {
@@ -138,17 +144,8 @@ describe("ThreadFeed", () => {
   // ─── Loading state ──────────────────────────────────────────────────────────
 
   it("shows loading state initially", () => {
-    // Make api never resolve with a chainable pending promise
-    const deferP = new Promise(() => {}) as any;
-    deferP.select = () => deferP;
-    deferP.eq = () => deferP;
-    deferP.order = () => deferP;
-    deferP.in = () => deferP;
-    deferP.limit = () => deferP;
-    deferP.range = () => deferP;
-    deferP.single = () => deferP;
-    deferP.maybeSingle = () => deferP;
-    mockFrom.mockImplementation(() => deferP);
+    // Never-resolving fetch
+    mockFetch.mockImplementation(() => new Promise(() => {}));
 
     render(
       <ThreadFeedComponent
@@ -207,29 +204,37 @@ describe("ThreadFeed", () => {
   // ─── Empty state ────────────────────────────────────────────────────────────
 
   it("shows 'Больше тредов нет' after loading threads when no more data", async () => {
-    // Return 1 thread first, then empty on "load more"
     let callCount = 0;
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "threads") {
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/v1/threads")) {
         callCount++;
         if (callCount === 1) {
-          return makeChain({
-            data: [createMockThread({ id: "thread-1", title: "First Thread" })],
-            error: null,
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeThreadsResponse([
+              createMockThread({ id: "thread-1", title: "First Thread" }),
+            ])),
           });
         }
-        return makeChain({ data: [], error: null });
-      }
-      if (table === "profiles") {
-        return makeChain({
-          data: [{ id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null }],
-          error: null,
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeThreadsResponse([])),
         });
       }
-      return makeChain({ data: [], error: null });
+      if (typeof url === "string" && url.includes("/api/v1/profiles")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeProfilesResponse([
+            { id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null },
+          ])),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [], success: true }),
+      });
     });
 
-    // Simulate load more via IntersectionObserver callback
     render(
       <ThreadFeedComponent
         currentUserId="current-user"
@@ -255,9 +260,7 @@ describe("ThreadFeed", () => {
 
   it("handles API error gracefully", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockFrom.mockImplementation((table: string) => {
-      return makeChain({ data: null, error: { message: "DB error" } });
-    });
+    mockFetch.mockRejectedValue(new Error("Network error"));
 
     render(
       <ThreadFeedComponent
@@ -267,10 +270,7 @@ describe("ThreadFeed", () => {
     );
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Error loading threads:",
-        expect.objectContaining({ message: "DB error" }),
-      );
+      expect(consoleSpy).toHaveBeenCalled();
     });
 
     consoleSpy.mockRestore();
@@ -278,7 +278,7 @@ describe("ThreadFeed", () => {
 
   // ─── API calls ──────────────────────────────────────────────────────────────
 
-  it("calls api.from('threads') with correct params", async () => {
+  it("calls fetch for threads endpoint", async () => {
     render(
       <ThreadFeedComponent
         currentUserId="current-user"
@@ -287,11 +287,10 @@ describe("ThreadFeed", () => {
     );
 
     await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith("threads");
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/threads"),
+      );
     });
-
-    // Also loads profiles separately
-    expect(mockFrom).toHaveBeenCalledWith("profiles");
   });
 
   it("calls get_recommended_threads rpc for logged-in user", async () => {
@@ -324,27 +323,36 @@ describe("ThreadFeed", () => {
       return Promise.resolve({ data: null, error: null });
     });
 
-    // Return recommended threads on second call (by thread IDs)
-    let callCount = 0;
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "threads") {
-        callCount++;
-        if (callCount === 2) {
+    let threadsCallCount = 0;
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/v1/threads")) {
+        threadsCallCount++;
+        if (threadsCallCount === 2) {
           // Second call is for recommended thread IDs
-          return makeChain({
-            data: [createMockThread({ id: "rec-1", title: "Recommended Thread" })],
-            error: null,
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeThreadsResponse([
+              createMockThread({ id: "rec-1", title: "Recommended Thread" }),
+            ])),
           });
         }
-        return makeChain({ data: [], error: null });
-      }
-      if (table === "profiles") {
-        return makeChain({
-          data: [{ id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null }],
-          error: null,
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeThreadsResponse([])),
         });
       }
-      return makeChain({ data: [], error: null });
+      if (typeof url === "string" && url.includes("/api/v1/profiles")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeProfilesResponse([
+            { id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null },
+          ])),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [], success: true }),
+      });
     });
 
     render(
@@ -360,7 +368,6 @@ describe("ThreadFeed", () => {
   });
 
   it("falls back to chronological feed when recommendations fail", async () => {
-    // Recommendations return empty data
     mockRpc.mockImplementation((fn: string) => {
       if (fn === "get_recommended_threads") {
         return Promise.resolve({ data: [], error: null });

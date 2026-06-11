@@ -211,47 +211,62 @@ const Thread = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data: thread, isLoading: threadLoading } = useThread(threadId);
+  const { data: thread, isLoading: threadLoading, isError: threadError } = useThread(threadId);
   const [postOffset, setPostOffset] = useState(0);
   const [allPosts, setAllPosts] = useState<PostWithExtras[]>([]);
   const [hasMorePosts, setHasMorePosts] = useState(true);
-  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
   const postsPerPage = 50;
-  const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  const { data: postsPage = [], isLoading: postsLoading } = usePosts(threadId, { limit: postsPerPage, offset: postOffset });
+  // Use isFetching for pagination (not isLoading) to avoid full-page flash.
+  // placeholderData keeps previous page visible while next page loads.
+  const { data: postsPage = [], isFetching: postsFetching, isError: postsError, error: postsQueryError } = usePosts(threadId, { limit: postsPerPage, offset: postOffset }, {
+    placeholderData: (prev: any) => prev,
+  });
+
+  // Track initial loading separately (true only when no data has ever loaded)
+  const postsInitialLoading = postsFetching && allPosts.length === 0;
 
   // Sync first page into allPosts
   useEffect(() => {
-    if (!postsLoading && postsPage.length > 0 && postOffset === 0) {
-      setAllPosts(postsPage as PostWithExtras[]);
-      setHasMorePosts(postsPage.length >= postsPerPage);
-      setLoadingMorePosts(false);
+    if (!postsFetching && postOffset === 0) {
+      if (postsPage.length > 0) {
+        setAllPosts(postsPage as PostWithExtras[]);
+        setHasMorePosts(postsPage.length >= postsPerPage);
+      } else {
+        setHasMorePosts(false);
+      }
     }
-  }, [postsPage, postsLoading, postOffset]);
+  }, [postsPage, postsFetching, postOffset, postsPerPage]);
 
-  // Append additional pages
+  // Append additional pages (load more)
   const prevPostOffset = useRef(postOffset);
   useEffect(() => {
-    if (postOffset > 0 && !postsLoading && postsPage.length > 0) {
-      setAllPosts(prev => {
-        const existingIds = new Set(prev.map(p => p.id));
-        const newPosts = (postsPage as PostWithExtras[]).filter(p => !existingIds.has(p.id));
-        if (newPosts.length === 0) return prev;
-        return [...prev, ...newPosts];
-      });
-      setHasMorePosts(postsPage.length >= postsPerPage);
-      setLoadingMorePosts(false);
+    if (postOffset > 0 && !postsFetching) {
+      if (postsPage.length > 0) {
+        setAllPosts(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newPosts = (postsPage as PostWithExtras[]).filter(p => !existingIds.has(p.id));
+          if (newPosts.length === 0) {
+            // No new unique posts — likely reached the end
+            setHasMorePosts(false);
+            return prev;
+          }
+          return [...prev, ...newPosts];
+        });
+        setHasMorePosts(postsPage.length >= postsPerPage);
+      } else {
+        // Empty page means no more posts
+        setHasMorePosts(false);
+      }
     }
     prevPostOffset.current = postOffset;
-  }, [postsPage, postsLoading, postOffset]);
+  }, [postsPage, postsFetching, postOffset, postsPerPage]);
 
   // Reset pagination when thread changes
   useEffect(() => {
     setPostOffset(0);
     setAllPosts([]);
     setHasMorePosts(true);
-    setLoadingMorePosts(false);
   }, [threadId]);
 
   const posts = allPosts;
@@ -776,9 +791,12 @@ const Thread = () => {
 
       await response.json();
 
-      // Invalidate React Query cache so the thread page shows the new post immediately
+      // Invalidate cache and reset to page 1 so the new post appears
       queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
       queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
+      setPostOffset(0);
+      setAllPosts([]);
+      setHasMorePosts(true);
 
       // Start clearing mode
       setIsClearing(true);
@@ -1009,8 +1027,8 @@ const Thread = () => {
     toast.success("Вышли");
   };
 
-  // Don't show fullscreen loader for pageLoading - React Query handles loading states
-  if (threadLoading || postsLoading) {
+  // Show fullscreen loader only during the very first load (no thread data yet)
+  if (threadLoading) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
@@ -1018,10 +1036,12 @@ const Thread = () => {
     );
   }
 
-  if (!thread) {
+  // Thread not found or error
+  if (threadError || !thread) {
     return (
-      <div className="bg-background flex items-center justify-center min-h-screen">
-        <PentagramLoader size="lg" />
+      <div className="bg-background flex items-center justify-center min-h-screen flex-col gap-4">
+        <p className="text-muted-foreground text-lg">Тред не найден</p>
+        <Link to="/" className="text-primary hover:underline text-sm">На главную</Link>
       </div>
     );
   }
@@ -1287,9 +1307,28 @@ const Thread = () => {
         </div>
 
         <div className="space-y-4 mb-4 relative">
-          {pageLoading && (
-            <div className="absolute inset-0 bg-card/90 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-              <PentagramLoader size="lg" />
+          {/* Posts error state */}
+          {postsError && allPosts.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-lg">Не удалось загрузить посты</p>
+              <p className="text-sm mt-1">{(postsQueryError as Error)?.message || 'Попробуйте позже'}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => {
+                  queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
+                }}
+              >
+                Повторить
+              </Button>
+            </div>
+          )}
+
+          {/* Inline loader during initial posts loading (thread loaded, posts still coming) */}
+          {postsInitialLoading && (
+            <div className="flex justify-center py-8">
+              <PentagramLoader size="md" />
             </div>
           )}
 
@@ -1303,58 +1342,57 @@ const Thread = () => {
           )}
 
         {/* Posts with virtual scroll (window-based) */}
-        <div ref={postsContainerRef} className="relative">
-          <div
-            style={{
-              height: `${postVirtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {virtualItems.map((virtualItem) => {
-              const isLoader = virtualItem.index >= posts.length;
-              if (isLoader) {
-                return (
-                  <div
-                    key="load-more"
-                    ref={loadMoreRef}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${virtualItem.start}px)`,
-                    }}
-                    className="py-4"
-                  >
-                    {loadingMorePosts && (
-                      <div className="flex justify-center">
-                        <PentagramLoader size="md" />
-                      </div>
-                    )}
-                    {!hasMorePosts && posts.length > 0 && (
-                      <div className="text-center text-muted-foreground py-2 text-sm">
-                        Все посты загружены
-                      </div>
-                    )}
-                    {hasMorePosts && !loadingMorePosts && (
-                      <div className="text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setLoadingMorePosts(true);
-                            setPostOffset(prev => prev + postsPerPage);
-                          }}
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          Загрузить ещё посты
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+        {allPosts.length > 0 || postsError ? (
+          <div ref={postsContainerRef} className="relative">
+            <div
+              style={{
+                height: `${postVirtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualItems.map((virtualItem) => {
+                const isLoader = virtualItem.index >= posts.length;
+                if (isLoader) {
+                  return (
+                    <div
+                      key="load-more"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                      className="py-4"
+                    >
+                      {postsFetching && !postsInitialLoading && (
+                        <div className="flex justify-center">
+                          <PentagramLoader size="md" />
+                        </div>
+                      )}
+                      {!hasMorePosts && posts.length > 0 && (
+                        <div className="text-center text-muted-foreground py-2 text-sm">
+                          Все посты загружены
+                        </div>
+                      )}
+                      {hasMorePosts && !postsFetching && (
+                        <div className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setPostOffset(prev => prev + postsPerPage);
+                            }}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            Загрузить ещё посты
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
 
               const post = posts[virtualItem.index];
               return (
@@ -1574,6 +1612,7 @@ const Thread = () => {
             })}
           </div>
         </div>
+        ) : null}
         </div>
 
         {/* Ban user dialog */}
