@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -115,6 +116,57 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 	}
 
+	// Determine ORDER BY and direction (for cursor pagination)
+	orderClause := ""
+	orderDir := "ASC" // default for posts
+	if !latest {
+		if orders := c.QueryArray("order"); len(orders) > 0 {
+			joined := ""
+			for i, o := range orders {
+				if i > 0 {
+					joined += ","
+				}
+				joined += o
+				if i == 0 {
+					if strings.Contains(strings.ToLower(o), ".asc") {
+						orderDir = "ASC"
+					} else if strings.Contains(strings.ToLower(o), ".desc") {
+						orderDir = "DESC"
+					}
+				}
+			}
+			if s, ok := parseOrderClause(joined, "p"); ok {
+				orderClause = " ORDER BY " + s
+			}
+		} else {
+			orderClause = " ORDER BY p.created_at ASC"
+		}
+
+		// Handle cursor-based pagination (non-latest mode only)
+		// For ASC: cursor = last seen created_at, filter for later items (created_at > cursor)
+		// For DESC: cursor = last seen created_at, filter for earlier items (created_at < cursor)
+		cursor := c.Query("cursor")
+		if cursor != "" {
+			if orderDir == "ASC" {
+				conditions = append(conditions, "p.created_at > $"+strconv.Itoa(len(args)+1))
+			} else {
+				conditions = append(conditions, "p.created_at < $"+strconv.Itoa(len(args)+1))
+			}
+			args = append(args, cursor)
+			// Rebuild WHERE with cursor condition
+			query = `SELECT ` + baseSelect + `
+		FROM posts p
+		LEFT JOIN users u ON p.user_id = u.id
+		`
+			if len(conditions) > 0 {
+				query += " WHERE " + conditions[0]
+				for i := 1; i < len(conditions); i++ {
+					query += " AND " + conditions[i]
+				}
+			}
+		}
+	}
+
 	// Handle ordering (format: column.asc/column.desc) — supports multiple order params
 	if latest {
 		// Safeguard: latest=true requires thread_id=in.(...) to avoid full table scan
@@ -132,19 +184,8 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 		query += " ORDER BY p.thread_id, p.created_at DESC) sub"
 	} else {
-		if orders := c.QueryArray("order"); len(orders) > 0 {
-			joined := ""
-			for i, o := range orders {
-				if i > 0 {
-					joined += ","
-				}
-				joined += o
-			}
-			if s, ok := parseOrderClause(joined, "p"); ok {
-				query += " ORDER BY " + s
-			}
-		} else {
-			query += " ORDER BY p.created_at ASC"
+		if orderClause != "" {
+			query += orderClause
 		}
 	}
 
@@ -181,14 +222,21 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 		}
 	}
 
-	if offsetStr := c.Query("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
-		}
-	}
+	cursor := c.Query("cursor")
+	useCursor := cursor != "" && !latest
 
-	query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
-	args = append(args, limit, offset)
+	if !useCursor {
+		if offsetStr := c.Query("offset"); offsetStr != "" {
+			if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+				offset = o
+			}
+		}
+		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
+		args = append(args, limit, offset)
+	} else {
+		query += " LIMIT $" + strconv.Itoa(len(args)+1)
+		args = append(args, limit)
+	}
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -231,7 +279,15 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	}
 
 	postCount := len(posts)
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: posts, Count: &postCount})
+
+	// Build response with next_cursor for cursor-based pagination
+	resp := models.APIResponse{Success: true, Data: posts, Count: &postCount}
+	if len(posts) > 0 && len(posts) >= limit {
+		lastCreated := posts[len(posts)-1].CreatedAt.Format(time.RFC3339Nano)
+		resp.NextCursor = &lastCreated
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *PostsHandler) GetPost(c *gin.Context) {

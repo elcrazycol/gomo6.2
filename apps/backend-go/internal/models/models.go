@@ -227,10 +227,11 @@ type FederationAuth struct {
 }
 
 type APIResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *string     `json:"error,omitempty"`
-	Count   *int        `json:"count,omitempty"`
+	Success    bool        `json:"success"`
+	Data       interface{} `json:"data,omitempty"`
+	Error      *string     `json:"error,omitempty"`
+	Count      *int        `json:"count,omitempty"`
+	NextCursor *string     `json:"next_cursor,omitempty"`
 }
 
 // SuccessResponse builds a successful APIResponse.
