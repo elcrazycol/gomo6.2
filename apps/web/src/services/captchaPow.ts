@@ -51,7 +51,10 @@ export async function fetchChallenge(): Promise<PowChallenge> {
 }
 
 // Solve the PoW challenge using Web Worker
-export function solveChallenge(challenge: PowChallenge): Promise<string> {
+export function solveChallenge(
+  challenge: PowChallenge,
+  onProgress?: (elapsedSec: number) => void
+): Promise<string> {
   return new Promise((resolve, reject) => {
     try {
       const workerCode = `
@@ -92,15 +95,16 @@ export function solveChallenge(challenge: PowChallenge): Promise<string> {
               const input = challengeId + nonce + solution.toString(36);
               const hash = await sha256(input);
               if (hasLeadingZeroBits(hash, difficulty)) {
-                const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+                const elapsed = (performance.now() - startTime) / 1000;
                 self.postMessage({ type: 'solved', solution: solution.toString(36), elapsed });
                 return;
               }
               solution++;
             }
-            // Report progress
+            // Report progress with elapsed time
             if (solution % 50000n === 0n) {
-              self.postMessage({ type: 'progress', iterations: Number(solution) });
+              const sec = ((performance.now() - startTime) / 1000).toFixed(2);
+              self.postMessage({ type: 'progress', iterations: Number(solution), elapsed: parseFloat(sec) });
             }
           }
 
@@ -120,10 +124,13 @@ export function solveChallenge(challenge: PowChallenge): Promise<string> {
         const msg = e.data;
         if (msg.type === 'solved') {
           worker.terminate();
+          onProgress?.(msg.elapsed);
           resolve(msg.solution);
         } else if (msg.type === 'timeout') {
           worker.terminate();
           reject(new Error('Proof-of-work timed out. Please try again.'));
+        } else if (msg.type === 'progress') {
+          onProgress?.(msg.elapsed);
         }
       };
 
