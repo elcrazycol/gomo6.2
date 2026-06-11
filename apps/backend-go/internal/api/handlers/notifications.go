@@ -20,6 +20,7 @@ import (
 // notificationPayload is the data sent over WebSocket for a new notification
 type notificationPayload struct {
 	ID              string      `json:"id"`
+	NotificationID  string      `json:"notification_id"`
 	UserID          string      `json:"user_id"`
 	Type            string      `json:"type"`
 	Title           string      `json:"title"`
@@ -98,6 +99,7 @@ func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 	if hub != nil {
 		payload := notificationPayload{
 			ID:              notification.ID,
+			NotificationID:  notification.ID,
 			UserID:          notification.UserID,
 			Type:            notification.Type,
 			Title:           notification.Title,
@@ -140,11 +142,23 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		       is_read, created_at
 		FROM notifications 
 		WHERE user_id = $1
-		ORDER BY created_at DESC
 	`
 
 	var args []interface{}
 	args = append(args, userClaims.UserID)
+	argIdx := 2
+
+	// Support is_read filter: ?is_read=true or ?is_read=eq.true or ?is_read=false
+	if isReadStr := c.Query("is_read"); isReadStr != "" {
+		switch isReadStr {
+		case "true", "eq.true":
+			query += fmt.Sprintf(" AND is_read = true")
+		case "false", "eq.false":
+			query += fmt.Sprintf(" AND is_read = false")
+		}
+	}
+
+	query += " ORDER BY created_at DESC"
 
 	limit := 50
 	offset := 0
@@ -161,8 +175,9 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		}
 	}
 
-	query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
-	args = append(args, limit, offset)
+	// Fetch limit+1 to detect has_more
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append(args, limit+1, offset)
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -186,8 +201,19 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		notifications = append(notifications, notification)
 	}
 
+	// Detect has_more
+	hasMore := len(notifications) > limit
+	if hasMore {
+		notifications = notifications[:limit]
+	}
+
 	notificationCount := len(notifications)
-	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: notifications, Count: &notificationCount})
+	c.JSON(http.StatusOK, models.APIResponse{
+		Success: true,
+		Data:    notifications,
+		Count:   &notificationCount,
+		HasMore: &hasMore,
+	})
 }
 
 func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
