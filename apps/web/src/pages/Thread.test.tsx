@@ -17,7 +17,7 @@ vi.mock("@/hooks/queries", () => ({
   useThreadSubscription: () => ({ data: false }),
 }));
 vi.mock("@/hooks/useWebSocketSync", () => ({ useWebSocketSync: vi.fn() }));
-vi.mock("@/services/websocket", () => ({ wsService: { subscribe: vi.fn(), on: vi.fn().mockReturnValue(vi.fn()) } }));
+vi.mock("@/services/websocket", () => ({ wsService: { subscribe: vi.fn(), subscribeToThread: vi.fn(), unsubscribe: vi.fn(), on: vi.fn().mockReturnValue(vi.fn()) } }));
 vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
 vi.mock("@/lib/imageProcessing", () => ({ getUserPrivacySettings: () => Promise.resolve({ remove_image_metadata: false }) }));
 vi.mock("@/utils/storage", () => ({ storageUrl: () => null }));
@@ -94,10 +94,12 @@ describe("Thread", () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
-  it("shows pentagram loader when thread data is null", async () => {
+  it("shows pentagram loader when thread is still loading", async () => {
+    const queries = await import("@/hooks/queries");
+    (queries.useThread as any) = () => ({ data: null, isLoading: true });
     renderWithProviders(<ThreadComponent />);
     await waitFor(() => {
       expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
