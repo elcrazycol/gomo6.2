@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -36,11 +38,11 @@ type CaptchaHandler struct {
 //	MCAPTCHA_SITE_KEY  — public site key (exposed to frontend)
 //	MCAPTCHA_SECRET    — secret for backend verification
 //	MCAPTCHA_VERIFY_URL — mCaptcha server verification endpoint
-//	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 16, ~65k iterations)
+//	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 20, ~1M iterations)
 //
 // If mCaptcha is NOT configured, built-in Proof-of-Work is used as fallback.
 func NewCaptchaHandler(redis *redis.Client) *CaptchaHandler {
-	difficulty := 16
+	difficulty := 20 // ~1M hashes avg, ~1-2s on modern hardware
 	if d := os.Getenv("MCAPTCHA_POW_DIFFICULTY"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed >= 8 && parsed <= 32 {
 			difficulty = parsed
@@ -137,40 +139,52 @@ func (h *CaptchaHandler) GetChallenge(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(challenge))
 }
 
+// Lua script for atomic GET + DELETE (compatible with Redis 2.6+).
+// We don't use GETDEL because it requires Redis 6.2+ (not available on all managed instances).
+var getAndDelScript = redis.NewScript(`
+	local val = redis.call('GET', KEYS[1])
+	if val then
+		redis.call('DEL', KEYS[1])
+	end
+	return val
+`)
+
 // VerifyPoW checks if a PoW solution is valid for the given challenge.
 // For external mCaptcha: challengeID is empty, solution is the mCaptcha token.
 // For built-in PoW: challengeID identifies the Redis-stored challenge, solution is the found nonce.
 func (h *CaptchaHandler) VerifyPoW(challengeID, solution string) error {
 	if h.IsConfigured() {
-		// External mCaptcha handles verification — use that
 		return h.verifyExternalToken(solution)
 	}
 
-	// Built-in PoW verification
 	if challengeID == "" || solution == "" {
-		return fmt.Errorf("challenge_id and solution are required")
+		return fmt.Errorf("missing captcha fields")
 	}
 
-	// Retrieve challenge from Redis
 	if h.redis == nil {
-		return fmt.Errorf("Redis is required for PoW verification")
+		return fmt.Errorf("captcha service offline")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
 	key := "pow:challenge:" + challengeID
 
-	// Atomically GET + DEL to prevent replay attacks.
-	// If the challenge was already used (or expired), GET returns nil.
-	data, err := h.redis.GetDel(ctx, key).Bytes()
+	// Atomic GET + DELETE via Lua (works on all Redis versions)
+	data, err := getAndDelScript.Run(ctx, h.redis, []string{key}).Text()
 	if err != nil {
-		return fmt.Errorf("challenge expired or not found — please refresh and try again")
+		log.Printf("[CAPTCHA] Redis error for challenge %s: %v", challengeID[:min(8, len(challengeID))], err)
+		return fmt.Errorf("captcha expired — refresh and try again")
+	}
+	if data == "" {
+		log.Printf("[CAPTCHA] Challenge not found: %s", challengeID[:min(8, len(challengeID))])
+		return fmt.Errorf("captcha expired — refresh and try again")
 	}
 
 	var challenge powChallenge
-	if err := json.Unmarshal(data, &challenge); err != nil {
-		return fmt.Errorf("invalid challenge data")
+	if err := json.Unmarshal([]byte(data), &challenge); err != nil {
+		log.Printf("[CAPTCHA] Corrupt challenge data: %v", err)
+		return fmt.Errorf("captcha expired — refresh and try again")
 	}
 
 	// Verify solution: SHA256(challengeID + nonce + solution) must have 'difficulty' leading zero bits
@@ -178,7 +192,10 @@ func (h *CaptchaHandler) VerifyPoW(challengeID, solution string) error {
 	hash := sha256.Sum256([]byte(input))
 
 	if !hasLeadingZeroBits(hash[:], challenge.Difficulty) {
-		return fmt.Errorf("invalid proof-of-work solution — please try again")
+		hashHex := hex.EncodeToString(hash[:])
+		log.Printf("[CAPTCHA] PoW failed: challenge=%s solution_len=%d difficulty=%d hash=%s",
+			challengeID[:min(8, len(challengeID))], len(solution), challenge.Difficulty, hashHex[:16])
+		return fmt.Errorf("captcha failed — please try again")
 	}
 
 	return nil
