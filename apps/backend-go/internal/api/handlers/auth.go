@@ -167,18 +167,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// ── CAPTCHA verification (always required when enabled) ──
 	if h.captchaHandler != nil {
+		var captchaErr error
 		if h.captchaHandler.IsConfigured() {
-			// External mCaptcha — token is mandatory
-			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-				return
-			}
+			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken)
 		} else if h.redis != nil {
-			// Built-in PoW — challenge_id and solution are mandatory
-			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-				return
-			}
+			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution)
+		}
+		if captchaErr != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(captchaErr.Error()))
+			return
 		}
 	}
 
@@ -255,18 +252,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// ── CAPTCHA verification (always required when enabled) ──
 	if h.captchaHandler != nil {
+		var captchaErr error
 		if h.captchaHandler.IsConfigured() {
-			// External mCaptcha — token is mandatory
-			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-				return
-			}
+			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken)
 		} else if h.redis != nil {
-			// Built-in PoW — challenge_id and solution are mandatory
-			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
-				return
-			}
+			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution)
+		}
+		if captchaErr != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(captchaErr.Error()))
+			return
 		}
 	}
 
