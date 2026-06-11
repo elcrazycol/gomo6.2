@@ -268,6 +268,7 @@ const Thread = () => {
 
   const posts = allPosts;
   const postsContainerRef = useRef<HTMLDivElement>(null);
+  const postsSentinelRef = useRef<HTMLDivElement>(null);
 
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -625,6 +626,26 @@ const Thread = () => {
       shouldStickBottomRef.current = false;
     }
   }, [posts, isNearBottom, scrollToBottomSmooth]);
+
+  // Infinite scroll for posts — IntersectionObserver on sentinel
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMorePosts && !postsFetching) {
+          setPostOffset(prev => prev + postsPerPage);
+        }
+      },
+      { threshold: 0.1, rootMargin: '200px' }
+    );
+
+    if (postsSentinelRef.current) {
+      observer.observe(postsSentinelRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMorePosts, postsFetching, postsPerPage]);
 
   const handleSubmitPost = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -1374,31 +1395,19 @@ const Thread = () => {
                 {renderPostCard(post)}
               </div>
             ))}
-            {/* Load more */}
-            {postsFetching && !postsInitialLoading && (
-              <div className="flex justify-center py-4">
-                <PentagramLoader size="md" />
-              </div>
-            )}
-            {!hasMorePosts && posts.length > 0 && postsError === false && (
-              <div className="text-center text-muted-foreground py-2 text-sm">
-                Все посты загружены
-              </div>
-            )}
-            {hasMorePosts && !postsFetching && (
-              <div className="flex justify-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setPostOffset(prev => prev + postsPerPage);
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  Загрузить ещё посты
-                </Button>
-              </div>
-            )}
+            {/* Infinite scroll sentinel for posts */}
+            <div ref={postsSentinelRef} className="py-4">
+              {postsFetching && !postsInitialLoading && (
+                <div className="flex justify-center py-4">
+                  <PentagramLoader size="md" />
+                </div>
+              )}
+              {!hasMorePosts && posts.length > 0 && postsError === false && (
+                <div className="text-center text-muted-foreground py-2 text-sm">
+                  Все посты загружены
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

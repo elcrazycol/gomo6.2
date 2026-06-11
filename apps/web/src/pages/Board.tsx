@@ -122,6 +122,7 @@ const Board = () => {
   const [threadsCursor, setThreadsCursor] = useState<string | null>(null);
   const [hasMoreThreads, setHasMoreThreads] = useState(true);
   const [loadingMoreThreads, setLoadingMoreThreads] = useState(false);
+  const threadsSentinelRef = useRef<HTMLDivElement>(null);
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -457,6 +458,28 @@ const Board = () => {
       wsService.unsubscribe(room);
     };
   }, [board, loadThreads]);
+
+  // Infinite scroll for threads — IntersectionObserver on sentinel
+  useEffect(() => {
+    if (pageLoading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreThreads && !loadingMoreThreads && board) {
+          loadThreads(board.id, true);
+        }
+      },
+      { threshold: 0.1, rootMargin: '200px' }
+    );
+
+    if (threadsSentinelRef.current) {
+      observer.observe(threadsSentinelRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMoreThreads, loadingMoreThreads, board, pageLoading, loadThreads]);
 
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
   if (slug === "gomosubs") {
@@ -1349,27 +1372,19 @@ const Board = () => {
           </div>
         )}
 
-        {/* Load More */}
-        {threads.length > 0 && (
-          <div className="flex justify-center py-4">
-            {loadingMoreThreads ? (
+        {/* Infinite scroll sentinel for threads */}
+        <div ref={threadsSentinelRef} className="py-4">
+          {loadingMoreThreads && (
+            <div className="flex justify-center">
               <PentagramLoader size="md" />
-            ) : hasMoreThreads ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => board && loadThreads(board.id, true)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                Загрузить ещё треды
-              </Button>
-            ) : (
-              <div className="text-center text-muted-foreground py-2 text-sm">
-                Все треды загружены
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+          {!hasMoreThreads && threads.length > 0 && (
+            <div className="text-center text-muted-foreground py-2 text-sm">
+              Все треды загружены
+            </div>
+          )}
+        </div>
 
         {board.is_gomosub && board.rules_markdown?.trim() && (
           <Dialog
