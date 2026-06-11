@@ -43,9 +43,10 @@ export const ThreadFeed = ({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [offset, setOffset] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver>();
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const initialLoadDone = useRef(false);
 
   const loadThreads = useCallback(async (isLoadMore = false) => {
     try {
@@ -55,35 +56,20 @@ export const ThreadFeed = ({
         setLoading(true);
       }
 
-      // Get threads without profiles first
-      const { data: threadsData, error } = await api
-        .from("threads")
-        .select(`
-          id,
-          title,
-          content,
-          image_url,
-          image_urls,
-          created_at,
-          updated_at,
-          user_id,
-          board_id,
-          tags,
-          ephemeral_type,
-          ephemeral_value,
-          auto_delete_at,
-          post_count,
-          boards!inner (
-            slug,
-            name,
-            is_gomosub
-          )
-        `)
-        .order("updated_at", { ascending: false })
-        .range(offset, offset + limit - 1);
+      // Build URL with cursor-based pagination
+      let url = `/api/v1/threads?order=updated_at.desc&limit=${limit}`;
+      if (isLoadMore && cursor) {
+        url += `&cursor=${encodeURIComponent(cursor)}`;
+      }
 
-      // If user is logged in, try to get recommendations first
-      if (currentUserId && !isLoadMore) {
+      const response = await fetch(url);
+      const result = await response.json();
+      const threadsData = (result.data || []) as Record<string, unknown>[];
+      const nextCursor = result.next_cursor || null;
+
+      // If user is logged in and this is the initial load, try recommendations
+      if (currentUserId && !isLoadMore && !initialLoadDone.current) {
+        initialLoadDone.current = true;
         const { data: recommended, error: recError } = await api.rpc(
           "get_recommended_threads",
           {
@@ -96,44 +82,22 @@ export const ThreadFeed = ({
         if (!recError && recommended && (recommended as any[]).length > 0) {
           // Get full thread data for recommendations
           const recommendedIds = (recommended as any[]).map((r: any) => r.thread_id);
-          const { data: recThreadsData, error: recThreadsError } = await api
-            .from("threads")
-            .select(`
-              id,
-              title,
-              content,
-              image_url,
-              image_urls,
-              created_at,
-              updated_at,
-              user_id,
-              board_id,
-              tags,
-              ephemeral_type,
-              ephemeral_value,
-              auto_delete_at,
-              post_count,
-              boards!inner (
-                slug,
-                name,
-                is_gomosub
-              )
-            `)
-            .in("id", recommendedIds);
+          const recResponse = await fetch(`/api/v1/threads?id=in.(${recommendedIds.join(',')})&limit=${limit}`);
+          const recResult = await recResponse.json();
+          const recThreadsData = (recResult.data || []) as Record<string, unknown>[];
 
-          if (!recThreadsError && recThreadsData && recThreadsData.length > 0) {
+          if (recThreadsData.length > 0) {
             // Get profiles separately
-            const userIds = recThreadsData.map(thread => thread.user_id).filter(Boolean);
-            const { data: profilesData } = await api
-              .from("profiles")
-              .select("id, username, is_anonymous, avatar_url")
-              .in("id", userIds);
+            const userIds = recThreadsData.map(t => t.user_id as string).filter(Boolean);
+            const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${[...new Set(userIds)].join(',')})`);
+            const profilesResult = await profilesResponse.json();
+            const profilesData = (profilesResult.data || []) as { id: string; username: string; is_anonymous: boolean; avatar_url?: string | null }[];
 
             // Combine threads with profiles
             const recThreadsWithProfiles = recThreadsData.map(thread => ({
               ...thread,
-              profiles: profilesData?.find(profile => profile.id === thread.user_id) || null
-            }));
+              profiles: profilesData.find(profile => profile.id === thread.user_id) || null
+            })) as unknown as Thread[];
 
             // Sort by recommendation score
             const sortedRecThreads = recThreadsWithProfiles.sort((a, b) => {
@@ -149,57 +113,51 @@ export const ThreadFeed = ({
         }
       }
 
-      // Fallback to regular chronological feed
-      if (error) {
-        console.error("Error loading threads:", error);
+      if (!threadsData.length) {
+        if (!isLoadMore) setThreads([]);
+        setHasMore(false);
         setLoading(false);
         setLoadingMore(false);
         return;
       }
 
-      if (threadsData && threadsData.length > 0) {
-        // Get profiles separately
-        const userIds = threadsData.map(thread => thread.user_id).filter(Boolean);
-        const { data: profilesData } = await api
-          .from("profiles")
-          .select("id, username, is_anonymous, avatar_url")
-          .in("id", userIds);
+      // Get profiles separately
+      const userIds = threadsData.map(t => t.user_id as string).filter(Boolean);
+      const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${[...new Set(userIds)].join(',')})`);
+      const profilesResult = await profilesResponse.json();
+      const profilesData = (profilesResult.data || []) as { id: string; username: string; is_anonymous: boolean; avatar_url?: string | null }[];
 
-        // Combine threads with profiles
-        const threadsWithProfiles = threadsData.map(thread => ({
-          ...thread,
-          profiles: profilesData?.find(profile => profile.id === thread.user_id) || null
-        }));
+      // Combine threads with profiles
+      const threadsWithProfiles = threadsData.map(thread => ({
+        ...thread,
+        profiles: profilesData.find(profile => profile.id === thread.user_id) || null
+      })) as unknown as Thread[];
 
-        if (isLoadMore) {
-          setThreads(prev => [...prev, ...threadsWithProfiles]);
-        } else {
-          setThreads(threadsWithProfiles);
-        }
-
-        if (threadsData.length < limit) {
-          setHasMore(false);
-        }
+      if (isLoadMore) {
+        setThreads(prev => [...prev, ...threadsWithProfiles]);
       } else {
-        setHasMore(false);
+        setThreads(threadsWithProfiles);
       }
+
+      // Update cursor for next page
+      setCursor(nextCursor);
+      setHasMore(nextCursor !== null && threadsData.length >= limit);
     } catch (error) {
       console.error("Error in loadThreads:", error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [currentUserId, offset, limit]);
+  }, [currentUserId, cursor, limit]);
 
   useEffect(() => {
     loadThreads();
-  }, [loadThreads]);
+  }, []); // Only on mount
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
-          setOffset(prev => prev + limit);
           loadThreads(true);
         }
       },
@@ -217,7 +175,7 @@ export const ThreadFeed = ({
         observerRef.current.disconnect();
       }
     };
-  }, [hasMore, loadingMore, loading, limit, loadThreads]);
+  }, [hasMore, loadingMore, loading, loadThreads]);
 
   if (loading) {
     return (

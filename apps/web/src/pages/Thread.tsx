@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -253,23 +254,18 @@ const Thread = () => {
     setLoadingMorePosts(false);
   }, [threadId]);
 
-  // IntersectionObserver for infinite scroll
-  useEffect(() => {
-    if (!hasMorePosts || loadingMorePosts || postsLoading) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMorePosts && !loadingMorePosts) {
-          setLoadingMorePosts(true);
-          setPostOffset(prev => prev + postsPerPage);
-        }
-      },
-      { threshold: 0.1 }
-    );
-    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
-    return () => observer.disconnect();
-  }, [hasMorePosts, loadingMorePosts, postsLoading, postsPerPage]);
-
   const posts = allPosts;
+  const postsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Virtual scroll: only render visible posts for performance
+  // Uses window-based scrolling to preserve existing scroll behavior
+  const postVirtualizer = useVirtualizer({
+    count: posts.length + (hasMorePosts ? 1 : 0),
+    getScrollElement: () => null,
+    estimateSize: () => 160,
+    overscan: 5,
+  });
+  const virtualItems = postVirtualizer.getVirtualItems();
 
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -1306,242 +1302,278 @@ const Thread = () => {
             />
           )}
 
-          {posts.map((post) => (
-            <div
-              key={`${post.id}-${post.created_at}`}
-              id={`post-${post.id}`}
-              className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
-                pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
-              }`}
-            >
-              <div className="flex justify-between items-start gap-2">
-                <div className="text-xs text-muted-foreground mb-2 flex-wrap flex-1">
-                  {senderDisplayType === 'modern' ? (
-                    <div className="flex items-start gap-2">
-                      <img
-                        src={storageUrl("post-images", (post as PostWithExtras).avatar_url) || '/placeholder.svg'}
-                        alt="Avatar"
-                        className="w-12 h-12 rounded-full object-cover border border-border"
-                      />
-                      <div>
-                        <UserBadge
-                          userId={post.user_id}
-                          username={(post as PostWithExtras).username || "Аноним"}
-                          isAnonymous={false}
-                          showOutline={false}
-                          isThreadOpener={post.user_id === thread?.user_id}
-                        />
-                        <div className="text-muted-foreground">
+        {/* Posts with virtual scroll (window-based) */}
+        <div ref={postsContainerRef} className="relative">
+          <div
+            style={{
+              height: `${postVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualItems.map((virtualItem) => {
+              const isLoader = virtualItem.index >= posts.length;
+              if (isLoader) {
+                return (
+                  <div
+                    key="load-more"
+                    ref={loadMoreRef}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                    className="py-4"
+                  >
+                    {loadingMorePosts && (
+                      <div className="flex justify-center">
+                        <PentagramLoader size="md" />
+                      </div>
+                    )}
+                    {!hasMorePosts && posts.length > 0 && (
+                      <div className="text-center text-muted-foreground py-2 text-sm">
+                        Все посты загружены
+                      </div>
+                    )}
+                    {hasMorePosts && !loadingMorePosts && (
+                      <div className="text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setLoadingMorePosts(true);
+                            setPostOffset(prev => prev + postsPerPage);
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          Загрузить ещё посты
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              const post = posts[virtualItem.index];
+              return (
+                <div
+                  key={`${post.id}-${post.created_at}`}
+                  ref={postVirtualizer.measureElement}
+                  data-index={virtualItem.index}
+                  id={`post-${post.id}`}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                  className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
+                    pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="text-xs text-muted-foreground mb-2 flex-wrap flex-1">
+                      {senderDisplayType === 'modern' ? (
+                        <div className="flex items-start gap-2">
+                          <img
+                            src={storageUrl("post-images", (post as PostWithExtras).avatar_url) || '/placeholder.svg'}
+                            alt="Avatar"
+                            className="w-12 h-12 rounded-full object-cover border border-border"
+                          />
+                          <div>
+                            <UserBadge
+                              userId={post.user_id}
+                              username={(post as PostWithExtras).username || "Аноним"}
+                              isAnonymous={false}
+                              showOutline={false}
+                              isThreadOpener={post.user_id === thread?.user_id}
+                            />
+                            <div className="text-muted-foreground">
+                              {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
+                                locale: ru,
+                                addSuffix: true,
+                              }) : 'только что'}
+                            </div>
+                            <div className="font-mono text-primary text-[10px]">#{post.id.slice(0, 8)}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="font-mono text-primary">#{post.id.slice(0, 8)}</span>
+                          {" · "}
+                          <UserBadge
+                            userId={post.user_id}
+                            username={(post as PostWithExtras).username || "Аноним"}
+                            isAnonymous={false}
+                            showOutline={false}
+                          />
+                          {" · "}
                           {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
                             locale: ru,
                             addSuffix: true,
                           }) : 'только что'}
-                        </div>
-                        <div className="font-mono text-primary text-[10px]">#{post.id.slice(0, 8)}</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      {user && post.user_id === user.id && (
+                        <UserMenu
+                          type="post"
+                          onEdit={() => {
+                            setEditingPostId(post.id);
+                            setEditContent(post.content);
+                            setEditContentJson((post as PostWithExtras).content_json ?? null);
+                          }}
+                          onDelete={() => handleDeletePost(post.id)}
+                          onReport={() => setReportingPost(post.id)}
+                        />
+                      )}
+                      {isModerator && post.user_id && post.user_id !== user?.id && (
+                        <ModeratorMenu
+                          type="post"
+                          onDelete={() => handleDeletePost(post.id)}
+                          onEdit={() => {
+                            setEditingPostId(post.id);
+                            setEditContent(post.content);
+                            setEditContentJson((post as PostWithExtras).content_json ?? null);
+                          }}
+                          onBan={() => setBanUserId(post.user_id!)}
+                        />
+                      )}
+                      {user && post.user_id !== user.id && !isModerator && (
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="hover:bg-primary/10 hover:text-primary transition-colors"
+                              onClick={() => setReportingPost(post.id)}
+                            >
+                              <AlertTriangle className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="bg-background border-border">
+                            <DialogHeader>
+                              <DialogTitle>Пожаловаться на пост</DialogTitle>
+                            </DialogHeader>
+                            <Textarea
+                              placeholder="Причина жалобы..."
+                              value={reportReason}
+                              onChange={(e) => setReportReason(e.target.value)}
+                              rows={3}
+                            />
+                            <Button onClick={() => handleReport(post.id, false)}>
+                              Отправить жалобу
+                            </Button>
+                          </DialogContent>
+                        </Dialog>
+                      )}
+                    </div>
+                  </div>
+                  {post.reply_to && (
+                    <a
+                      href={`#post-${post.reply_to}`}
+                      className="text-xs hover:text-primary/80 font-medium hover:underline block mb-1 transition-colors cursor-pointer"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setPulsingPostId(post.reply_to ?? null);
+                        setTimeout(() => setPulsingPostId(null), 800);
+                        const element = document.getElementById(`post-${post.reply_to}`);
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
+                    >
+                      <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
+                    </a>
+                  )}
+                  {renderAttachments((post as PostWithExtras).attachments || [], (urls, idx) => {
+                    setGalleryEditable(false);
+                    setGalleryImages(urls);
+                    setGalleryIndex(idx);
+                    setShowGallery(true);
+                  }, `post-${post.id}`)}
+                  {editingPostId === post.id ? (
+                    <div className="space-y-2">
+                      <GomoRichEditor
+                        key={resetKey}
+                        contentJson={(post as PostWithExtras).content_json}
+                        legacyContent={post.content}
+                        onChange={({ json, text }) => {
+                          setEditContentJson(json);
+                          setEditContent(text);
+                        }}
+                        onSubmit={() => handleEditPost()}
+                        placeholder="Напишите сообщение…"
+                        minHeightClassName="min-h-[120px]"
+                      />
+                      <div className="flex gap-2">
+                        <Button onClick={handleEditPost} size="sm">Сохранить</Button>
+                        <Button
+                          onClick={() => {
+                            setEditingPostId(null);
+                            setEditContent("");
+                            setEditContentJson(null);
+                          }}
+                          variant="secondary"
+                          size="sm"
+                        >
+                          Отмена
+                        </Button>
                       </div>
                     </div>
                   ) : (
-                    <>
-                      <span className="font-mono text-primary">#{post.id.slice(0, 8)}</span>
-                      {" · "}
-                      <UserBadge
-                        userId={post.user_id}
-                      username={(post as PostWithExtras).username || "Аноним"}
-                      isAnonymous={false}
-                      showOutline={false}
-                      />
-                      {" · "}
-                      {post.created_at ? formatDistanceToNow(new Date(post.created_at), {
-                        locale: ru,
-                        addSuffix: true,
-                      }) : 'только что'}
-                    </>
+                    <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
+                      {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
+                        <span className="text-muted-foreground italic">Скрытый контент</span>
+                      ) : (
+                        <>
+                          <ProcessedContent
+                            content={post.content}
+                            contentJson={(post as PostWithExtras).content_json}
+                            currentUserId={user?.id || null}
+                            isAdmin={isAdmin}
+                            currentUsername={currentUserUsername}
+                            currentUserColor={currentUserColor}
+                            postAuthorId={post.user_id}
+                            authorUsername={(post as PostWithExtras).username}
+                          />
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
-                <div className="flex gap-1 flex-shrink-0">
-                  {user && post.user_id === user.id && (
-                    <UserMenu
-                      type="post"
-                      onEdit={() => {
-                        setEditingPostId(post.id);
-                        setEditContent(post.content);
-                        setEditContentJson((post as PostWithExtras).content_json ?? null);
-                      }}
-                      onDelete={() => handleDeletePost(post.id)}
-                      onReport={() => setReportingPost(post.id)}
+                  <div className="flex justify-end items-center gap-1">
+                    {user && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="hover:bg-primary/10 hover:text-primary transition-colors h-6 w-6 p-0"
+                        onClick={() => {
+                          setReplyingTo(post.id);
+                          setPrivateRecipientId(post.user_id);
+                          setIsInputPanelVisible(true);
+                          setTimeout(() => {
+                            editorRef.current?.focus();
+                          }, 300);
+                        }}
+                      >
+                        <Reply className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <LikeButton
+                      postId={post.id}
+                      currentUserId={user?.id || null}
+                      postAuthorId={post.user_id}
                     />
-                  )}
-                  {isModerator && post.user_id && post.user_id !== user?.id && (
-                    <ModeratorMenu
-                      type="post"
-                      onDelete={() => handleDeletePost(post.id)}
-                      onEdit={() => {
-                        setEditingPostId(post.id);
-                        setEditContent(post.content);
-                        setEditContentJson((post as PostWithExtras).content_json ?? null);
-                      }}
-                      onBan={() => setBanUserId(post.user_id!)}
-                    />
-                  )}
-                  {user && post.user_id !== user.id && !isModerator && (
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="hover:bg-primary/10 hover:text-primary transition-colors"
-                          onClick={() => setReportingPost(post.id)}
-                        >
-                          <AlertTriangle className="h-4 w-4" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="bg-background border-border">
-                        <DialogHeader>
-                          <DialogTitle>Пожаловаться на пост</DialogTitle>
-                        </DialogHeader>
-                        <Textarea
-                          placeholder="Причина жалобы..."
-                          value={reportReason}
-                          onChange={(e) => setReportReason(e.target.value)}
-                          rows={3}
-                        />
-                        <Button onClick={() => handleReport(post.id, false)}>
-                          Отправить жалобу
-                        </Button>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                </div>
-              </div>
-              {post.reply_to && (
-                <a
-                  href={`#post-${post.reply_to}`}
-                  className="text-xs hover:text-primary/80 font-medium hover:underline block mb-1 transition-colors cursor-pointer"
-                  onClick={(e) => {
-                    e.preventDefault();                        setPulsingPostId(post.reply_to ?? null);
-                    setTimeout(() => setPulsingPostId(null), 800);
-                    const element = document.getElementById(`post-${post.reply_to}`);
-                    if (element) {
-                      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  }}
-                >
-                  <span className="text-primary mr-1">→</span>Ответ на #{post.reply_to.slice(0, 8)}
-                </a>
-              )}
-              {renderAttachments((post as PostWithExtras).attachments || [], (urls, idx) => {
-                setGalleryEditable(false);
-                setGalleryImages(urls);
-                setGalleryIndex(idx);
-                setShowGallery(true);
-              }, `post-${post.id}`)}
-              {editingPostId === post.id ? (
-                <div className="space-y-2">
-                  <GomoRichEditor
-                    key={resetKey}
-                    contentJson={(post as PostWithExtras).content_json}
-                    legacyContent={post.content}
-                    onChange={({ json, text }) => {
-                      setEditContentJson(json);
-                      setEditContent(text);
-                    }}
-                    onSubmit={() => handleEditPost()}
-                    placeholder="Напишите сообщение…"
-                    minHeightClassName="min-h-[120px]"
-                  />
-                  <div className="flex gap-2">
-                    <Button onClick={handleEditPost} size="sm">Сохранить</Button>
-                    <Button 
-                      onClick={() => {
-                        setEditingPostId(null);
-                        setEditContent("");
-                        setEditContentJson(null);
-                      }} 
-                      variant="secondary" 
-                      size="sm"
-                    >
-                      Отмена
-                    </Button>
                   </div>
                 </div>
-              ) : (
-                <div className="text-sm sm:text-base break-words leading-6 sm:leading-7">
-                  {post.is_private && user?.id !== post.user_id && user?.id !== post.private_recipient_id ? (
-                    <span className="text-muted-foreground italic">Скрытый контент</span>
-                  ) : (
-                    <>
-                      <ProcessedContent
-                        content={post.content}
-                        contentJson={(post as PostWithExtras).content_json}
-                        currentUserId={user?.id || null}
-                        isAdmin={isAdmin}
-                        currentUsername={currentUserUsername}
-                        currentUserColor={currentUserColor}
-                        postAuthorId={post.user_id}
-                        authorUsername={(post as PostWithExtras).username}
-                      />
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Нижний блок с действиями */}
-              <div className="flex justify-end items-center gap-1">
-                {user && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="hover:bg-primary/10 hover:text-primary transition-colors h-6 w-6 p-0"
-                    onClick={() => {
-                      setReplyingTo(post.id);
-                      setPrivateRecipientId(post.user_id);
-                      setIsInputPanelVisible(true);
-                      // Focus textarea after a short delay to ensure panel is visible
-                      setTimeout(() => {
-                        editorRef.current?.focus();
-                      }, 300);
-                    }}
-                  >
-                    <Reply className="h-4 w-4" />
-                  </Button>
-                )}
-                <LikeButton
-                  postId={post.id}
-                  currentUserId={user?.id || null}
-                  postAuthorId={post.user_id}
-                />
-              </div>
-            </div>
-          ))}
-
-          {/* Load more trigger for infinite scroll */}
-          <div ref={loadMoreRef} className="py-4">
-            {loadingMorePosts && (
-              <div className="flex justify-center">
-                <PentagramLoader size="md" />
-              </div>
-            )}
-            {!hasMorePosts && allPosts.length > 0 && (
-              <div className="text-center text-muted-foreground py-2 text-sm">
-                Все посты загружены
-              </div>
-            )}
-            {hasMorePosts && !loadingMorePosts && (
-              <div className="text-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setLoadingMorePosts(true);
-                    setPostOffset(prev => prev + postsPerPage);
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  Загрузить ещё посты
-                </Button>
-              </div>
-            )}
+              );
+            })}
           </div>
+        </div>
         </div>
 
         {/* Ban user dialog */}
