@@ -269,30 +269,33 @@ func (ac *AchievementChecker) statForGroup(groupKey string, category string, sta
 
 // ──────────────── Level upgrade ────────────────
 
-// upgradeLevel upserts user_achievements: always updates progress_current, and
-// bumps current_level when a new threshold is reached.
+// upgradeLevel upserts user_achievements atomically: uses GREATEST so level only
+// goes up (prevents race-condition downgrades).
 // Returns achievement info only if the level actually increased (for notification).
 func (ac *AchievementChecker) upgradeLevel(userID string, ach achievementRow, levels []levelDef, newLevel int, progress int) *UnlockedAchievement {
-	// Get current level and progress
+	// Get current level (read before upsert — small race window handled by
+	// frontend dedup via queueAchievementUnlock)
 	var currentLevel int
-	var currentProgress int
 	ac.db.QueryRow(
-		"SELECT COALESCE(current_level, 0), COALESCE(progress_current, 0) FROM user_achievements WHERE user_id = $1 AND achievement_id = $2",
+		"SELECT COALESCE(current_level, 0) FROM user_achievements WHERE user_id = $1 AND achievement_id = $2",
 		userID, ach.ID,
-	).Scan(&currentLevel, &currentProgress)
+	).Scan(&currentLevel)
 
-	// Always update progress_current (so the frontend sees real-time counts),
-	// even if the level hasn't changed yet.
-	if progress > currentProgress || newLevel > currentLevel {
-		_, err := ac.db.Exec(`
-			INSERT INTO user_achievements (user_id, achievement_id, current_level, progress_current)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (user_id, achievement_id)
-			DO UPDATE SET current_level = $3, progress_current = $4, unlocked_at = NOW()
-		`, userID, ach.ID, newLevel, progress)
-		if err != nil {
-			log.Printf("[Achievements] upgradeLevel upsert: %v", err)
-		}
+	// Atomic upsert — GREATEST ensures level only increases under concurrency
+	_, err := ac.db.Exec(`
+		INSERT INTO user_achievements (user_id, achievement_id, current_level, progress_current, unlocked_at)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (user_id, achievement_id)
+		DO UPDATE SET
+			current_level = GREATEST(user_achievements.current_level, EXCLUDED.current_level),
+			progress_current = GREATEST(user_achievements.progress_current, EXCLUDED.progress_current),
+			unlocked_at = CASE
+				WHEN user_achievements.current_level < EXCLUDED.current_level THEN NOW()
+				ELSE COALESCE(user_achievements.unlocked_at, NOW())
+			END
+	`, userID, ach.ID, newLevel, progress)
+	if err != nil {
+		log.Printf("[Achievements] upgradeLevel upsert: %v", err)
 	}
 
 	// No level increase — no notification needed
@@ -348,13 +351,18 @@ func (ac *AchievementChecker) applyReward(userID string, rewardType string, rewa
 
 // ──────────────── Notification ────────────────
 
-func (ac *AchievementChecker) sendUnlockNotification(userID string, ach UnlockedAchievement) {
+// sendUnlockNotification inserts a notification row and pushes a WebSocket event.
+// Returns the notification ID so the frontend can mark it as read after display.
+func (ac *AchievementChecker) sendUnlockNotification(userID string, ach UnlockedAchievement) string {
 	title := fmt.Sprintf("🏆 %s", ach.Name)
 	message := ach.Description
-	_, err := ac.db.Exec(`
-		INSERT INTO notifications (user_id, type, title, message, created_at)
-		VALUES ($1, 'achievement_unlock', $2, $3, $4)
-	`, userID, title, message, time.Now())
+
+	var notificationID string
+	err := ac.db.QueryRow(`
+		INSERT INTO notifications (user_id, type, title, message, is_read, created_at)
+		VALUES ($1, 'achievement_unlock', $2, $3, false, $4)
+		RETURNING id
+	`, userID, title, message, time.Now()).Scan(&notificationID)
 	if err != nil {
 		log.Printf("[Achievements] notification insert error: %v", err)
 	}
@@ -362,10 +370,11 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 	if ac.wsHub != nil {
 		if hub, ok := ac.wsHub.(*websocket.Hub); ok {
 			if err := hub.PublishNewNotification(map[string]interface{}{
-				"user_id": userID,
-				"type":    "achievement_unlock",
-				"title":   title,
-				"message": message,
+				"user_id":         userID,
+				"type":            "achievement_unlock",
+				"title":           title,
+				"message":         message,
+				"notification_id": notificationID,
 				"achievement": map[string]interface{}{
 					"id":            ach.ID,
 					"group_key":     ach.GroupKey,
@@ -383,4 +392,6 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 			}
 		}
 	}
+
+	return notificationID
 }

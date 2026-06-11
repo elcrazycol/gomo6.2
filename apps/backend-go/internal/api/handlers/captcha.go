@@ -42,7 +42,7 @@ type CaptchaHandler struct {
 //
 // If mCaptcha is NOT configured, built-in Proof-of-Work is used as fallback.
 func NewCaptchaHandler(redis *redis.Client) *CaptchaHandler {
-	difficulty := 20 // ~1M hashes avg, ~1-2s on modern hardware
+	difficulty := 16 // ~65k hashes avg, ~300-500ms on modern HW, ~1-2s on weak devices
 	if d := os.Getenv("MCAPTCHA_POW_DIFFICULTY"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed >= 8 && parsed <= 32 {
 			difficulty = parsed

@@ -14,6 +14,8 @@ export interface UnlockData {
   max_level?: number;
   is_first_time?: boolean;
   prev_level?: number;
+  /** ID строки в таблице notifications — чтобы пометить как прочитанное после показа */
+  notification_id?: string;
 }
 
 interface AchievementUnlockToastProps {

@@ -85,9 +85,9 @@ export function solveChallenge(
 
         async function solve(challengeId, nonce, difficulty) {
           let solution = 0n;
-          const batchSize = 10000;
+          const batchSize = 2000;
           const startTime = performance.now();
-          const deadline = startTime + 30000; // 30 second timeout for difficulty 20
+          const deadline = startTime + 15000; // 15 second timeout
 
           while (performance.now() < deadline) {
             // Process in batches, yielding to check for messages
@@ -102,7 +102,7 @@ export function solveChallenge(
               solution++;
             }
             // Report progress with elapsed time
-            if (solution % 50000n === 0n) {
+            if (solution % 2000n === 0n) {
               const sec = ((performance.now() - startTime) / 1000).toFixed(2);
               self.postMessage({ type: 'progress', iterations: Number(solution), elapsed: parseFloat(sec) });
             }
