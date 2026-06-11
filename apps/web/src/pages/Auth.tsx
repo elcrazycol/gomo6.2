@@ -81,6 +81,13 @@ const Auth = () => {
 
     setLoading(true);
 
+    // Guard: captcha must be ready before submission (Enter key can bypass disabled button)
+    if (!captchaReady) {
+      toast.error("Дождитесь завершения проверки на бота");
+      setLoading(false);
+      return;
+    }
+
     try {
       const email = `${username}@gomo6.local`;
 
