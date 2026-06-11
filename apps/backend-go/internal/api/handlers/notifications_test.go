@@ -25,7 +25,7 @@ func TestGetNotifications_Success(t *testing.T) {
 		AddRow("n2", "u1", "reply", "New reply", "Someone replied to your thread", "t1", nil, true, time.Now())
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs("u1", 50, 0).
+		WithArgs("u1", 51, 0).
 		WillReturnRows(rows)
 
 	handler.GetNotifications(c)
@@ -57,7 +57,7 @@ func TestGetNotifications_WithPagination(t *testing.T) {
 		AddRow("n1", "u1", "like", "New like", "Someone liked your post", nil, nil, false, time.Now())
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs("u1", 10, 5).
+		WithArgs("u1", 11, 5).
 		WillReturnRows(rows)
 
 	handler.GetNotifications(c)
@@ -86,7 +86,7 @@ func TestGetNotifications_DBError(t *testing.T) {
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*`).
-		WithArgs("u1", 50, 0).
+		WithArgs("u1", 51, 0).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.GetNotifications(c)
@@ -107,7 +107,7 @@ func TestGetNotifications_ScanError(t *testing.T) {
 		AddRow("n1", "u1", "like", "New like", "Message", nil, nil, "not-a-bool", time.Now())
 
 	mock.ExpectQuery(`SELECT id, user_id, type, title, message.*FROM notifications.*WHERE user_id = \$1.*`).
-		WithArgs("u1", 50, 0).
+		WithArgs("u1", 51, 0).
 		WillReturnRows(rows)
 
 	handler.GetNotifications(c)

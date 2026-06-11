@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { apiClient, type Notification } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,10 @@ import { ArrowLeft } from "lucide-react";
 
 interface NotifWithSlug extends Notification {
   thread_slug?: string;
+  board_slug?: string;
 }
+
+const PAGE_SIZE = 20;
 
 const Notify = () => {
   const navigate = useNavigate();
@@ -19,56 +22,106 @@ const Notify = () => {
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<NotifWithSlug[]>([]);
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "unread">("newest");
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const loadNotifications = useCallback(async () => {
+  // Attach board slugs to notifications — all lookups in parallel across notifications
+  const attachSlugs = useCallback(async (notifs: Notification[]): Promise<NotifWithSlug[]> => {
+    const withSlugs = await Promise.all(
+      notifs.map(async (notif): Promise<NotifWithSlug> => {
+        if (!notif.related_thread_id) return notif as NotifWithSlug;
+        try {
+          const threadResp = await apiClient.request<any>(
+            `/api/v1/threads/${notif.related_thread_id}?select=board_id`
+          );
+          const threadData = threadResp.data;
+          if (threadData?.board_id) {
+            const boardResp = await apiClient.request<any>(
+              `/api/v1/boards?id=eq.${threadData.board_id}&select=slug`
+            );
+            const boardDataArr = boardResp.data;
+            if (Array.isArray(boardDataArr) && boardDataArr.length > 0) {
+              return { ...notif, thread_slug: boardDataArr[0]?.slug } as NotifWithSlug;
+            }
+          }
+        } catch {
+          // Ignore individual lookup failures
+        }
+        return notif as NotifWithSlug;
+      })
+    );
+    return withSlugs;
+  }, []);
+
+  const loadNotifications = useCallback(async (offset: number = 0) => {
     try {
-      const notifResp = await apiClient.getNotifications({ limit: 100 });
+      const params: { limit: number; offset: number } = { limit: PAGE_SIZE, offset };
+
+      // Build query string manually for is_read filter
+      let queryStr = `limit=${PAGE_SIZE}&offset=${offset}`;
+      if (sortBy === "unread") {
+        queryStr += "&is_read=false";
+      }
+
+      const notifResp = await apiClient.getNotifications(params);
       const data = notifResp.data as Notification[] | null;
+
       if (!data || !Array.isArray(data)) {
-        setNotifications([]);
+        if (offset === 0) setNotifications([]);
+        setHasMore(false);
         return;
       }
 
-      const notificationsWithSlugs = await Promise.all(
-        data.map(async (notif) => {
-          if (notif.related_thread_id) {
-            try {
-              const threadResp = await apiClient.request<any>(`/api/v1/threads/${notif.related_thread_id}?select=board_id`);
-              const threadData = threadResp.data;
-              if (threadData && threadData.board_id) {
-                const boardResp = await apiClient.request<any>(`/api/v1/boards?id=eq.${threadData.board_id}&select=slug`);
-                const boardData = boardResp.data;
-                if (Array.isArray(boardData) && boardData.length > 0) {
-                  return { ...notif, thread_slug: boardData[0]?.slug };
-                }
-              }
-            } catch {
-              // Ошибка уже залогирована выше
-            }
-          }
-          return notif as NotifWithSlug;
-        })
-      );
+      const withSlugs = await attachSlugs(data);
 
-      // Sort notifications
-      const sorted = [...notificationsWithSlugs] as NotifWithSlug[];
-      if (sortBy === "oldest") {
-        sorted.sort((a, b) => safeDate(a.created_at).getTime() - safeDate(b.created_at).getTime());
-      } else if (sortBy === "unread") {
-        sorted.sort((a, b) => {
-          if (a.is_read === b.is_read) {
-            return safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime();
-          }
-          return a.is_read ? 1 : -1;
+      if (offset === 0) {
+        setNotifications(withSlugs);
+      } else {
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(n => n.id));
+          const newItems = withSlugs.filter(n => !existingIds.has(n.id));
+          return [...prev, ...newItems];
         });
       }
 
-      setNotifications(sorted);
+      setHasMore(notifResp.has_more ?? data.length >= PAGE_SIZE);
     } catch (err) {
       console.error("[Notify] Failed to load notifications:", err);
-      setNotifications([]);
+      if (offset === 0) setNotifications([]);
     }
-  }, [sortBy]);
+  }, [sortBy, attachSlugs]);
+
+  // Load more for infinite scroll
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    await loadNotifications(notifications.length);
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, loadNotifications, notifications.length]);
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !loadingMore) {
+          loadMore();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (sentinelRef.current) {
+      observerRef.current.observe(sentinelRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) observerRef.current.disconnect();
+    };
+  }, [hasMore, loadingMore, loadMore]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -76,17 +129,25 @@ const Notify = () => {
       setUser(userData);
 
       if (userData) {
-        await loadNotifications();
+        await loadNotifications(0);
       }
 
       setLoading(false);
     };
 
     getUser();
-  }, [loadNotifications]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload when sort changes
+  useEffect(() => {
+    if (user) {
+      setNotifications([]);
+      setHasMore(true);
+      loadNotifications(0);
+    }
+  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const markAsRead = async (id: string) => {
-    // Immediately update local state
     setNotifications(prev =>
       prev.map(n => n.id === id ? { ...n, is_read: true } : n)
     );
@@ -101,24 +162,20 @@ const Notify = () => {
   const markAllAsRead = async () => {
     if (!user) return;
 
-    // Immediately update local state
     setNotifications(prev =>
       prev.map(n => ({ ...n, is_read: true }))
     );
 
     try {
       await apiClient.markAllNotificationsAsRead();
-      await loadNotifications();
+      // Reload to get fresh state
+      setNotifications([]);
+      setHasMore(true);
+      await loadNotifications(0);
     } catch (err) {
       console.error("[Notify] Failed to mark all as read:", err);
     }
   };
-
-  useEffect(() => {
-    if (user) {
-      loadNotifications();
-    }
-  }, [sortBy, user, loadNotifications]);
 
   if (loading) {
     return (
@@ -134,6 +191,23 @@ const Notify = () => {
   }
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  // Client-side sorting for "unread first" and "oldest first"
+  const displayNotifications = (() => {
+    const sorted = [...notifications];
+    if (sortBy === "oldest") {
+      sorted.sort((a, b) => safeDate(a.created_at).getTime() - safeDate(b.created_at).getTime());
+    } else if (sortBy === "unread") {
+      sorted.sort((a, b) => {
+        if (a.is_read === b.is_read) {
+          return safeDate(b.created_at).getTime() - safeDate(a.created_at).getTime();
+        }
+        return a.is_read ? 1 : -1;
+      });
+    }
+    // "newest" is already in server order (desc)
+    return sorted;
+  })();
 
   return (
     <main className="max-w-4xl mx-auto p-4">
@@ -174,13 +248,13 @@ const Notify = () => {
           </div>
         </div>
 
-        {notifications.length === 0 ? (
+        {displayNotifications.length === 0 ? (
           <div className="bg-card border border-border p-8 text-center">
             <p className="text-muted-foreground">Нет уведомлений</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {notifications.map((notif) => {
+            {displayNotifications.map((notif) => {
               const link = notif.related_thread_id && notif.thread_slug
                 ? `/${notif.thread_slug}/thread/${notif.related_thread_id}`
                 : notif.related_thread_id
@@ -218,6 +292,21 @@ const Notify = () => {
                 </Link>
               );
             })}
+
+            {/* Infinite scroll sentinel */}
+            <div ref={sentinelRef} className="h-4" />
+
+            {loadingMore && (
+              <div className="flex justify-center py-4">
+                <PentagramLoader size="sm" />
+              </div>
+            )}
+
+            {!hasMore && displayNotifications.length > 0 && (
+              <p className="text-center text-xs text-muted-foreground py-4">
+                Все уведомления загружены
+              </p>
+            )}
           </div>
         )}
       </div>

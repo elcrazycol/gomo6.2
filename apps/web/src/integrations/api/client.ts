@@ -123,6 +123,7 @@ export interface ApiResponse<T> {
   data: T | T[] | null;
   count?: number;
   error?: string | null;
+  has_more?: boolean;
 }
 
 // Decode JWT payload without verification (for expiry check only)

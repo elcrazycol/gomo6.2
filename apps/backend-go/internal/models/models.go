@@ -232,6 +232,7 @@ type APIResponse struct {
 	Error      *string     `json:"error,omitempty"`
 	Count      *int        `json:"count,omitempty"`
 	NextCursor *string     `json:"next_cursor,omitempty"`
+	HasMore    *bool       `json:"has_more,omitempty"`
 }
 
 // SuccessResponse builds a successful APIResponse.
