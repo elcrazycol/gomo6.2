@@ -568,10 +568,53 @@ const Thread = () => {
   // Keep postsRef in sync with posts state
   // REMOVED: No longer needed with React Query
 
-  // WebSocket realtime subscription for new posts
-  // REMOVED: Handled by useWebSocketSync hook
+  // WebSocket realtime subscription for new posts from other users.
+  // Own posts are handled by query invalidation in handleSubmitPost.
+  useEffect(() => {
+    if (!threadId) return;
 
-  // REMOVED: checkSubscription - handled by useThreadSubscription hook
+    wsService.subscribeToThread(threadId);
+
+    const unsub = wsService.on('new_post', async (message) => {
+      const data = message.data;
+      // Only process posts for this thread
+      if (!data || data.thread_id !== threadId) return;
+      // Skip own posts (handled by query invalidation)
+      if (user && data.user_id === user.id) return;
+
+      try {
+        // Fetch the full post with profile data
+        const res = await fetch(`/api/v1/posts?id=eq.${data.id}`);
+        const result = await res.json();
+        const postData = result?.data?.[0];
+        if (!postData) return;
+
+        setAllPosts(current => {
+          if (current.some(p => p.id === postData.id)) return current;
+
+          const newPost: PostWithExtras = {
+            ...postData,
+            username: postData.profiles?.username,
+            avatar_url: postData.profiles?.avatar_url,
+          };
+
+          // Auto-scroll if user is near bottom
+          if (isNearBottom()) {
+            setTimeout(scrollToBottomSmooth, 100);
+          }
+
+          return [...current, newPost];
+        });
+      } catch (err) {
+        console.error('[WS] Failed to fetch new post:', err);
+      }
+    });
+
+    return () => {
+      unsub();
+      wsService.unsubscribe(threadId);
+    };
+  }, [threadId, user, isNearBottom, scrollToBottomSmooth]);
 
   const toggleSubscription = async () => {
     if (!user) {
