@@ -22,7 +22,7 @@
 # Uploads and object serving go through backend (/storage/v1/upload, /storage/v1/object).
 # Garage is never exposed directly to browsers — no CORS issues, no S3 signature issues.
 
-{$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost} {
+{$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost}, mcaptcha.{$DOMAIN:localhost} {
 	# ── Security headers ──────────────────────────────────────────────────
 	header {
 		X-Content-Type-Options "nosniff"
@@ -105,6 +105,12 @@
 		handle {
 			reverse_proxy web:80
 		}
+	}
+
+	# ── mCaptcha (mcaptcha.* subdomain) ─────────────────────────────────
+	@mcaptcha host mcaptcha.{$DOMAIN:localhost}
+	handle @mcaptcha {
+		reverse_proxy mcaptcha:8080
 	}
 	# ── Fallback ─────────────────────────────────────────────────────────
 	handle {

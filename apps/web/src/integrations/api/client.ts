@@ -308,10 +308,19 @@ class ApiClient {
   }
 
   // Auth Methods
-  async register(email: string, username: string, password: string): Promise<AuthResponse> {
+  async register(email: string, username: string, password: string, captcha?: {
+    challenge_id?: string;
+    solution?: string;
+    captcha_token?: string;
+  }): Promise<AuthResponse> {
+    const body: Record<string, string> = { email, username, password };
+    if (captcha?.challenge_id) body.challenge_id = captcha.challenge_id;
+    if (captcha?.solution) body.solution = captcha.solution;
+    if (captcha?.captcha_token) body.captcha_token = captcha.captcha_token;
+
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, username, password }),
+      body: JSON.stringify(body),
     });
 
     const data = response.data as Record<string, unknown> | null;
@@ -322,11 +331,23 @@ class ApiClient {
     return data as unknown as AuthResponse;
   }
 
-  async login(email: string, password: string, deviceId?: string): Promise<AuthResponse & { needs_2fa?: boolean }> {
+  async login(
+    email: string,
+    password: string,
+    deviceId?: string,
+    captcha?: {
+      challenge_id?: string;
+      solution?: string;
+      captcha_token?: string;
+    }
+  ): Promise<AuthResponse & { needs_2fa?: boolean }> {
     const body: Record<string, string | boolean> = { email, password };
     if (deviceId) {
       body.device_id = deviceId;
     }
+    if (captcha?.challenge_id) body.challenge_id = captcha.challenge_id;
+    if (captcha?.solution) body.solution = captcha.solution;
+    if (captcha?.captcha_token) body.captcha_token = captcha.captcha_token;
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/login', {
       method: 'POST',
@@ -720,18 +741,40 @@ export function getDeviceId(): string {
 export const api = {
   // Auth
   auth: {
-    signUp: async ({ email, password, options }: { email: string; password: string; options?: { data?: { username?: string } } }) => {
+    signUp: async ({ email, password, options, ...captcha }: { 
+      email: string; 
+      password: string; 
+      options?: { data?: { username?: string } };
+      challenge_id?: string;
+      solution?: string;
+      captcha_token?: string;
+    }) => {
       try {
-        const result = await apiClient.register(email, options?.data?.username || email.split('@')[0], password);
+        const result = await apiClient.register(
+          email,
+          options?.data?.username || email.split('@')[0],
+          password,
+          { challenge_id: captcha.challenge_id, solution: captcha.solution, captcha_token: captcha.captcha_token }
+        );
         return { data: { user: result.user, session: { access_token: result.token } }, error: null };
       } catch (error) {
         return { data: null, error: { message: (error as Error).message } };
       }
     },
-    signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
+    signInWithPassword: async ({ email, password, ...captcha }: { 
+      email: string; 
+      password: string;
+      challenge_id?: string;
+      solution?: string;
+      captcha_token?: string;
+    }) => {
       try {
         const deviceId = getDeviceId();
-        const result = await apiClient.login(email, password, deviceId);
+        const result = await apiClient.login(email, password, deviceId, {
+          challenge_id: captcha.challenge_id,
+          solution: captcha.solution,
+          captcha_token: captcha.captcha_token,
+        });
         
         if (result.needs_2fa) {
           // Return session with partial token and needs_2fa flag

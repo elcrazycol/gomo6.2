@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -25,22 +26,49 @@ import (
 )
 
 type AuthHandler struct {
-	db          *sql.DB
-	authService *auth.AuthService
-	redis       *redis.Client // optional — enables lockout and token blacklist
+	db             *sql.DB
+	authService    *auth.AuthService
+	redis          *redis.Client   // optional — enables lockout and token blacklist
+	captchaHandler *CaptchaHandler // optional — enables mCaptcha verification
 }
 
 func NewAuthHandler(db *sql.DB) *AuthHandler {
 	return &AuthHandler{
-		db:          db,
-		authService: auth.NewAuthService(),
+		db:             db,
+		authService:    auth.NewAuthService(),
+		captchaHandler: nil, // Will be set by SetRedis when Redis is available
 	}
 }
 
-// SetRedis enables optional Redis-backed features: lockout and token blacklist.
+// SetRedis enables optional Redis-backed features: lockout, token blacklist, and PoW CAPTCHA.
 func (h *AuthHandler) SetRedis(rdb *redis.Client) {
 	h.redis = rdb
 	h.authService.SetRedis(rdb)
+	// Initialize captcha handler now that Redis is available (needed for PoW challenge storage)
+	h.captchaHandler = NewCaptchaHandler(rdb)
+}
+
+// GetCaptchaConfig returns mCaptcha public configuration for the frontend.
+// GET /api/v1/auth/captcha-config
+func (h *AuthHandler) GetCaptchaConfig(c *gin.Context) {
+	if h.captchaHandler == nil {
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+			"enabled":  false,
+			"site_key": "",
+		}))
+		return
+	}
+	h.captchaHandler.GetConfig(c)
+}
+
+// GetCaptchaChallenge generates a new PoW challenge for the frontend.
+// GET /api/v1/auth/captcha-challenge
+func (h *AuthHandler) GetCaptchaChallenge(c *gin.Context) {
+	if h.captchaHandler == nil {
+		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse("CAPTCHA service not available"))
+		return
+	}
+	h.captchaHandler.GetChallenge(c)
 }
 
 // validatePassword checks that the password meets minimum requirements:
@@ -126,6 +154,34 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// ── Honeypot check: if "website" field is filled, silently reject (bot detected) ──
+	if req.Website != "" {
+		// Log the event but return success to mislead the bot
+		clientIP := c.ClientIP()
+		log.Printf("[Honeypot] Bot detected on register from IP %s (website=%q)", clientIP, req.Website)
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+			"message": "Registration successful. Please check your email for confirmation.",
+		}))
+		return
+	}
+
+	// ── CAPTCHA verification (built-in PoW or external mCaptcha) ──
+	if h.captchaHandler != nil {
+		if h.captchaHandler.IsConfigured() {
+			// External mCaptcha
+			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+				return
+			}
+		} else if h.redis != nil {
+			// Built-in PoW (requires Redis for challenge storage)
+			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+				return
+			}
+		}
+	}
+
 	// Validate password strength
 	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -175,13 +231,41 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // If device_id is provided and is trusted, 2FA is skipped.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		DeviceID string `json:"device_id,omitempty"`
+		Email        string `json:"email"`
+		Password     string `json:"password"`
+		DeviceID     string `json:"device_id,omitempty"`
+		ChallengeID  string `json:"challenge_id,omitempty"`  // PoW challenge ID
+		Solution     string `json:"solution,omitempty"`      // PoW solution string
+		CaptchaToken string `json:"captcha_token,omitempty"` // mCaptcha token (external)
+		Website      string `json:"website,omitempty"`       // Honeypot field — must be empty
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	// ── Honeypot check ──
+	if req.Website != "" {
+		clientIP := c.ClientIP()
+		log.Printf("[Honeypot] Bot detected on login from IP %s (website=%q)", clientIP, req.Website)
+		// Silently succeed to mislead the bot — generic invalid credentials
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+		return
+	}
+
+	// ── CAPTCHA verification (built-in PoW or external mCaptcha) ──
+	if h.captchaHandler != nil {
+		if h.captchaHandler.IsConfigured() {
+			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+				return
+			}
+		} else if h.redis != nil {
+			if err := h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Captcha verification failed. Please try again."))
+				return
+			}
+		}
 	}
 
 	// Check account lockout
