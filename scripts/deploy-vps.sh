@@ -37,10 +37,17 @@ echo "[2/3] Pulling Docker images from ghcr.io..."
 pull_and_check() {
   local img="$1"
   echo "       Pulling $img..."
-  docker pull "$img:latest" || {
-    echo "ERROR: Failed to pull $img:latest"
-    exit 1
-  }
+  for attempt in 1 2 3; do
+    if docker pull "$img:latest"; then
+      return 0
+    fi
+    if [ $attempt -lt 3 ]; then
+      echo "       Pull attempt $attempt failed, retrying in $((attempt * 10))s..."
+      sleep $((attempt * 10))
+    fi
+  done
+  echo "ERROR: Failed to pull $img:latest after 3 attempts"
+  exit 1
 }
 
 pull_and_check ghcr.io/scramble22/gomo6-backend
