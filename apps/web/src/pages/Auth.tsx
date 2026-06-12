@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
-import { apiClient } from "@/integrations/api/client";
+import { apiClient, getDeviceId } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -173,7 +173,7 @@ const Auth = () => {
         toast.success("Регистрация успешна! Можете войти.");
         setIsLogin(true);
       }
-    } catch {
+    } catch (error: unknown) {
       toast.error("Произошла ошибка");
     } finally {
       setLoading(false);
@@ -192,7 +192,7 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const { error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
+      const { data, error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
 
       if (error) {
         toast.error("Неверный код 2FA");
@@ -211,7 +211,7 @@ const Auth = () => {
 
       toast.success("Вход выполнен");
       navigate(redirectTo, { replace: true });
-    } catch {
+    } catch (error: unknown) {
       toast.error("Ошибка проверки кода");
     } finally {
       setLoading(false);
@@ -243,7 +243,7 @@ const Auth = () => {
 
       // Step 3: send assertion to server with session token
       const serialized = serializeAuthentication(credential as PublicKeyCredential);
-      await apiClient.finishPasskeyLogin(optionsData.session_token, serialized);
+      const result = await apiClient.finishPasskeyLogin(optionsData.session_token, serialized);
 
       // Success — same post-login flow as password login
       await queryClient.invalidateQueries({ queryKey: ['auth'] });
@@ -255,7 +255,7 @@ const Auth = () => {
 
       toast.success("Вход выполнен");
       navigate(redirectTo, { replace: true });
-    } catch {
+    } catch (err) {
       const msg = (err as Error).message || "Ошибка входа по passkey";
       if (!msg.includes("cancelled") && !msg.includes("AbortError")) {
         toast.error(msg);

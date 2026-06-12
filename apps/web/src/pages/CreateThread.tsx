@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-react";
 import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
@@ -310,7 +310,7 @@ const CreateThread = () => {
       navigate(`${prefix}/${board.slug}/thread/${threadData.id}`);
       setAttachments([]);
       setImageUrls([]);
-    } catch {
+    } catch (error) {
       console.error('Error creating thread:', error);
       toast.error('Ошибка при создании треда');
     } finally {
@@ -422,7 +422,7 @@ const CreateThread = () => {
                         const imageKey = `threads/${Date.now()}-${file.name}`;
                         await uploadFile('content', imageKey, file);
                         setThreadImageUrl(imageKey);
-                      } catch {
+                      } catch (error) {
                         console.error('Error uploading thread image:', error);
                         toast.error('Ошибка загрузки изображения');
                       } finally {

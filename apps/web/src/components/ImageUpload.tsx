@@ -48,7 +48,7 @@ export const ImageUpload = ({
   const compressImage = async (file: File, maxWidth: number = 1200, quality: number = 0.8): Promise<File> => {
     try {
       return await compressImageWithMetadataRemoval(file, maxWidth, quality, removeMetadata);
-    } catch {
+    } catch (error) {
       console.warn('Advanced compression failed, falling back to basic compression:', error);
       // Fallback to basic compression if advanced fails
       return new Promise((resolve, reject) => {
@@ -121,7 +121,7 @@ export const ImageUpload = ({
       const compressionPromises = files.map(async (file) => {
         try {
           return await compressImage(file);
-        } catch {
+        } catch (error) {
           console.warn('Compression failed, using original file:', error);
           return file;
         }

@@ -89,7 +89,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           setColor(userColor);
           userCache.set(username, { exists: true, data, color: userColor, avatarUrl: resolvedAvatar });
         }
-      } catch {
+      } catch (error) {
         setUserExists(false);
         userCache.set(username, { exists: false });
       }
