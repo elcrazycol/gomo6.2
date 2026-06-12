@@ -47,9 +47,9 @@ const fetchProfileData = async (userId: string) => {
     api.from("user_placeholders").select("*").eq("user_id", userId).maybeSingle(),
   ]);
 
-  const profile = profileResult.data;
-  const achievements = achievementsResult.data;
-  const placeholders = placeholdersResult.data;
+  const profile = profileResult.data as Record<string, unknown> | null;
+  const achievements = achievementsResult.data as unknown as Array<Record<string, unknown>> | null;
+  const placeholders = placeholdersResult.data as Record<string, unknown> | null;
 
   if (!profile) return null;
 
@@ -62,8 +62,8 @@ const fetchProfileData = async (userId: string) => {
 
     const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
     for (const p of priority) {
-      if (colorRewards.includes(p)) {
-        usernameColor = p;
+      if ((colorRewards as unknown[]).includes(p)) {
+        usernameColor = p as string;
         break;
       }
     }
@@ -71,7 +71,7 @@ const fetchProfileData = async (userId: string) => {
 
   return {
     profile,
-    avatarUrl: storageUrl("post-images", profile.avatar_url),
+    avatarUrl: storageUrl("post-images", profile.avatar_url as string | null),
     usernameColor,
     customization,
     placeholders,
@@ -108,6 +108,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
   }
 
   const { profile, avatarUrl, usernameColor, customization, placeholders } = data;
+  const p = profile as Record<string, unknown>;
 
   const usernameStyle = customization?.username_css
     ? parseCssToStyle(customization.username_css)
@@ -146,7 +147,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1 flex-wrap">
                 <span className={usernameClassName} style={usernameStyle}>
-                  {profile.username}
+                  {p.username as string}
                 </span>
                 {customization?.username_icon_svg && (
                   <span
@@ -173,12 +174,12 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                 <AdminBadge userId={userId} />
               </div>
               <div className="text-sm text-muted-foreground">
-                ID: {profile?.id?.slice(0, 8) || 'N/A'} {profile?.account_number && `(${profile.account_number})`}
+                ID: {p.id ? String(p.id).slice(0, 8) : 'N/A'} {p.account_number ? `(${p.account_number})` : ''}
               </div>
               <OnlineStatus
                 userId={userId}
-                isOnline={profile.is_online}
-                lastSeen={profile.last_seen}
+                isOnline={p.is_online as boolean}
+                lastSeen={p.last_seen as string | null}
                 className="mt-1"
               />
               {(() => {
@@ -186,30 +187,30 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                 if (placeholders?.use_custom && placeholders?.custom_placeholder) {
                   return (
                     <div className="text-xs text-muted-foreground/70 mt-1">
-                      {processProfileBio(placeholders.custom_placeholder)}
+                      {processProfileBio(placeholders.custom_placeholder as string)}
                     </div>
                   );
                 }
 
                 // Use preset placeholders if set
-                const placeholder1 = placeholders?.placeholder_1 || 'bio';
-                const placeholder2 = placeholders?.placeholder_2 || 'created_at';
-                const placeholder3 = placeholders?.placeholder_3 || 'post_count';
+                const placeholder1 = (placeholders?.placeholder_1 as string) || 'bio';
+                const placeholder2 = (placeholders?.placeholder_2 as string) || 'created_at';
+                const placeholder3 = (placeholders?.placeholder_3 as string) || 'post_count';
 
                 const renderPlaceholder = (value: string) => {
                   switch (value) {
                     case 'bio':
-                      return profile.bio ? processProfileBio(profile.bio) : null;
+                      return p.bio ? processProfileBio(p.bio as string) : null;
                     case 'created_at':
-                      return profile.created_at ? format(safeDate(profile.created_at), "dd.MM.yyyy", { locale: ru }) : null;
+                      return p.created_at ? format(safeDate(p.created_at as string), "dd.MM.yyyy", { locale: ru }) : null;
                     case 'post_count':
-                      return profile.post_count !== null ? `${profile.post_count} ${profile.post_count === 1 ? 'пост' : profile.post_count < 5 ? 'поста' : 'постов'}` : null;
+                      return p.post_count != null ? `${p.post_count} ${p.post_count === 1 ? 'пост' : (p.post_count as number) < 5 ? 'поста' : 'постов'}` : null;
                     case 'thread_count':
-                      return profile.thread_count !== null ? `${profile.thread_count} ${profile.thread_count === 1 ? 'тред' : profile.thread_count < 5 ? 'треда' : 'тредов'}` : null;
+                      return p.thread_count != null ? `${p.thread_count} ${p.thread_count === 1 ? 'тред' : (p.thread_count as number) < 5 ? 'треда' : 'тредов'}` : null;
                     case 'account_number':
-                      return profile.account_number ? `#${profile.account_number}` : null;
+                      return p.account_number ? `#${p.account_number}` : null;
                     case 'id':
-                      return profile.id ? profile.id.slice(0, 8) : null;
+                      return p.id ? String(p.id).slice(0, 8) : null;
                     default:
                       return null;
                   }
