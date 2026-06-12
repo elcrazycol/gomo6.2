@@ -66,6 +66,41 @@ func (h *RPCHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
 	h.botEventPublisher = publisher
 }
 
+// canWriteChannel checks if a user can write to a channel (handles private channels).
+func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, error) {
+	if userID == "" {
+		return false, nil
+	}
+	var isPrivate bool
+	var ownerID string
+	err := h.db.QueryRow(`
+		SELECT c.is_private, b.owner_id
+		FROM channels c JOIN boards b ON c.board_id = b.id
+		WHERE c.id = $1
+	`, channelID).Scan(&isPrivate, &ownerID)
+	if err != nil {
+		return false, err
+	}
+	if !isPrivate {
+		return true, nil
+	}
+	if ownerID == userID {
+		return true, nil
+	}
+	var hasAccess bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM channel_permissions cp
+			JOIN gomosub_memberships gm ON gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1)
+			WHERE cp.channel_id = $1 AND cp.can_write = true
+		)
+	`, channelID, userID).Scan(&hasAccess)
+	if err != nil {
+		return false, err
+	}
+	return hasAccess, nil
+}
+
 // ─── Wall Post RPC ──────────────────────────────────────────────────────────
 
 // ToggleWallPostPin toggles the pin status of a wall post.
@@ -314,6 +349,26 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	if err != nil || !boardExists {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
 		return
+	}
+
+	// Check channel write access for private channels
+	if req.ChannelID != nil && *req.ChannelID != "" {
+		// First verify the channel exists
+		var channelExists bool
+		err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM channels WHERE id = $1)", *req.ChannelID).Scan(&channelExists)
+		if err != nil || !channelExists {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Channel not found"))
+			return
+		}
+		canWrite, err := h.canWriteChannel(claims.UserID, *req.ChannelID)
+		if err != nil && err != sql.ErrNoRows {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			return
+		}
+		if !canWrite {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to post in this channel"))
+			return
+		}
 	}
 
 	var imageURLs models.JSONB
