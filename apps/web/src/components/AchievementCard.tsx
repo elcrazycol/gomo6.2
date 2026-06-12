@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Pin, PinOff, Sparkles, Lock, Trophy } from "lucide-react";
-import { getAchievementIcon, IconSparkles } from "@/components/AchievementIcons";
+import { Pin, PinOff, Sparkles, Trophy } from "lucide-react";
+import { getAchievementIcon } from "@/components/AchievementIcons";
 
 export interface AchievementLevel {
   level: number;
