@@ -28,6 +28,35 @@ vi.mock("@/services/websocket", () => ({
   },
 }));
 
+// CaptchaWidget — must call onReady immediately so form submission is not blocked
+vi.mock("@/components/CaptchaWidget", () => {
+  const MockCaptcha: React.FC<{
+    onReady: (data: {
+      challengeId: string;
+      solution: string;
+      captchaToken: string;
+      honeypotValue: string;
+    }) => void;
+    onError: (error: string) => void;
+  }> = (props) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const React = require("react");
+    const called = React.useRef(false);
+    if (!called.current) {
+      called.current = true;
+      props.onReady({
+        challengeId: "mock-challenge",
+        solution: "mock-solution",
+        captchaToken: "mock-token",
+        honeypotValue: "mock-honeypot",
+      });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return null as any;
+  };
+  return { CaptchaWidget: MockCaptcha };
+});
+
 // ─── Auth API mocks ──────────────────────────────────────────────────────────
 
 const mockSignIn = vi.fn();
@@ -217,6 +246,9 @@ describe("Auth Page", () => {
       expect(mockSignIn).toHaveBeenCalledWith({
         email: "testuser@gomo6.local",
         password: "secret123",
+        challenge_id: "mock-challenge",
+        solution: "mock-solution",
+        captcha_token: "mock-token",
       });
       expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
@@ -314,6 +346,9 @@ describe("Auth Page", () => {
           data: { username: "newuser" },
           emailRedirectTo: `${window.location.origin}/`,
         },
+        challenge_id: "mock-challenge",
+        solution: "mock-solution",
+        captcha_token: "mock-token",
       });
     });
 
