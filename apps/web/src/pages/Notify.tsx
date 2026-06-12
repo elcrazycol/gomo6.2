@@ -18,7 +18,7 @@ const PAGE_SIZE = 20;
 
 const Notify = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<NotifWithSlug[]>([]);
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "unread">("newest");
@@ -33,12 +33,12 @@ const Notify = () => {
       notifs.map(async (notif): Promise<NotifWithSlug> => {
         if (!notif.related_thread_id) return notif as NotifWithSlug;
         try {
-          const threadResp = await apiClient.request<any>(
+          const threadResp = await apiClient.request<{ data: { board_id?: string } }>(
             `/api/v1/threads/${notif.related_thread_id}?select=board_id`
           );
           const threadData = threadResp.data;
           if (threadData?.board_id) {
-            const boardResp = await apiClient.request<any>(
+            const boardResp = await apiClient.request<{ data: Array<{ slug?: string }> }>(
               `/api/v1/boards?id=eq.${threadData.board_id}&select=slug`
             );
             const boardDataArr = boardResp.data;
@@ -87,7 +87,7 @@ const Notify = () => {
       }
 
       setHasMore(notifResp.has_more ?? data.length >= PAGE_SIZE);
-    } catch (err) {
+    } catch {
       console.error("[Notify] Failed to load notifications:", err);
       if (offset === 0) setNotifications([]);
     }
@@ -154,7 +154,7 @@ const Notify = () => {
 
     try {
       await apiClient.markNotificationAsRead(id);
-    } catch (err) {
+    } catch {
       console.error("[Notify] Failed to mark as read:", err);
     }
   };
@@ -172,7 +172,7 @@ const Notify = () => {
       setNotifications([]);
       setHasMore(true);
       await loadNotifications(0);
-    } catch (err) {
+    } catch {
       console.error("[Notify] Failed to mark all as read:", err);
     }
   };

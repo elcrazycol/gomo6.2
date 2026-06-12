@@ -39,7 +39,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
               return next;
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_online event:', e);
         }
       }
@@ -61,7 +61,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
               return next;
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_offline event:', e);
         }
       }
@@ -103,7 +103,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
             setStatus(newStatus);
 
             // Update React Query cache for profile-hover
-            queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+            queryClient.setQueryData(['profile-hover', userId], (old: { profile: { is_online?: boolean; last_seen?: string; [key: string]: unknown } } | undefined) => {
               if (!old) return old;
               return {
                 ...old,
@@ -115,7 +115,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
               };
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_online event:', e);
         }
       }
@@ -135,7 +135,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
             setStatus(newStatus);
 
             // Update React Query cache for profile-hover
-            queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+            queryClient.setQueryData(['profile-hover', userId], (old: { profile: { is_online?: boolean; last_seen?: string; [key: string]: unknown } } | undefined) => {
               if (!old) return old;
               return {
                 ...old,
@@ -147,7 +147,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
               };
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_offline event:', e);
         }
       }

@@ -4,7 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
 
 // Cache for user search results
-const searchCache = new Map<string, any[]>();
+const searchCache = new Map<string, unknown[]>();
 
 interface User {
   id: string;
@@ -140,7 +140,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         setUsers(usersData);
         searchCache.set(query, usersData);
       }
-    } catch (error) {
+    } catch {
       console.error('Error searching users:', error);
       setUsers([]);
       searchCache.set(query, []);

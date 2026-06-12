@@ -214,7 +214,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       setGroups([]);
       setEmojis([]);
       setGroupedEmojis({});
-    } catch (error) {
+    } catch {
       console.error('Error loading emojis:', error);
     } finally {
       setLoading(false);
@@ -310,7 +310,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         onClick={isMobile ? () => setOpen(!open) : undefined}
         onMouseEnter={!isMobile ? openPicker : undefined}
         onMouseLeave={!isMobile ? handleButtonMouseLeave : undefined}
-        ref={triggerRef as any}
+        ref={(triggerRef as React.Ref<HTMLDivElement>) ?? undefined}
       >
         {children || (
           <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl shrink-0">

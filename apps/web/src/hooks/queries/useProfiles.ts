@@ -8,7 +8,7 @@ export interface Profile {
   domain?: string;
   avatar_url?: string;
   bio?: string;
-  bio_json?: any;
+  bio_json?: unknown;
   garma?: number;
   post_count?: number;
   thread_count?: number;

@@ -4,7 +4,7 @@ import { api } from '@/integrations/api/compat';
 interface ProfileData {
   username: string;
   color: string;
-  customization: any;
+  customization: unknown;
   isAdmin: boolean;
   avatarUrl?: string;
 }
@@ -105,8 +105,8 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
         let color = '';
         if (achievementsRes.data) {
           const colorRewards = achievementsRes.data
-            .filter((a: any) => a.achievements?.reward_type === 'username_color')
-            .map((a: any) => a.achievements.reward_value);
+            .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === 'username_color')
+            .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
           const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
           for (const p of priority) {
@@ -118,7 +118,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
 
         // Check if admin
-        const isAdmin = rolesRes.data?.some((r: any) => r.role === 'admin') || false;
+        const isAdmin = rolesRes.data?.some((r: Record<string, unknown>) => r.role === 'admin') || false;
 
         const profileData: ProfileData = {
           username: profileRes.data?.username || '',

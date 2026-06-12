@@ -69,7 +69,7 @@ export function PasskeysSettings() {
 
       toast.success("Passkey добавлен!");
       loadPasskeys();
-    } catch (err) {
+    } catch {
       const msg = (err as Error).message || "Не удалось добавить passkey";
       toast.error(msg);
     } finally {
