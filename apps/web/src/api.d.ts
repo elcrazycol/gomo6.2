@@ -4480,22 +4480,22 @@ export interface components {
             next_cursor?: string;
         };
         User: {
-            id?: string;
-            username?: string;
-            email?: string;
-            domain?: string;
+            id: string;
+            username: string;
+            email: string;
+            domain: string;
             avatar_url?: string | null;
             bio?: string | null;
             garma?: number | null;
             post_count?: number | null;
             thread_count?: number | null;
-            is_online?: boolean;
+            is_online: boolean;
             /** Format: date-time */
             last_seen?: string | null;
             /** Format: date-time */
-            created_at?: string;
-            is_remote?: boolean;
-            is_anonymous?: boolean;
+            created_at: string;
+            is_remote: boolean;
+            is_anonymous: boolean;
         };
         APIResponse_User: components["schemas"]["APIResponse"] & {
             data?: components["schemas"]["User"];
@@ -4504,12 +4504,12 @@ export interface components {
             data?: components["schemas"]["User"][];
         };
         Board: {
-            id?: string;
-            slug?: string;
-            name?: string;
+            id: string;
+            slug: string;
+            name: string;
             description?: string | null;
-            is_gomosub?: boolean;
-            is_rules_board?: boolean;
+            is_gomosub: boolean;
+            is_rules_board: boolean;
             owner_id?: string | null;
             gomosub_avatar_url?: string | null;
             cover_image_url?: string | null;
@@ -4517,7 +4517,7 @@ export interface components {
             rules_markdown?: string | null;
             rules_updated_at?: string | null;
             /** Format: date-time */
-            created_at?: string;
+            created_at: string;
         };
         BoardUpdate: {
             name?: string;
@@ -4534,11 +4534,11 @@ export interface components {
             data?: components["schemas"]["Board"][];
         };
         Thread: {
-            id?: string;
-            board_id?: string;
+            id: string;
+            board_id: string;
             user_id?: string | null;
-            title?: string;
-            content?: string;
+            title: string;
+            content: string;
             content_json?: Record<string, never> | null;
             image_url?: string | null;
             image_urls?: string[] | null;
@@ -4547,21 +4547,21 @@ export interface components {
                 type?: string;
                 name?: string;
             }[] | null;
-            post_count?: number;
-            server_domain?: string;
+            post_count: number;
+            server_domain: string;
             /** Format: date-time */
-            created_at?: string;
+            created_at: string;
             /** Format: date-time */
-            updated_at?: string;
-            is_remote?: boolean;
+            updated_at: string;
+            is_remote: boolean;
         };
         ThreadWithBoards: components["schemas"]["Thread"] & {
             tags?: string[] | null;
-            username?: string;
+            username: string;
             avatar_url?: string | null;
-            boards?: {
-                slug?: string;
-                name?: string;
+            boards: {
+                slug: string;
+                name: string;
                 is_gomosub?: boolean;
                 is_rules_board?: boolean;
             };
@@ -4599,10 +4599,10 @@ export interface components {
             text?: string;
         };
         Post: {
-            id?: string;
-            thread_id?: string;
+            id: string;
+            thread_id: string;
             user_id?: string | null;
-            content?: string;
+            content: string;
             content_json?: Record<string, never> | null;
             image_url?: string | null;
             image_urls?: string[] | null;
@@ -4612,13 +4612,13 @@ export interface components {
                 name?: string;
             }[] | null;
             reply_to?: string | null;
-            is_private?: boolean;
+            is_private: boolean;
             private_recipient_id?: string | null;
-            server_domain?: string;
+            server_domain: string;
             /** Format: date-time */
-            created_at?: string;
-            is_remote?: boolean;
-            username?: string;
+            created_at: string;
+            is_remote: boolean;
+            username: string;
             avatar_url?: string | null;
         };
         PostUpdate: {
@@ -4644,30 +4644,30 @@ export interface components {
             data?: components["schemas"]["Post"][];
         };
         PostLike: {
-            id?: string;
-            post_id?: string;
-            user_id?: string;
-            created_at?: string;
+            id: string;
+            post_id: string;
+            user_id: string;
+            created_at: string;
         };
         ThreadLike: {
-            id?: string;
-            thread_id?: string;
-            user_id?: string;
-            created_at?: string;
+            id: string;
+            thread_id: string;
+            user_id: string;
+            created_at: string;
         };
         APIResponse_ThreadLikeArray: components["schemas"]["APIResponse"] & {
             data?: components["schemas"]["ThreadLike"][];
         };
         Notification: {
-            id?: string;
-            user_id?: string;
-            type?: string;
-            title?: string;
-            message?: string;
+            id: string;
+            user_id: string;
+            type: string;
+            title: string;
+            message: string;
             related_thread_id?: string | null;
             related_post_id?: string | null;
-            is_read?: boolean;
-            created_at?: string;
+            is_read: boolean;
+            created_at: string;
         };
         APIResponse_NotificationArray: components["schemas"]["APIResponse"] & {
             data?: components["schemas"]["Notification"][];
@@ -4692,22 +4692,22 @@ export interface components {
         };
         AuthResponse: {
             /** @description JWT access-токен */
-            token?: string;
+            token: string;
             refresh_token?: string;
-            user?: components["schemas"]["User"];
+            user: components["schemas"]["User"];
             /** @description true если требуется второй фактор */
             needs_2fa?: boolean;
             /** @description Время жизни токена в секундах */
             expires_in?: number;
         };
         TOTPSetupResponse: {
-            secret?: string;
+            secret: string;
             /** @description otpauth:// URI для QR-кода */
-            uri?: string;
+            uri: string;
         };
         TwoFAStatus: {
-            enabled?: boolean;
-            has_pending_secret?: boolean;
+            enabled: boolean;
+            has_pending_secret: boolean;
         };
         APIResponse_Int: components["schemas"]["APIResponse"] & {
             data?: number;
@@ -4716,39 +4716,39 @@ export interface components {
             data?: boolean;
         };
         UserStatusResponse: {
-            user_id?: string;
-            is_online?: boolean;
+            user_id: string;
+            is_online: boolean;
             /** Format: date-time */
             last_seen?: string | null;
         };
         ConversationResponse: {
-            id?: string;
+            id: string;
             last_message_at?: string | null;
             last_message_preview?: string | null;
             last_message_sender_id?: string | null;
             pinned_message_id?: string | null;
-            updated_at?: string;
-            unread_count?: number;
+            updated_at: string;
+            unread_count: number;
             last_read_at?: string | null;
-            is_muted?: boolean;
-            other_user_id?: string;
-            other_username?: string;
+            is_muted: boolean;
+            other_user_id: string;
+            other_username: string;
             other_avatar_url?: string | null;
             other_account_num?: number | null;
             other_is_online?: boolean | null;
             other_last_seen_at?: string | null;
         };
         MessageResponse: {
-            id?: string;
-            conversation_id?: string;
-            sender_user_id?: string;
+            id: string;
+            conversation_id: string;
+            sender_user_id: string;
             parent_message_id?: string | null;
-            content?: string;
-            is_edited?: boolean;
-            is_deleted?: boolean;
+            content: string;
+            is_edited: boolean;
+            is_deleted: boolean;
             edited_at?: string | null;
-            sent_at?: string;
-            client_id?: string;
+            sent_at: string;
+            client_id: string;
         };
         SendMessageRequest: {
             content: string;
@@ -4757,17 +4757,17 @@ export interface components {
             parent_message_id?: string;
         };
         Bot: {
-            id?: string;
-            owner_id?: string;
-            username?: string;
-            display_name?: string;
+            id: string;
+            owner_id: string;
+            username: string;
+            display_name: string;
             avatar_url?: string | null;
             description?: string | null;
-            lua_code?: string;
-            token?: string;
-            is_active?: boolean;
-            created_at?: string;
-            updated_at?: string;
+            lua_code: string;
+            token: string;
+            is_active: boolean;
+            created_at: string;
+            updated_at: string;
         };
         CreateBotRequest: {
             username: string;
@@ -4784,36 +4784,36 @@ export interface components {
             is_active?: boolean;
         };
         BotLog: {
-            id?: string;
-            bot_id?: string;
-            level?: string;
-            message?: string;
+            id: string;
+            bot_id: string;
+            level: string;
+            message: string;
             context?: Record<string, never>;
-            created_at?: string;
+            created_at: string;
         };
         BotStats: {
-            id?: string;
-            bot_id?: string;
-            messages_sent?: number;
-            messages_received?: number;
-            commands_processed?: number;
-            errors_count?: number;
-            date?: string;
+            id: string;
+            bot_id: string;
+            messages_sent: number;
+            messages_received: number;
+            commands_processed: number;
+            errors_count: number;
+            date: string;
         };
         OAuthApplication: {
-            id?: string;
-            owner_id?: string;
-            name?: string;
-            description?: string;
-            client_id?: string;
-            redirect_uris?: string[];
-            allowed_scopes?: string[];
-            is_confidential?: boolean;
-            logo_url?: string;
-            homepage_url?: string;
-            is_active?: boolean;
-            created_at?: string;
-            updated_at?: string;
+            id: string;
+            owner_id: string;
+            name: string;
+            description: string;
+            client_id: string;
+            redirect_uris: string[];
+            allowed_scopes: string[];
+            is_confidential: boolean;
+            logo_url: string;
+            homepage_url: string;
+            is_active: boolean;
+            created_at: string;
+            updated_at: string;
         };
         TokenRequest_Form: {
             /** @enum {string} */
@@ -4827,11 +4827,11 @@ export interface components {
             scope?: string;
         };
         TokenResponse: {
-            access_token?: string;
+            access_token: string;
             /** @example Bearer */
-            token_type?: string;
+            token_type: string;
             /** @example 3600 */
-            expires_in?: number;
+            expires_in: number;
             id_token?: string;
             refresh_token?: string;
             scope?: string;
@@ -4850,7 +4850,7 @@ export interface components {
             client_secret?: string;
         };
         IntrospectResponse: {
-            active?: boolean;
+            active: boolean;
             scope?: string;
             client_id?: string;
             user_id?: string;
@@ -4864,7 +4864,7 @@ export interface components {
             iss?: string;
         };
         UserInfoResponse: {
-            sub?: string;
+            sub: string;
             name?: string;
             preferred_username?: string;
             email?: string;
@@ -4913,9 +4913,9 @@ export interface components {
             is_active?: boolean;
         };
         CreateAppResponse: {
-            app?: components["schemas"]["OAuthApplication"];
+            app: components["schemas"]["OAuthApplication"];
             /** @description Показывается один раз! */
-            client_secret?: string;
+            client_secret: string;
         };
         UniversalResponse: components["schemas"]["APIResponse"] & {
             data?: Record<string, never>[];

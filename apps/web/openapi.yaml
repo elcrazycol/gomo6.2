@@ -2382,6 +2382,7 @@ components:
     # ── User ─────────────────────────────────────────────────────────────────
     User:
       type: object
+      required: [id, username, email, domain, is_online, created_at, is_remote, is_anonymous]
       properties:
         id:
           type: string
@@ -2441,6 +2442,7 @@ components:
     # ── Board ────────────────────────────────────────────────────────────────
     Board:
       type: object
+      required: [id, slug, name, is_gomosub, is_rules_board, created_at]
       properties:
         id:
           type: string
@@ -2513,9 +2515,9 @@ components:
               items:
                 $ref: "#/components/schemas/Board"
 
-    # ── Thread ───────────────────────────────────────────────────────────────
     Thread:
       type: object
+      required: [id, board_id, title, content, post_count, server_domain, created_at, updated_at, is_remote]
       properties:
         id:
           type: string
@@ -2568,6 +2570,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/Thread"
         - type: object
+          required: [username, boards]
           properties:
             tags:
               type: array
@@ -2581,6 +2584,7 @@ components:
               nullable: true
             boards:
               type: object
+              required: [slug, name]
               properties:
                 slug:
                   type: string
@@ -2668,9 +2672,9 @@ components:
         text:
           type: string
 
-    # ── Post ─────────────────────────────────────────────────────────────────
     Post:
       type: object
+      required: [id, thread_id, content, is_private, server_domain, created_at, is_remote, username]
       properties:
         id:
           type: string
@@ -2783,6 +2787,7 @@ components:
     # ── Likes ────────────────────────────────────────────────────────────────
     PostLike:
       type: object
+      required: [id, post_id, user_id, created_at]
       properties:
         id:
           type: string
@@ -2795,6 +2800,7 @@ components:
 
     ThreadLike:
       type: object
+      required: [id, thread_id, user_id, created_at]
       properties:
         id:
           type: string
@@ -2818,6 +2824,7 @@ components:
     # ── Notification ─────────────────────────────────────────────────────────
     Notification:
       type: object
+      required: [id, user_id, type, title, message, is_read, created_at]
       properties:
         id:
           type: string
@@ -2890,6 +2897,7 @@ components:
 
     AuthResponse:
       type: object
+      required: [token, user]
       properties:
         token:
           type: string
@@ -2907,6 +2915,7 @@ components:
 
     TOTPSetupResponse:
       type: object
+      required: [secret, uri]
       properties:
         secret:
           type: string
@@ -2916,6 +2925,7 @@ components:
 
     TwoFAStatus:
       type: object
+      required: [enabled, has_pending_secret]
       properties:
         enabled:
           type: boolean
@@ -2942,6 +2952,7 @@ components:
     # ── User Status ──────────────────────────────────────────────────────────
     UserStatusResponse:
       type: object
+      required: [user_id, is_online]
       properties:
         user_id:
           type: string
@@ -2955,6 +2966,7 @@ components:
     # ── Messenger ────────────────────────────────────────────────────────────
     ConversationResponse:
       type: object
+      required: [id, updated_at, unread_count, is_muted, other_user_id, other_username]
       properties:
         id:
           type: string
@@ -2998,6 +3010,7 @@ components:
 
     MessageResponse:
       type: object
+      required: [id, conversation_id, sender_user_id, content, is_edited, is_deleted, sent_at, client_id]
       properties:
         id:
           type: string
@@ -3038,6 +3051,7 @@ components:
     # ── Bots ─────────────────────────────────────────────────────────────────
     Bot:
       type: object
+      required: [id, owner_id, username, display_name, lua_code, token, is_active, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3099,6 +3113,7 @@ components:
 
     BotLog:
       type: object
+      required: [id, bot_id, level, message, created_at]
       properties:
         id:
           type: string
@@ -3115,6 +3130,7 @@ components:
 
     BotStats:
       type: object
+      required: [id, bot_id, messages_sent, messages_received, commands_processed, errors_count, date]
       properties:
         id:
           type: string
@@ -3134,6 +3150,7 @@ components:
     # ── OAuth ────────────────────────────────────────────────────────────────
     OAuthApplication:
       type: object
+      required: [id, owner_id, name, description, client_id, redirect_uris, allowed_scopes, is_confidential, logo_url, homepage_url, is_active, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3190,6 +3207,7 @@ components:
 
     TokenResponse:
       type: object
+      required: [access_token, token_type, expires_in]
       properties:
         access_token:
           type: string
@@ -3235,6 +3253,7 @@ components:
 
     IntrospectResponse:
       type: object
+      required: [active]
       properties:
         active:
           type: boolean
@@ -3265,6 +3284,7 @@ components:
 
     UserInfoResponse:
       type: object
+      required: [sub]
       properties:
         sub:
           type: string
@@ -3388,6 +3408,7 @@ components:
 
     CreateAppResponse:
       type: object
+      required: [app, client_secret]
       properties:
         app:
           $ref: "#/components/schemas/OAuthApplication"
