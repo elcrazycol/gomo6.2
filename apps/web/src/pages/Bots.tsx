@@ -75,7 +75,7 @@ end`,
         setBots(data || []);
       }
     } catch {
-      console.error("Failed to load bots:", error);
+      console.error("Failed to load bots");
     }
   }, []);
 
@@ -231,7 +231,7 @@ end`,
         console.error("[Logs] Failed to fetch logs:", response.statusText);
       }
     } catch {
-      console.error("[Logs] Failed to load logs:", error);
+      console.error("[Logs] Failed to load logs");
     } finally {
       setLogsLoading(false);
     }
