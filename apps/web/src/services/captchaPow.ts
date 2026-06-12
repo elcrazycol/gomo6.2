@@ -144,7 +144,7 @@ export function solveChallenge(
         nonce: challenge.nonce,
         difficulty: challenge.difficulty,
       });
-    } catch {
+    } catch (err) {
       reject(err);
     }
   });

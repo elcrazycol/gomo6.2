@@ -3,18 +3,23 @@ import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { ImageGallery } from "@/components/ImageGallery";
-
-import { AlertTriangle, Reply, Bell, BellOff, Send, Eye, EyeOff } from "lucide-react";
+import { UserBadge } from "@/components/UserBadge";
+import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { HeaderUsername } from "@/components/HeaderUsername";
+import { AlertTriangle, Reply, Bell, BellOff, Send, Settings, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
-
+import { Input } from "@/components/ui/input";
 import { Poll } from "@/components/Poll";
 import type { Poll as PollData } from "@/components/Poll";
 import { storageUrl } from "@/utils/storage";
@@ -22,10 +27,16 @@ import { wsService } from "@/services/websocket";
 import { getContentTagLabel, getFormatTagLabel, getAtmosphereTagLabel } from "@/constants/tags";
 import { renderAttachments } from "@/components/ThreadAttachments";
 import { Maximize2, Minimize2 } from "lucide-react";
+import { MentionLink } from "@/components/MentionLink";
+import { LinkButton } from "@/components/LinkButton";
+import { EmojiInline } from "@/components/EmojiInline";
+import { CensorBlur } from "@/components/CensorBlur";
 import { ProcessedContent } from "@/components/ProcessedContent";
+import { SpoilerText } from "@/components/SpoilerText";
 import { EmojiPicker } from "@/components/EmojiPicker";
+import { renderBbCode } from "@/utils/bbcodePlugins";
 import { PentagramLoader } from "@/components/PentagramLoader";
-
+import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
@@ -383,7 +394,7 @@ const Thread = () => {
 
           return [...current, newPost];
         });
-      } catch {
+      } catch (err) {
         console.error('[WS] Failed to fetch new post:', err);
       }
     });
@@ -462,7 +473,7 @@ const Thread = () => {
               has_custom_message: hasCustomMessage
             }),
           });
-        } catch {
+        } catch (error) {
           console.error("Thread visit tracking unavailable:", error);
         }
       }
@@ -587,7 +598,7 @@ const Thread = () => {
       setTimeout(() => {
         setIsClearing(false);
       }, 100);
-    } catch {
+    } catch (err) {
       console.error("handleSubmitPost failed:", err);
       toast.error("Ошибка отправки");
     } finally {

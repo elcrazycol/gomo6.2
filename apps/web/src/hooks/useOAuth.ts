@@ -114,7 +114,7 @@ export function useOAuth(options: UseOAuthOptions): UseOAuthReturn {
             }
           }
         }
-      } catch {
+      } catch (err) {
         setError(err instanceof OAuthError ? err : new Error(String(err)))
       } finally {
         setIsLoading(false)
@@ -183,7 +183,7 @@ export function useOAuth(options: UseOAuthOptions): UseOAuthReturn {
         // Fetch userinfo
         const userInfo = await client.getUserinfo(tokens.accessToken)
         setUser(userInfo)
-      } catch {
+      } catch (err) {
         setError(err instanceof OAuthError ? err : new Error(String(err)))
         throw err
       } finally {

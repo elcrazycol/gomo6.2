@@ -118,7 +118,7 @@ export const compressImageWithMetadataRemoval = async (
             reject(new Error('Failed to compress image'));
           }
         }, file.type, quality);
-      } catch {
+      } catch (error) {
         reject(error);
       }
     };

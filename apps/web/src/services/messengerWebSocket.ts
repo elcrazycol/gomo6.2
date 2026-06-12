@@ -235,7 +235,7 @@ class MessengerWebSocket {
           break;
         }
       }
-    } catch {
+    } catch (e) {
       console.error("[MessengerWS] Parse error:", e);
     }
   }
