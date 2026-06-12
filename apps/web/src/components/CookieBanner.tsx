@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-
+import { X } from "lucide-react";
 
 export const CookieBanner = () => {
   const [show, setShow] = useState(false);

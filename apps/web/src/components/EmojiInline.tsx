@@ -23,7 +23,7 @@ export const EmojiInline = ({ code, className = "" }: EmojiInlineProps) => {
       if (data) {
         setEmoji(data);
       }
-    } catch {
+    } catch (error) {
       console.error('Error loading emoji:', error);
     } finally {
       setLoading(false);

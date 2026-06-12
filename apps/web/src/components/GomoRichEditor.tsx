@@ -12,7 +12,7 @@ import { $getSelectionStyleValueForProperty, $patchStyleText } from "@lexical/se
 import { mergeRegister } from "@lexical/utils";
 import { Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, Underline, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -402,7 +402,7 @@ const InitialContentPlugin = ({
     try {
       const parsedState = editor.parseEditorState(JSON.stringify(initialState));
       editor.setEditorState(parsedState);
-    } catch {
+    } catch (error) {
       console.error("Failed to initialize Lexical editor state, falling back to empty paragraph", error);
       try {
         const fallbackState = editor.parseEditorState(JSON.stringify(EMPTY_EDITOR_STATE));

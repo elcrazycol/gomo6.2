@@ -66,7 +66,7 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
       solved.current = true;
       setState("done");
       onReady(resultRef.current);
-    } catch {
+    } catch (err) {
       const msg = (err as Error).message || "Ошибка проверки";
       setState("error");
       setErrorMsg(msg);

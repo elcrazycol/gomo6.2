@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { api } from '@/integrations/api/compat';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -170,7 +171,9 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       setCloseTimeout(null);
     }
     setOpen(true);
-  };      const handleButtonMouseLeave = (_e: React.MouseEvent) => {
+  };
+
+  const handleButtonMouseLeave = (e: React.MouseEvent) => {
     // Don't close immediately - let the user move to the panel
     // The panel will handle closing when mouse leaves it
   };
@@ -211,7 +214,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       setGroups([]);
       setEmojis([]);
       setGroupedEmojis({});
-    } catch {
+    } catch (error) {
       console.error('Error loading emojis:', error);
     } finally {
       setLoading(false);

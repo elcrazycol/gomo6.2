@@ -4,10 +4,10 @@ import { api } from "@/integrations/api/compat";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-
+import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
-
+import { LikeButton } from "@/components/LikeButton";
 import { Heart, MessageCircle, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -224,7 +224,7 @@ const ThreadCard = ({
       } else {
         setRecentPosts([]);
       }
-    } catch {
+    } catch (error) {
       console.error("Error loading recent posts:", error);
     } finally {
       setIsLoadingPosts(false);
@@ -270,7 +270,7 @@ const ThreadCard = ({
           setUserLiked(likedData as boolean);
         }
       }
-    } catch {
+    } catch (error) {
       console.error("Error loading likes data:", error);
     }
   }, [currentUserId, thread.id]);
@@ -322,7 +322,7 @@ const ThreadCard = ({
           setLikesCount(prev => prev + 1);
         }
       }
-    } catch {
+    } catch (error) {
       console.error("Error toggling like:", error);
     }
   };

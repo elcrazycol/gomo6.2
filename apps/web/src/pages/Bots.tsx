@@ -7,10 +7,10 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { safeDate } from "@/utils/safeDate";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Plus, Activity, Trash2, Edit, Power, Code, Settings, FileText, ChevronLeft, Save, Terminal, AlertCircle, Info, AlertTriangle, RefreshCw } from "lucide-react";
@@ -74,8 +74,8 @@ end`,
         const data = await response.json();
         setBots(data || []);
       }
-    } catch {
-      console.error("Failed to load bots");
+    } catch (error) {
+      console.error("Failed to load bots:", error);
     }
   }, []);
 
@@ -123,7 +123,7 @@ end`,
         const error = await response.json();
         toast.error(error.error || "Ошибка создания бота");
       }
-    } catch {
+    } catch (error) {
       toast.error("Ошибка создания бота");
     }
   };
@@ -156,7 +156,7 @@ end`,
         const error = await response.json();
         toast.error(error.error || "Ошибка обновления бота");
       }
-    } catch {
+    } catch (error) {
       toast.error("Ошибка обновления бота");
     }
   };
@@ -177,7 +177,7 @@ end`,
         toast.success("Статус бота изменён");
         await loadBots(session.user.id);
       }
-    } catch {
+    } catch (error) {
       toast.error("Ошибка изменения статуса");
     }
   };
@@ -200,7 +200,7 @@ end`,
         toast.success("Бот удалён");
         await loadBots(session.user.id);
       }
-    } catch {
+    } catch (error) {
       toast.error("Ошибка удаления бота");
     }
   };
@@ -230,8 +230,8 @@ end`,
       } else {
         console.error("[Logs] Failed to fetch logs:", response.statusText);
       }
-    } catch {
-      console.error("[Logs] Failed to load logs");
+    } catch (error) {
+      console.error("[Logs] Failed to load logs:", error);
     } finally {
       setLogsLoading(false);
     }
@@ -267,7 +267,7 @@ end`,
         toast.success("Логи очищены");
         setLogs([]);
       }
-    } catch {
+    } catch (error) {
       toast.error("Ошибка очистки логов");
     }
   };

@@ -1,17 +1,25 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import React from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { HeaderUsername } from "@/components/HeaderUsername";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, User, Pin, Trophy } from "lucide-react";
-
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { ru } from "date-fns/locale";
+import { safeDate } from "@/utils/safeDate";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "@/components/AdminBadge";
@@ -39,6 +47,18 @@ interface Profile {
   account_number?: number | null;
   is_online?: boolean;
   last_seen?: string | null;
+}
+
+interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  category: string;
+  unlocked_at: string;
+  level?: number;
+  is_pinned?: boolean;
+  pinned_order?: number;
 }
 
 interface UserAchievementRaw {
@@ -71,6 +91,16 @@ interface AvatarHistoryItem {
   is_current: boolean;
 }
 
+
+const formatGarmaLabel = (value: number) => {
+  const abs = Math.abs(value);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+
+  if (mod10 === 1 && mod100 !== 11) return "gарма";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "gармы";
+  return "gарм";
+};
 
 const Profile = () => {
   const { userId } = useParams();
@@ -319,7 +349,7 @@ const Profile = () => {
       const data = result.data ?? result;
       setAvatarHistory((data || []) as AvatarHistoryItem[]);
       return (data || []) as AvatarHistoryItem[];
-    } catch {
+    } catch (error) {
       console.error('Error loading avatar history:', error);
       return [];
     }
@@ -368,7 +398,7 @@ const Profile = () => {
       }));
 
       setUserThreads(threadsWithData);
-    } catch {
+    } catch (error) {
       console.error('Error loading user threads:', error);
       toast.error('Ошибка загрузки тредов');
     } finally {
@@ -401,7 +431,7 @@ const Profile = () => {
 
       // Reload achievements to reflect changes
       await loadAchievements();
-    } catch {
+    } catch (error) {
       console.error('Error toggling achievement pin:', error);
     }
   };
@@ -454,7 +484,55 @@ const Profile = () => {
     }
   };
 
-  const handleSaveAndExit = async () => {
+  const handleSave = async () => {
+    if (!currentUser || currentUser.id !== userId) return;
+
+    const token = (await api.auth.getSession()).data.session?.access_token;
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    // Сохраняем профиль
+    const profileRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        username,
+        bio,
+        bio_json: bioJson,
+        is_anonymous: isAnonymous,
+      }),
+    });
+
+    if (!profileRes.ok) {
+      toast.error("Ошибка сохранения профиля");
+      return;
+    }
+
+    // Смена пароля, если поле заполнено
+    if (newPassword) {
+      const { error: passwordError } = await api.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (passwordError) {
+        toast.error("Ошибка смены пароля");
+        return;
+      } else {
+        toast.success("Пароль успешно изменён");
+        setNewPassword("");
+      }
+    }
+
+    toast.success("Профиль обновлен");
+    setIsEditing(false);
+    loadProfile();
+  };
+
+  const handleLogout = async () => {
+    await api.auth.signOut();
+    toast.success("Вышли");
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userId) return;
 
@@ -517,7 +595,7 @@ const Profile = () => {
 
       // Reload avatar history
       await loadAvatarHistory();
-    } catch {
+    } catch (error) {
       setAvatarUploading(false);
       toast.error("Ошибка обработки изображения");
       console.error(error);
@@ -579,7 +657,7 @@ const Profile = () => {
       } else {
         toast.error("Не удалось удалить аватар");
       }
-    } catch {
+    } catch (error) {
       console.error('Error deleting avatar:', error);
       toast.error("Ошибка удаления аватара");
     }
@@ -639,7 +717,7 @@ const Profile = () => {
       await loadProfile();
       
       toast.success("Изменения сохранены");
-    } catch {
+    } catch (error) {
       toast.error("Ошибка сохранения изменений");
       console.error(error);
     }
@@ -653,6 +731,40 @@ const Profile = () => {
     setBioEditorResetKey((prev) => prev + 1);
     setIsAnonymous(profile.is_anonymous);
     setIsEditing(true);
+  };
+
+  const handleUsernameChange = async () => {
+    if (newUsername !== confirmUsername) {
+      toast.error("Имена пользователя не совпадают");
+      return;
+    }
+
+    if (newUsername.length < 3) {
+      toast.error("Имя пользователя должно быть не менее 3 символов");
+      return;
+    }
+
+    try {
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+      const res = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ username: newUsername }),
+      });
+      if (!res.ok) throw new Error('Failed to save username');
+
+      toast.success("Имя пользователя изменено");
+      setProfile(prev => prev ? { ...prev, username: newUsername } : null);
+      setUsername(newUsername);
+      setShowUsernameDialog(false);
+      setNewUsername("");
+      setConfirmUsername("");
+    } catch (error) {
+      toast.error("Ошибка изменения имени пользователя");
+      console.error(error);
+    }
   };
 
   // Don't show fullscreen loader for pageLoading - let content loader handle it

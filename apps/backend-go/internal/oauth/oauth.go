@@ -81,14 +81,14 @@ func NewOAuthService(db *sql.DB, authSvc *auth.AuthService) *OAuthService {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-// sha256_hex returns the SHA-256 hex digest of a string.
-func sha256_hex(s string) string {
+// sha256Hex returns the SHA-256 hex digest of a string.
+func sha256Hex(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
 }
 
-// base64url_encode base64url-encodes bytes (no padding).
-func base64url_encode(b []byte) string {
+// base64urlEncode base64url-encodes bytes (no padding).
+func base64urlEncode(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 

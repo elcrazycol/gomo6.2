@@ -53,7 +53,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
       const votes = userVote?.option_ids || [];
       setUserVotes(votes);
       setHasVoted(votes.length > 0);
-    } catch {
+    } catch (error) {
       console.error('Error loading user votes:', error);
     }
   }, [currentUserId, poll.id]);
@@ -73,7 +73,7 @@ type PollResultRow = { option_id: string; votes: number; total_votes: number };
         };
       });
       setResults(resultsMap);
-    } catch {
+    } catch (error) {
       console.error('Error loading poll results:', error);
     }
   }, [poll.id]);
@@ -226,7 +226,7 @@ type PollResultRow = { option_id: string; votes: number; total_votes: number };
       await loadResults();
 
       toast.success("Голос учтен!");
-    } catch {
+    } catch (error) {
       console.error('Error voting:', error);
       toast.error("Ошибка при голосовании");
     } finally {
