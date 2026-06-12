@@ -10,9 +10,13 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings, Plus, Edit3, ArrowLeft } from "lucide-react";
 
+interface User {
+  id: string;
+}
+
 const EmojiModeration = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<UserIcon | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

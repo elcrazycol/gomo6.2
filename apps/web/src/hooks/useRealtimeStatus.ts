@@ -9,6 +9,11 @@ interface UserStatus {
   last_seen?: string;
 }
 
+interface WsStatusMessage {
+  user_id: string;
+  last_seen?: string;
+}
+
 /**
  * Hook to track online status of multiple users in real-time
  * Subscribes to WebSocket user_online/user_offline events
@@ -26,7 +31,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
     const unsubscribeOnline = wsService.on('user_online', (message) => {
       if (message.data) {
         try {
-          const data = message.data;
+          const data = message.data as WsStatusMessage;
 
           if (data.user_id && userIds.includes(data.user_id)) {
             setStatuses(prev => {
@@ -48,7 +53,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
     const unsubscribeOffline = wsService.on('user_offline', (message) => {
       if (message.data) {
         try {
-          const data = message.data;
+          const data = message.data as WsStatusMessage;
 
           if (data.user_id && userIds.includes(data.user_id)) {
             setStatuses(prev => {
@@ -92,7 +97,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
     const unsubscribeOnline = wsService.on('user_online', (message) => {
       if (message.data) {
         try {
-          const data = message.data;
+          const data = message.data as WsStatusMessage;
 
           if (data.user_id === userId) {
             const newStatus = {
@@ -124,7 +129,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
     const unsubscribeOffline = wsService.on('user_offline', (message) => {
       if (message.data) {
         try {
-          const data = message.data;
+          const data = message.data as WsStatusMessage;
 
           if (data.user_id === userId) {
             const newStatus = {

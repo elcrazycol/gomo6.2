@@ -84,7 +84,7 @@ export const uploadFile = async (
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const message = (body as Record<string, unknown>)?.error || `Upload failed: ${res.status}`;
+    const message = ((body as Record<string, unknown>)?.error as string) || `Upload failed: ${res.status}`;
     throw new Error(message);
   }
 
@@ -135,7 +135,7 @@ export const removeFile = async (
 
   if (!res.ok && res.status !== 404) {
     const body = await res.json().catch(() => ({}));
-    const message = (body as Record<string, unknown>)?.error || `Delete failed: ${res.status}`;
+    const message = ((body as Record<string, unknown>)?.error as string) || `Delete failed: ${res.status}`;
     throw new Error(message);
   }
 };

@@ -16,6 +16,10 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 
+interface LocalUser {
+  id: string;
+}
+
 interface Report {
   id: string;
   reason: string;
@@ -49,7 +53,7 @@ interface ReportedContent {
 
 const Moderation = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -69,7 +73,7 @@ const Moderation = () => {
       return;
     }
 
-    setUser(user);
+    setUser(user as LocalUser);
 
     const { data: roles } = await api
       .from("user_roles")
@@ -94,7 +98,7 @@ const Moderation = () => {
       .single();
 
     if (profile) {
-      setCurrentUserUsername(profile.username);
+      setCurrentUserUsername((profile as Record<string, unknown>).username as string);
     }
 
     // Load current user color

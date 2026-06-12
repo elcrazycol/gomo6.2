@@ -812,8 +812,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
       if (achievements) {
         const colorRewards = achievements
-          .filter((a) => a.achievements?.reward_type === "username_color")
-          .map((a) => a.achievements!.reward_value);
+          .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
+          .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
 
         const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
         for (const p of priority) {

@@ -15,9 +15,13 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { User, X, Copy, Trash2, Plus } from "lucide-react";
+import { User as UserIcon, X, Copy, Trash2, Plus } from "lucide-react";
 import { parseCssToStyle, clearCustomizationCache } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
+
+interface LocalUser {
+  id: string;
+}
 
 interface TextShadow {
   id: string;
@@ -38,7 +42,7 @@ interface ProfileCustomization {
 
 const CustomProfile = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -194,20 +198,21 @@ const CustomProfile = () => {
     }
 
     if (data) {
-      if (data.username_css) {
-        parseUsernameCss(data.username_css);
-        setUsernameCustomCss(data.username_css);
+      const d = data as Record<string, unknown>;
+      if (d.username_css) {
+        parseUsernameCss(d.username_css as string);
+        setUsernameCustomCss(d.username_css as string);
         setUsernameCssMode("manual");
       }
 
-      if (data.username_icon_svg) setIconSvg(data.username_icon_svg);
-      if (data.username_icon_fill) setIconFill(data.username_icon_fill);
-      if (data.username_icon_stroke) setIconStroke(data.username_icon_stroke);
+      if (d.username_icon_svg) setIconSvg(d.username_icon_svg as string);
+      if (d.username_icon_fill) setIconFill(d.username_icon_fill as string);
+      if (d.username_icon_stroke) setIconStroke(d.username_icon_stroke as string);
 
-      if (data.profile_badge_text) setBadgeText(data.profile_badge_text);
-      if (data.profile_badge_css) {
-        parseBadgeCss(data.profile_badge_css);
-        setBadgeCustomCss(data.profile_badge_css);
+      if (d.profile_badge_text) setBadgeText(d.profile_badge_text as string);
+      if (d.profile_badge_css) {
+        parseBadgeCss(d.profile_badge_css as string);
+        setBadgeCustomCss(d.profile_badge_css as string);
         setBadgeCssMode("manual");
       }
     }
@@ -215,25 +220,26 @@ const CustomProfile = () => {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await api.auth.getUser();
-      setUser(user);
+      const { data: { user: authUser } } = await api.auth.getUser();
+      setUser(authUser as LocalUser | null);
       
-      if (user) {
+      if (authUser) {
         // Load current user profile
         const { data: profile } = await api
           .from("profiles")
           .select("username, avatar_url")
-          .eq("id", user.id)
+          .eq("id", authUser.id)
           .single();
 
         if (profile) {
-          setCurrentUserUsername(profile.username);
-          setAvatarUrl(storageUrl("post-images", profile.avatar_url));
+          const p = profile as Record<string, unknown>;
+          setCurrentUserUsername(p.username as string);
+          setAvatarUrl(storageUrl("post-images", p.avatar_url as string | null));
         }
 
 
         // Load customization
-        await loadCustomization(user.id);
+        await loadCustomization(authUser.id);
       }
       
       setLoading(false);
@@ -460,9 +466,9 @@ const CustomProfile = () => {
       clearCustomizationCache(user.id);
 
       toast.success("Кастомизация сохранена!");
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Error saving customization:", error);
-      toast.error("Ошибка сохранения: " + error.message);
+      toast.error("Ошибка сохранения: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setSaving(false);
     }
@@ -507,7 +513,7 @@ const CustomProfile = () => {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <User className="w-10 h-10 text-muted-foreground" />
+                        <UserIcon className="w-10 h-10 text-muted-foreground" />
                       )}
                     </div>
                   </div>

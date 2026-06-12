@@ -8,6 +8,31 @@ import {
   type UnlockData,
 } from "@/components/AchievementUnlockToast";
 
+interface WsNotifData {
+  type: string;
+  notification_id?: string;
+  id?: string;
+  achievement?: {
+    id?: string;
+    group_key?: string;
+    name?: string;
+    description?: string;
+    icon?: string;
+    rarity?: string;
+    level?: number;
+    max_level?: number;
+    is_first_time?: boolean;
+    prev_level?: number;
+  };
+}
+
+interface ApiNotifItem {
+  type: string;
+  id: string;
+  title?: string;
+  message?: string;
+}
+
 /** Set of notification IDs that have already been shown — prevents re-showing across polls/WS reconnects */
 const shownNotificationIds = new Set<string>();
 
@@ -63,7 +88,7 @@ export function AchievementToastListener() {
 
     // ── WebSocket listener ──────────────────────────────
     const wsUnsub = wsService.on("new_notification", (msg) => {
-      const notif = msg?.data;
+      const notif = msg?.data as WsNotifData | undefined;
       if (!notif || notif.type !== "achievement_unlock") return;
 
       // Get notification_id from the WS payload (explicit field added by backend)
@@ -108,7 +133,7 @@ export function AchievementToastListener() {
         if (!res.ok) return;
 
         const json = await res.json();
-        const items: unknown[] = json.data || [];
+        const items = (json.data || []) as ApiNotifItem[];
 
         for (const item of items) {
           if (item.type !== "achievement_unlock") continue;
