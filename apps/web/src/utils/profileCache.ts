@@ -5,7 +5,7 @@ interface CacheEntry<T> {
 }
 
 class ProfileCache {
-  private cache = new Map<string, CacheEntry<any>>();
+  private cache = new Map<string, CacheEntry<unknown>>();
   private readonly TTL = 60000; // 1 minute cache
 
   set<T>(key: string, data: T): void {

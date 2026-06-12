@@ -22,7 +22,7 @@ interface ThreadCardProps {
     created_at: string;
     updated_at: string;
     user_id: string | null;
-    tags?: any; // Thread tags object
+    tags?: Record<string, string>; // Thread tags object
     ephemeral_type?: string | null;
     ephemeral_value?: number | null;
     auto_delete_at?: string | null;
@@ -58,8 +58,8 @@ interface RecentPost {
   } | null;
 }
 
-export // Helper function to render tags
-const renderTags = (tags: any, layout: 'inline' | 'block' | 'mobile' | 'board' = 'block', thread?: any) => {
+// Helper function to render tags
+export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'block' | 'mobile' | 'board' = 'block', thread?: Record<string, unknown>) => {
   const containerClass = layout === 'inline'
     ? "flex flex-wrap gap-1"
     : layout === 'mobile'

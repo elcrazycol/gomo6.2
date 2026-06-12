@@ -84,7 +84,7 @@ const OAuthConsent = () => {
           setUserInfo({
             id: session.user.id,
             username:
-              (userData?.user as any)?.user_metadata?.username ||
+              (userData?.user as { user_metadata?: { username?: string } })?.user_metadata?.username ||
               session.user.email?.split("@")[0] ||
               "User",
           });
