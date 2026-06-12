@@ -154,7 +154,7 @@ const GomoSubCreate = () => {
       if (kind === "avatar") setAvatarImages([fileName]);
       else setCoverImages([fileName]);
       toast.success(kind === "avatar" ? "Аватар загружен" : "Фон загружен");
-    } catch (e: any) {
+    } catch (e: unknown) {
       toast.error(e?.message || "Не удалось загрузить изображение");
     } finally {
       if (kind === "avatar") setUploadingAvatar(false);
@@ -208,7 +208,7 @@ const GomoSubCreate = () => {
 
       toast.success("G-саб создан");
       navigate(`/g/${slug}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error(error?.message || "Не удалось создать g-саб");
     } finally {
       setCreating(false);

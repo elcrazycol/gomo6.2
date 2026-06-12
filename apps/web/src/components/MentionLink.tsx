@@ -9,7 +9,7 @@ interface MentionLinkProps {
 }
 
 // Global cache for user mentions
-const userCache = new Map<string, { exists: boolean; data?: any; color?: string; avatarUrl?: string | null }>();
+const userCache = new Map<string, { exists: boolean; data?: unknown; color?: string; avatarUrl?: string | null }>();
 
 const getColorClass = (color: string): string => {
   const colorClasses: Record<string, string> = {
@@ -27,7 +27,7 @@ const getColorClass = (color: string): string => {
 
 export const MentionLink = ({ username }: MentionLinkProps) => {
   const [userExists, setUserExists] = useState<boolean | null>(null);
-  const [userData, setUserData] = useState<any>(null);
+  const [userData, setUserData] = useState<unknown>(null);
   const [color, setColor] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
@@ -74,8 +74,8 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           let userColor = "";
           if (achievements) {
             const colorRewards = achievements
-              .filter((a: any) => a.achievements?.reward_type === "username_color")
-              .map((a: any) => a.achievements.reward_value);
+              .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
+              .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
             const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
             for (const p of priority) {
@@ -89,7 +89,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
           setColor(userColor);
           userCache.set(username, { exists: true, data, color: userColor, avatarUrl: resolvedAvatar });
         }
-      } catch (error) {
+      } catch {
         setUserExists(false);
         userCache.set(username, { exists: false });
       }

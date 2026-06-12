@@ -43,7 +43,7 @@ interface EmojiGroup {
 
 const EmojiEdit = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<unknown>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -105,8 +105,8 @@ const EmojiEdit = () => {
 
     if (achievements) {
       const colorRewards = achievements
-        .filter((a: any) => a.achievements?.reward_type === "username_color")
-        .map((a: any) => a.achievements.reward_value);
+        .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
+        .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
       const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
       for (const p of priority) {

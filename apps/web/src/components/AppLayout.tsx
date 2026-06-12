@@ -21,7 +21,7 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-type AudioInstance = (HTMLMediaElement & { playing?: boolean; media?: HTMLMediaElement; on?: (event: string, handler: (...args: any[]) => void) => void }) | { play: () => Promise<void>; pause: () => void; media?: HTMLMediaElement; on?: (event: string, handler: (...args: any[]) => void) => void; muted?: boolean; paused?: boolean; ended?: boolean; currentTime?: number; duration?: number; volume?: number | (() => number) };
+type AudioInstance = (HTMLMediaElement & { playing?: boolean; media?: HTMLMediaElement; on?: (event: string, handler: (...args: unknown[]) => void) => void }) | { play: () => Promise<void>; pause: () => void; media?: HTMLMediaElement; on?: (event: string, handler: (...args: unknown[]) => void) => void; muted?: boolean; paused?: boolean; ended?: boolean; currentTime?: number; duration?: number; volume?: number | (() => number) };
 type PlaylistEntry = { id: string; title: string; src?: string; index: number };
 
 type NowPlayingState = {
@@ -468,7 +468,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       lastPlayEventRef.current = id;
 
       // Don't pause others during background resume
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((window as any).isBackgroundResume) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).isBackgroundResume = false;
       } else {
         // Pause other audio instances to avoid overlap
@@ -536,7 +538,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
             );
           }
         };
-        const handleError = (e: any) => {
+        const handleError = (e: unknown) => {
           console.error("Audio playback error:", e);
           audioMapRef.current.delete(id);
           setQueue((q) => q.filter((k) => k !== id));
@@ -719,6 +721,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         currentEntry.inst.pause();
       } else {
         pauseOthers(nowPlaying.id);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         currentEntry.inst.play().catch((err: any) => {
           console.error("Failed to play:", err);
         });

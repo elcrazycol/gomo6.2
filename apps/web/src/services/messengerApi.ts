@@ -31,7 +31,7 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   try {
     return await doFetch(TOKEN());
-  } catch (e) {
+  } catch {
     const err = e as Error & { status?: number };
     // On 401, try to refresh the token and retry once
     if (err.status === 401) {
@@ -54,7 +54,7 @@ export const messengerApi = {
     try {
       const result = await apiClient.request<{ id: string; username: string }>('/api/v1/auth/me');
       return result.data as { id: string; username: string };
-    } catch (e) {
+    } catch {
       const err = e as Error & { status?: number };
       // 401 is handled by apiClient.request() — tokens cleared + auth:expired dispatched
       if (err.status === 401 || !localStorage.getItem("auth_token")) {

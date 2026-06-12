@@ -10,10 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ArrowLeft } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -48,7 +44,7 @@ const Placeholders = () => {
     id: string;
     avatar_url?: string | null;
   } | null>(null);
-  const [customization, setCustomization] = useState<any>(null);
+  const [customization, setCustomization] = useState<unknown>(null);
   
   const [placeholder1, setPlaceholder1] = useState<string>('bio');
   const [placeholder2, setPlaceholder2] = useState<string>('created_at');
@@ -121,7 +117,7 @@ const Placeholders = () => {
       if (error) throw error;
 
       toast.success("Плейсхолдеры сохранены");
-    } catch (error) {
+    } catch {
       const msg = error instanceof Error ? error.message : 'Неизвестная ошибка';
       toast.error(`Ошибка: ${msg}`);
     } finally {

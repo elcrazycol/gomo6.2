@@ -9,7 +9,7 @@ export const storage = {
         try {
           const result = await uploadFile(bucket, path, file, token);
           return { data: { path: result.path }, error: null };
-        } catch (error) {
+        } catch {
           return { data: null, error: { message: (error as Error).message } };
         }
       },
@@ -20,7 +20,7 @@ export const storage = {
         try {
           await Promise.all(paths.map((p) => removeFile(bucket, p, token)));
           return { data: null, error: null };
-        } catch (error) {
+        } catch {
           return { data: null, error: { message: (error as Error).message } };
         }
       },

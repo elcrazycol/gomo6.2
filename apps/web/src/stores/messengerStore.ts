@@ -78,7 +78,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const profile = await messengerApi.getMyProfile();
       set({ me: { id: profile.id, username: profile.username } });
       await get().loadConversations();
-    } catch (e) {
+    } catch {
       set({ error: "Не удалось загрузить профиль", isInitialLoading: false });
       return;
     }
@@ -97,7 +97,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     try {
       const msgs = await messengerApi.getMessages(conversationId);
       set({ messages: msgs, isMessagesLoading: false });
-    } catch (e) {
+    } catch {
       set({ error: "Не удалось загрузить сообщения", isMessagesLoading: false });
     }
   },
@@ -133,7 +133,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       // Refresh conversation list to update last_message_preview
       get().loadConversations();
       return msg.id;
-    } catch (e) {
+    } catch {
       set((s) => ({
         messages: s.messages.map((m) =>
           m.client_id === clientId ? { ...m, localStatus: "failed" as const } : m,
@@ -207,7 +207,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const convId = resp.conversation_id;
       await get().loadConversations();
       return convId;
-    } catch (e) {
+    } catch {
       set({ error: "Не удалось открыть диалог" });
       return null;
     }

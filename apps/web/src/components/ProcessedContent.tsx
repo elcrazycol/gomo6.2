@@ -85,7 +85,7 @@ export const ProcessedContent = ({
             setHiddenUsernames(usernames);
           }
         }
-      } catch (error) {
+      } catch {
         console.error('Error processing visibility tags:', error);
         setVisibilityResult({
           processedContent: content,
@@ -118,8 +118,8 @@ export const ProcessedContent = ({
       if (data) {
         // Get the highest priority color
         const colorRewards = data
-          .filter((a: any) => a.achievements?.reward_type === "username_color")
-          .map((a: any) => a.achievements.reward_value);
+          .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
+          .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
         const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
         for (const p of priority) {

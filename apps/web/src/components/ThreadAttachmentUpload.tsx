@@ -98,7 +98,7 @@ export const ThreadAttachmentUpload = ({ value, onChange, maxFiles = 8 }: Thread
         setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
       }, 800);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Attachment upload error", error);
       setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
     } finally {

@@ -28,13 +28,13 @@ type QueryState = {
 // ── Response types ────────────────────────────────────────────────────────────
 
 interface QueryResponse {
-  data: any[] | null;
+  data: Record<string, unknown>[] | null;
   error: unknown;
   count?: number;
 }
 
 interface SingleResponse {
-  data: any | null;
+  data: Record<string, unknown> | null;
   error: unknown;
   count?: number;
 }

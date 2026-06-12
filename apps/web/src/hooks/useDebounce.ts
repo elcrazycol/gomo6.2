@@ -4,7 +4,7 @@ import { useCallback, useRef } from 'react';
  * Hook for debouncing function calls
  * Prevents excessive function calls by delaying execution until after a specified time
  */
-export function useDebouncedCallback<T extends (...args: any[]) => any>(
+export function useDebouncedCallback<T extends (...args: unknown[]) => unknown>(
   callback: T,
   delay: number
 ): (...args: Parameters<T>) => void {
@@ -28,7 +28,7 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
  * Hook for throttling function calls
  * Ensures function is called at most once per specified interval
  */
-export function useThrottledCallback<T extends (...args: any[]) => any>(
+export function useThrottledCallback<T extends (...args: unknown[]) => unknown>(
   callback: T,
   delay: number
 ): (...args: Parameters<T>) => void {

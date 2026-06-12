@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
-import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 
@@ -56,8 +55,8 @@ export const UserBadge = ({
 
       if (data) {
         const colorRewards = data
-          .filter((a: any) => a.achievements?.reward_type === "username_color")
-          .map((a: any) => a.achievements.reward_value);
+          .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
+          .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
 
         const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
         for (const p of priority) {
@@ -154,11 +153,8 @@ export const UserBadge = ({
   );
 
   const badgeContent = disableLink ? (
-    <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
       {usernameContent}
-    </ProfileHoverCard>
   ) : (
-    <ProfileHoverCard userId={userId} disabled={disableHoverCard}>
       <Link
         to={`/profile/${userId}`}
         className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden"
@@ -166,7 +162,6 @@ export const UserBadge = ({
       >
         {usernameContent}
       </Link>
-    </ProfileHoverCard>
   );
 
   return className ? (

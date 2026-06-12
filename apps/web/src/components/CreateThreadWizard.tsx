@@ -128,7 +128,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
       toast.success('Тред создан!');
       navigate(`/${selectedBoard.slug}/thread/${data.id}`);
       onClose();
-    } catch (error) {
+    } catch {
       console.error('Error creating thread:', error);
       toast.error('Ошибка при создании треда');
     } finally {
@@ -201,7 +201,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
                       const imageKey = `threads/${Date.now()}-${file.name}`;
                       await uploadFile('content', imageKey, file);
                       setThreadImageUrl(imageKey);
-                    } catch (error) {
+                    } catch {
                       console.error('Error uploading thread image:', error);
                       toast.error('Ошибка загрузки изображения');
                     }

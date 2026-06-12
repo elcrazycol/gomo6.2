@@ -402,7 +402,7 @@ const InitialContentPlugin = ({
     try {
       const parsedState = editor.parseEditorState(JSON.stringify(initialState));
       editor.setEditorState(parsedState);
-    } catch (error) {
+    } catch {
       console.error("Failed to initialize Lexical editor state, falling back to empty paragraph", error);
       try {
         const fallbackState = editor.parseEditorState(JSON.stringify(EMPTY_EDITOR_STATE));
@@ -533,6 +533,7 @@ const Toolbar = ({
   };
 
   const applyColor = (nextColor: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withSavedSelection((selection: any) => {
       $patchStyleText(selection, { color: nextColor });
       if (!nextColor) {

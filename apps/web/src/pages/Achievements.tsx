@@ -80,7 +80,7 @@ export default function Achievements() {
       const unlockedRaw = achResult.data || [];
 
       // Build map of achievement_id → user data
-      const unlockedMap = new Map<string, any>();
+      const unlockedMap = new Map<string, Record<string, unknown>>();
       for (const ua of unlockedRaw) {
         const a = ua.achievements || {};
         unlockedMap.set(a.id || ua.achievement_id, {
@@ -160,7 +160,7 @@ export default function Achievements() {
       });
 
       setAllAchievements(merged);
-    } catch (error) {
+    } catch {
       console.error("Error loading achievements:", error);
     } finally {
       setLoading(false);

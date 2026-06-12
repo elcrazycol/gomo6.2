@@ -54,13 +54,8 @@ vi.mock("@/components/PentagramLoader", () => ({
   PentagramLoader: () => <div data-testid="pentagram-loader">Loading...</div>,
 }));
 
-vi.mock("@/components/NotificationBell", () => ({ NotificationBell: () => null }));
-vi.mock("@/components/ChatIcon", () => ({ ChatIcon: () => null }));
-vi.mock("@/components/MobileMenu", () => ({ MobileMenu: () => null }));
-vi.mock("@/components/ProfileHoverCard", () => ({ ProfileHoverCard: () => null }));
 vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 vi.mock("@/components/UserBadge", () => ({ UserBadge: () => null }));
-vi.mock("@/components/HeaderUsername", () => ({ HeaderUsername: () => null }));
 vi.mock("@/components/TermsOfService", () => ({ TermsOfService: () => null }));
 vi.mock("@/components/PrefetchLink", () => ({
   PrefetchLink: ({ children, to }: { children: React.ReactNode; to: string }) => (

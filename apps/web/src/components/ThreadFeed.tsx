@@ -85,9 +85,9 @@ export const ThreadFeed = ({
           }
         );
 
-        if (!recError && recommended && (recommended as any[]).length > 0) {
+        if (!recError && recommended && (recommended as Array<{ thread_id: string; score: number }>).length > 0) {
           // Get full thread data for recommendations
-          const recommendedIds = (recommended as any[]).map((r: any) => r.thread_id);
+          const recommendedIds = (recommended as Array<{ thread_id: string; score: number }>).map((r) => r.thread_id);
           const recResponse = await fetch(`/api/v1/threads?id=in.(${recommendedIds.join(',')})&limit=${limit}`);
           const recResult = await recResponse.json();
           const recThreadsData = (recResult.data || []) as Record<string, unknown>[];
@@ -107,8 +107,8 @@ export const ThreadFeed = ({
 
             // Sort by recommendation score
             const sortedRecThreads = recThreadsWithProfiles.sort((a, b) => {
-              const aScore = (recommended as any[]).find((r: any) => r.thread_id === a.id)?.score || 0;
-              const bScore = (recommended as any[]).find((r: any) => r.thread_id === b.id)?.score || 0;
+              const aScore = (recommended as Array<{ thread_id: string; score: number }>).find((r) => r.thread_id === a.id)?.score || 0;
+              const bScore = (recommended as Array<{ thread_id: string; score: number }>).find((r) => r.thread_id === b.id)?.score || 0;
               return bScore - aScore;
             });
 
@@ -148,7 +148,7 @@ export const ThreadFeed = ({
       // Update cursor for next page
       setCursor(nextCursor);
       setHasMore(hasMoreData && nextCursor !== null);
-    } catch (error) {
+    } catch {
       console.error("Error in loadThreads:", error);
     } finally {
       setLoading(false);

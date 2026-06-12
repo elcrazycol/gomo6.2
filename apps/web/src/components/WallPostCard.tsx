@@ -112,7 +112,7 @@ export const WallPostCard = ({
 
       if (error) throw error;
       setComments(((data || []) as Record<string, unknown>[]).map(normalizeWallComment));
-    } catch (err) {
+    } catch {
       console.error("Error loading wall comments:", err);
       toast.error("Не удалось загрузить комментарии");
     } finally {
@@ -160,7 +160,7 @@ export const WallPostCard = ({
         setIsReposted(Boolean((repostStateResult as { data: unknown }).data));
         setRepostRecordId((repostStateResult as { data: { id: string } | null }).data?.id || null);
         setRepostedWallPostId((repostStateResult as { data: { reposted_wall_post_id: string } | null }).data?.reposted_wall_post_id || null);
-      } catch (error) {
+      } catch {
         console.error("Error loading wall interaction state:", error);
       }
     };
@@ -197,7 +197,7 @@ export const WallPostCard = ({
         setIsLiked(true);
         setLikesCount((prev) => prev + 1);
       }
-    } catch (err) {
+    } catch {
       console.error("Error toggling wall like:", err);
       toast.error("Не удалось изменить лайк");
     } finally {
@@ -230,7 +230,7 @@ export const WallPostCard = ({
       setCommentText("");
       setCommentJson(EMPTY_EDITOR_STATE);
       setCommentResetKey((prev) => prev + 1);
-    } catch (error) {
+    } catch {
       console.error("Error creating wall comment:", error);
       toast.error("Не удалось отправить комментарий");
     } finally {
@@ -313,7 +313,7 @@ export const WallPostCard = ({
         text: post.content || "Посмотри эту запись",
         url: shareUrl,
       });
-    } catch (error) {
+    } catch {
       if ((error as Error)?.name !== "AbortError") {
         toast.error("Не удалось поделиться записью");
       }
@@ -414,7 +414,7 @@ export const WallPostCard = ({
       await loadComments();
       handleCancelCommentEdit();
       toast.success("Комментарий обновлён");
-    } catch (error) {
+    } catch {
       console.error("Error updating wall comment:", error);
       toast.error("Не удалось обновить комментарий");
     } finally {
@@ -437,7 +437,7 @@ export const WallPostCard = ({
         handleCancelCommentEdit();
       }
       toast.success("Комментарий удалён");
-    } catch (error) {
+    } catch {
       console.error("Error deleting wall comment:", error);
       toast.error("Не удалось удалить комментарий");
     } finally {

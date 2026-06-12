@@ -151,10 +151,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     // load emoji index once (code -> image_url)
     const load = async () => {
       // NOTE: schema types may lag behind migrations in some environments; keep this runtime-safe.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy query builder returns dynamic types
       const { data, error } = await (api as any).from("emojis").select("code,image_url").limit(5000);
       if (error) return;
       const idx: EmojiIndex = {};
-      for (const e of (data ?? []) as any[]) idx[e.code] = e.image_url;
+      for (const e of (data ?? []) as Array<{ code: string; image_url: string }>) idx[e.code] = e.image_url;
       setEmojiIndex(idx);
     };
     load();
@@ -164,17 +165,18 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     if (!code) return;
     if (emojiIndexRef.current[code]) return;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy query builder returns dynamic types
     const { data, error } = await (api as any)
       .from("emojis")
       .select("code,image_url")
       .eq("code", code)
       .maybeSingle();
 
-    if (error || !(data as any)?.image_url) return;
+    if (error || !(data as { image_url?: string })?.image_url) return;
 
     setEmojiIndex((prev) => {
       if (prev[code]) return prev;
-      return { ...prev, [code]: (data as any).image_url };
+      return { ...prev, [code]: (data as { image_url: string }).image_url };
     });
   }, []);
 

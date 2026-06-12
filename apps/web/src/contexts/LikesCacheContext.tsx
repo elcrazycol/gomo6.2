@@ -65,7 +65,7 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
         const countFunction = isThread ? 'get_thread_likes_count' : 'get_post_likes_count';
         const hasLikedFunction = isThread ? 'has_user_liked_thread' : 'has_user_liked_post';
 
-        const promises: [Promise<any>, Promise<any>?] = [
+        const promises: [Promise<unknown>, Promise<unknown>?] = [
           api.rpc(countFunction, {
             [isThread ? 'thread_uuid' : 'post_uuid']: postId
           })
@@ -105,7 +105,7 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
         });
 
         return likeData;
-      } catch (error) {
+      } catch {
         // Silently return empty data on network errors — UI will show 0 likes
         console.warn('Failed to load like data:', (error as Error).message);
         return { count: 0, isLiked: false, timestamp: Date.now() };
