@@ -64,8 +64,8 @@ const GomoSubCreate = () => {
         .select("garma, created_at")
         .eq("id", session.user.id)
         .single();
-      setGarma(data?.garma ?? 0);
-      setProfileCreatedAt(data?.created_at ?? null);
+      setGarma((data?.garma as number) ?? 0);
+      setProfileCreatedAt((data?.created_at as string) ?? null);
     };
     load();
   }, []);

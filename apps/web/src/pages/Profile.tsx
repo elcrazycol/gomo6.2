@@ -147,9 +147,9 @@ const Profile = () => {
     replies: false,
     time: false,
   });
-  const [userThreads, setUserThreads] = useState<Array<Record<string, unknown>>>([]);
+  const [userThreads, setUserThreads] = useState<AvatarHistoryItem[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
-  const [avatarHistory, setAvatarHistory] = useState<Array<Record<string, unknown>>>([]);
+  const [avatarHistory, setAvatarHistory] = useState<AvatarHistoryItem[]>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [showAvatarGallery, setShowAvatarGallery] = useState(false);
   const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
