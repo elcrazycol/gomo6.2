@@ -24,6 +24,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+interface User {
+  id: string;
+}
+
 interface Emoji {
   id: string;
   name: string;
@@ -43,7 +47,7 @@ interface EmojiGroup {
 
 const EmojiEdit = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

@@ -173,7 +173,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                 <AdminBadge userId={userId} />
               </div>
               <div className="text-sm text-muted-foreground">
-                ID: {profile?.id?.slice(0, 8) || 'N/A'} {profile?.account_number && `(${profile.account_number})`}
+                ID: {profile?.id ? String(profile.id).slice(0, 8) : 'N/A'} {profile?.account_number && `(${profile.account_number})`}
               </div>
               <OnlineStatus
                 userId={userId}
@@ -209,7 +209,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                     case 'account_number':
                       return profile.account_number ? `#${profile.account_number}` : null;
                     case 'id':
-                      return profile.id ? profile.id.slice(0, 8) : null;
+                      return profile.id ? String(profile.id).slice(0, 8) : null;
                     default:
                       return null;
                   }

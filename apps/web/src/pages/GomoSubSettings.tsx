@@ -236,8 +236,9 @@ const GomoSubSettings = () => {
         setForm((prev) => ({ ...prev, cover_image_url: fileName }));
       }
       toast.success(kind === "avatar" ? "Аватар обновлен" : "Фон обновлен");
-    } catch (e: unknown) {
-      toast.error(e?.message || "Не удалось загрузить изображение");
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      toast.error(errMsg || "Не удалось загрузить изображение");
     } finally {
       if (kind === "avatar") setUploadingAvatar(false);
       else setUploadingCover(false);

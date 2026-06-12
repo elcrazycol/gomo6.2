@@ -18,6 +18,10 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 
+interface User {
+  id: string;
+}
+
 interface Board {
   id: string;
   slug: string;
@@ -47,7 +51,7 @@ interface PopularThread {
 
 const Index = () => {
   const [boards, setBoards] = useState<Board[]>([]);
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

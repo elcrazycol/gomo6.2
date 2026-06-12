@@ -18,6 +18,10 @@ import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 
+interface User {
+  id: string;
+}
+
 interface Board {
   id: string;
   slug: string;
@@ -52,7 +56,7 @@ interface PopularThread {
 
 const BoardsView = () => {
   const [boards, setBoards] = useState<Board[]>([]);
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

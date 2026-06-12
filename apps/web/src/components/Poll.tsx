@@ -41,7 +41,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
     if (!currentUserId) return;
 
     try {
-      const { data: userVote, error } = await api
+      const { data, error } = await api
         .from('poll_votes')
         .select('option_ids')
         .eq('poll_id', poll.id)
@@ -50,6 +50,7 @@ export const Poll = ({ poll, threadId, currentUserId, isPageLoading = false }: P
 
       if (error) throw error;
 
+      const userVote = data as { option_ids?: string[] } | null;
       const votes = userVote?.option_ids || [];
       setUserVotes(votes);
       setHasVoted(votes.length > 0);

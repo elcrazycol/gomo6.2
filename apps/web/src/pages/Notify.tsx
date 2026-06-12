@@ -36,12 +36,12 @@ const Notify = () => {
           const threadResp = await apiClient.request<{ data: { board_id?: string } }>(
             `/api/v1/threads/${notif.related_thread_id}?select=board_id`
           );
-          const threadData = threadResp.data;
+          const threadData = (threadResp as { data?: { board_id?: string } }).data;
           if (threadData?.board_id) {
             const boardResp = await apiClient.request<{ data: Array<{ slug?: string }> }>(
               `/api/v1/boards?id=eq.${threadData.board_id}&select=slug`
             );
-            const boardDataArr = boardResp.data;
+            const boardDataArr = (boardResp as { data?: Array<{ slug?: string }> }).data;
             if (Array.isArray(boardDataArr) && boardDataArr.length > 0) {
               return { ...notif, thread_slug: boardDataArr[0]?.slug } as NotifWithSlug;
             }

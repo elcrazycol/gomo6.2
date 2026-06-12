@@ -16,6 +16,10 @@ import { FileUpload } from "@/components/FileUpload";
 import { Settings, ArrowLeft, Plus, CheckCircle } from "lucide-react";
 import { uploadFile, getPublicUrl } from "@/utils/storage";
 
+interface User {
+  id: string;
+}
+
 interface EmojiGroup {
   id: string;
   name: string;
@@ -23,7 +27,7 @@ interface EmojiGroup {
 
 const EmojiCreate = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
