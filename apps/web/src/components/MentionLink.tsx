@@ -114,9 +114,8 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
 
   if (userExists && userData) {
     const colorClass = color ? getColorClass(color) : "text-link";
-    return (
-      <Link
-        to={`/profile/${userData.id}`}
+    return (        <Link
+        to={`/profile/${(userData as { id: string }).id}`}
         className={`inline-flex items-center gap-1.5 h-6 px-2 py-0.5 text-xs font-medium bg-muted/50 hover:bg-primary/10 hover:text-primary border border-border/40 hover:border-primary/30 transition-all duration-200 cursor-pointer rounded-md group`}
         title={`Профиль пользователя ${username}`}
       >

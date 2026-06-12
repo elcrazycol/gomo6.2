@@ -156,9 +156,9 @@ export const ImageUpload = ({
       setPreviews(updatedPreviews);
       onImagesUploaded(updatedPreviews);
       toast.success(`Загружено ${newUrls.length} изображений`);
-    } catch (error: unknown) {
+    } catch (error) {
       console.error('Image upload error:', error);
-      toast.error(error.message || "Ошибка загрузки изображений. Проверьте настройки storage на сервере.");
+      toast.error((error instanceof Error ? error.message : String(error)) || "Ошибка загрузки изображений. Проверьте настройки storage на сервере.");
     } finally {
       setUploading(false);
       // Reset input
