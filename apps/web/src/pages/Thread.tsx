@@ -3,18 +3,18 @@ import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+
 import { toast } from "sonner";
 import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { ImageGallery } from "@/components/ImageGallery";
-import { UserBadge } from "@/components/UserBadge";
+
 import { AlertTriangle, Reply, Bell, BellOff, Send, Eye, EyeOff } from "lucide-react";
 import { ModeratorMenu } from "@/components/ModeratorMenu";
 import { UserMenu } from "@/components/UserMenu";
-import { Input } from "@/components/ui/input";
+
 import { Poll } from "@/components/Poll";
 import type { Poll as PollData } from "@/components/Poll";
 import { storageUrl } from "@/utils/storage";
@@ -25,7 +25,7 @@ import { Maximize2, Minimize2 } from "lucide-react";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { LikeButton } from "@/components/LikeButton";
+
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";

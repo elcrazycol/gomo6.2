@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+
 import { api } from "@/integrations/api/compat";
 import { ProfileWall } from "@/components/ProfileWall";
 
