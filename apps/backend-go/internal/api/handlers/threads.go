@@ -30,6 +30,56 @@ func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
+// canAccessChannel checks if a user can access a channel.
+// checkWrite: if true checks write permission, if false checks read permission.
+func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, checkWrite bool) (bool, error) {
+	if userID == "" {
+		var isPrivate bool
+		err := h.db.QueryRow("SELECT is_private FROM channels WHERE id = $1", channelID).Scan(&isPrivate)
+		if err != nil {
+			return false, err
+		}
+		return !isPrivate, nil
+	}
+	var isPrivate bool
+	var ownerID string
+	err := h.db.QueryRow(`
+		SELECT c.is_private, b.owner_id
+		FROM channels c JOIN boards b ON c.board_id = b.id
+		WHERE c.id = $1
+	`, channelID).Scan(&isPrivate, &ownerID)
+	if err != nil {
+		return false, err
+	}
+	if !isPrivate {
+		return true, nil
+	}
+	if ownerID == userID {
+		return true, nil
+	}
+	permColumn := "cp.can_read"
+	if checkWrite {
+		permColumn = "cp.can_write"
+	}
+	var hasAccess bool
+	err = h.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM channel_permissions cp
+			JOIN gomosub_memberships gm ON gm.role_id = cp.role_id AND gm.user_id = $2 AND gm.board_id = (SELECT board_id FROM channels WHERE id = $1)
+			WHERE cp.channel_id = $1 AND `+permColumn+` = true
+		)
+	`, channelID, userID).Scan(&hasAccess)
+	if err != nil {
+		return false, err
+	}
+	return hasAccess, nil
+}
+
+// canWriteChannel checks if a user can write to a channel.
+func (h *ThreadsHandler) canWriteChannel(userID string, channelID string) (bool, error) {
+	return h.canAccessChannel(userID, channelID, true)
+}
+
 // Migration 036 added tags JSONB column to threads table.
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
@@ -100,6 +150,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	}
 
 	// Handle channel_id filter (eq.uuid, is.null)
+	var channelIDParam string
 	if channelID := c.Query("channel_id"); channelID != "" {
 		if channelID == "is.null" {
 			conditions = append(conditions, "t.channel_id IS NULL")
@@ -107,6 +158,26 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			cid := strings.TrimPrefix(channelID, "eq.")
 			conditions = append(conditions, "t.channel_id = $"+strconv.Itoa(len(args)+1))
 			args = append(args, cid)
+			channelIDParam = cid
+		}
+	}
+
+	// Verify channel access for private channels
+	if channelIDParam != "" {
+		claims, _ := bearerClaims(c)
+		userID := ""
+		if claims != nil {
+			userID = claims.UserID
+		}
+		canAccess, err := h.canAccessChannel(userID, channelIDParam, false)
+		if err != nil && err != sql.ErrNoRows {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			return
+		}
+		if !canAccess {
+			emptyCount := 0
+			c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: []models.ThreadWithBoards{}, Count: &emptyCount})
+			return
 		}
 	}
 
@@ -120,7 +191,6 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 				joined += ","
 			}
 			joined += o
-			// Detect direction from first order param
 			if i == 0 {
 				if strings.Contains(strings.ToLower(o), ".asc") {
 					orderDir = "ASC"
@@ -136,9 +206,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		orderClause = " ORDER BY t.updated_at DESC"
 	}
 
-	// Handle cursor-based pagination (replaces OFFSET for efficient deep scrolling)
-	// For DESC: cursor = last seen value, filter for earlier items (value < cursor)
-	// For ASC: cursor = last seen value, filter for later items (value > cursor)
+	// Handle cursor-based pagination
 	cursor := c.Query("cursor")
 	if cursor != "" {
 		if orderDir == "ASC" {
@@ -170,7 +238,6 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	}
 
 	if cursor == "" {
-		// Use OFFSET when cursor is not provided (backward compatible)
 		if offsetStr := c.Query("offset"); offsetStr != "" {
 			if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 				offset = o
@@ -179,7 +246,6 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
 		args = append(args, limit, offset)
 	} else {
-		// Cursor mode: no OFFSET, just LIMIT
 		query += " LIMIT $" + strconv.Itoa(len(args)+1)
 		args = append(args, limit)
 	}
@@ -239,10 +305,8 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	threadCount := len(threads)
 
-	// Build response with next_cursor for cursor-based pagination
 	resp := models.APIResponse{Success: true, Data: threads, Count: &threadCount}
 	if len(threads) > 0 && len(threads) >= limit {
-		// Always return next_cursor when there are more results (supports both cursor and offset modes)
 		lastUpdated := threads[len(threads)-1].UpdatedAt.Format(time.RFC3339Nano)
 		resp.NextCursor = &lastUpdated
 	}
@@ -253,7 +317,6 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	idStr := c.Param("id")
 
-	// Parse and validate UUID
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid thread ID format"))
@@ -359,7 +422,6 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 
 	RecomputeUserProfileStats(h.db, ownerID)
 
-	// Invalidate cache for this thread
 	if h.redis != nil {
 		middleware.InvalidateCacheForThread(h.redis, id)
 	}
@@ -436,7 +498,6 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		return
 	}
 
-	// Invalidate cache for this thread and its board
 	if h.redis != nil {
 		middleware.InvalidateCacheForThread(h.redis, thread.ID)
 	}

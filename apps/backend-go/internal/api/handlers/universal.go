@@ -66,6 +66,8 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	allowedTables := map[string]bool{
 		"user_roles":                   true,
 		"channels":                     true,
+		"gomosub_roles":                true,
+		"channel_permissions":          true,
 		"gomosub_memberships":          true,
 		"user_session_time":            true,
 		"user_achievements":            true,

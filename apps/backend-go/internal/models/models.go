@@ -89,7 +89,28 @@ type Channel struct {
 	Description *string   `json:"description" db:"description"`
 	Category    *string   `json:"category" db:"category"`
 	SortOrder   int       `json:"sort_order" db:"sort_order"`
+	IsPrivate   bool      `json:"is_private" db:"is_private"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
+// GomoSubRole represents a custom role within a gomosub.
+type GomoSubRole struct {
+	ID          string          `json:"id" db:"id"`
+	BoardID     string          `json:"board_id" db:"board_id"`
+	Name        string          `json:"name" db:"name"`
+	Color       string          `json:"color" db:"color"`
+	Position    int             `json:"position" db:"position"`
+	Permissions json.RawMessage `json:"permissions" db:"permissions"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
+}
+
+// ChannelPermission represents a role's access to a specific channel.
+type ChannelPermission struct {
+	ID        string `json:"id" db:"id"`
+	ChannelID string `json:"channel_id" db:"channel_id"`
+	RoleID    string `json:"role_id" db:"role_id"`
+	CanRead   bool   `json:"can_read" db:"can_read"`
+	CanWrite  bool   `json:"can_write" db:"can_write"`
 }
 
 // Thread with federation support
