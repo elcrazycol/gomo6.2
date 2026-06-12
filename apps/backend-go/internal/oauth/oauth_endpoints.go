@@ -52,7 +52,7 @@ func (s *OAuthService) IntrospectToken(tokenStr, tokenTypeHint string) *Introspe
 
 	// Try as refresh token
 	if tokenTypeHint == "" || tokenTypeHint == "refresh_token" {
-		hash := sha256_hex(tokenStr)
+		hash := sha256Hex(tokenStr)
 
 		var rt RefreshToken
 		var scopesStr string
@@ -113,7 +113,7 @@ func (s *OAuthService) RevokeToken(tokenStr, tokenTypeHint, clientID string) err
 
 	// Try as refresh token
 	if tokenTypeHint == "" || tokenTypeHint == "refresh_token" {
-		hash := sha256_hex(tokenStr)
+		hash := sha256Hex(tokenStr)
 		_, err := s.db.Exec(`UPDATE oauth_refresh_tokens SET revoked = true WHERE token_hash = $1 AND client_id = $2`, hash, clientID)
 		if err == nil {
 			return nil
@@ -176,8 +176,8 @@ func (s *OAuthService) GetJWKS() map[string]interface{} {
 	}
 
 	pubKey := &s.rsaPrivateKey.PublicKey
-	n := base64url_encode(pubKey.N.Bytes())
-	e := base64url_encode(bigEndianBytes(pubKey.E))
+	n := base64urlEncode(pubKey.N.Bytes())
+	e := base64urlEncode(bigEndianBytes(pubKey.E))
 
 	return map[string]interface{}{
 		"keys": []interface{}{
