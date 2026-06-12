@@ -6,10 +6,10 @@ export interface Post {
   thread_id: string;
   user_id: string;
   content: string;
-  content_json?: any;
+  content_json?: unknown;
   image_url?: string;
   image_urls?: string[];
-  attachments?: any[];
+  attachments?: unknown[];
   reply_to?: string;
   is_private?: boolean;
   private_recipient_id?: string;
@@ -33,7 +33,7 @@ export interface Post {
 export function usePosts(
   threadId: string | undefined,
   options?: { limit?: number; offset?: number },
-  extraOptions?: { placeholderData?: (prev: any) => any }
+  extraOptions?: { placeholderData?: (prev: Post[] | undefined) => Post[] | undefined }
 ) {
   const { limit = 50, offset = 0 } = options || {};
 
@@ -69,9 +69,9 @@ export function useCreatePost() {
     mutationFn: async (post: {
       thread_id: string;
       content: string;
-      content_json?: any;
+      content_json?: unknown;
       image_urls?: string[];
-      attachments?: any[];
+      attachments?: unknown[];
       reply_to?: string;
       is_private?: boolean;
       private_recipient_id?: string;

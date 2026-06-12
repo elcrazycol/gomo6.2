@@ -3,7 +3,7 @@
 import { apiClient, getDeviceId } from './client';
 
 export const apiAuth = {
-  signUp: async ({ email, password, options, ...captcha }: any) => {
+  signUp: async ({ email, password, options, ...captcha }: { email: string; password: string; options?: { data?: { username?: string } }; challenge_id?: string; solution?: string; captcha_token?: string }) => {
     try {
       const result = await apiClient.register(
         email,
@@ -20,7 +20,7 @@ export const apiAuth = {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  signInWithPassword: async ({ email, password, ...captcha }: any) => {
+  signInWithPassword: async ({ email, password, ...captcha }: { email: string; password: string; challenge_id?: string; solution?: string; captcha_token?: string }) => {
     try {
       const deviceId = getDeviceId();
       const result = await apiClient.login(email, password, deviceId, {
@@ -69,7 +69,7 @@ export const apiAuth = {
       return { data: { session: null }, error: null };
     }
   },
-  onAuthStateChange: (callback: any) => {
+  onAuthStateChange: (callback: (event: string, session: { user: Awaited<ReturnType<typeof apiClient.getCurrentUser>> } | null) => void) => {
     const checkAuth = async () => {
       const user = await apiClient.getCurrentUser();
       callback('SIGNED_IN', user ? { user } : null);

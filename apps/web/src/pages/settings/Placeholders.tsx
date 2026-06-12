@@ -48,7 +48,7 @@ const Placeholders = () => {
     id: string;
     avatar_url?: string | null;
   } | null>(null);
-  const [customization, setCustomization] = useState<any>(null);
+  const [customization, setCustomization] = useState<unknown>(null);
   
   const [placeholder1, setPlaceholder1] = useState<string>('bio');
   const [placeholder2, setPlaceholder2] = useState<string>('created_at');

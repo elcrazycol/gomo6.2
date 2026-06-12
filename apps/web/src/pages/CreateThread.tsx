@@ -260,7 +260,7 @@ const CreateThread = () => {
         .map(att => att.url);
 
       // Use RPC backend API
-      const threadPayload: any = {
+      const threadPayload: Record<string, unknown> = {
         board_id: board.id,
         title: title.trim(),
         content: content.trim(),

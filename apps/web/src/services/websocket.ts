@@ -41,7 +41,7 @@ export type WebSocketMessageType =
 export interface WebSocketMessage {
   type: WebSocketMessageType;
   room?: string;
-  data: any;
+  data: unknown;
   user_id?: string;
   username?: string;
   timestamp: number;

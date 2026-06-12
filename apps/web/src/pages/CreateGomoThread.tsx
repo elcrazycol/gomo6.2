@@ -114,7 +114,7 @@ const CreateGomoThread = () => {
     setCreating(true);
     try {
       // Use RPC backend API (not old PostgREST-style POST /api/v1/threads)
-      const threadPayload: any = {
+      const threadPayload: Record<string, unknown> = {
         board_id: board.id,
         title: title.trim(),
         content: content.trim(),

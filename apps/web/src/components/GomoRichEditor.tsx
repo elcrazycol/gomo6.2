@@ -533,6 +533,7 @@ const Toolbar = ({
   };
 
   const applyColor = (nextColor: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     withSavedSelection((selection: any) => {
       $patchStyleText(selection, { color: nextColor });
       if (!nextColor) {

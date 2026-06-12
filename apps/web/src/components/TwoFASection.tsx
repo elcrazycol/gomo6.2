@@ -33,7 +33,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
         setIsEnabled(data.enabled);
         setHasPendingSecret(data.has_pending_secret);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to load 2FA status:", error);
     } finally {
       setLoading(false);
@@ -50,7 +50,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
         setHasPendingSecret(true);
         setShowRecoveryCodes(false);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error("Ошибка настройки 2FA: " + error.message);
     }
   };
@@ -75,7 +75,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
         setShowRecoveryCodes(true);
         toast.success("2FA успешно включена!");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error("Неверный код. Попробуйте снова.");
     } finally {
       setVerifying(false);
@@ -96,7 +96,7 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
       setRecoveryCodes(null);
       setShowRecoveryCodes(false);
       toast.success("2FA отключена");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error("Ошибка отключения 2FA: " + error.message);
     }
   };

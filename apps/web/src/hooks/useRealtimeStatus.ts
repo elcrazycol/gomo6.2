@@ -103,7 +103,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
             setStatus(newStatus);
 
             // Update React Query cache for profile-hover
-            queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+            queryClient.setQueryData(['profile-hover', userId], (old: { profile: { is_online?: boolean; last_seen?: string; [key: string]: unknown } } | undefined) => {
               if (!old) return old;
               return {
                 ...old,
@@ -135,7 +135,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
             setStatus(newStatus);
 
             // Update React Query cache for profile-hover
-            queryClient.setQueryData(['profile-hover', userId], (old: any) => {
+            queryClient.setQueryData(['profile-hover', userId], (old: { profile: { is_online?: boolean; last_seen?: string; [key: string]: unknown } } | undefined) => {
               if (!old) return old;
               return {
                 ...old,

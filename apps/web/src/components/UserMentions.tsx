@@ -4,7 +4,7 @@ import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
 
 // Cache for user search results
-const searchCache = new Map<string, any[]>();
+const searchCache = new Map<string, unknown[]>();
 
 interface User {
   id: string;

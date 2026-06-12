@@ -135,8 +135,8 @@ export const ImageUpload = ({
         const randomStr = Math.random().toString(36).substring(2, 9);
         const fileName = `${user.id}/${timestamp}_${randomStr}.${fileExt}`;
 
-        const { error: uploadError } = await (api.storage
-          .from('content') as any)
+        const { error: uploadError } = await api.storage
+          .from('content')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
@@ -156,7 +156,7 @@ export const ImageUpload = ({
       setPreviews(updatedPreviews);
       onImagesUploaded(updatedPreviews);
       toast.success(`Загружено ${newUrls.length} изображений`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Image upload error:', error);
       toast.error(error.message || "Ошибка загрузки изображений. Проверьте настройки storage на сервере.");
     } finally {

@@ -36,7 +36,7 @@ interface BotLog {
 
 const Bots = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [bots, setBots] = useState<BotData[]>([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);

@@ -7,10 +7,10 @@ export interface Thread {
   user_id: string;
   title: string;
   content: string;
-  content_json?: any;
+  content_json?: unknown;
   image_url?: string;
   image_urls?: string[];
-  attachments?: any[];
+  attachments?: unknown[];
   post_count: number;
   created_at: string;
   updated_at: string;
@@ -85,7 +85,7 @@ export function useCreateThread() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (thread: { board_id: string; title: string; content: string; content_json?: any; image_urls?: string[]; attachments?: any[] }) => {
+    mutationFn: async (thread: { board_id: string; title: string; content: string; content_json?: unknown; image_urls?: string[]; attachments?: unknown[] }) => {
       const { data, error } = await api
         .from('threads')
         .insert(thread)

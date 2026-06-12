@@ -97,7 +97,7 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6 }: Profi
         setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
       }, 1000);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Upload error:', error);
       toast.error(error?.message || "Не удалось загрузить файл");
       setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
