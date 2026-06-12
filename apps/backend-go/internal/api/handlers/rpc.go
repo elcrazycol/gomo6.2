@@ -343,16 +343,20 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	var thread models.Thread
 	var retContentJSON []byte
+	var channelID interface{}
+	if req.ChannelID != nil && *req.ChannelID != "" {
+		channelID = *req.ChannelID
+	}
 	err = tx.QueryRow(`
-		INSERT INTO threads (board_id, user_id, title, content, content_json, image_url, image_urls,
+		INSERT INTO threads (board_id, channel_id, user_id, title, content, content_json, image_url, image_urls,
 		                    attachments, server_domain)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, board_id, user_id, title, content, content_json, image_url, image_urls,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, board_id, channel_id, user_id, title, content, content_json, image_url, image_urls,
 		          attachments, post_count, server_domain, created_at, updated_at, is_remote
-	`, req.BoardID, claims.UserID, req.Title, req.Content, insertContentJSON,
+	`, req.BoardID, channelID, claims.UserID, req.Title, req.Content, insertContentJSON,
 		imageURL, imageURLs, req.Attachments, "localhost:8080",
 	).Scan(
-		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
+		&thread.ID, &thread.BoardID, &thread.ChannelID, &thread.UserID, &thread.Title, &thread.Content, &retContentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
@@ -409,6 +413,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 			threadData := map[string]interface{}{
 				"id":         thread.ID,
 				"board_id":   thread.BoardID,
+				"channel_id": thread.ChannelID,
 				"user_id":    thread.UserID,
 				"title":      thread.Title,
 				"content":    thread.Content,
@@ -424,6 +429,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		h.botEventPublisher.PublishThread(map[string]interface{}{
 			"id":         thread.ID,
 			"board_id":   thread.BoardID,
+			"channel_id": thread.ChannelID,
 			"user_id":    thread.UserID,
 			"title":      thread.Title,
 			"content":    thread.Content,

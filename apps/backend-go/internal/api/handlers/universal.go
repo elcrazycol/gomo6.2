@@ -65,6 +65,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	// Only allow specific tables for security
 	allowedTables := map[string]bool{
 		"user_roles":                   true,
+		"channels":                     true,
 		"gomosub_memberships":          true,
 		"user_session_time":            true,
 		"user_achievements":            true,
