@@ -475,27 +475,27 @@ export class OAuthClient {
       )
     }
 
-    const raw = await response.json()
+    const raw = await response.json() as Record<string, unknown>
 
     // Map snake_case from backend to camelCase
     return {
-      issuer: raw.issuer,
-      authorizationEndpoint: raw.authorization_endpoint,
-      tokenEndpoint: raw.token_endpoint,
-      userinfoEndpoint: raw.userinfo_endpoint,
-      revocationEndpoint: raw.revocation_endpoint,
-      introspectionEndpoint: raw.introspection_endpoint,
-      jwksUri: raw.jwks_uri,
-      scopesSupported: raw.scopes_supported,
-      responseTypesSupported: raw.response_types_supported,
-      grantTypesSupported: raw.grant_types_supported,
+      issuer: raw.issuer as string,
+      authorizationEndpoint: raw.authorization_endpoint as string,
+      tokenEndpoint: raw.token_endpoint as string,
+      userinfoEndpoint: raw.userinfo_endpoint as string,
+      revocationEndpoint: raw.revocation_endpoint as string,
+      introspectionEndpoint: raw.introspection_endpoint as string | undefined,
+      jwksUri: raw.jwks_uri as string,
+      scopesSupported: (raw.scopes_supported as string[]) || [],
+      responseTypesSupported: (raw.response_types_supported as string[]) || [],
+      grantTypesSupported: (raw.grant_types_supported as string[]) || [],
       tokenEndpointAuthMethodsSupported:
-        raw.token_endpoint_auth_methods_supported,
-      claimsSupported: raw.claims_supported,
-      subjectTypesSupported: raw.subject_types_supported,
+        (raw.token_endpoint_auth_methods_supported as string[]) || [],
+      claimsSupported: (raw.claims_supported as string[]) || [],
+      subjectTypesSupported: (raw.subject_types_supported as string[]) || [],
       idTokenSigningAlgValuesSupported:
-        raw.id_token_signing_alg_values_supported,
-      codeChallengeMethodsSupported: raw.code_challenge_methods_supported,
+        (raw.id_token_signing_alg_values_supported as string[]) || [],
+      codeChallengeMethodsSupported: (raw.code_challenge_methods_supported as string[]) || [],
     }
   }
 
@@ -539,17 +539,17 @@ export class OAuthClient {
       )
     }
 
-    const raw = await response.json()
+    const raw = await response.json() as Record<string, unknown>
 
     return {
-      clientId: raw.client_id,
-      name: raw.name,
-      description: raw.description,
-      logoUrl: raw.logo_url,
-      homepageUrl: raw.homepage_url,
-      allowedScopes: raw.allowed_scopes,
-      scopeDescriptions: raw.scope_descriptions,
-      scopeLabels: raw.scope_labels,
+      clientId: raw.client_id as string,
+      name: raw.name as string,
+      description: raw.description as string,
+      logoUrl: raw.logo_url as string,
+      homepageUrl: raw.homepage_url as string,
+      allowedScopes: (raw.allowed_scopes as string[]) || [],
+      scopeDescriptions: (raw.scope_descriptions as Record<string, string>) || {},
+      scopeLabels: (raw.scope_labels as Record<string, string>) || {},
     }
   }
 
@@ -562,34 +562,31 @@ export class OAuthClient {
       body,
     })
 
-    let data: Record<string, unknown>
-    try {
-      data = await response.json()
-    } catch {
+    const rawData = await response.json().catch(() => {
       throw new OAuthError(
         "server_error",
         `Token endpoint returned HTTP ${response.status} with non-JSON body`,
         undefined,
         response.status
       )
-    }
+    }) as Record<string, unknown>
 
     if (!response.ok) {
       throw new OAuthError(
-        data.error || "token_request_failed",
-        data.error_description || `Token request failed with HTTP ${response.status}`,
-        data.state,
+        (rawData.error as string) || "token_request_failed",
+        (rawData.error_description as string) || `Token request failed with HTTP ${response.status}`,
+        rawData.state as string | undefined,
         response.status
       )
     }
 
     return {
-      accessToken: data.access_token,
-      tokenType: data.token_type || "Bearer",
-      expiresIn: data.expires_in || 3600,
-      idToken: data.id_token,
-      refreshToken: data.refresh_token,
-      scope: data.scope,
+      accessToken: rawData.access_token as string,
+      tokenType: (rawData.token_type as string) || "Bearer",
+      expiresIn: (rawData.expires_in as number) || 3600,
+      idToken: rawData.id_token as string | undefined,
+      refreshToken: rawData.refresh_token as string | undefined,
+      scope: rawData.scope as string | undefined,
     }
   }
 

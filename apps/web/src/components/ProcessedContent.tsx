@@ -69,7 +69,7 @@ export const ProcessedContent = ({
             .in('id', result.visibleForUsers);
           
           if (profiles) {
-            const usernames = profiles.map(p => p.username).filter(Boolean);
+            const usernames = profiles.map((p: Record<string, unknown>) => p.username as string).filter(Boolean);
             setVisibleUsernames(usernames);
           }
         }
@@ -81,7 +81,7 @@ export const ProcessedContent = ({
             .in('id', result.hiddenForUsers);
           
           if (profiles) {
-            const usernames = profiles.map(p => p.username).filter(Boolean);
+            const usernames = profiles.map((p: Record<string, unknown>) => p.username as string).filter(Boolean);
             setHiddenUsernames(usernames);
           }
         }
