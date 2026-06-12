@@ -43,7 +43,7 @@ export function useThread(threadId: string | undefined) {
         .single();
 
       if (error) throw error;
-      return data as Thread;
+      return data as unknown as Thread;
     },
     enabled: !!threadId,
     staleTime: 2 * 60 * 1000, // 2 minutes
@@ -70,7 +70,7 @@ export function useThreads(boardId: string | undefined, options?: { limit?: numb
         .range(offset, offset + limit - 1);
 
       if (error) throw error;
-      return data as Thread[];
+      return data as unknown as Thread[];
     },
     enabled: !!boardId,
     staleTime: 30 * 1000, // 30 seconds

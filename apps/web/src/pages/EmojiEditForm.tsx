@@ -16,7 +16,7 @@ import { FileUpload } from "@/components/FileUpload";
 import { Settings, ArrowLeft, Plus, CheckCircle, Loader2 } from "lucide-react";
 import { uploadFile, getPublicUrl, removeFile } from "@/utils/storage";
 
-interface User {
+interface LocalUser {
   id: string;
 }
 
@@ -36,7 +36,7 @@ interface Emoji {
 const EmojiEditForm = () => {
   const { emojiId } = useParams();
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -66,7 +66,7 @@ const EmojiEditForm = () => {
       return;
     }
 
-    setUser(user);
+    setUser(user as LocalUser);
 
     const { data: roles } = await api
       .from("user_roles")
@@ -134,7 +134,7 @@ const EmojiEditForm = () => {
       if (error) throw error;
 
       if (data) {
-        setEmoji(data);
+        setEmoji(data as unknown as Emoji);
         setSelectedGroup(data.group_id);
         setEmojiName(data.name);
         setEmojiCode(data.code);
