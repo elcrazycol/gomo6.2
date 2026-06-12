@@ -98,7 +98,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
           await document.documentElement.requestFullscreen();
           setIsFullscreen(true);
         }
-      } catch {
+      } catch (error) {
         // Fallback: just make it full viewport
         setIsFullscreen(true);
       }
@@ -321,7 +321,7 @@ export const ImageGallery = ({ images, initialIndex = 0, onClose, onEditImage }:
       activeHandleRef.current = null;
       cropStartRef.current = null;
       redactStartRef.current = null;
-    } catch {
+    } catch (e) {
       console.error("Edit failed", e);
     }
   };

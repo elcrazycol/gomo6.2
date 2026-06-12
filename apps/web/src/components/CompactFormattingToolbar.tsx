@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Bold, Italic, Eye, Type, Underline, Strikethrough, Palette, AtSign, Link, Zap, MoreHorizontal } from "lucide-react";
+import { Bold, Italic, Eye, Type, Underline, Strikethrough, Palette, Hash, AtSign, Link, Zap, MoreHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,7 +8,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface CompactFormattingToolbarProps {
   onFormat: (prefix: string, suffix: string) => void;

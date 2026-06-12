@@ -31,7 +31,7 @@ export function useSessionTime(userId: string | null) {
         if (error) {
           console.error("[Session] Error registering daily visit:", (error as { message?: string }).message);
         }
-      } catch {
+      } catch (error) {
         console.error("[Session] Daily visit endpoint unavailable:", error);
       }
     };

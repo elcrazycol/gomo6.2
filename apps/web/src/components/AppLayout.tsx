@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
