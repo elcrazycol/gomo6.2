@@ -96,4 +96,4 @@ export const EmojiTextarea = forwardRef<HTMLTextAreaElement, EmojiTextareaProps>
 EmojiTextarea.displayName = "EmojiTextarea";
 
 // Import Textarea component
-import { Textarea } from "@/components/ui/textarea";
+

@@ -4,8 +4,6 @@ import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Plus, Settings } from "lucide-react";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";

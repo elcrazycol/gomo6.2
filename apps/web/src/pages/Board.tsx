@@ -3,9 +3,9 @@ import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } 
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
+
+
+
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -14,7 +14,7 @@ import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
-import { UserBadge } from "@/components/UserBadge";
+
 import { AgeVerification } from "@/components/AgeVerification";
 import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2 } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
@@ -22,7 +22,7 @@ import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 import { renderTags } from "@/components/ThreadCard";
-import { LikeButton } from "@/components/LikeButton";
+
 import { wsService } from "@/services/websocket";
 
 interface Board {

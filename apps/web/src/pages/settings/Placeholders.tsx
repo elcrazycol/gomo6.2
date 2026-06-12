@@ -4,18 +4,18 @@ import { api } from "@/integrations/api/compat";
 import { storageUrl } from "@/utils/storage";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Card } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { ArrowLeft } from "lucide-react";
+
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { processProfileBio } from "@/utils/profileBio";
-import { UserBadge } from "@/components/UserBadge";
+
 import { AdminBadge } from "@/components/AdminBadge";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 
