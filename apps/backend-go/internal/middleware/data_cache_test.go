@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -182,5 +183,109 @@ func TestDataCache_GinResponseAfterPassthrough(t *testing.T) {
 	}
 	if resp["a"] != float64(1) || resp["b"] != float64(2) {
 		t.Errorf("unexpected body: %v", resp)
+	}
+}
+
+// =============================================================================
+// cacheTTLByPath
+// =============================================================================
+
+func TestCacheTTLByPath_Default(t *testing.T) {
+	got := cacheTTLByPath("/api/v1/notifications", DefaultDataCacheTTL)
+	if got != DefaultDataCacheTTL {
+		t.Errorf("expected %v, got %v", DefaultDataCacheTTL, got)
+	}
+}
+
+func TestCacheTTLByPath_Threads(t *testing.T) {
+	paths := []string{
+		"/api/v1/threads",
+		"/api/v1/threads/123",
+		"/api/v1/threads?select=title&limit=10",
+		"/api/v1/boards/abc/threads",
+	}
+	for _, path := range paths {
+		got := cacheTTLByPath(path, DefaultDataCacheTTL)
+		if got != 30*time.Second {
+			t.Errorf("cacheTTLByPath(%q) = %v, want 30s", path, got)
+		}
+	}
+}
+
+func TestCacheTTLByPath_Posts(t *testing.T) {
+	paths := []string{
+		"/api/v1/posts",
+		"/api/v1/posts/456",
+		"/api/v1/threads/123/posts",
+	}
+	for _, path := range paths {
+		got := cacheTTLByPath(path, DefaultDataCacheTTL)
+		if got != 30*time.Second {
+			t.Errorf("cacheTTLByPath(%q) = %v, want 30s", path, got)
+		}
+	}
+}
+
+func TestCacheTTLByPath_Boards(t *testing.T) {
+	paths := []string{
+		"/api/v1/boards",
+		"/api/v1/boards/abc",
+		"/api/v1/boards/abc/settings",
+	}
+	for _, path := range paths {
+		got := cacheTTLByPath(path, DefaultDataCacheTTL)
+		if got != 5*time.Minute {
+			t.Errorf("cacheTTLByPath(%q) = %v, want 5m", path, got)
+		}
+	}
+}
+
+func TestCacheTTLByPath_Profiles(t *testing.T) {
+	paths := []string{
+		"/api/v1/profiles",
+		"/api/v1/profiles/user-1",
+		"/api/v1/profiles/user-1/stats",
+	}
+	for _, path := range paths {
+		got := cacheTTLByPath(path, DefaultDataCacheTTL)
+		if got != 5*time.Minute {
+			t.Errorf("cacheTTLByPath(%q) = %v, want 5m", path, got)
+		}
+	}
+}
+
+func TestCacheTTLByPath_EmptyPath(t *testing.T) {
+	got := cacheTTLByPath("", DefaultDataCacheTTL)
+	if got != DefaultDataCacheTTL {
+		t.Errorf("expected default %v for empty path, got %v", DefaultDataCacheTTL, got)
+	}
+}
+
+func TestCacheTTLByPath_RootPath(t *testing.T) {
+	got := cacheTTLByPath("/", DefaultDataCacheTTL)
+	if got != DefaultDataCacheTTL {
+		t.Errorf("expected default %v for root path, got %v", DefaultDataCacheTTL, got)
+	}
+}
+
+func TestCacheTTLByPath_ThreadsTakesPriorityOverPostsSubstring(t *testing.T) {
+	got := cacheTTLByPath("/api/v1/threads/123/posts", DefaultDataCacheTTL)
+	if got != 30*time.Second {
+		t.Errorf("expected 30s for threads path with posts suffix, got %v", got)
+	}
+}
+
+func TestCacheTTLByPath_CustomDefault(t *testing.T) {
+	customDefault := 10 * time.Minute
+	got := cacheTTLByPath("/api/v1/search", customDefault)
+	if got != customDefault {
+		t.Errorf("expected %v, got %v", customDefault, got)
+	}
+}
+
+func TestCacheTTLByPath_ThreadPathIgnoresCustomDefault(t *testing.T) {
+	got := cacheTTLByPath("/api/v1/threads/123", 10*time.Minute)
+	if got != 30*time.Second {
+		t.Errorf("expected 30s for threads path, got %v", got)
 	}
 }
