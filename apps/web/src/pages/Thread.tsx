@@ -368,7 +368,7 @@ const Thread = () => {
     wsService.subscribeToThread(threadId);
 
     const unsub = wsService.on('new_post', async (message) => {
-      const data = message.data;
+      const data = message.data as { thread_id?: string; user_id?: string; id?: string } | undefined;
       if (!data || data.thread_id !== threadId) return;
       // Skip own posts (already added optimistically)
       if (user && data.user_id === user.id) return;

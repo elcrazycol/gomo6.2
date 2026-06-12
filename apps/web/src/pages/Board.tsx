@@ -413,7 +413,7 @@ const Board = () => {
     wsService.subscribe(room);
 
     const unsub = wsService.on('new_thread', (message) => {
-      const data = message.data;
+      const data = message.data as { board_id?: string } | undefined;
       // Only reload if the new thread belongs to this board
       if (data?.board_id === board.id) {
         loadThreads(board.id);

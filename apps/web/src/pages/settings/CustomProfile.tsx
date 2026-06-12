@@ -19,6 +19,10 @@ import { User, X, Copy, Trash2, Plus } from "lucide-react";
 import { parseCssToStyle, clearCustomizationCache } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
 
+interface User {
+  id: string;
+}
+
 interface TextShadow {
   id: string;
   x: number;
@@ -38,7 +42,7 @@ interface ProfileCustomization {
 
 const CustomProfile = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -460,9 +464,9 @@ const CustomProfile = () => {
       clearCustomizationCache(user.id);
 
       toast.success("Кастомизация сохранена!");
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Error saving customization:", error);
-      toast.error("Ошибка сохранения: " + error.message);
+      toast.error("Ошибка сохранения: " + (error instanceof Error ? error.message : String(error)));
     } finally {
       setSaving(false);
     }

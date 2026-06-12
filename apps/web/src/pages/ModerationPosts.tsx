@@ -16,6 +16,10 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 
+interface User {
+  id: string;
+}
+
 interface Report {
   id: string;
   reason: string;
@@ -49,7 +53,7 @@ interface ReportedContent {
 
 const Moderation = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<unknown>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

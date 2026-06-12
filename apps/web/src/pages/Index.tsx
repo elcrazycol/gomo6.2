@@ -304,7 +304,7 @@ const Index = () => {
           ]);
 
           const postUpdates: SubscribedPostUpdate[] = postsData.map((post: { id: string; content: string; created_at: string; thread_id: string; user_id: string | null }) => {
-            const thread = (postThreads ?? []).find((t: { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }) => t.id === post.thread_id);
+            const thread = ((postThreads as { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }[]) ?? []).find((t: { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }) => t.id === post.thread_id);
             const author = (postAuthors ?? []).find((a: { id: string; username: string }) => a.id === post.user_id);
             return {
               id: post.id,

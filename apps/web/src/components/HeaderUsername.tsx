@@ -5,6 +5,17 @@ import { parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 
+interface CachedProfile {
+  username: string;
+  color?: string;
+  customization?: {
+    username_css?: string;
+    username_icon_svg?: string;
+    username_icon_fill?: string;
+    username_icon_stroke?: string;
+  };
+}
+
 interface HeaderUsernameProps {
   userId: string;
   className?: string;
@@ -13,7 +24,7 @@ interface HeaderUsernameProps {
 export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernameProps) => {
   const navigate = useNavigate();
   const { getProfile, loadProfile } = useProfileCache();
-  const [profileData, setProfileData] = useState(() => getProfile(userId));
+  const [profileData, setProfileData] = useState<CachedProfile | undefined>(() => getProfile(userId) as CachedProfile | undefined);
 
   useEffect(() => {
     const cached = getProfile(userId);
@@ -22,7 +33,7 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
       return;
     }
 
-    loadProfile(userId).then(setProfileData);
+    loadProfile(userId).then((data: unknown) => setProfileData(data as CachedProfile | undefined));
   }, [userId, getProfile, loadProfile]);
 
   if (!profileData) {

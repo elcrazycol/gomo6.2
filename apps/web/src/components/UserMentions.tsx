@@ -115,7 +115,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         setUsers([]);
         searchCache.set(query, []);
       } else {
-        const usersData = (data || []).map(user => ({
+        const usersData = (data || []).map((user: { id: string; username: string; account_number?: number; post_count?: number }) => ({
           id: user.id,
           username: user.username,
           account_number: user.account_number,
