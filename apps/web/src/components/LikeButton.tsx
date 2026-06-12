@@ -60,7 +60,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           limit_count: 3
         });
         setRecentLikers((likers as { username: string; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]) || []);
-      } catch (error) {
+      } catch {
         console.error('Error loading recent likers:', error);
       }
     };
@@ -101,7 +101,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           _level: level
         });
       }
-    } catch (error) {
+    } catch {
       console.error('Error checking achievements:', error);
     }
   };
@@ -158,7 +158,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           }
         }
       }
-    } catch (error) {
+    } catch {
       console.error('Error toggling like:', error);
     } finally {
       setIsLoading(false);

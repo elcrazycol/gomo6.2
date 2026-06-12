@@ -255,7 +255,7 @@ const Auth = () => {
 
       toast.success("Вход выполнен");
       navigate(redirectTo, { replace: true });
-    } catch (err) {
+    } catch {
       const msg = (err as Error).message || "Ошибка входа по passkey";
       if (!msg.includes("cancelled") && !msg.includes("AbortError")) {
         toast.error(msg);

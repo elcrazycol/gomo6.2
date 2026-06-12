@@ -155,7 +155,7 @@ const CreateGomoThread = () => {
 
       toast.success("Тред создан");
       navigate(`/g/${board.slug}/thread/${threadData.id}`);
-    } catch (err) {
+    } catch {
       console.error('CreateGomoThread error:', err);
       toast.error('Ошибка при создании треда');
     } finally {

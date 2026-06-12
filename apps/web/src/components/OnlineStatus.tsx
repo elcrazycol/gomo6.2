@@ -48,7 +48,7 @@ export function OnlineStatus({
           {showText ? `был(а) в сети ${timeAgo}` : timeAgo}
         </span>
       );
-    } catch (error) {
+    } catch {
       // Invalid date, don't show anything
       return null;
     }
