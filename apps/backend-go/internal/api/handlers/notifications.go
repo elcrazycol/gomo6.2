@@ -152,9 +152,9 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	if isReadStr := c.Query("is_read"); isReadStr != "" {
 		switch isReadStr {
 		case "true", "eq.true":
-			query += fmt.Sprintf(" AND is_read = true")
+			query += " AND is_read = true"
 		case "false", "eq.false":
-			query += fmt.Sprintf(" AND is_read = false")
+			query += " AND is_read = false"
 		}
 	}
 
