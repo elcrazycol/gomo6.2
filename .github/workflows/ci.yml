@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version: '1.26.4'
           cache-dependency-path: apps/backend-go/go.sum
 
       - name: Build server binary
