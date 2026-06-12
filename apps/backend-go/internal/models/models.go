@@ -80,10 +80,23 @@ type GomoSub struct {
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 }
 
+// Channel represents a text channel within a gomosub.
+type Channel struct {
+	ID          string    `json:"id" db:"id"`
+	BoardID     string    `json:"board_id" db:"board_id"`
+	Slug        string    `json:"slug" db:"slug"`
+	Name        string    `json:"name" db:"name"`
+	Description *string   `json:"description" db:"description"`
+	Category    *string   `json:"category" db:"category"`
+	SortOrder   int       `json:"sort_order" db:"sort_order"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
 // Thread with federation support
 type Thread struct {
 	ID           string          `json:"id" db:"id"`
 	BoardID      string          `json:"board_id" db:"board_id"`
+	ChannelID    *string         `json:"channel_id,omitempty" db:"channel_id"`
 	UserID       *string         `json:"user_id" db:"user_id"`
 	Title        string          `json:"title" db:"title"`
 	Content      string          `json:"content" db:"content"`
@@ -102,6 +115,7 @@ type Thread struct {
 type ThreadWithBoards struct {
 	ID           string          `json:"id" db:"id"`
 	BoardID      string          `json:"board_id" db:"board_id"`
+	ChannelID    *string         `json:"channel_id,omitempty" db:"channel_id"`
 	UserID       *string         `json:"user_id" db:"user_id"`
 	Title        string          `json:"title" db:"title"`
 	Content      string          `json:"content" db:"content"`
@@ -267,6 +281,7 @@ type PollRequest struct {
 
 type CreateThreadRequest struct {
 	BoardID           string          `json:"board_id"`
+	ChannelID         *string         `json:"channel_id,omitempty"`
 	Title             string          `json:"title"`
 	Content           string          `json:"content"`
 	ContentJSON       json.RawMessage `json:"content_json,omitempty"`

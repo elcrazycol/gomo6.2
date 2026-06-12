@@ -22,11 +22,12 @@ type GomoBoard = {
 };
 
 const CreateGomoThread = () => {
-  const { slug } = useParams();
+  const { slug, channelSlug } = useParams();
   const navigate = useNavigate();
   const [loadingBoard, setLoadingBoard] = useState(true);
   const [creating, setCreating] = useState(false);
   const [board, setBoard] = useState<GomoBoard | null>(null);
+  const [channelId, setChannelId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [contentJson, setContentJson] = useState<unknown>(null);
@@ -63,11 +64,22 @@ const CreateGomoThread = () => {
         : [];
 
       setBoard({ ...data, gomosub_tags: tags });
+
+      // If creating in a channel, resolve channel slug to ID
+      if (channelSlug) {
+        const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${data.id}&slug=eq.${channelSlug}`);
+        const channelsResult = await channelsResponse.json();
+        const channelData = channelsResult.data?.[0];
+        if (channelData) {
+          setChannelId(channelData.id);
+        }
+      }
+
       setLoadingBoard(false);
     };
 
     loadBoard();
-  }, [navigate, slug]);
+  }, [navigate, slug, channelSlug]);
 
   const imageUrl = useMemo(
     () => attachments.find((att) => att.type === "image")?.url || null,
@@ -121,6 +133,7 @@ const CreateGomoThread = () => {
         content_json: contentJson,
         image_urls: imageUrl ? [imageUrl] : [],
         attachments: attachments.length ? attachments : null,
+        ...(channelId ? { channel_id: channelId } : {}),
       };
 
       const session = await api.auth.getSession();
@@ -175,7 +188,10 @@ const CreateGomoThread = () => {
     <div className="max-w-3xl mx-auto p-3 sm:p-6">
       <Card>
         <CardHeader>
-          <CardTitle>Новый тред в g/{board?.slug}</CardTitle>
+          <CardTitle>
+            Новый тред в g/{board?.slug}
+            {channelSlug && <span className="text-muted-foreground"> / # {channelSlug}</span>}
+          </CardTitle>
           <p className="text-sm text-muted-foreground">{board?.description}</p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -280,7 +296,11 @@ const CreateGomoThread = () => {
           </div>
 
           <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
-            <Button variant="outline" onClick={() => navigate(`/g/${board?.slug}`)} className="w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={() => navigate(channelSlug ? `/g/${board?.slug}/c/${channelSlug}` : `/g/${board?.slug}`)}
+              className="w-full sm:w-auto"
+            >
               Назад
             </Button>
             <Button onClick={handleCreate} disabled={creating} className="w-full sm:w-auto">

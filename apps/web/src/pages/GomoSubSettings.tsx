@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Save, Settings, Plus } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, Save, Settings, Plus, Trash2, GripVertical, Hash } from "lucide-react";
 import { toast } from "sonner";
 import { renderPreviewContent } from "@/utils/emojiUtils";
 
@@ -95,6 +96,16 @@ const GomoSubSettings = () => {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [tagInput, setTagInput] = useState("");
+  const [activeTab, setActiveTab] = useState<"general" | "channels">("general");
+
+  // Channel management state
+  const [channels, setChannels] = useState<{ id: string; slug: string; name: string; category: string; sort_order: number }[]>([]);
+  const [channelsLoading, setChannelsLoading] = useState(false);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [newChannelSlug, setNewChannelSlug] = useState("");
+  const [newChannelCategory, setNewChannelCategory] = useState("");
+  const [addingChannel, setAddingChannel] = useState(false);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -115,6 +126,14 @@ const GomoSubSettings = () => {
     () => buildRulesMarkdown(standardRules, allowedRules, forbiddenRules) || "",
     [standardRules, allowedRules, forbiddenRules]
   );
+
+  const loadChannels = async (boardId: string) => {
+    setChannelsLoading(true);
+    const response = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
+    const result = await response.json();
+    setChannels((result.data || []) as { id: string; slug: string; name: string; category: string; sort_order: number }[]);
+    setChannelsLoading(false);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -163,6 +182,9 @@ const GomoSubSettings = () => {
         gomosub_tags: tags,
       });
       setLoading(false);
+
+      // Load channels
+      await loadChannels(board.id);
     };
 
     load();
@@ -243,6 +265,67 @@ const GomoSubSettings = () => {
       if (kind === "avatar") setUploadingAvatar(false);
       else setUploadingCover(false);
     }
+  };
+
+  const handleAddChannel = async () => {
+    const name = newChannelName.trim();
+    const channelSlugTrimmed = newChannelSlug.trim().toLowerCase().replace(/\s+/g, "-") || name.toLowerCase().replace(/\s+/g, "-");
+    if (!name) {
+      toast.error("Название канала обязательно");
+      return;
+    }
+
+    setAddingChannel(true);
+    const response = await fetch('/api/v1/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        board_id: form.id,
+        slug: channelSlugTrimmed,
+        name,
+        category: newChannelCategory.trim() || null,
+        sort_order: channels.length,
+      }),
+    });
+    const result = await response.json();
+    setAddingChannel(false);
+
+    if (!response.ok || !result.success) {
+      toast.error(result.error || "Не удалось создать канал");
+      return;
+    }
+
+    setNewChannelName("");
+    setNewChannelSlug("");
+    setNewChannelCategory("");
+    await loadChannels(form.id);
+    toast.success("Канал создан");
+  };
+
+  const handleDeleteChannel = async (channelId: string) => {
+    const response = await fetch(`/api/v1/channels?id=eq.${channelId}`, { method: 'DELETE' });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      toast.error(result.error || "Не удалось удалить канал");
+      return;
+    }
+    await loadChannels(form.id);
+    toast.success("Канал удалён");
+  };
+
+  const handleUpdateChannel = async (channelId: string, updates: Record<string, unknown>) => {
+    const response = await fetch(`/api/v1/channels?id=eq.${channelId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      toast.error(result.error || "Не удалось обновить канал");
+      return;
+    }
+    setEditingChannelId(null);
+    await loadChannels(form.id);
   };
 
   const handleSave = async () => {
@@ -351,9 +434,17 @@ const GomoSubSettings = () => {
             <Settings className="w-5 h-5 text-primary" />
             Настройки g/{slug}
           </CardTitle>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "general" | "channels")} className="mt-3">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="general">Основное</TabsTrigger>
+              <TabsTrigger value="channels">Каналы</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </CardHeader>
 
         <CardContent className="space-y-5">
+          {activeTab === "general" && (
+          <>
           <div className="text-xs text-muted-foreground">Для смены фото нажми прямо на аватар или фоновый прямоугольник в шапке.</div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -415,7 +506,119 @@ const GomoSubSettings = () => {
             </div>
           </div>
 
-          {rulesPreview && (
+          </>
+          )}
+
+          {activeTab === "channels" && (
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                Каналы — как текстовые каналы в Discord. Создавай тематические разделы внутри g-саба.
+              </div>
+
+              {/* Add new channel form */}
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
+                <div className="text-sm font-medium">Новый канал</div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Input
+                    placeholder="Название (напр. обсуждение)"
+                    value={newChannelName}
+                    onChange={(e) => setNewChannelName(e.target.value)}
+                    maxLength={50}
+                  />
+                  <Input
+                    placeholder="Слаг (напр. discussion)"
+                    value={newChannelSlug}
+                    onChange={(e) => setNewChannelSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))}
+                    maxLength={30}
+                  />
+                  <Input
+                    placeholder="Категория (опционально)"
+                    value={newChannelCategory}
+                    onChange={(e) => setNewChannelCategory(e.target.value)}
+                    maxLength={40}
+                  />
+                </div>
+                <Button onClick={handleAddChannel} disabled={addingChannel || !newChannelName.trim()} size="sm">
+                  {addingChannel && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  <Plus className="w-4 h-4 mr-1" />
+                  Добавить канал
+                </Button>
+              </div>
+
+              {/* Channel list */}
+              {channelsLoading ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                </div>
+              ) : channels.length === 0 ? (
+                <div className="text-sm text-muted-foreground text-center py-4">
+                  Каналов пока нет. Создай первый!
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {channels.map((ch) => (
+                    <div
+                      key={ch.id}
+                      className="flex items-center gap-3 rounded-lg border border-border/60 bg-card p-3"
+                    >
+                      <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <Hash className="w-4 h-4 text-muted-foreground shrink-0" />
+                      {editingChannelId === ch.id ? (
+                        <div className="flex-1 flex gap-2 items-center">
+                          <Input
+                            defaultValue={ch.name}
+                            className="h-8 flex-1"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                handleUpdateChannel(ch.id, { name: (e.target as HTMLInputElement).value });
+                              }
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingChannelId(null)}
+                          >
+                            Отмена
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate"># {ch.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              /c/{ch.slug}
+                              {ch.category && <span className="ml-2">· {ch.category}</span>}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            onClick={() => setEditingChannelId(ch.id)}
+                            title="Переименовать"
+                          >
+                            ✎
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteChannel(ch.id)}
+                            title="Удалить канал"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "general" && (
             <div className="rounded-lg border border-border p-3 bg-muted/30">
               <div className="text-xs text-muted-foreground mb-2">Превью правил</div>
               {renderPreviewContent(rulesPreview, "g-settings-rules")}

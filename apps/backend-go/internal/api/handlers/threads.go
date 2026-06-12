@@ -33,7 +33,7 @@ func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
 // Migration 036 added tags JSONB column to threads table.
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
-		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
+		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
@@ -97,6 +97,17 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		uid := strings.TrimPrefix(userID, "eq.")
 		conditions = append(conditions, "t.user_id = $"+strconv.Itoa(len(args)+1))
 		args = append(args, uid)
+	}
+
+	// Handle channel_id filter (eq.uuid, is.null)
+	if channelID := c.Query("channel_id"); channelID != "" {
+		if channelID == "is.null" {
+			conditions = append(conditions, "t.channel_id IS NULL")
+		} else {
+			cid := strings.TrimPrefix(channelID, "eq.")
+			conditions = append(conditions, "t.channel_id = $"+strconv.Itoa(len(args)+1))
+			args = append(args, cid)
+		}
 	}
 
 	// Determine ORDER BY (before cursor, since cursor direction depends on order)
@@ -188,8 +199,10 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		var boardIsGomosub, boardIsRulesBoard bool
 		var contentJSON, tagsJSON []byte
 
+		var channelID sql.NullString
+
 		err := rows.Scan(
-			&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
+			&thread.ID, &thread.BoardID, &channelID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
@@ -197,6 +210,9 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
+		}
+		if channelID.Valid {
+			thread.ChannelID = &channelID.String
 		}
 		if avatarURL.Valid {
 			thread.AvatarURL = &avatarURL.String
@@ -245,7 +261,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	}
 
 	query := `
-		SELECT t.id, t.board_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
+		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
 		       u.username, u.avatar_url,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
@@ -262,8 +278,10 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	var contentJSON []byte
 	var tagsJSON []byte
 
+	var channelID sql.NullString
+
 	err = h.db.QueryRow(query, id.String()).Scan(
-		&thread.ID, &thread.BoardID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
+		&thread.ID, &thread.BoardID, &channelID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
@@ -278,6 +296,9 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		return
 	}
 
+	if channelID.Valid {
+		thread.ChannelID = &channelID.String
+	}
 	if avatarURL.Valid {
 		thread.AvatarURL = &avatarURL.String
 	}

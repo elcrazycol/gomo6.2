@@ -1216,14 +1216,14 @@ func TestCreateThreadRPC_Success(t *testing.T) {
 
 	// INSERT thread + RETURNING
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, "u1", "Test Title", "Test Content",
+		WithArgs(boardID, nil, "u1", "Test Title", "Test Content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "board_id", "user_id", "title", "content", "content_json",
+			"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
 			"image_url", "image_urls", "attachments", "post_count", "server_domain",
 			"created_at", "updated_at", "is_remote",
 		}).AddRow(
-			"thread-1", boardID, "u1", "Test Title", "Test Content", nil,
+			"thread-1", boardID, nil, "u1", "Test Title", "Test Content", nil,
 			nil, nil, nil, 0, "localhost:8080",
 			now, now, false,
 		))
@@ -1291,14 +1291,14 @@ func TestCreateThreadRPC_SuccessWithPoll(t *testing.T) {
 
 	// INSERT thread + RETURNING
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, "u1", "Poll Thread", "Poll content",
+		WithArgs(boardID, nil, "u1", "Poll Thread", "Poll content",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "board_id", "user_id", "title", "content", "content_json",
+			"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
 			"image_url", "image_urls", "attachments", "post_count", "server_domain",
 			"created_at", "updated_at", "is_remote",
 		}).AddRow(
-			"thread-poll", boardID, "u1", "Poll Thread", "Poll content", nil,
+			"thread-poll", boardID, nil, "u1", "Poll Thread", "Poll content", nil,
 			nil, nil, nil, 0, "localhost:8080",
 			now, now, false,
 		))
@@ -1466,7 +1466,7 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(`(?s).*INSERT INTO threads.*RETURNING.*`).
-		WithArgs(boardID, "u1", "Test", "Test",
+		WithArgs(boardID, nil, "u1", "Test", "Test",
 			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), "localhost:8080").
 		WillReturnError(sqlmock.ErrCancelled)
 

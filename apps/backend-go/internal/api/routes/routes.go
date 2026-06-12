@@ -215,6 +215,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/gomosub_memberships", universalHandler.HandleTableRequest)
 		rest.Any("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
 
+		rest.Any("/channels", universalHandler.HandleTableRequest)
+		rest.Any("/channels/*path", universalHandler.HandleTableRequest)
+
 		rest.Any("/user_session_time", universalHandler.HandleTableRequest)
 		rest.Any("/user_session_time/*path", universalHandler.HandleTableRequest)
 
