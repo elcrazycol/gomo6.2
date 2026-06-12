@@ -454,7 +454,7 @@ const Profile = () => {
     }
   };
 
-  const handleSaveAndExit = async () => {
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userId) return;
 
