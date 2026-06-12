@@ -4,10 +4,10 @@ import { api } from "@/integrations/api/compat";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-import { UserBadge } from "@/components/UserBadge";
+
 import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
-import { LikeButton } from "@/components/LikeButton";
+
 import { Heart, MessageCircle, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

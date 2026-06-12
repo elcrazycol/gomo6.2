@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { PrefetchLink } from "@/components/PrefetchLink";

@@ -7,10 +7,10 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { safeDate } from "@/utils/safeDate";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, Plus, Activity, Trash2, Edit, Power, Code, Settings, FileText, ChevronLeft, Save, Terminal, AlertCircle, Info, AlertTriangle, RefreshCw } from "lucide-react";

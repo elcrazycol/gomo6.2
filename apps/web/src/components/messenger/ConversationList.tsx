@@ -1,7 +1,7 @@
 import { memo, useCallback } from "react";
 import { MessageCircle, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { UserBadge } from "@/components/UserBadge";
+
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { formatConversationDate, formatPresence, getInitials } from "./utils";
