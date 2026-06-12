@@ -7,7 +7,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-import { ArrowLeft } from "lucide-react";
+
 
 interface NotifWithSlug extends Notification {
   thread_slug?: string;

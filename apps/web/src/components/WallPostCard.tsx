@@ -16,7 +16,7 @@ import {
   DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
-import { UserBadge } from "@/components/UserBadge";
+
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { CreateWallPost } from "@/components/CreateWallPost";

@@ -4,7 +4,7 @@ import { ru } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
 import { Repeat2 } from "lucide-react";
 
-import { UserBadge } from "@/components/UserBadge";
+
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { normalizeAttachments, isInteractiveTarget, getWallPostPath } from "@/utils/wallNormalizers";
