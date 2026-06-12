@@ -19,7 +19,7 @@ const clearOldCaches = async () => {
           }
         })
       );
-    } catch (error) {
+    } catch {
       console.error('Error clearing old caches:', error);
     }
   }
@@ -38,7 +38,7 @@ const clearOldCaches = async () => {
       if (navigator.serviceWorker.controller) {
         sessionStorage.setItem('gomo6-sw-reset', '1');
       }
-    } catch (error) {
+    } catch {
       console.error('Error unregistering old service workers:', error);
     }
   }

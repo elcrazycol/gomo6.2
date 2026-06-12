@@ -191,7 +191,7 @@ class ApiClient {
 
     try {
       return await doFetch();
-    } catch (error) {
+    } catch {
       const err = error as Error & { status?: number };
       // On 401, try refreshing the token and retry once (only for authenticated requests)
       if (err.status === 401 && this.token) {
@@ -309,7 +309,7 @@ class ApiClient {
       const user = response.data as User;
       if (user) this.cachedUser = user;
       return user;
-    } catch (error) {
+    } catch {
       // If tokens were cleared (401 + refresh failed), we're logged out
       if (!this.token) return null;
       const err = error as Error & { status?: number };

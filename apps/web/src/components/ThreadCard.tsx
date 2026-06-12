@@ -224,7 +224,7 @@ const ThreadCard = ({
       } else {
         setRecentPosts([]);
       }
-    } catch (error) {
+    } catch {
       console.error("Error loading recent posts:", error);
     } finally {
       setIsLoadingPosts(false);
@@ -270,7 +270,7 @@ const ThreadCard = ({
           setUserLiked(likedData as boolean);
         }
       }
-    } catch (error) {
+    } catch {
       console.error("Error loading likes data:", error);
     }
   }, [currentUserId, thread.id]);
@@ -322,7 +322,7 @@ const ThreadCard = ({
           setLikesCount(prev => prev + 1);
         }
       }
-    } catch (error) {
+    } catch {
       console.error("Error toggling like:", error);
     }
   };

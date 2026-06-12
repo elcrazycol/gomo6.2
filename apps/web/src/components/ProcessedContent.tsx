@@ -85,7 +85,7 @@ export const ProcessedContent = ({
             setHiddenUsernames(usernames);
           }
         }
-      } catch (error) {
+      } catch {
         console.error('Error processing visibility tags:', error);
         setVisibilityResult({
           processedContent: content,

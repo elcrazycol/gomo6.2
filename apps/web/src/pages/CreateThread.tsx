@@ -310,7 +310,7 @@ const CreateThread = () => {
       navigate(`${prefix}/${board.slug}/thread/${threadData.id}`);
       setAttachments([]);
       setImageUrls([]);
-    } catch (error) {
+    } catch {
       console.error('Error creating thread:', error);
       toast.error('Ошибка при создании треда');
     } finally {
@@ -422,7 +422,7 @@ const CreateThread = () => {
                         const imageKey = `threads/${Date.now()}-${file.name}`;
                         await uploadFile('content', imageKey, file);
                         setThreadImageUrl(imageKey);
-                      } catch (error) {
+                      } catch {
                         console.error('Error uploading thread image:', error);
                         toast.error('Ошибка загрузки изображения');
                       } finally {

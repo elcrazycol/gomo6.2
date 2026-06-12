@@ -158,7 +158,7 @@ export const legacyContentToLexicalJson = (content: string): LexicalEditorStateJ
     });
 
     return json;
-  } catch (error) {
+  } catch {
     console.error("legacyContentToLexicalJson failed", error);
     return {
       root: {

@@ -132,7 +132,7 @@ export const ProfileWall = ({
 
         return combinedPosts;
       });
-    } catch (error) {
+    } catch {
       console.error("Error loading wall posts:", error);
       toast.error("Ошибка загрузки постов стены");
     } finally {
@@ -196,7 +196,7 @@ export const ProfileWall = ({
             const newPost = normalizeWallPostRecord(postData, currentUsernameRef.current);
             return [newPost, ...prevPosts];
           });
-        } catch (e) {
+        } catch {
           console.error('[ProfileWall] Error parsing wall post message:', e);
         }
       }
@@ -216,7 +216,7 @@ export const ProfileWall = ({
                 : post
             )
           );
-        } catch (e) {
+        } catch {
           // Silent error
         }
       }
@@ -233,7 +233,7 @@ export const ProfileWall = ({
           setPosts(prevPosts =>
             prevPosts.filter(post => String(post.id) !== postId)
           );
-        } catch (e) {
+        } catch {
           console.error('[ProfileWall] Error parsing delete wall post message:', e);
         }
       }
@@ -270,7 +270,7 @@ export const ProfileWall = ({
       if (error) throw error;
       setPosts((prev) => prev.filter((post) => post.id !== postId));
       toast.success("Пост удален");
-    } catch (error) {
+    } catch {
       console.error("Error deleting post:", error);
       toast.error("Ошибка удаления поста");
     }
@@ -293,7 +293,7 @@ export const ProfileWall = ({
       }
       await loadPosts();
       toast.success("Статус закрепления изменен");
-    } catch (error) {
+    } catch {
       console.error("Error toggling pin:", error);
       toast.error("Ошибка изменения закрепления");
     }
