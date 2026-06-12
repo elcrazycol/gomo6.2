@@ -5,117 +5,29 @@
 // Set VITE_API_BASE_URL to override (e.g., for direct backend access during dev).
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
-// Types
-export interface User {
-  id: string;
-  username: string;
-  email: string;
-  domain: string;
-  avatar_url?: string | null;
-  bio?: string | null;
-  garma?: number | null;
-  post_count?: number | null;
-  thread_count?: number | null;
-  created_at: string;
-  is_remote: boolean;
-  is_anonymous: boolean;
-}
+// Types — re-exported from auto-generated OpenAPI spec (api.d.ts)
+import type { components } from '@/api';
 
-export interface Board {
-  id: string;
-  slug: string;
-  name: string;
-  description?: string | null;
-  is_gomosub: boolean;
-  is_rules_board: boolean;
-  owner_id?: string | null;
-  gomosub_avatar_url?: string | null;
-  cover_image_url?: string | null;
-  gomosub_tags?: string[] | null;
-  rules_markdown?: string | null;
-  rules_updated_at?: string | null;
-  created_at: string;
-}
+export type User = components['schemas']['User'];
+export type Board = components['schemas']['Board'];
+export type Thread = components['schemas']['Thread'];
+export type ThreadWithBoards = components['schemas']['ThreadWithBoards'];
+export type Post = components['schemas']['Post'];
+export type PostLike = components['schemas']['PostLike'];
+export type ThreadLike = components['schemas']['ThreadLike'];
+export type Notification = components['schemas']['Notification'];
+export type AuthResponse = components['schemas']['AuthResponse'];
+export type TOTPSetupResponse = components['schemas']['TOTPSetupResponse'];
+export type TwoFAStatus = components['schemas']['TwoFAStatus'];
+export type ConversationResponse = components['schemas']['ConversationResponse'];
+export type MessageResponse = components['schemas']['MessageResponse'];
+export type SendMessageRequest = components['schemas']['SendMessageRequest'];
+export type RegisterRequest = components['schemas']['RegisterRequest'];
+export type LoginRequest = components['schemas']['LoginRequest'];
+export type CreateThreadRequest = components['schemas']['CreateThreadRequest'];
+export type CreatePostRequest = components['schemas']['CreatePostRequest'];
 
-export interface Thread {
-  id: string;
-  board_id: string;
-  user_id: string;
-  title: string;
-  content: string;
-  content_json?: Record<string, unknown> | null;
-  image_url?: string | null;
-  image_urls?: string[] | null;
-  post_count: number;
-  server_domain: string;
-  created_at: string;
-  updated_at: string;
-  is_remote: boolean;
-}
-
-export interface Post {
-  id: string;
-  thread_id: string;
-  user_id: string;
-  content: string;
-  content_json?: Record<string, unknown> | null;
-  image_url?: string | null;
-  image_urls?: string[] | null;
-  reply_to?: string | null;
-  is_private: boolean;
-  private_recipient_id?: string | null;
-  server_domain: string;
-  created_at: string;
-  is_remote: boolean;
-}
-
-export interface PostLike {
-  id: string;
-  post_id: string;
-  user_id: string;
-  created_at: string;
-}
-
-export interface ThreadLike {
-  id: string;
-  thread_id: string;
-  user_id: string;
-  created_at: string;
-}
-
-export interface Notification {
-  id: string;
-  user_id: string;
-  type: string;
-  title: string;
-  message: string;
-  related_thread_id?: string | null;
-  related_post_id?: string | null;
-  is_read: boolean;
-  created_at: string;
-}
-
-// Auth Response
-export interface AuthResponse {
-  token: string;
-  user: User;
-  needs_2fa?: boolean;
-  refresh_token?: string;
-  expires_in?: number;
-}
-
-// 2FA Types
-export interface TOTPSetupResponse {
-  secret: string;
-  uri: string;
-}
-
-export interface TwoFAStatus {
-  enabled: boolean;
-  has_pending_secret: boolean;
-}
-
-// Unified API Response Format ({success: bool, data: T})
+// APIResponse wrapper (not from OpenAPI — hand-written generic for {success, data, error} format)
 export interface ApiResponse<T> {
   success: boolean;
   data: T | T[] | null;
