@@ -219,7 +219,7 @@ const extractAudioMetadata = async (file: File): Promise<{
           }
         }
       }
-    } catch (mmError) {
+    } catch {
       // Silently fail
     }
 
@@ -245,7 +245,7 @@ const extractAudioMetadata = async (file: File): Promise<{
             coverArt: serverMetadata.coverArt || undefined,
           };
         }
-      } catch (serverError) {
+      } catch {
         // Silently fail
       }
     }
@@ -266,7 +266,7 @@ const extractAudioMetadata = async (file: File): Promise<{
           });
           audio.src = URL.createObjectURL(file);
         });
-      } catch (audioError) {
+      } catch {
         duration = undefined;
       }
     }
