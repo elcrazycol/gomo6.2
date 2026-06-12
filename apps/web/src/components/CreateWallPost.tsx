@@ -111,7 +111,7 @@ export const CreateWallPost = ({
       };
 
       if (isEditing) {
-        const { data, error } = await (api as any)
+        const { data, error } = await api
           .from("profile_wall_posts")
           .update(postData)
           .eq("id", editingPost.id)
@@ -142,7 +142,7 @@ export const CreateWallPost = ({
         onPostUpdated?.(data as WallPost);
         toast.success("Пост обновлен");
       } else {
-        const { data, error } = await (api as any)
+        const { data, error } = await api
           .from("profile_wall_posts")
           .insert([postData])
           .select(`

@@ -562,7 +562,7 @@ export class OAuthClient {
       body,
     })
 
-    let data: any
+    let data: Record<string, unknown>
     try {
       data = await response.json()
     } catch {

@@ -147,9 +147,9 @@ const Profile = () => {
     replies: false,
     time: false,
   });
-  const [userThreads, setUserThreads] = useState<any[]>([]);
+  const [userThreads, setUserThreads] = useState<Array<Record<string, unknown>>>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
-  const [avatarHistory, setAvatarHistory] = useState<any[]>([]);
+  const [avatarHistory, setAvatarHistory] = useState<Array<Record<string, unknown>>>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [showAvatarGallery, setShowAvatarGallery] = useState(false);
   const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
@@ -372,7 +372,7 @@ const Profile = () => {
 
       // Get profiles for all threads
       const userIds = [...new Set(threadsData.map((t: { user_id: string }) => t.user_id).filter(Boolean))];
-      const profilesMap: Record<string, any> = {};
+      const profilesMap: Record<string, unknown> = {};
       if (userIds.length > 0) {
         const profilesRes = await fetch(`/api/v1/profiles?id=in.(${userIds.join(',')})`);
         const profilesResult = await profilesRes.json();
