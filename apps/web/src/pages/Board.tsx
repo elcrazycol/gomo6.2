@@ -55,6 +55,7 @@ interface Channel {
   description: string | null;
   category: string | null;
   sort_order: number;
+  is_private: boolean;
 }
 
 interface Thread {
@@ -186,7 +187,36 @@ const Board = () => {
     try {
       const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
       const channelsResult = await channelsResponse.json();
-      const channelsData = (channelsResult.data || []) as Channel[];
+      let channelsData = (channelsResult.data || []) as Channel[];
+
+      // Filter private channels based on user permissions
+      const isOwner = user?.id === board?.owner_id;
+      if (!isOwner && user?.id && channelsData.length > 0) {
+        // Fetch user's membership and channel_permissions
+        const privateChannelIds = channelsData.filter((ch) => ch.is_private).map((ch) => ch.id);
+        if (privateChannelIds.length > 0) {
+          const [membershipRes, permissionsRes] = await Promise.all([
+            fetch(`/api/v1/gomosub_memberships?board_id=eq.${boardId}&user_id=eq.${user.id}`),
+            fetch(`/api/v1/channel_permissions?channel_id=in.(${privateChannelIds.join(",")})`),
+          ]);
+          const membershipData = await membershipRes.json();
+          const permissionsData = await permissionsRes.json();
+          const membership = membershipData.data?.[0] as { role_id: string | null } | undefined;
+          const permissions = (permissionsData.data || []) as { channel_id: string; role_id: string; can_read: boolean }[];
+
+          channelsData = channelsData.filter((ch) => {
+            if (!ch.is_private) return true;
+            if (!membership?.role_id) return false;
+            return permissions.some(
+              (p) => p.channel_id === ch.id && p.role_id === membership.role_id && p.can_read
+            );
+          });
+        }
+      } else if (!user?.id) {
+        // Unauthenticated users only see public channels
+        channelsData = channelsData.filter((ch) => !ch.is_private);
+      }
+
       setChannels(channelsData);
 
       if (channelSlug) {
@@ -198,7 +228,7 @@ const Board = () => {
     } catch {
       setChannels([]);
     }
-  }, [channelSlug]);
+  }, [channelSlug, user?.id, board?.owner_id]);
 
   const loadThreads = useCallback(async (boardId: string, isLoadMore = false) => {
     if (isLoadMore) {
@@ -641,12 +671,6 @@ const Board = () => {
       />
     );
   }
-
-  const canCreateThread = user && (!board.is_rules_board || isModerator) && (!board.is_gomosub || hasAcceptedRules);
-  const hasSecondaryActions = Boolean(
-    (isGomoRoute && board.rules_markdown?.trim()) ||
-    (isGomoRoute && user?.id && board?.owner_id === user.id)
-  );
 
   // Group channels by category for sidebar
   const channelCategories = useMemo(() => {
