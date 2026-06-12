@@ -67,7 +67,7 @@ interface PostWithExtras extends PostModel {
   avatar_url?: string;
 }
 const Thread = () => {
-  const { slug, threadId } = useParams();
+  const { slug, threadId, channelSlug } = useParams();
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
   const pathPrefix = isGomoRoute ? "/g" : "";
@@ -973,8 +973,10 @@ const Thread = () => {
           </div>
         )}
             <div className="mb-4 flex justify-between items-center">
-          <Link to={`${pathPrefix}/${slug}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
-            {thread.boards?.is_gomosub ? "← Назад к "+"/g/"+thread.boards?.slug : "← Назад к доске"}
+          <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}`} className="text-primary hover:text-primary/80 font-medium text-sm transition-colors">
+            {thread.boards?.is_gomosub
+              ? `← Назад к /g/${thread.boards?.slug}${channelSlug ? `/c/${channelSlug}` : ""}`
+              : "← Назад к доске"}
           </Link>
           {user && (
             <Button

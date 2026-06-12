@@ -161,9 +161,12 @@ const App = () => {
                   <Route path="g" element={<LazyPage component={GomoSubs} />} />
                   <Route path="g/create" element={<AuthGuard><LazyPage component={GomoSubCreate} /></AuthGuard>} />
                   <Route path="g/:slug/create" element={<AuthGuard><LazyPage component={CreateGomoThread} /></AuthGuard>} />
+                  <Route path="g/:slug/c/:channelSlug/create" element={<AuthGuard><LazyPage component={CreateGomoThread} /></AuthGuard>} />
                   <Route path="g/:slug/settings" element={<AuthGuard><LazyPage component={GomoSubSettings} /></AuthGuard>} />
                   <Route path="create" element={<AuthGuard><LazyPage component={CreateThread} /></AuthGuard>} />
                   <Route path="g/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
+                  <Route path="g/:slug/c/:channelSlug/thread/:threadId" element={<LazyPage component={Thread} />} />
+                  <Route path="g/:slug/c/:channelSlug" element={<LazyPage component={Board} />} />
                   <Route path="g/:slug" element={<LazyPage component={Board} />} />
                   <Route path=":slug" element={<LazyPage component={Board} />} />
                   <Route path=":slug/thread/:threadId" element={<LazyPage component={Thread} />} />

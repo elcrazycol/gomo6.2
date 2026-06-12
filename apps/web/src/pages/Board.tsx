@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,16 @@ interface Board {
   gomosub_tags?: string[] | null;
 }
 
+interface Channel {
+  id: string;
+  board_id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  sort_order: number;
+}
+
 interface Thread {
   id: string;
   title: string;
@@ -56,6 +66,7 @@ interface Thread {
   updated_at: string;
   post_count: number;
   user_id: string | null;
+  channel_id?: string | null;
   tags?: Record<string, unknown>; // Thread tags object
   profiles: {
     username: string;
@@ -79,7 +90,7 @@ const hasVisibilityTags = (content: string): boolean => {
 };
 
 const Board = () => {
-  const { slug } = useParams();
+  const { slug, channelSlug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const isGomoRoute = location.pathname.startsWith("/g/");
@@ -107,6 +118,10 @@ const Board = () => {
   const [isJoined, setIsJoined] = useState(false);
   const [membersCount, setMembersCount] = useState(0);
   const [membershipLoading, setMembershipLoading] = useState(false);
+  
+  // Channels state
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   
   useSessionTime(user?.id);
   useOnlineStatus(user?.id);
@@ -166,6 +181,25 @@ const Board = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Load channels for gomosub boards
+  const loadChannels = useCallback(async (boardId: string) => {
+    try {
+      const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
+      const channelsResult = await channelsResponse.json();
+      const channelsData = (channelsResult.data || []) as Channel[];
+      setChannels(channelsData);
+
+      if (channelSlug) {
+        const foundChannel = channelsData.find((ch) => ch.slug === channelSlug);
+        setActiveChannelId(foundChannel?.id || null);
+      } else {
+        setActiveChannelId(null);
+      }
+    } catch {
+      setChannels([]);
+    }
+  }, [channelSlug]);
+
   const loadThreads = useCallback(async (boardId: string, isLoadMore = false) => {
     if (isLoadMore) {
       setLoadingMoreThreads(true);
@@ -178,7 +212,15 @@ const Board = () => {
     const oldTagFilter = searchParams.get('tag');
 
     // Build URL with cursor-based pagination
-    let threadsUrl = `/api/v1/threads?board_id=eq.${boardId}&order=updated_at.desc&limit=${isLoadMore ? 21 : 20}`;
+    let threadsUrl = `/api/v1/threads?board_id=eq.${boardId}`;
+    // Filter by channel if active
+    if (activeChannelId) {
+      threadsUrl += `&channel_id=eq.${activeChannelId}`;
+    } else if (isGomoRoute && !channelSlug) {
+      // Default gomosub view: show only threads without a channel (general feed)
+      threadsUrl += `&channel_id=is.null`;
+    }
+    threadsUrl += `&order=updated_at.desc&limit=${isLoadMore ? 21 : 20}`;
     if (isLoadMore && threadsCursor) {
       threadsUrl += `&cursor=${encodeURIComponent(threadsCursor)}`;
     }
@@ -291,7 +333,7 @@ const Board = () => {
       setThreads(threadsWithData as Thread[]);
     }
     setLoadingMoreThreads(false);
-  }, [searchParams, isGomoRoute, threadsCursor]);
+  }, [searchParams, isGomoRoute, threadsCursor, activeChannelId, channelSlug]);
 
   useEffect(() => {
     const loadBoard = async () => {
@@ -346,6 +388,11 @@ const Board = () => {
 
         setBoard(boardData);
 
+        // Load channels for gomosub boards
+        if (boardData.is_gomosub) {
+          await loadChannels(boardData.id);
+        }
+
         // Check age verification for /d/ board
         if (boardData.slug === 'd') {
           const verified = sessionStorage.getItem('age_verified_d');
@@ -377,7 +424,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute, authResolved, loadThreads]);
+  }, [slug, user, searchParams, isGomoRoute, authResolved, loadThreads, loadChannels]);
 
   useEffect(() => {
     const loadMembership = async () => {
@@ -600,6 +647,33 @@ const Board = () => {
     (isGomoRoute && board.rules_markdown?.trim()) ||
     (isGomoRoute && user?.id && board?.owner_id === user.id)
   );
+
+  // Group channels by category for sidebar
+  const channelCategories = useMemo(() => {
+    if (!channels.length) return [] as { category: string; channels: Channel[] }[];
+    const grouped = new Map<string, Channel[]>();
+    const uncategorized: Channel[] = [];
+    channels.forEach((ch) => {
+      const cat = (ch.category || "").trim();
+      if (cat) {
+        const existing = grouped.get(cat) || [];
+        existing.push(ch);
+        grouped.set(cat, existing);
+      } else {
+        uncategorized.push(ch);
+      }
+    });
+    const result = Array.from(grouped.entries()).map(([category, chs]) => ({ category, channels: chs }));
+    if (uncategorized.length) {
+      result.push({ category: "", channels: uncategorized });
+    }
+    return result;
+  }, [channels]);
+
+  const activeChannelSlug = useMemo(() => {
+    if (!activeChannelId) return null;
+    return channels.find((ch) => ch.id === activeChannelId)?.slug || null;
+  }, [activeChannelId, channels]);
 
   return (
     <main className={`${isGomoRoute ? "max-w-5xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative`}>
@@ -1011,6 +1085,77 @@ const Board = () => {
           )}
         </div>
 
+        {isGomoRoute && channels.length > 0 ? (
+          <>
+            {/* Channel Sidebar — Desktop */}
+            <aside className="hidden md:block w-56 shrink-0">
+              <nav className="sticky top-4 space-y-3">
+                <Link
+                  to={`/g/${slug}`}
+                  className={`block px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    !activeChannelId
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  }`}
+                >
+                  # общий
+                </Link>
+                {channelCategories.map((group) => (
+                  <div key={group.category || "__uncategorized__"} className="space-y-1">
+                    {group.category && (
+                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                        {group.category}
+                      </div>
+                    )}
+                    {group.channels.map((ch) => (
+                      <Link
+                        key={ch.id}
+                        to={`/g/${slug}/c/${ch.slug}`}
+                        className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          activeChannelSlug === ch.slug
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        }`}
+                      >
+                        # {ch.name}
+                      </Link>
+                    ))}
+                  </div>
+                ))}
+              </nav>
+            </aside>
+
+            {/* Mobile channel selector */}
+            <div className="md:hidden w-full mb-2">
+              <div className="flex gap-1.5 overflow-x-auto pb-2">
+                <Link
+                  to={`/g/${slug}`}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                    !activeChannelId
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  # общий
+                </Link>
+                {channels.map((ch) => (
+                  <Link
+                    key={ch.id}
+                    to={`/g/${slug}/c/${ch.slug}`}
+                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                      activeChannelSlug === ch.slug
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    # {ch.name}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : null}
+
         <div className="mb-3 sm:mb-4">
           <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
             {canCreateThread && (
@@ -1018,7 +1163,9 @@ const Board = () => {
                 onClick={() =>
                   navigate(
                     isGomoRoute
-                      ? `/g/${slug}/create`
+                      ? activeChannelSlug
+                        ? `/g/${slug}/c/${activeChannelSlug}/create`
+                        : `/g/${slug}/create`
                       : `/create?board=${slug}`
                   )
                 }
@@ -1115,7 +1262,7 @@ const Board = () => {
                       <div className="h-px bg-border/35" />
 
                       <Link
-                        to={`${pathPrefix}/${slug}/thread/${thread.id}`}
+                        to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
                         className="block group/title"
                       >
                         <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
@@ -1146,7 +1293,7 @@ const Board = () => {
                         </div>
                         {thread.content.length > 900 && (
                           <Link
-                            to={`${pathPrefix}/${slug}/thread/${thread.id}`}
+                            to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
                             className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
                           >
                             Читать полностью
@@ -1156,7 +1303,7 @@ const Board = () => {
                       </div>
 
                       {thread.image_url && (
-                        <Link to={`${pathPrefix}/${slug}/thread/${thread.id}`} className="block pt-1">
+                        <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`} className="block pt-1">
                           <img
                             src={storageUrl("content", thread.image_url) || thread.image_url}
                             alt="Thread"
@@ -1176,7 +1323,7 @@ const Board = () => {
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() => navigate(`${pathPrefix}/${slug}/thread/${thread.id}`)}
+                          onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`)}
                           className="h-9 rounded-full px-3 gap-2"
                         >
                           <MessageCircle className="w-4 h-4" />
