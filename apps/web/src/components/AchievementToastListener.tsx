@@ -108,7 +108,7 @@ export function AchievementToastListener() {
         if (!res.ok) return;
 
         const json = await res.json();
-        const items: any[] = json.data || [];
+        const items: unknown[] = json.data || [];
 
         for (const item of items) {
           if (item.type !== "achievement_unlock") continue;

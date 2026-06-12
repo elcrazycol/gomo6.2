@@ -32,9 +32,7 @@ export const MessengerView = () => {
   const conversation = selectedConv();
   const showMobileChat = Boolean(conversation) && (!isMobile || !sidebarOpen);
 
-  // ChatIcon (always in header) manages store init + WS connect lifecycle.
   // Here we just ensure store is initialized (idempotent if already done)
-  // and WS is connected. No disconnect — ChatIcon stays alive across page navs.
   useEffect(() => {
     init();
     messengerWs.connect();

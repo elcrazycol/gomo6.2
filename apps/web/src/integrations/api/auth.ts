@@ -3,7 +3,7 @@
 import { apiClient, getDeviceId } from './client';
 
 export const apiAuth = {
-  signUp: async ({ email, password, options, ...captcha }: any) => {
+  signUp: async ({ email, password, options, ...captcha }: { email: string; password: string; options?: { data?: { username?: string } }; challenge_id?: string; solution?: string; captcha_token?: string }) => {
     try {
       const result = await apiClient.register(
         email,
@@ -16,11 +16,11 @@ export const apiAuth = {
         }
       );
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  signInWithPassword: async ({ email, password, ...captcha }: any) => {
+  signInWithPassword: async ({ email, password, ...captcha }: { email: string; password: string; challenge_id?: string; solution?: string; captcha_token?: string }) => {
     try {
       const deviceId = getDeviceId();
       const result = await apiClient.login(email, password, deviceId, {
@@ -37,7 +37,7 @@ export const apiAuth = {
       }
       
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
@@ -53,7 +53,7 @@ export const apiAuth = {
       }
       const user = await apiClient.getCurrentUser();
       return { data: { user }, error: null };
-    } catch (error) {
+    } catch {
       return { data: { user: null }, error: null };
     }
   },
@@ -65,11 +65,11 @@ export const apiAuth = {
       }
       const user = await apiClient.getCurrentUser();
       return { data: { session: user ? { user, access_token: token } : null }, error: null };
-    } catch (error) {
+    } catch {
       return { data: { session: null }, error: null };
     }
   },
-  onAuthStateChange: (callback: any) => {
+  onAuthStateChange: (callback: (event: string, session: { user: Awaited<ReturnType<typeof apiClient.getCurrentUser>> } | null) => void) => {
     const checkAuth = async () => {
       const user = await apiClient.getCurrentUser();
       callback('SIGNED_IN', user ? { user } : null);
@@ -83,7 +83,7 @@ export const apiAuth = {
       const deviceId = getDeviceId();
       const result = await apiClient.verify2FA(partialToken, code, deviceId, trustDevice);
       return { data: { session: { access_token: result.token } }, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
@@ -91,7 +91,7 @@ export const apiAuth = {
     try {
       const result = await apiClient.setupTOTP();
       return { data: result, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
@@ -99,7 +99,7 @@ export const apiAuth = {
     try {
       const result = await apiClient.verifyAndEnableTOTP(code);
       return { data: result, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
@@ -107,7 +107,7 @@ export const apiAuth = {
     try {
       await apiClient.disableTOTP();
       return { data: { ok: true }, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
@@ -115,7 +115,7 @@ export const apiAuth = {
     try {
       const result = await apiClient.get2FAStatus();
       return { data: result, error: null };
-    } catch (error) {
+    } catch {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
@@ -127,7 +127,7 @@ export const apiAuth = {
         return { data: { user }, error: null };
       }
       return { data: { user: null }, error: { message: 'Поддерживается только смена пароля (password)' } };
-    } catch (error) {
+    } catch {
       return { data: { user: null }, error: { message: (error as Error).message } };
     }
   },

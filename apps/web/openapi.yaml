@@ -1,0 +1,3474 @@
+openapi: "3.0.3"
+info:
+  title: Gomo6 API
+  description: |
+    REST API для социальной платформы Gomo6.
+    Все защищённые эндпоинты требуют Bearer-токен в заголовке `Authorization: Bearer <jwt>`.
+  version: "1.0.1"
+  contact:
+    name: Gomo6 Team
+
+servers:
+  - url: https://{domain}
+    description: Production (Docker/Caddy)
+    variables:
+      domain:
+        default: gomo6.local
+  - url: http://localhost:8080
+    description: Local dev backend (direct)
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ════════════════════════════════════════════════════════════════════════════
+  # Health
+  # ════════════════════════════════════════════════════════════════════════════
+  /ready:
+    get:
+      summary: Проверка готовности
+      description: Возвращает OK если весь стек (БД, Redis, WebSocket) инициализирован.
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  websocket:
+                    type: boolean
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Auth
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/auth/captcha-config:
+    get:
+      summary: Конфигурация CAPTCHA
+      tags: [Auth]
+      security: []
+      responses:
+        "200":
+          description: Конфигурация
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  difficulty:
+                    type: integer
+                    example: 20
+                  enabled:
+                    type: boolean
+
+  /api/v1/auth/captcha-challenge:
+    get:
+      summary: Получить CAPTCHA challenge (Proof-of-Work)
+      tags: [Auth]
+      security: []
+      responses:
+        "200":
+          description: Challenge для PoW
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  challenge_id:
+                    type: string
+                  challenge:
+                    type: string
+                  difficulty:
+                    type: integer
+
+  /api/v1/auth/register:
+    post:
+      summary: Регистрация
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Успешная регистрация
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /api/v1/auth/login:
+    post:
+      summary: Логин
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Успешный логин (или запрос 2FA)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /api/v1/auth/verify-2fa:
+    post:
+      summary: Подтверждение 2FA при логине
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, code]
+              properties:
+                token:
+                  type: string
+                  description: Частичный токен из ответа логина
+                code:
+                  type: string
+                  description: TOTP-код (6 цифр)
+                device_id:
+                  type: string
+                trust_device:
+                  type: boolean
+      responses:
+        "200":
+          description: 2FA подтверждён, полный токен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /api/v1/auth/refresh:
+    post:
+      summary: Обновление access-токена
+      tags: [Auth]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        "200":
+          description: Новый токен
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /api/v1/auth/logout:
+    post:
+      summary: Выход (инвалидация токенов)
+      tags: [Auth]
+      responses:
+        "200":
+          description: Успешный выход
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+
+  /api/v1/auth/me:
+    get:
+      summary: Текущий пользователь
+      tags: [Auth]
+      responses:
+        "200":
+          description: Профиль
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_User"
+
+  /api/v1/auth/password:
+    post:
+      summary: Смена пароля
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        "200":
+          description: Пароль изменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── 2FA ────────────────────────────────────────────────────────────────────
+  /api/v1/auth/2fa/setup:
+    post:
+      summary: Сгенерировать TOTP-секрет
+      tags: [Auth, 2FA]
+      responses:
+        "200":
+          description: Секрет и URI
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TOTPSetupResponse"
+
+  /api/v1/auth/2fa/verify-and-enable:
+    post:
+      summary: Подтвердить и включить TOTP
+      tags: [Auth, 2FA]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        "200":
+          description: TOTP включён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  recovery_codes:
+                    type: array
+                    items:
+                      type: string
+
+  /api/v1/auth/2fa/disable:
+    post:
+      summary: Отключить TOTP
+      tags: [Auth, 2FA]
+      responses:
+        "200":
+          description: TOTP отключён
+
+  /api/v1/auth/2fa/status:
+    get:
+      summary: Статус 2FA
+      tags: [Auth, 2FA]
+      responses:
+        "200":
+          description: Статус
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TwoFAStatus"
+
+  # ── WebAuthn / Passkeys ────────────────────────────────────────────────────
+  /api/v1/auth/webauthn/login/begin:
+    get:
+      summary: Начать passkey-логин
+      tags: [Auth, WebAuthn]
+      security: []
+      responses:
+        "200":
+          description: Опции для navigator.credentials.get()
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  options:
+                    type: object
+                  session_token:
+                    type: string
+
+  /api/v1/auth/webauthn/login/finish:
+    post:
+      summary: Завершить passkey-логин
+      tags: [Auth, WebAuthn]
+      security: []
+      parameters:
+        - name: session_token
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Credential из navigator.credentials.get()
+      responses:
+        "200":
+          description: Успешный логин
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+
+  /api/v1/auth/webauthn/register/begin:
+    post:
+      summary: Начать регистрацию passkey
+      tags: [Auth, WebAuthn]
+      responses:
+        "200":
+          description: Опции для navigator.credentials.create()
+
+  /api/v1/auth/webauthn/register/finish:
+    post:
+      summary: Завершить регистрацию passkey
+      tags: [Auth, WebAuthn]
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Passkey зарегистрирован
+
+  /api/v1/auth/webauthn/credentials:
+    get:
+      summary: Список passkey-ключей
+      tags: [Auth, WebAuthn]
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        credential_id:
+                          type: string
+                        name:
+                          type: string
+                        attestation_type:
+                          type: string
+                        created_at:
+                          type: string
+                        last_used_at:
+                          type: string
+
+  /api/v1/auth/webauthn/credentials/{credentialId}:
+    delete:
+      summary: Удалить passkey
+      tags: [Auth, WebAuthn]
+      parameters:
+        - $ref: "#/components/parameters/CredentialId"
+      responses:
+        "200":
+          description: Удалён
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Profiles
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/profiles:
+    get:
+      summary: Список профилей
+      tags: [Profiles]
+      security: []
+      parameters:
+        - name: id
+          in: query
+          schema:
+            type: string
+        - name: username
+          in: query
+          schema:
+            type: string
+        - name: domain
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_UserArray"
+
+  /api/v1/profiles/{id}:
+    get:
+      summary: Профиль пользователя
+      tags: [Profiles]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Профиль
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Обновить профиль
+      tags: [Profiles]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bio:
+                  type: string
+                avatar_url:
+                  type: string
+                is_anonymous:
+                  type: boolean
+      responses:
+        "200":
+          description: Профиль обновлён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_User"
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Boards
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/boards:
+    get:
+      summary: Список досок
+      tags: [Boards]
+      security: []
+      parameters:
+        - name: slug
+          in: query
+          schema:
+            type: string
+        - name: is_gomosub
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_BoardArray"
+    post:
+      summary: Создать доску
+      tags: [Boards]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+                description:
+                  type: string
+                is_gomosub:
+                  type: boolean
+                is_rules_board:
+                  type: boolean
+                gomosub_avatar_url:
+                  type: string
+                cover_image_url:
+                  type: string
+      responses:
+        "201":
+          description: Создана
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Board"
+
+  /api/v1/boards/{slug}:
+    get:
+      summary: Доска по slug
+      tags: [Boards]
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Доска
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Board"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/boards/{id}:
+    put:
+      summary: Обновить доску
+      tags: [Boards]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BoardUpdate"
+      responses:
+        "200":
+          description: Обновлена
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Threads
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/threads:
+    get:
+      summary: Список тредов
+      tags: [Threads]
+      security: []
+      parameters:
+        - name: board_id
+          in: query
+          schema:
+            type: string
+        - name: id
+          in: query
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Список тредов
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_ThreadWithBoardsArray"
+    put:
+      summary: Обновить тред
+      tags: [Threads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThreadUpdate"
+      responses:
+        "200":
+          description: Обновлён
+    delete:
+      summary: Удалить тред
+      tags: [Threads]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: Удалён
+
+  /api/v1/threads/{id}:
+    get:
+      summary: Тред по ID
+      tags: [Threads]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Тред
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_ThreadWithBoards"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Обновить тред по ID
+      tags: [Threads]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThreadUpdate"
+      responses:
+        "200":
+          description: Обновлён
+
+  # ── Likes ──────────────────────────────────────────────────────────────────
+  /api/v1/threads/{id}/like:
+    post:
+      summary: Лайкнуть тред
+      tags: [Threads, Likes]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Лайкнут
+    delete:
+      summary: Убрать лайк с треда
+      tags: [Threads, Likes]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Лайк убран
+
+  /api/v1/threads/{id}/likes:
+    get:
+      summary: Список лайков треда
+      tags: [Threads, Likes]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Список лайков
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_ThreadLikeArray"
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Posts
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/posts:
+    get:
+      summary: Список постов
+      tags: [Posts]
+      security: []
+      parameters:
+        - name: thread_id
+          in: query
+          schema:
+            type: string
+        - name: user_id
+          in: query
+          schema:
+            type: string
+        - name: id
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_PostArray"
+    put:
+      summary: Обновить пост
+      tags: [Posts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostUpdate"
+      responses:
+        "200":
+          description: Обновлён
+    delete:
+      summary: Удалить пост
+      tags: [Posts]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: Удалён
+
+  /api/v1/posts/{id}:
+    get:
+      summary: Пост по ID
+      tags: [Posts]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Пост
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Post"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Обновить пост по ID
+      tags: [Posts]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostUpdate"
+      responses:
+        "200":
+          description: Обновлён
+    delete:
+      summary: Удалить пост по ID
+      tags: [Posts]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Удалён
+
+  # ── Post Likes ─────────────────────────────────────────────────────────────
+  /api/v1/posts/{id}/like:
+    post:
+      summary: Лайкнуть пост
+      tags: [Posts, Likes]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Лайкнут
+    delete:
+      summary: Убрать лайк с поста
+      tags: [Posts, Likes]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Лайк убран
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Notifications
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/notifications:
+    get:
+      summary: Уведомления
+      tags: [Notifications]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Список уведомлений
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_NotificationArray"
+
+  /api/v1/notifications/{id}/read:
+    put:
+      summary: Отметить прочитанным
+      tags: [Notifications]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Отмечено
+
+  /api/v1/notifications/read-all:
+    put:
+      summary: Отметить все прочитанными
+      tags: [Notifications]
+      responses:
+        "200":
+          description: Отмечены
+
+  /api/v1/notifications/unread-count:
+    get:
+      summary: Количество непрочитанных
+      tags: [Notifications]
+      responses:
+        "200":
+          description: Счётчик
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread_count:
+                    type: integer
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Messenger
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/messenger/unread-count:
+    get:
+      summary: Непрочитанные сообщения (общий счётчик)
+      tags: [Messenger]
+      responses:
+        "200":
+          description: Счётчик
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread_count:
+                    type: integer
+
+  /api/v1/messenger/conversations:
+    get:
+      summary: Список диалогов
+      tags: [Messenger]
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConversationResponse"
+    post:
+      summary: Создать или получить диалог
+      tags: [Messenger]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [other_user_id]
+              properties:
+                other_user_id:
+                  type: string
+      responses:
+        "200":
+          description: Диалог
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationResponse"
+
+  /api/v1/messenger/conversations/{id}/messages:
+    get:
+      summary: Сообщения диалога
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before
+          in: query
+          schema:
+            type: string
+            description: Курсор (message ID) для пагинации назад
+      responses:
+        "200":
+          description: Сообщения
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MessageResponse"
+    post:
+      summary: Отправить сообщение
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Отправлено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/v1/messenger/conversations/{id}/messages/{msgId}:
+    put:
+      summary: Редактировать сообщение
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: msgId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  maxLength: 4000
+      responses:
+        "200":
+          description: Отредактировано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+    delete:
+      summary: Удалить сообщение
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: msgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Удалено
+
+  /api/v1/messenger/conversations/{id}/receipts:
+    get:
+      summary: Статусы прочтения/доставки
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Статусы
+
+  /api/v1/messenger/conversations/{id}/read:
+    post:
+      summary: Отметить прочитанным
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message_id]
+              properties:
+                message_id:
+                  type: string
+      responses:
+        "200":
+          description: Отмечено
+
+  /api/v1/messenger/conversations/{id}/delivered:
+    post:
+      summary: Отметить доставленным
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Отмечено
+
+  /api/v1/messenger/conversations/{id}/pin:
+    post:
+      summary: Закрепить/открепить сообщение
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message_id:
+                  type: string
+      responses:
+        "200":
+          description: Закреплено/откреплено
+
+  /api/v1/messenger/conversations/{id}/leave:
+    delete:
+      summary: Покинуть диалог
+      tags: [Messenger]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Покинут
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # RPC
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/rpc/get_post_likes_count:
+    get:
+      summary: Количество лайков поста
+      tags: [RPC]
+      security: []
+      parameters:
+        - name: post_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Int"
+
+  /api/rpc/get_thread_likes_count:
+    get:
+      summary: Количество лайков треда
+      tags: [RPC]
+      security: []
+      parameters:
+        - name: thread_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Int"
+
+  /api/rpc/get_recent_post_likers:
+    get:
+      summary: Последние лайкнувшие пост
+      tags: [RPC]
+      security: []
+      parameters:
+        - name: post_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit_count
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_id:
+                      type: string
+                    created_at:
+                      type: string
+
+  /api/rpc/get_recent_thread_likers:
+    get:
+      summary: Последние лайкнувшие тред
+      tags: [RPC]
+      security: []
+      parameters:
+        - name: thread_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit_count
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    user_id:
+                      type: string
+                    created_at:
+                      type: string
+
+  /api/rpc/has_user_liked_post:
+    get:
+      summary: Проверить лайк поста пользователем
+      tags: [RPC]
+      parameters:
+        - name: post_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Результат
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Bool"
+
+  /api/rpc/has_user_liked_thread:
+    get:
+      summary: Проверить лайк треда пользователем
+      tags: [RPC]
+      parameters:
+        - name: thread_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Результат
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Bool"
+
+  /api/rpc/get_user_likes_given_count:
+    get:
+      summary: Сколько лайков поставил пользователь
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Int"
+
+  /api/rpc/get_user_likes_received_count:
+    get:
+      summary: Сколько лайков получил пользователь (посты)
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Int"
+
+  /api/rpc/get_user_thread_likes_given_count:
+    get:
+      summary: Сколько лайков тредов поставил пользователь
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Int"
+
+  /api/rpc/get_user_thread_likes_received_count:
+    get:
+      summary: Сколько лайков тредов получил пользователь
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Количество
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Int"
+
+  /api/rpc/get_user_post_likes_received_timestamps:
+    get:
+      summary: Временные метки полученных лайков постов
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Список меток
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    created_at:
+                      type: string
+
+  /api/rpc/get_user_thread_likes_received_timestamps:
+    get:
+      summary: Временные метки полученных лайков тредов
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Список меток
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    created_at:
+                      type: string
+
+  /api/rpc/get_user_thread_reply_timestamps:
+    get:
+      summary: Временные метки ответов в тредах
+      tags: [RPC]
+      parameters:
+        - name: user_uuid
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Список меток
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    created_at:
+                      type: string
+
+  /api/rpc/toggle_wall_post_pin:
+    get:
+      summary: Закрепить/открепить пост на стене
+      tags: [RPC]
+      parameters:
+        - name: _post_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: _user_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Статус закрепления
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIResponse_Bool"
+
+  /api/rpc/get_avatar_history:
+    post:
+      summary: История аватаров пользователя
+      tags: [RPC]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+      responses:
+        "200":
+          description: История
+
+  /api/rpc/delete_avatar_from_history:
+    post:
+      summary: Удалить аватар из истории
+      tags: [RPC]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                avatar_id:
+                  type: string
+      responses:
+        "200":
+          description: Удалён
+
+  /api/rpc/toggle_achievement_pin:
+    post:
+      summary: Закрепить/открепить достижение
+      tags: [RPC]
+      responses:
+        "200":
+          description: Статус
+
+  /api/rpc/award_achievement:
+    post:
+      summary: Выдать достижение
+      tags: [RPC]
+      responses:
+        "200":
+          description: Выдано
+
+  /api/rpc/create_gomosub:
+    post:
+      summary: Создать GomoSub
+      tags: [RPC]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slug:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "201":
+          description: Создан
+
+  /api/rpc/create_thread:
+    post:
+      summary: Создать тред (RPC)
+      tags: [RPC]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateThreadRequest"
+      responses:
+        "201":
+          description: Создан
+
+  /api/rpc/create_post:
+    post:
+      summary: Создать пост (RPC)
+      tags: [RPC]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePostRequest"
+      responses:
+        "201":
+          description: Создан
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Users — status
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/users/online:
+    get:
+      summary: Список онлайн-пользователей
+      tags: [Users]
+      security: []
+      responses:
+        "200":
+          description: Список ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  online_users:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+
+  /api/v1/users/{id}/status:
+    get:
+      summary: Статус пользователя
+      tags: [Users]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Статус
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserStatusResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/status/bulk:
+    post:
+      summary: Массовый статус (до 100 пользователей)
+      tags: [Users]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_ids]
+              properties:
+                user_ids:
+                  type: array
+                  items:
+                    type: string
+                  maxItems: 100
+      responses:
+        "200":
+          description: Статусы
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserStatusResponse"
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Bots
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/bots:
+    get:
+      summary: Список ботов пользователя
+      tags: [Bots]
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bot"
+    post:
+      summary: Создать бота
+      tags: [Bots]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBotRequest"
+      responses:
+        "201":
+          description: Создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bot"
+
+  /api/v1/bots/{id}:
+    get:
+      summary: Информация о боте
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Бот
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bot"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Обновить бота
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBotRequest"
+      responses:
+        "200":
+          description: Обновлён
+    delete:
+      summary: Удалить бота
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Удалён
+
+  /api/v1/bots/{id}/toggle:
+    post:
+      summary: Включить/выключить бота
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Статус изменён
+
+  /api/v1/bots/{id}/logs:
+    get:
+      summary: Логи бота
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Логи
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BotLog"
+    delete:
+      summary: Очистить логи бота
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Очищены
+
+  /api/v1/bots/{id}/stats:
+    get:
+      summary: Статистика бота
+      tags: [Bots]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Статистика
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStats"
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Audio
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/audio/metadata:
+    post:
+      summary: Извлечь метаданные аудиофайла
+      tags: [Audio]
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+      responses:
+        "200":
+          description: Метаданные (title, artist, duration и т.д.)
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # OAuth 2.0 / OpenID Connect
+  # ════════════════════════════════════════════════════════════════════════════
+  /oauth/authorize:
+    get:
+      summary: OAuth Authorize endpoint
+      tags: [OAuth]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/OAuthResponseType"
+        - $ref: "#/components/parameters/OAuthClientId"
+        - $ref: "#/components/parameters/OAuthRedirectUri"
+        - $ref: "#/components/parameters/OAuthScope"
+        - $ref: "#/components/parameters/OAuthState"
+        - name: code_challenge
+          in: query
+          schema:
+            type: string
+        - name: code_challenge_method
+          in: query
+          schema:
+            type: string
+            enum: [S256, plain]
+        - name: nonce
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Редирект на фронтенд (consent page) или redirect_uri с code
+        "400":
+          $ref: "#/components/responses/OAuthError"
+
+  /oauth/token:
+    post:
+      summary: Обменять code на токены
+      tags: [OAuth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TokenRequest_Form"
+      responses:
+        "200":
+          description: Токены
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          $ref: "#/components/responses/OAuthError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /oauth/revoke:
+    post:
+      summary: Отозвать токен
+      tags: [OAuth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/RevokeRequest_Form"
+      responses:
+        "200":
+          description: Токен отозван (или уже был отозван — RFC 7009)
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /oauth/introspect:
+    post:
+      summary: Интроспекция токена (RFC 7662)
+      tags: [OAuth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/IntrospectRequest_Form"
+      responses:
+        "200":
+          description: Результат интроспекции
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntrospectResponse"
+
+  /oauth/userinfo:
+    get:
+      summary: UserInfo (OpenID Connect)
+      tags: [OAuth]
+      security:
+        - oauthBearer: []
+      responses:
+        "200":
+          description: Информация о пользователе
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /oauth/app-info:
+    get:
+      summary: Информация о приложении для consent page
+      tags: [OAuth]
+      security: []
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Информация о приложении
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  logo_url:
+                    type: string
+                  homepage_url:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── OpenID Connect Discovery ───────────────────────────────────────────────
+  /.well-known/openid-configuration:
+    get:
+      summary: OpenID Connect Discovery
+      tags: [OAuth, Discovery]
+      security: []
+      responses:
+        "200":
+          description: Конфигурация
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenIDConfiguration"
+
+  /.well-known/jwks.json:
+    get:
+      summary: JWKS (JSON Web Key Set)
+      tags: [OAuth, Discovery]
+      security: []
+      responses:
+        "200":
+          description: Набор ключей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Developer
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/dev-dashboard/config:
+    get:
+      summary: Конфигурация dev-dashboard
+      tags: [Developer]
+      security: []
+      responses:
+        "200":
+          description: Конфигурация
+
+  /api/v1/developer/apps:
+    get:
+      summary: Список OAuth-приложений
+      tags: [Developer]
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OAuthApplication"
+    post:
+      summary: Создать OAuth-приложение
+      tags: [Developer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAppRequest"
+      responses:
+        "201":
+          description: Создано (client_secret показан один раз)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAppResponse"
+
+  /api/v1/developer/apps/{id}:
+    get:
+      summary: Получить приложение
+      tags: [Developer]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Приложение
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthApplication"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Обновить приложение
+      tags: [Developer]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAppRequest"
+      responses:
+        "200":
+          description: Обновлено
+    delete:
+      summary: Удалить приложение
+      tags: [Developer]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Удалено
+
+  /api/v1/developer/apps/{id}/regenerate-secret:
+    post:
+      summary: Сгенерировать новый client_secret
+      tags: [Developer]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Новый secret (показан один раз)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_secret:
+                    type: string
+
+  /api/v1/developer/apps/{id}/tokens:
+    get:
+      summary: Активные токены приложения
+      tags: [Developer]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Список токенов
+
+  /api/v1/developer/apps/{id}/revoke-user-tokens:
+    post:
+      summary: Отозвать все токены пользователя для этого приложения
+      tags: [Developer]
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: string
+      responses:
+        "200":
+          description: Токены отозваны
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Storage
+  # ════════════════════════════════════════════════════════════════════════════
+  /storage/v1/object/{bucket}/{key}:
+    get:
+      summary: Получить объект из хранилища
+      tags: [Storage]
+      security: []
+      parameters:
+        - name: bucket
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [post-images, avatars]
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Файл
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+    delete:
+      summary: Удалить объект
+      tags: [Storage]
+      parameters:
+        - name: bucket
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Удалён
+
+  /storage/v1/upload:
+    post:
+      summary: Загрузить файл
+      tags: [Storage]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Загружен
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Universal tables (CRUD через HandleTableRequest)
+  # ════════════════════════════════════════════════════════════════════════════
+  /api/v1/{table}:
+    parameters:
+      - $ref: "#/components/parameters/UniversalTable"
+    get:
+      summary: Получить записи
+      tags: [Universal]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/UniversalFilter"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Записи
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UniversalResponse"
+    post:
+      summary: Создать запись
+      tags: [Universal]
+      responses:
+        "200":
+          description: Создана
+    put:
+      summary: Обновить запись
+      tags: [Universal]
+      responses:
+        "200":
+          description: Обновлена
+    delete:
+      summary: Удалить запись
+      tags: [Universal]
+      responses:
+        "200":
+          description: Удалена
+
+  /api/v1/{table}/{path}:
+    parameters:
+      - $ref: "#/components/parameters/UniversalTable"
+      - name: path
+        in: path
+        schema:
+          type: string
+    get:
+      summary: Получить запись по ID
+      tags: [Universal]
+      security: []
+      responses:
+        "200":
+          description: Запись
+    put:
+      summary: Обновить запись по ID
+      tags: [Universal]
+      responses:
+        "200":
+          description: Обновлена
+    delete:
+      summary: Удалить запись по ID
+      tags: [Universal]
+      responses:
+        "200":
+          description: Удалена
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # WebSocket
+  # ════════════════════════════════════════════════════════════════════════════
+  /ws:
+    get:
+      summary: WebSocket-соединение
+      description: |
+        Аутентификация через первое сообщение `{"type":"auth","token":"<jwt>"}`.
+        После аутентификации поддерживаются:
+        - Подписка на каналы (threads, messenger)
+        - Получение real-time уведомлений
+        - Статусы печати / присутствия
+      tags: [WebSocket]
+      security: []
+      responses:
+        "101":
+          description: WebSocket upgrade
+  /ws/stats:
+    get:
+      summary: Статистика WebSocket-соединений
+      tags: [WebSocket]
+      responses:
+        "200":
+          description: Статистика
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # Federation (stubs)
+  # ════════════════════════════════════════════════════════════════════════════
+  /federation/users/{identifier}:
+    get:
+      summary: Пользователь по identifier@domain
+      tags: [Federation]
+      security: []
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+
+  /federation/gomosubs/{slug}:
+    get:
+      summary: GomoSub по slug
+      tags: [Federation]
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+
+  /federation/servers:
+    get:
+      summary: Список федеративных серверов
+      tags: [Federation]
+      security: []
+      responses:
+        "501":
+          $ref: "#/components/responses/NotImplemented"
+
+  /api/v1/test-auth:
+    get:
+      summary: Тестовый эндпоинт аутентификации
+      tags: [Auth]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  message:
+                    type: string
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Components
+# ══════════════════════════════════════════════════════════════════════════════
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Основной JWT-токен (access token)
+    oauthBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth access-токен (для /oauth/userinfo)
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    CredentialId:
+      name: credentialId
+      in: path
+      required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+
+    # ── OAuth Parameters ────────────────────────────────────────────────────
+    OAuthResponseType:
+      name: response_type
+      in: query
+      required: true
+      schema:
+        type: string
+        enum: [code]
+    OAuthClientId:
+      name: client_id
+      in: query
+      required: true
+      schema:
+        type: string
+    OAuthRedirectUri:
+      name: redirect_uri
+      in: query
+      required: true
+      schema:
+        type: string
+    OAuthScope:
+      name: scope
+      in: query
+      schema:
+        type: string
+    OAuthState:
+      name: state
+      in: query
+      schema:
+        type: string
+
+    # ── Universal ───────────────────────────────────────────────────────────
+    UniversalTable:
+      name: table
+      in: path
+      required: true
+      schema:
+        type: string
+        enum:
+          - user_roles
+          - gomosub_memberships
+          - user_session_time
+          - user_achievements
+          - achievements
+          - user_terms_acceptance
+          - profile_customization
+          - user_placeholders
+          - polls
+          - poll_votes
+          - thread_subscriptions
+          - privacy_settings
+          - user_daily_visits
+          - thread_custom_message_visits
+          - profile_wall_posts
+          - profile_wall_post_comments
+          - profile_wall_post_likes
+          - profile_wall_post_reposts
+          - gomosub_rules_acceptance
+          - reports
+          - user_bans
+          - user_settings_changes
+    UniversalFilter:
+      name: filter
+      in: query
+      style: deepObject
+      schema:
+        type: object
+        description: "Фильтр: field=op:value, e.g. user_id=eq:abc123. Ops: eq, neq, gt, gte, lt, lte, like, ilike, in, is, isnot"
+
+  responses:
+    BadRequest:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    Unauthorized:
+      description: Требуется аутентификация
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    TooManyRequests:
+      description: Слишком много запросов
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    NotImplemented:
+      description: Ещё не реализовано
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIResponse"
+    OAuthError:
+      description: Ошибка OAuth
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/OAuthError"
+
+  schemas:
+    # ── Generic ──────────────────────────────────────────────────────────────
+    APIResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data: {}
+        error:
+          type: string
+        count:
+          type: integer
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+
+    # ── User ─────────────────────────────────────────────────────────────────
+    User:
+      type: object
+      required: [id, username, email, domain, is_online, created_at, is_remote, is_anonymous]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        domain:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+        garma:
+          type: integer
+          nullable: true
+        post_count:
+          type: integer
+          nullable: true
+        thread_count:
+          type: integer
+          nullable: true
+        is_online:
+          type: boolean
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        is_remote:
+          type: boolean
+        is_anonymous:
+          type: boolean
+
+    APIResponse_User:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/User"
+
+    APIResponse_UserArray:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/User"
+
+    # ── Board ────────────────────────────────────────────────────────────────
+    Board:
+      type: object
+      required: [id, slug, name, is_gomosub, is_rules_board, created_at]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        is_gomosub:
+          type: boolean
+        is_rules_board:
+          type: boolean
+        owner_id:
+          type: string
+          nullable: true
+        gomosub_avatar_url:
+          type: string
+          nullable: true
+        cover_image_url:
+          type: string
+          nullable: true
+        gomosub_tags:
+          type: array
+          items:
+            type: string
+          nullable: true
+        rules_markdown:
+          type: string
+          nullable: true
+        rules_updated_at:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    BoardUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        is_gomosub:
+          type: boolean
+        is_rules_board:
+          type: boolean
+        gomosub_avatar_url:
+          type: string
+        cover_image_url:
+          type: string
+
+    APIResponse_Board:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Board"
+
+    APIResponse_BoardArray:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Board"
+
+    Thread:
+      type: object
+      required: [id, board_id, title, content, post_count, server_domain, created_at, updated_at, is_remote]
+      properties:
+        id:
+          type: string
+        board_id:
+          type: string
+        user_id:
+          type: string
+          nullable: true
+        title:
+          type: string
+        content:
+          type: string
+        content_json:
+          type: object
+          nullable: true
+        image_url:
+          type: string
+          nullable: true
+        image_urls:
+          type: array
+          items:
+            type: string
+          nullable: true
+        attachments:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              type:
+                type: string
+              name:
+                type: string
+        post_count:
+          type: integer
+        server_domain:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_remote:
+          type: boolean
+
+    ThreadWithBoards:
+      allOf:
+        - $ref: "#/components/schemas/Thread"
+        - type: object
+          required: [username, boards]
+          properties:
+            tags:
+              type: array
+              items:
+                type: string
+              nullable: true
+            username:
+              type: string
+            avatar_url:
+              type: string
+              nullable: true
+            boards:
+              type: object
+              required: [slug, name]
+              properties:
+                slug:
+                  type: string
+                name:
+                  type: string
+                is_gomosub:
+                  type: boolean
+                is_rules_board:
+                  type: boolean
+
+    ThreadUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        content_json:
+          type: object
+        image_urls:
+          type: array
+          items:
+            type: string
+
+    APIResponse_ThreadWithBoards:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ThreadWithBoards"
+
+    APIResponse_ThreadWithBoardsArray:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/ThreadWithBoards"
+
+    CreateThreadRequest:
+      type: object
+      required: [board_id, title, content]
+      properties:
+        board_id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        content_json:
+          type: object
+        image_urls:
+          type: array
+          items:
+            type: string
+        attachments:
+          type: array
+        poll:
+          $ref: "#/components/schemas/PollRequest"
+
+    PollRequest:
+      type: object
+      properties:
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/PollOption"
+        allow_multiple:
+          type: boolean
+        show_results:
+          type: boolean
+        allow_change_vote:
+          type: boolean
+
+    PollOption:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+
+    Post:
+      type: object
+      required: [id, thread_id, content, is_private, server_domain, created_at, is_remote, username]
+      properties:
+        id:
+          type: string
+        thread_id:
+          type: string
+        user_id:
+          type: string
+          nullable: true
+        content:
+          type: string
+        content_json:
+          type: object
+          nullable: true
+        image_url:
+          type: string
+          nullable: true
+        image_urls:
+          type: array
+          items:
+            type: string
+          nullable: true
+        attachments:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              type:
+                type: string
+              name:
+                type: string
+        reply_to:
+          type: string
+          nullable: true
+        is_private:
+          type: boolean
+        private_recipient_id:
+          type: string
+          nullable: true
+        server_domain:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        is_remote:
+          type: boolean
+        username:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+
+    PostUpdate:
+      type: object
+      properties:
+        content:
+          type: string
+        content_json:
+          type: object
+        image_urls:
+          type: array
+          items:
+            type: string
+
+    CreatePostRequest:
+      type: object
+      required: [thread_id, content]
+      properties:
+        thread_id:
+          type: string
+        content:
+          type: string
+        content_json:
+          type: object
+        image_urls:
+          type: array
+          items:
+            type: string
+        attachments:
+          type: array
+        reply_to:
+          type: string
+        is_private:
+          type: boolean
+        private_recipient_id:
+          type: string
+        thread_server_domain:
+          type: string
+
+    APIResponse_Post:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/Post"
+
+    APIResponse_PostArray:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Post"
+
+    # ── Likes ────────────────────────────────────────────────────────────────
+    PostLike:
+      type: object
+      required: [id, post_id, user_id, created_at]
+      properties:
+        id:
+          type: string
+        post_id:
+          type: string
+        user_id:
+          type: string
+        created_at:
+          type: string
+
+    ThreadLike:
+      type: object
+      required: [id, thread_id, user_id, created_at]
+      properties:
+        id:
+          type: string
+        thread_id:
+          type: string
+        user_id:
+          type: string
+        created_at:
+          type: string
+
+    APIResponse_ThreadLikeArray:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/ThreadLike"
+
+    # ── Notification ─────────────────────────────────────────────────────────
+    Notification:
+      type: object
+      required: [id, user_id, type, title, message, is_read, created_at]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        related_thread_id:
+          type: string
+          nullable: true
+        related_post_id:
+          type: string
+          nullable: true
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+
+    APIResponse_NotificationArray:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Notification"
+
+    # ── Auth ─────────────────────────────────────────────────────────────────
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        challenge_id:
+          type: string
+        solution:
+          type: string
+        captcha_token:
+          type: string
+        website:
+          type: string
+          description: Honeypot — должен быть пустым
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        device_id:
+          type: string
+          description: ID устройства для trusted device (читается отдельно от ShouldBindJSON)
+
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: JWT access-токен
+        refresh_token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+        needs_2fa:
+          type: boolean
+          description: true если требуется второй фактор
+        expires_in:
+          type: integer
+          description: Время жизни токена в секундах
+
+    TOTPSetupResponse:
+      type: object
+      required: [secret, uri]
+      properties:
+        secret:
+          type: string
+        uri:
+          type: string
+          description: otpauth:// URI для QR-кода
+
+    TwoFAStatus:
+      type: object
+      required: [enabled, has_pending_secret]
+      properties:
+        enabled:
+          type: boolean
+        has_pending_secret:
+          type: boolean
+
+    # ── RPC ──────────────────────────────────────────────────────────────────
+    APIResponse_Int:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: integer
+
+    APIResponse_Bool:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: boolean
+
+    # ── User Status ──────────────────────────────────────────────────────────
+    UserStatusResponse:
+      type: object
+      required: [user_id, is_online]
+      properties:
+        user_id:
+          type: string
+        is_online:
+          type: boolean
+        last_seen:
+          type: string
+          format: date-time
+          nullable: true
+
+    # ── Messenger ────────────────────────────────────────────────────────────
+    ConversationResponse:
+      type: object
+      required: [id, updated_at, unread_count, is_muted, other_user_id, other_username]
+      properties:
+        id:
+          type: string
+        last_message_at:
+          type: string
+          nullable: true
+        last_message_preview:
+          type: string
+          nullable: true
+        last_message_sender_id:
+          type: string
+          nullable: true
+        pinned_message_id:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+        unread_count:
+          type: integer
+        last_read_at:
+          type: string
+          nullable: true
+        is_muted:
+          type: boolean
+        other_user_id:
+          type: string
+        other_username:
+          type: string
+        other_avatar_url:
+          type: string
+          nullable: true
+        other_account_num:
+          type: integer
+          nullable: true
+        other_is_online:
+          type: boolean
+          nullable: true
+        other_last_seen_at:
+          type: string
+          nullable: true
+
+    MessageResponse:
+      type: object
+      required: [id, conversation_id, sender_user_id, content, is_edited, is_deleted, sent_at, client_id]
+      properties:
+        id:
+          type: string
+        conversation_id:
+          type: string
+        sender_user_id:
+          type: string
+        parent_message_id:
+          type: string
+          nullable: true
+        content:
+          type: string
+        is_edited:
+          type: boolean
+        is_deleted:
+          type: boolean
+        edited_at:
+          type: string
+          nullable: true
+        sent_at:
+          type: string
+        client_id:
+          type: string
+
+    SendMessageRequest:
+      type: object
+      required: [content, client_id]
+      properties:
+        content:
+          type: string
+          maxLength: 4000
+        client_id:
+          type: string
+          description: Идемпотентный ключ клиента
+        parent_message_id:
+          type: string
+
+    # ── Bots ─────────────────────────────────────────────────────────────────
+    Bot:
+      type: object
+      required: [id, owner_id, username, display_name, lua_code, token, is_active, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        owner_id:
+          type: string
+        username:
+          type: string
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        lua_code:
+          type: string
+        token:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    CreateBotRequest:
+      type: object
+      required: [username, display_name]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        avatar_url:
+          type: string
+        description:
+          type: string
+        lua_code:
+          type: string
+
+    UpdateBotRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+        description:
+          type: string
+        lua_code:
+          type: string
+        is_active:
+          type: boolean
+
+    BotLog:
+      type: object
+      required: [id, bot_id, level, message, created_at]
+      properties:
+        id:
+          type: string
+        bot_id:
+          type: string
+        level:
+          type: string
+        message:
+          type: string
+        context:
+          type: object
+        created_at:
+          type: string
+
+    BotStats:
+      type: object
+      required: [id, bot_id, messages_sent, messages_received, commands_processed, errors_count, date]
+      properties:
+        id:
+          type: string
+        bot_id:
+          type: string
+        messages_sent:
+          type: integer
+        messages_received:
+          type: integer
+        commands_processed:
+          type: integer
+        errors_count:
+          type: integer
+        date:
+          type: string
+
+    # ── OAuth ────────────────────────────────────────────────────────────────
+    OAuthApplication:
+      type: object
+      required: [id, owner_id, name, description, client_id, redirect_uris, allowed_scopes, is_confidential, logo_url, homepage_url, is_active, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        owner_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        client_id:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        allowed_scopes:
+          type: array
+          items:
+            type: string
+        is_confidential:
+          type: boolean
+        logo_url:
+          type: string
+        homepage_url:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    TokenRequest_Form:
+      type: object
+      required: [grant_type]
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code, refresh_token]
+        code:
+          type: string
+        redirect_uri:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        code_verifier:
+          type: string
+        refresh_token:
+          type: string
+        scope:
+          type: string
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 3600
+        id_token:
+          type: string
+        refresh_token:
+          type: string
+        scope:
+          type: string
+
+    RevokeRequest_Form:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+        token_type_hint:
+          type: string
+          enum: [access_token, refresh_token]
+        client_id:
+          type: string
+        client_secret:
+          type: string
+
+    IntrospectRequest_Form:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+        token_type_hint:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+
+    IntrospectResponse:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: boolean
+        scope:
+          type: string
+        client_id:
+          type: string
+        user_id:
+          type: string
+        token_id:
+          type: string
+        token_type:
+          type: string
+        exp:
+          type: integer
+        iat:
+          type: integer
+        sub:
+          type: string
+        username:
+          type: string
+        aud:
+          type: array
+          items:
+            type: string
+        iss:
+          type: string
+
+    UserInfoResponse:
+      type: object
+      required: [sub]
+      properties:
+        sub:
+          type: string
+        name:
+          type: string
+        preferred_username:
+          type: string
+        email:
+          type: string
+        email_verified:
+          type: boolean
+        picture:
+          type: string
+
+    OpenIDConfiguration:
+      type: object
+      properties:
+        issuer:
+          type: string
+        authorization_endpoint:
+          type: string
+        token_endpoint:
+          type: string
+        userinfo_endpoint:
+          type: string
+        revocation_endpoint:
+          type: string
+        introspection_endpoint:
+          type: string
+        jwks_uri:
+          type: string
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+        claims_supported:
+          type: array
+          items:
+            type: string
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+
+    OAuthError:
+      type: object
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, unauthorized_client, access_denied, unsupported_response_type, invalid_scope, server_error, temporarily_unavailable, invalid_grant, invalid_client, unsupported_grant_type]
+        error_description:
+          type: string
+        state:
+          type: string
+
+    # ── Developer ────────────────────────────────────────────────────────────
+    CreateAppRequest:
+      type: object
+      required: [name, redirect_uris]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        allowed_scopes:
+          type: array
+          items:
+            type: string
+        is_confidential:
+          type: boolean
+        logo_url:
+          type: string
+        homepage_url:
+          type: string
+
+    UpdateAppRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        allowed_scopes:
+          type: array
+          items:
+            type: string
+        logo_url:
+          type: string
+        homepage_url:
+          type: string
+        is_active:
+          type: boolean
+
+    CreateAppResponse:
+      type: object
+      required: [app, client_secret]
+      properties:
+        app:
+          $ref: "#/components/schemas/OAuthApplication"
+        client_secret:
+          type: string
+          description: Показывается один раз!
+
+    # ── Universal ────────────────────────────────────────────────────────────
+    UniversalResponse:
+      allOf:
+        - $ref: "#/components/schemas/APIResponse"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+
+tags:
+  - name: Health
+    description: Проверка готовности сервиса
+  - name: Auth
+    description: Аутентификация и управление учётной записью
+  - name: 2FA
+    description: Двухфакторная аутентификация (TOTP)
+  - name: WebAuthn
+    description: Passkeys / WebAuthn
+  - name: Profiles
+    description: Профили пользователей
+  - name: Boards
+    description: Доски
+  - name: Threads
+    description: Треды
+  - name: Posts
+    description: Посты
+  - name: Likes
+    description: Лайки
+  - name: Notifications
+    description: Уведомления
+  - name: Messenger
+    description: Мессенджер (личные сообщения)
+  - name: RPC
+    description: RPC-функции
+  - name: Users
+    description: Статусы пользователей
+  - name: Bots
+    description: Боты
+  - name: Audio
+    description: Аудио
+  - name: OAuth
+    description: OAuth 2.0 / OpenID Connect
+  - name: Discovery
+    description: OpenID Connect Discovery
+  - name: Developer
+    description: Developer-панель (регистрация OAuth-приложений)
+  - name: Storage
+    description: Файловое хранилище
+  - name: Universal
+    description: Универсальные CRUD-таблицы
+  - name: WebSocket
+    description: Real-time соединения
+  - name: Federation
+    description: Федерация (стабы)

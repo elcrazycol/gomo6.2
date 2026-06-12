@@ -111,7 +111,7 @@ export const CreateWallPost = ({
       };
 
       if (isEditing) {
-        const { data, error } = await (api as any)
+        const { data, error } = await api
           .from("profile_wall_posts")
           .update(postData)
           .eq("id", editingPost.id)
@@ -142,7 +142,7 @@ export const CreateWallPost = ({
         onPostUpdated?.(data as WallPost);
         toast.success("Пост обновлен");
       } else {
-        const { data, error } = await (api as any)
+        const { data, error } = await api
           .from("profile_wall_posts")
           .insert([postData])
           .select(`
@@ -175,7 +175,7 @@ export const CreateWallPost = ({
         setEditorResetKey((prev) => prev + 1);
         toast.success("Пост опубликован");
       }
-    } catch (error) {
+    } catch {
       console.error("Error saving wall post:", error);
       toast.error(isEditing ? "Ошибка обновления поста" : "Ошибка публикации поста");
     } finally {

@@ -8,8 +8,10 @@ import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
 
+import type { User } from "@/integrations/api/client";
+
 interface MobileMenuProps {
-  user: any;
+  user: User | null;
   isModerator: boolean;
 }
 

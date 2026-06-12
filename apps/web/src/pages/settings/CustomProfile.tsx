@@ -11,10 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { HeaderUsername } from "@/components/HeaderUsername";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
 import { User, X, Copy, Trash2, Plus } from "lucide-react";
 import { parseCssToStyle, clearCustomizationCache } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
@@ -38,7 +34,7 @@ interface ProfileCustomization {
 
 const CustomProfile = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
@@ -414,7 +410,7 @@ const CustomProfile = () => {
     }
   };
 
-  const updateShadow = (id: string, field: keyof TextShadow, value: any, type: "username" | "badge" | "badge-box") => {
+  const updateShadow = (id: string, field: keyof TextShadow, value: string | number, type: "username" | "badge" | "badge-box") => {
     if (type === "username") {
       setUsernameTextShadows(usernameTextShadows.map(s => 
         s.id === id ? { ...s, [field]: value } : s
@@ -460,7 +456,7 @@ const CustomProfile = () => {
       clearCustomizationCache(user.id);
 
       toast.success("Кастомизация сохранена!");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error saving customization:", error);
       toast.error("Ошибка сохранения: " + error.message);
     } finally {

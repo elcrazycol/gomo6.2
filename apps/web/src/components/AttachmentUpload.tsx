@@ -119,7 +119,7 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
         setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
       }, 1000);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Attachment upload error", error);
       toast.error("Не удалось загрузить файлы");
       setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
