@@ -3,14 +3,18 @@ import { useNavigate, Link } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
+import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { HeaderUsername } from "@/components/HeaderUsername";
+import { NotificationBell } from "@/components/NotificationBell";
+import { ChatIcon } from "@/components/ChatIcon";
+import { MobileMenu } from "@/components/MobileMenu";
 import { User, X, Copy, Trash2, Plus } from "lucide-react";
 import { parseCssToStyle, clearCustomizationCache } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";

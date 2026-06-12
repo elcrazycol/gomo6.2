@@ -7,7 +7,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-
+import { ArrowLeft } from "lucide-react";
 
 interface NotifWithSlug extends Notification {
   thread_slug?: string;
@@ -87,7 +87,7 @@ const Notify = () => {
       }
 
       setHasMore(notifResp.has_more ?? data.length >= PAGE_SIZE);
-    } catch {
+    } catch (err) {
       console.error("[Notify] Failed to load notifications:", err);
       if (offset === 0) setNotifications([]);
     }
@@ -154,7 +154,7 @@ const Notify = () => {
 
     try {
       await apiClient.markNotificationAsRead(id);
-    } catch {
+    } catch (err) {
       console.error("[Notify] Failed to mark as read:", err);
     }
   };
@@ -172,7 +172,7 @@ const Notify = () => {
       setNotifications([]);
       setHasMore(true);
       await loadNotifications(0);
-    } catch {
+    } catch (err) {
       console.error("[Notify] Failed to mark all as read:", err);
     }
   };

@@ -2,15 +2,15 @@ import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-
-
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings, ArrowLeft, Search, Edit, Trash2 } from "lucide-react";
 import {
   AlertDialog,

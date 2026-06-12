@@ -2,22 +2,22 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { ImageUpload } from "@/components/ImageUpload";
-
+import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
-
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
-
+import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";

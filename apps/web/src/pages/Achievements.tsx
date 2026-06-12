@@ -4,7 +4,7 @@ import { storageUrl } from "@/utils/storage";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
 import { Search, X, Trophy, Crown, Lock, ArrowLeft, Eye, EyeOff } from "lucide-react";
-
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES: Record<string, { label: string; icon: string }> = {
@@ -160,7 +160,7 @@ export default function Achievements() {
       });
 
       setAllAchievements(merged);
-    } catch {
+    } catch (error) {
       console.error("Error loading achievements:", error);
     } finally {
       setLoading(false);

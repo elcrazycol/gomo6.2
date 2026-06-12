@@ -5,8 +5,8 @@ import { getUniqAttr } from '@bbob/plugin-helper';
 import { CensorBlur } from '@/components/CensorBlur';
 import { BbCodeSpoiler } from '@/components/BbCodeSpoiler';
 import { EmojiInline } from '@/components/EmojiInline';
-
-
+import { MentionLink } from '@/components/MentionLink';
+import { LinkButton } from '@/components/LinkButton';
 
 // Process text for emojis, mentions, URLs, and markdown
 const processTextContent = (text: string, keyPrefix: string = 'bb'): React.ReactNode[] => {

@@ -175,7 +175,7 @@ export const CreateWallPost = ({
         setEditorResetKey((prev) => prev + 1);
         toast.success("Пост опубликован");
       }
-    } catch {
+    } catch (error) {
       console.error("Error saving wall post:", error);
       toast.error(isEditing ? "Ошибка обновления поста" : "Ошибка публикации поста");
     } finally {

@@ -42,6 +42,11 @@ vi.mock("@/components/ProfileWall", () => ({
 vi.mock("@/components/AvatarCropper", () => ({ AvatarCropper: () => null }));
 vi.mock("@/components/AvatarGallery", () => ({ AvatarGallery: () => null }));
 vi.mock("@/components/OnlineStatus", () => ({ OnlineStatus: () => null }));
+vi.mock("@/components/NotificationBell", () => ({ NotificationBell: () => null }));
+vi.mock("@/components/ChatIcon", () => ({ ChatIcon: () => null }));
+vi.mock("@/components/MobileMenu", () => ({ MobileMenu: () => null }));
+vi.mock("@/components/ProfileHoverCard", () => ({ ProfileHoverCard: () => null }));
+vi.mock("@/components/HeaderUsername", () => ({ HeaderUsername: () => null }));
 vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 
 const mockNavigate = vi.fn();
