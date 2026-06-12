@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
@@ -9,7 +9,7 @@ interface TwoFASectionProps {
   userId: string;
 }
 
-export const TwoFASection = ({ userId: _userId }: TwoFASectionProps) => {
+export const TwoFASection = ({ userId }: TwoFASectionProps) => {
   const [isEnabled, setIsEnabled] = useState(false);
   const [hasPendingSecret, setHasPendingSecret] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -33,8 +33,8 @@ export const TwoFASection = ({ userId: _userId }: TwoFASectionProps) => {
         setIsEnabled(data.enabled);
         setHasPendingSecret(data.has_pending_secret);
       }
-    } catch {
-      console.error("Failed to load 2FA status");
+    } catch (error: unknown) {
+      console.error("Failed to load 2FA status:", error);
     } finally {
       setLoading(false);
     }

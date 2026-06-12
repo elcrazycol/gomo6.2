@@ -2,13 +2,13 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-
-
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { X, ImagePlus, Minimize2, Maximize2 } from "lucide-react";
+import { X, Plus, Eye, EyeOff, ImagePlus, Minimize2, Maximize2 } from "lucide-react";
 import { InlineFormattingToolbar } from "@/components/InlineFormattingToolbar";
 import { renderPreviewContent } from "@/utils/emojiUtils";
 import { ImageUpload } from "@/components/ImageUpload";
@@ -128,7 +128,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
       toast.success('Тред создан!');
       navigate(`/${selectedBoard.slug}/thread/${data.id}`);
       onClose();
-    } catch {
+    } catch (error) {
       console.error('Error creating thread:', error);
       toast.error('Ошибка при создании треда');
     } finally {
@@ -201,7 +201,7 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
                       const imageKey = `threads/${Date.now()}-${file.name}`;
                       await uploadFile('content', imageKey, file);
                       setThreadImageUrl(imageKey);
-                    } catch {
+                    } catch (error) {
                       console.error('Error uploading thread image:', error);
                       toast.error('Ошибка загрузки изображения');
                     }

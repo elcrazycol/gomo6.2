@@ -3,10 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-
+import { Badge } from "@/components/ui/badge";
 import { Loader2, Save, Settings, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { renderPreviewContent } from "@/utils/emojiUtils";

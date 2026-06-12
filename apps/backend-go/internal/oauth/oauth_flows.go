@@ -249,7 +249,7 @@ func (s *OAuthService) GenerateRefreshToken(accessTokenID, clientID, userID stri
 	refreshToken := base64.RawURLEncoding.EncodeToString(b)
 
 	// Hash the refresh token for storage
-	hash := sha256_hex(refreshToken)
+	hash := sha256Hex(refreshToken)
 
 	var scopesArray string
 	if len(scopes) == 0 {
@@ -272,7 +272,7 @@ func (s *OAuthService) GenerateRefreshToken(accessTokenID, clientID, userID stri
 // RefreshAccessToken validates a refresh token and issues new tokens
 func (s *OAuthService) RefreshAccessToken(refreshTokenStr, clientID string) (newAccessToken string, newRefreshToken string, idToken string, err error) {
 	// Hash the incoming refresh token
-	hash := sha256_hex(refreshTokenStr)
+	hash := sha256Hex(refreshTokenStr)
 
 	// Look up the refresh token
 	var rt RefreshToken

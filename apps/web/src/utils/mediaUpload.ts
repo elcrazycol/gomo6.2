@@ -146,7 +146,7 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
       const posterArrayBuffer = posterBuf.buffer as ArrayBuffer;
       const posterFile = new File([posterArrayBuffer], "poster.jpg", { type: "image/jpeg" });
       poster = URL.createObjectURL(posterFile);
-    } catch {
+    } catch (_e) {
       console.warn("Failed to generate poster:", _e);
     }
 
@@ -155,9 +155,9 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
     return result;
   } finally {
     // cleanup to free wasm memory
-    try { ffmpeg.deleteFile(inputName); } catch { console.debug("ffmpeg cleanup input failed", e); }
-    try { ffmpeg.deleteFile(outputName); } catch { console.debug("ffmpeg cleanup output failed", e); }
-    try { ffmpeg.deleteFile(posterName); } catch { console.debug("ffmpeg cleanup poster failed", e); }
+    try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
+    try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
+    try { ffmpeg.deleteFile(posterName); } catch (e) { console.debug("ffmpeg cleanup poster failed", e); }
   }
 };
 
@@ -210,16 +210,16 @@ const extractAudioMetadata = async (file: File): Promise<{
               try {
                 await uploadFile('content', coverKey, coverFile);
                 coverArt = coverKey;
-              } catch {
+              } catch (e) {
                 console.error('Failed to upload cover art:', e);
               }
             }
-          } catch {
+          } catch (e) {
             // Silently fail cover art upload
           }
         }
       }
-    } catch {
+    } catch (mmError) {
       // Silently fail
     }
 
@@ -245,7 +245,7 @@ const extractAudioMetadata = async (file: File): Promise<{
             coverArt: serverMetadata.coverArt || undefined,
           };
         }
-      } catch {
+      } catch (serverError) {
         // Silently fail
       }
     }
@@ -266,7 +266,7 @@ const extractAudioMetadata = async (file: File): Promise<{
           });
           audio.src = URL.createObjectURL(file);
         });
-      } catch {
+      } catch (audioError) {
         duration = undefined;
       }
     }
@@ -278,7 +278,7 @@ const extractAudioMetadata = async (file: File): Promise<{
       duration: duration || undefined,
       coverArt,
     };
-  } catch {
+  } catch (error) {
     return {};
   }
 };
