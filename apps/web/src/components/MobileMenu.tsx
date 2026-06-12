@@ -8,10 +8,10 @@ import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
 
-import type { User } from "@/integrations/api/client";
+import type { User as UserFromClient } from "@/integrations/api/client";
 
 interface MobileMenuProps {
-  user: User | null;
+  user: UserFromClient | null;
   isModerator: boolean;
 }
 
@@ -46,10 +46,10 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
           .single();
         
         if (data) {
-          setUsername(data.username);
-          setIsAnonymous(data.is_anonymous);
-          setAccountNumber(data.account_number);
-          setAvatarUrl(storageUrl("post-images", data.avatar_url));
+          setUsername(data.username as string);
+          setIsAnonymous(data.is_anonymous as boolean);
+          setAccountNumber(data.account_number as number | undefined);
+          setAvatarUrl(storageUrl("post-images", data.avatar_url as string | null));
         }
       };
       loadProfile();
@@ -73,7 +73,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
           .in("id", joinedBoardIds)
           .order("created_at", { ascending: false })
           .limit(6);
-        setJoinedSubs((data as GomoSubItem[]) ?? []);
+        setJoinedSubs((data as unknown as GomoSubItem[]) ?? []);
       } else {
         setJoinedSubs([]);
       }
@@ -86,7 +86,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
       if (allGSubs && allGSubs.length > 0) {
         const picked = [...allGSubs].sort(() => Math.random() - 0.5).slice(0, 3);
-        setRandomSubs(picked as GomoSubItem[]);
+        setRandomSubs(picked as unknown as GomoSubItem[]);
       } else {
         setRandomSubs([]);
       }

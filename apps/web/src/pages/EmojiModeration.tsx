@@ -16,7 +16,7 @@ interface User {
 
 const EmojiModeration = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserIcon | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

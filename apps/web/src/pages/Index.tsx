@@ -113,7 +113,7 @@ const Index = () => {
 
         const profile = profileRes.data;
         if (profile) {
-          setCurrentUserUsername(profile.username);
+          setCurrentUserUsername((profile as Record<string, unknown>).username as string);
         }
 
         const achievements = achievementsRes.data;
@@ -160,7 +160,7 @@ const Index = () => {
       if (boardsData) {
         // Filter out /faq/ and /bugs/ boards from the main list
         const filteredBoards = boardsData.filter((board: { slug: string }) => board.slug !== 'faq' && board.slug !== 'bugs');
-        setBoards(filteredBoards);
+        setBoards(filteredBoards as unknown as Board[]);
       }
 
       const { data: gomoSubsData } = await api

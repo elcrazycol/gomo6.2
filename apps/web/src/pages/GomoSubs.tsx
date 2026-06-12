@@ -62,7 +62,7 @@ const GomoSubs = () => {
             .eq("id", session.user.id)
             .single();
           if (profileData) {
-            setProfile({ garma: profileData.garma ?? 0, username: profileData.username, created_at: profileData.created_at });
+            setProfile({ garma: ((profileData as Record<string, unknown>).garma as number) ?? 0, username: (profileData as Record<string, unknown>).username as string | null, created_at: (profileData as Record<string, unknown>).created_at as string | undefined });
           }
         }
 
@@ -388,7 +388,7 @@ const GomoSubs = () => {
             <div className="space-y-4">
               {myFeedThreads.map((thread) => (
                 <ThreadCard
-                  key={thread.id}
+                  key={String(thread.id)}
                   thread={thread}
                   currentUserId={userId}
                   currentUsername={profile?.username || ""}

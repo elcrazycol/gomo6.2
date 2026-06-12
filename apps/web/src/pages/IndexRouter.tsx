@@ -18,7 +18,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
 
-interface User {
+interface LocalUser {
   id: string;
 }
 
@@ -51,7 +51,7 @@ interface PopularThread {
 
 const Index = () => {
   const [boards, setBoards] = useState<Board[]>([]);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -69,7 +69,7 @@ const Index = () => {
   useEffect(() => {
     const checkAuth = async () => {
       const { data: { session } } = await api.auth.getSession();
-      setUser(session?.user ?? null);
+      setUser((session?.user ?? null) as LocalUser | null);
       
       if (session?.user) {
         const { data: roles } = await api
@@ -87,7 +87,7 @@ const Index = () => {
           .single();
 
         if (profile) {
-          setCurrentUserUsername(profile.username);
+          setCurrentUserUsername((profile as Record<string, unknown>).username as string);
         }
 
         // Load current user color
@@ -134,7 +134,7 @@ const Index = () => {
 
     const { data: { subscription } } = api.auth.onAuthStateChange(
       (_event: string, session: { user?: { id: string } } | null) => {
-        setUser(session?.user ?? null);
+        setUser((session?.user ?? null) as LocalUser | null);
       }
     );
 
@@ -153,7 +153,7 @@ const Index = () => {
       if (data) {
         // Filter out /faq/ and /bugs/ boards from the main list
         const filteredBoards = data.filter((board: { slug: string }) => board.slug !== 'faq' && board.slug !== 'bugs');
-        setBoards(filteredBoards);
+        setBoards(filteredBoards as unknown as Board[]);
 
         // Get 2 random boards from filtered list
         const shuffled = [...filteredBoards].sort(() => 0.5 - Math.random());
@@ -175,7 +175,7 @@ const Index = () => {
 
       if (data && data.length > 0) {
         const randomIndex = Math.floor(Math.random() * data.length);
-        setRandomThread(data[randomIndex]);
+        setRandomThread(data[randomIndex] as unknown as RandomThread);
       }
     };
 
@@ -194,7 +194,7 @@ const Index = () => {
         .limit(5);
 
       if (data) {
-        setPopularThreads(data);
+        setPopularThreads(data as unknown as PopularThread[]);
       }
     };
 

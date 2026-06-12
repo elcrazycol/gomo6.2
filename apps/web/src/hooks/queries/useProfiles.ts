@@ -35,7 +35,7 @@ export function useProfile(userId: string | undefined) {
         .single();
 
       if (error) throw error;
-      return data as Profile;
+      return data as unknown as Profile;
     },
     enabled: !!userId,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -60,7 +60,7 @@ export function useProfiles(userIds: string[]) {
         .in('id', userIds);
 
       if (error) throw error;
-      return data as Profile[];
+      return data as unknown as Profile[];
     },
     enabled: userIds.length > 0,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -84,7 +84,7 @@ export function useUpdateProfile() {
         .single();
 
       if (error) throw error;
-      return data as Profile;
+      return data as unknown as Profile;
     },
     onSuccess: (data) => {
       // Invalidate this profile's cache

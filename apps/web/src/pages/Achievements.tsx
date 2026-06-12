@@ -104,7 +104,7 @@ export default function Achievements() {
       const merged: AchievementData[] = allAchs.map((a: AchievementRow) => {
         const ua = unlockedMap.get(a.id);
         const levels = a.levels || [];
-        const currentLevel = ua?.current_level ?? ua?.level ?? 0;
+        const currentLevel = (ua?.current_level as number) ?? (ua?.level as number) ?? 0;
         const levelDef = currentLevel > 0 && levels.length >= currentLevel ? levels[currentLevel - 1] : null;
         const isProgressive = a.achievement_type === "progressive" || levels.length > 1;
         const maxLevel = levels.length || 1;
