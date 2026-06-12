@@ -4,11 +4,6 @@ import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { HeaderUsername } from "@/components/HeaderUsername";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -218,7 +213,7 @@ const Settings = () => {
           return;
         }
       }
-    } catch (error) {
+    } catch {
       console.error('Error loading privacy settings from database:', error);
     }
 
@@ -232,7 +227,7 @@ const Settings = () => {
           ...parsedSettings,
         });
         return;
-      } catch (error) {
+      } catch {
         console.error('Error parsing saved privacy settings:', error);
       }
     }
@@ -296,13 +291,13 @@ const Settings = () => {
         // Always save to localStorage for immediate UI updates
         localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
 
-      } catch (error) {
+      } catch {
         console.error('Database save error:', error);
         // Still save to localStorage even if database fails
         localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(updatedSettings));
       }
 
-    } catch (error) {
+    } catch {
       console.error('Error updating privacy settings:', error);
       setPrivacySettings(privacySettings);
     } finally {

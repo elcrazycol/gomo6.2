@@ -80,7 +80,7 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
         default:
           return { data: null, error: { message: 'Unknown RPC function' } };
       }
-    } catch (error) {
+    } catch {
       return { data: null, error: error as { message: string } };
     }
   };

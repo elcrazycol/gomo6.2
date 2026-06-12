@@ -148,7 +148,7 @@ export const ThreadFeed = ({
       // Update cursor for next page
       setCursor(nextCursor);
       setHasMore(hasMoreData && nextCursor !== null);
-    } catch (error) {
+    } catch {
       console.error("Error in loadThreads:", error);
     } finally {
       setLoading(false);

@@ -33,7 +33,7 @@ export const getProfileCustomization = async (userId: string): Promise<ProfileCu
     const customization = (data || null) as ProfileCustomization | null;
     customizationCache.set(userId, customization);
     return customization;
-  } catch (error) {
+  } catch {
     console.error("Error loading customization:", error);
     customizationCache.set(userId, null);
     return null;

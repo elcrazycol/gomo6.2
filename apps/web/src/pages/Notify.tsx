@@ -87,7 +87,7 @@ const Notify = () => {
       }
 
       setHasMore(notifResp.has_more ?? data.length >= PAGE_SIZE);
-    } catch (err) {
+    } catch {
       console.error("[Notify] Failed to load notifications:", err);
       if (offset === 0) setNotifications([]);
     }
@@ -154,7 +154,7 @@ const Notify = () => {
 
     try {
       await apiClient.markNotificationAsRead(id);
-    } catch (err) {
+    } catch {
       console.error("[Notify] Failed to mark as read:", err);
     }
   };
@@ -172,7 +172,7 @@ const Notify = () => {
       setNotifications([]);
       setHasMore(true);
       await loadNotifications(0);
-    } catch (err) {
+    } catch {
       console.error("[Notify] Failed to mark all as read:", err);
     }
   };

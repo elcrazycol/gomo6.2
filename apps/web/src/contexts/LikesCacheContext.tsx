@@ -105,7 +105,7 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
         });
 
         return likeData;
-      } catch (error) {
+      } catch {
         // Silently return empty data on network errors — UI will show 0 likes
         console.warn('Failed to load like data:', (error as Error).message);
         return { count: 0, isLiked: false, timestamp: Date.now() };

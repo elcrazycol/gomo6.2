@@ -118,7 +118,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
             }
           });
         })
-        .catch((e) => console.error(e));
+        .catch(() => console.error(e));
 
       return () => {
         isUnmountingRef.current = true;
@@ -188,7 +188,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
               if (instance.media && instance.media.paused) {
                 await instance.media.play();
               }
-            } catch (err) {
+            } catch {
               console.error("Failed to play:", err);
             }
 
@@ -283,7 +283,7 @@ export const MediaPlayer = ({ kind, sources, poster, className = "", playerId, t
             globalAudio.removeEventListener('pause', syncPause);
           };
         })
-        .catch((e) => console.error(e));
+        .catch(() => console.error(e));
 
       return () => {
         isUnmountingRef.current = true;

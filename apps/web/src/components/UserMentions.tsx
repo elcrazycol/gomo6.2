@@ -140,7 +140,7 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         setUsers(usersData);
         searchCache.set(query, usersData);
       }
-    } catch (error) {
+    } catch {
       console.error('Error searching users:', error);
       setUsers([]);
       searchCache.set(query, []);

@@ -39,7 +39,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
               return next;
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_online event:', e);
         }
       }
@@ -61,7 +61,7 @@ export function useRealtimeOnlineStatus(userIds: string[]) {
               return next;
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_offline event:', e);
         }
       }
@@ -115,7 +115,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
               };
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_online event:', e);
         }
       }
@@ -147,7 +147,7 @@ export function useUserRealtimeStatus(userId: string | undefined) {
               };
             });
           }
-        } catch (e) {
+        } catch {
           console.error('Error parsing user_offline event:', e);
         }
       }

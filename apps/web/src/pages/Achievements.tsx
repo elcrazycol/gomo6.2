@@ -160,7 +160,7 @@ export default function Achievements() {
       });
 
       setAllAchievements(merged);
-    } catch (error) {
+    } catch {
       console.error("Error loading achievements:", error);
     } finally {
       setLoading(false);

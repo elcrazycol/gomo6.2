@@ -402,7 +402,7 @@ const InitialContentPlugin = ({
     try {
       const parsedState = editor.parseEditorState(JSON.stringify(initialState));
       editor.setEditorState(parsedState);
-    } catch (error) {
+    } catch {
       console.error("Failed to initialize Lexical editor state, falling back to empty paragraph", error);
       try {
         const fallbackState = editor.parseEditorState(JSON.stringify(EMPTY_EDITOR_STATE));

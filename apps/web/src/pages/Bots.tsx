@@ -74,7 +74,7 @@ end`,
         const data = await response.json();
         setBots(data || []);
       }
-    } catch (error) {
+    } catch {
       console.error("Failed to load bots:", error);
     }
   }, []);
@@ -123,7 +123,7 @@ end`,
         const error = await response.json();
         toast.error(error.error || "Ошибка создания бота");
       }
-    } catch (error) {
+    } catch {
       toast.error("Ошибка создания бота");
     }
   };
@@ -156,7 +156,7 @@ end`,
         const error = await response.json();
         toast.error(error.error || "Ошибка обновления бота");
       }
-    } catch (error) {
+    } catch {
       toast.error("Ошибка обновления бота");
     }
   };
@@ -177,7 +177,7 @@ end`,
         toast.success("Статус бота изменён");
         await loadBots(session.user.id);
       }
-    } catch (error) {
+    } catch {
       toast.error("Ошибка изменения статуса");
     }
   };
@@ -200,7 +200,7 @@ end`,
         toast.success("Бот удалён");
         await loadBots(session.user.id);
       }
-    } catch (error) {
+    } catch {
       toast.error("Ошибка удаления бота");
     }
   };
@@ -230,7 +230,7 @@ end`,
       } else {
         console.error("[Logs] Failed to fetch logs:", response.statusText);
       }
-    } catch (error) {
+    } catch {
       console.error("[Logs] Failed to load logs:", error);
     } finally {
       setLogsLoading(false);
@@ -267,7 +267,7 @@ end`,
         toast.success("Логи очищены");
         setLogs([]);
       }
-    } catch (error) {
+    } catch {
       toast.error("Ошибка очистки логов");
     }
   };

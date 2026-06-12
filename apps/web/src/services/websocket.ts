@@ -123,7 +123,7 @@ class WebSocketService {
       this.ws.onclose = this.handleClose;
       this.ws.onerror = this.handleError;
 
-    } catch (error) {
+    } catch {
       this.isConnecting = false;
       this.scheduleReconnect();
     }
@@ -158,7 +158,7 @@ class WebSocketService {
     try {
       const message: WebSocketMessage = JSON.parse(event.data);
       this.emit(message.type, message);
-    } catch (error) {
+    } catch {
       console.error('[WebSocket] Error parsing message:', error);
     }
   }
@@ -238,7 +238,7 @@ class WebSocketService {
     try {
       this.ws.send(JSON.stringify(message));
       return true;
-    } catch (error) {
+    } catch {
       console.error('[WebSocket] Send error:', error);
       return false;
     }
@@ -365,7 +365,7 @@ class WebSocketService {
       handlers.forEach(handler => {
         try {
           handler(message);
-        } catch (error) {
+        } catch {
           console.error(`[WebSocket] Handler error for ${type}:`, error);
         }
       });

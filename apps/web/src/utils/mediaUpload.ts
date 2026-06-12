@@ -146,7 +146,7 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
       const posterArrayBuffer = posterBuf.buffer as ArrayBuffer;
       const posterFile = new File([posterArrayBuffer], "poster.jpg", { type: "image/jpeg" });
       poster = URL.createObjectURL(posterFile);
-    } catch (_e) {
+    } catch {
       console.warn("Failed to generate poster:", _e);
     }
 
@@ -155,9 +155,9 @@ const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: 
     return result;
   } finally {
     // cleanup to free wasm memory
-    try { ffmpeg.deleteFile(inputName); } catch (e) { console.debug("ffmpeg cleanup input failed", e); }
-    try { ffmpeg.deleteFile(outputName); } catch (e) { console.debug("ffmpeg cleanup output failed", e); }
-    try { ffmpeg.deleteFile(posterName); } catch (e) { console.debug("ffmpeg cleanup poster failed", e); }
+    try { ffmpeg.deleteFile(inputName); } catch { console.debug("ffmpeg cleanup input failed", e); }
+    try { ffmpeg.deleteFile(outputName); } catch { console.debug("ffmpeg cleanup output failed", e); }
+    try { ffmpeg.deleteFile(posterName); } catch { console.debug("ffmpeg cleanup poster failed", e); }
   }
 };
 
@@ -210,11 +210,11 @@ const extractAudioMetadata = async (file: File): Promise<{
               try {
                 await uploadFile('content', coverKey, coverFile);
                 coverArt = coverKey;
-              } catch (e) {
+              } catch {
                 console.error('Failed to upload cover art:', e);
               }
             }
-          } catch (e) {
+          } catch {
             // Silently fail cover art upload
           }
         }
@@ -278,7 +278,7 @@ const extractAudioMetadata = async (file: File): Promise<{
       duration: duration || undefined,
       coverArt,
     };
-  } catch (error) {
+  } catch {
     return {};
   }
 };

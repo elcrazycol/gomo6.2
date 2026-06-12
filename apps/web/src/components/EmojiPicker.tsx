@@ -214,7 +214,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
       setGroups([]);
       setEmojis([]);
       setGroupedEmojis({});
-    } catch (error) {
+    } catch {
       console.error('Error loading emojis:', error);
     } finally {
       setLoading(false);

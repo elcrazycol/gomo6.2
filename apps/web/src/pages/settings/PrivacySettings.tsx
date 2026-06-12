@@ -85,7 +85,7 @@ const PrivacySettings = () => {
         // Create default settings if none exist
         setSettings(defaultSettings);
       }
-    } catch (error) {
+    } catch {
       console.error('Error loading privacy settings:', error);
     } finally {
       setLoading(false);
@@ -138,7 +138,7 @@ const PrivacySettings = () => {
         // Revert on error
         setSettings(settings);
       }
-    } catch (error) {
+    } catch {
       console.error('Error updating privacy settings:', error);
       setSettings(settings);
     } finally {

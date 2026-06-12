@@ -10,7 +10,7 @@ export const clearMediaCache = () => {
     );
     
     mediaKeys.forEach(key => localStorage.removeItem(key));
-  } catch (error) {
+  } catch {
     console.warn('Failed to clear media cache:', error);
   }
 };
