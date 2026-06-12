@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { Loader2, Search } from "lucide-react";
 

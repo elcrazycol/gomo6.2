@@ -12,7 +12,7 @@ import { $getSelectionStyleValueForProperty, $patchStyleText } from "@lexical/se
 import { mergeRegister } from "@lexical/utils";
 import { Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, Underline, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+
 import {
   Dialog,
   DialogContent,

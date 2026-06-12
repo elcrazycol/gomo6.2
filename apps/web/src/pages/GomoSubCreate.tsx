@@ -5,9 +5,9 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+
+
+
 import { toast } from "sonner";
 import { storageUrl, uploadFile } from "@/utils/storage";
 import { Loader2, CheckCircle2, XCircle, Plus } from "lucide-react";

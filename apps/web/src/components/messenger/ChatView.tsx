@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, MessageCircle, Pin } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { UserBadge } from "@/components/UserBadge";
+
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { formatPresence, getInitials } from "./utils";

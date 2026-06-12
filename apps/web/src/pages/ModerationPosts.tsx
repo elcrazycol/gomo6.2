@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
+
+
 import { safeDate } from "@/utils/safeDate";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,8 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { ThemeToggle } from "@/components/ThemeToggle";
+
+
 import { Settings } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 

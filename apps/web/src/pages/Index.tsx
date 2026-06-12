@@ -5,7 +5,7 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { Grid3X3, Users } from "lucide-react";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";

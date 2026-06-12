@@ -1,5 +1,5 @@
 import { Link, LinkProps } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 interface PrefetchLinkProps extends LinkProps {
   prefetch?: boolean;
