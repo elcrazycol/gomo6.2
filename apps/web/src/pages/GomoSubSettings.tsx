@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, Settings, Plus, Trash2, GripVertical, Hash, Shield, Lock, Eye, EyeOff } from "lucide-react";
+import { Loader2, Save, Settings, Plus, Trash2, GripVertical, Hash, Shield, Lock, Eye, EyeOff, Users } from "lucide-react";
 import { toast } from "sonner";
 import { renderPreviewContent } from "@/utils/emojiUtils";
 
