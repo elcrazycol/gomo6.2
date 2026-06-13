@@ -428,7 +428,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute, authResolved]);
+  }, [slug, channelSlug, user, searchParams, isGomoRoute, authResolved]);
 
   useEffect(() => {
     const loadMembership = async () => {
@@ -1072,7 +1072,7 @@ const Board = () => {
         </div>
 
         {isGomoRoute && channels.length > 0 ? (
-          <>
+          <div className="flex gap-4 md:gap-6 items-start">
             {/* Channel Sidebar — Desktop */}
             <aside className="hidden md:block w-56 shrink-0">
               <nav className="sticky top-4 space-y-3">
@@ -1111,6 +1111,8 @@ const Board = () => {
               </nav>
             </aside>
 
+            {/* Content area */}
+            <div className="flex-1 min-w-0">
             {/* Mobile channel selector */}
             <div className="md:hidden w-full mb-2">
               <div className="flex gap-1.5 overflow-x-auto pb-2">
@@ -1139,8 +1141,12 @@ const Board = () => {
                 ))}
               </div>
             </div>
-          </>
+            </div>
+          </div>
         ) : null}
+
+        {/* Channel content (threads, create button etc.) */}
+        <div className={`${isGomoRoute && channels.length > 0 ? 'md:ml-64' : ''}`}>
 
         <div className="mb-3 sm:mb-4">
           <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1484,6 +1490,7 @@ const Board = () => {
               Все треды загружены
             </div>
           )}
+        </div>
         </div>
 
         {board.is_gomosub && board.rules_markdown?.trim() && (
