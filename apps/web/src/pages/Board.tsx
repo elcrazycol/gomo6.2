@@ -4,8 +4,6 @@ import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -14,16 +12,9 @@ import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
-import { ImageUpload } from "@/components/ImageUpload";
 import { UserBadge } from "@/components/UserBadge";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { HeaderUsername } from "@/components/HeaderUsername";
 import { AgeVerification } from "@/components/AgeVerification";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Settings, Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2 } from "lucide-react";
-import { LinkButton } from "@/components/LinkButton";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2 } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -104,8 +95,6 @@ const Board = () => {
   const threadsSentinelRef = useRef<HTMLDivElement>(null);
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
-  const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
   const [authResolved, setAuthResolved] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
@@ -117,7 +106,6 @@ const Board = () => {
   const [rulesConfirmed, setRulesConfirmed] = useState(false);
   const [checkingRules, setCheckingRules] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
-  const [membersCount, setMembersCount] = useState(0);
   const [membershipLoading, setMembershipLoading] = useState(false);
   
   // Channels state
@@ -135,36 +123,12 @@ const Board = () => {
         setUser(sessionUser);
 
         if (sessionUser) {
-        const [rolesResponse, profileResponse, achievementsResponse] = await Promise.all([
+        const [rolesResponse] = await Promise.all([
           fetch(`/api/v1/user_roles?user_id=eq.${sessionUser.id}`).then(r => r.json()),
-          fetch(`/api/v1/profiles?id=eq.${sessionUser.id}`).then(r => r.json()),
-          fetch(`/api/v1/user_achievements?user_id=eq.${sessionUser.id}`).then(r => r.json()),
         ]);
         
         const roles: { role: string }[] = (rolesResponse.data || []) as { role: string }[];
         setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
-
-        // Load current user profile
-        const profile = profileResponse.data?.[0];
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-        }
-
-        // Load current user color
-        const achievements: { achievements?: { reward_type: string; reward_value: string } }[] = (achievementsResponse.data || []) as { achievements?: { reward_type: string; reward_value: string } }[];
-        if (achievements.length) {
-          const colorRewards = achievements
-            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
-            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
       }
     } finally {
       setAuthResolved(true);
@@ -183,14 +147,14 @@ const Board = () => {
   }, []);
 
   // Load channels for gomosub boards
-  const loadChannels = useCallback(async (boardId: string) => {
+  const loadChannels = useCallback(async (boardId: string, ownerId: string | null): Promise<string | null> => {
     try {
       const channelsResponse = await fetch(`/api/v1/channels?board_id=eq.${boardId}&order=sort_order.asc`);
       const channelsResult = await channelsResponse.json();
       let channelsData = (channelsResult.data || []) as Channel[];
 
       // Filter private channels based on user permissions
-      const isOwner = user?.id === board?.owner_id;
+      const isOwner = user?.id && ownerId && user.id === ownerId;
       if (!isOwner && user?.id && channelsData.length > 0) {
         // Fetch user's membership and channel_permissions
         const privateChannelIds = channelsData.filter((ch) => ch.is_private).map((ch) => ch.id);
@@ -219,18 +183,20 @@ const Board = () => {
 
       setChannels(channelsData);
 
+      let resolvedChannelId: string | null = null;
       if (channelSlug) {
         const foundChannel = channelsData.find((ch) => ch.slug === channelSlug);
-        setActiveChannelId(foundChannel?.id || null);
-      } else {
-        setActiveChannelId(null);
+        resolvedChannelId = foundChannel?.id || null;
       }
+      setActiveChannelId(resolvedChannelId);
+      return resolvedChannelId;
     } catch {
       setChannels([]);
+      return null;
     }
-  }, [channelSlug, user?.id, board?.owner_id]);
+  }, [channelSlug, user?.id]);
 
-  const loadThreads = useCallback(async (boardId: string, isLoadMore = false) => {
+  const loadThreads = useCallback(async (boardId: string, isLoadMore = false, channelId?: string | null) => {
     if (isLoadMore) {
       setLoadingMoreThreads(true);
     }
@@ -244,8 +210,9 @@ const Board = () => {
     // Build URL with cursor-based pagination
     let threadsUrl = `/api/v1/threads?board_id=eq.${boardId}`;
     // Filter by channel if active
-    if (activeChannelId) {
-      threadsUrl += `&channel_id=eq.${activeChannelId}`;
+    const effectiveChannelId = channelId !== undefined ? channelId : null;
+    if (effectiveChannelId) {
+      threadsUrl += `&channel_id=eq.${effectiveChannelId}`;
     } else if (isGomoRoute && !channelSlug) {
       // Default gomosub view: show only threads without a channel (general feed)
       threadsUrl += `&channel_id=is.null`;
@@ -363,7 +330,13 @@ const Board = () => {
       setThreads(threadsWithData as Thread[]);
     }
     setLoadingMoreThreads(false);
-  }, [searchParams, isGomoRoute, threadsCursor, activeChannelId, channelSlug]);
+  }, [searchParams, isGomoRoute, threadsCursor, channelSlug]);
+
+  // Refs for stable callback access inside loadBoard (breaks dependency cycle)
+  const loadChannelsRef = useRef(loadChannels);
+  loadChannelsRef.current = loadChannels;
+  const loadThreadsRef = useRef(loadThreads);
+  loadThreadsRef.current = loadThreads;
 
   useEffect(() => {
     const loadBoard = async () => {
@@ -419,8 +392,9 @@ const Board = () => {
         setBoard(boardData);
 
         // Load channels for gomosub boards
+        let resolvedChannelId: string | null = null;
         if (boardData.is_gomosub) {
-          await loadChannels(boardData.id);
+          resolvedChannelId = await loadChannelsRef.current(boardData.id, boardData.owner_id);
         }
 
         // Check age verification for /d/ board
@@ -431,7 +405,7 @@ const Board = () => {
             setPageLoading(false);
           } else {
             setAgeVerified(true);
-            await loadThreads(boardData.id);
+            await loadThreadsRef.current(boardData.id, false, resolvedChannelId);
             setPageLoading(false);
             
             // Award incel achievement
@@ -444,7 +418,7 @@ const Board = () => {
             }
           }
         } else {
-          await loadThreads(boardData.id);
+          await loadThreadsRef.current(boardData.id, false, resolvedChannelId);
             setPageLoading(false);
         }
       } else {
@@ -454,21 +428,14 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute, authResolved, loadThreads, loadChannels]);
+  }, [slug, user, searchParams, isGomoRoute, authResolved]);
 
   useEffect(() => {
     const loadMembership = async () => {
       if (!board?.is_gomosub) {
         setIsJoined(false);
-        setMembersCount(0);
         return;
       }
-
-      // Count members
-      const allMembersResponse = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${board.id}`);
-      const allMembersResult = await allMembersResponse.json();
-      const allMembers = allMembersResult.data || [];
-      setMembersCount(allMembers.length);
 
       if (!user?.id) {
         setIsJoined(false);
@@ -493,7 +460,7 @@ const Board = () => {
       const data = message.data as { board_id?: string } | undefined;
       // Only reload if the new thread belongs to this board
       if (data?.board_id === board.id) {
-        loadThreads(board.id);
+        loadThreadsRef.current(board.id);
       }
     });
 
@@ -501,7 +468,7 @@ const Board = () => {
       unsub();
       wsService.unsubscribe(room);
     };
-  }, [board, loadThreads]);
+  }, [board]);
 
   // Infinite scroll for threads — IntersectionObserver on sentinel
   useEffect(() => {
@@ -510,7 +477,7 @@ const Board = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMoreThreads && !loadingMoreThreads && board) {
-          loadThreads(board.id, true);
+          loadThreadsRef.current(board.id, true);
         }
       },
       { threshold: 0.1, rootMargin: '200px' }
@@ -523,17 +490,42 @@ const Board = () => {
     return () => {
       observer.disconnect();
     };
-  }, [hasMoreThreads, loadingMoreThreads, board, pageLoading, loadThreads]);
+  }, [hasMoreThreads, loadingMoreThreads, board, pageLoading]);
+
+  // Group channels by category for sidebar
+  const channelCategories = useMemo(() => {
+    if (!channels.length) return [] as { category: string; channels: Channel[] }[];
+    const grouped = new Map<string, Channel[]>();
+    const uncategorized: Channel[] = [];
+    channels.forEach((ch) => {
+      const cat = (ch.category || "").trim();
+      if (cat) {
+        const existing = grouped.get(cat) || [];
+        existing.push(ch);
+        grouped.set(cat, existing);
+      } else {
+        uncategorized.push(ch);
+      }
+    });
+    const result = Array.from(grouped.entries()).map(([category, chs]) => ({ category, channels: chs }));
+    if (uncategorized.length) {
+      result.push({ category: "", channels: uncategorized });
+    }
+    return result;
+  }, [channels]);
+
+  const activeChannelSlug = useMemo(() => {
+    if (!activeChannelId) return null;
+    return channels.find((ch) => ch.id === activeChannelId)?.slug || null;
+  }, [activeChannelId, channels]);
+
+  const canCreateThread = user && (!board?.is_rules_board || isModerator);
+  const hasSecondaryActions = isGomoRoute || (!isGomoRoute && (searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag')));
 
   // If the dynamic route caught the legacy gomosubs path, bounce to the dedicated page
   if (slug === "gomosubs") {
     return <Navigate to="/g" replace />;
   }
-
-  const handleLogout = async () => {
-    await api.auth.signOut();
-    toast.success("Вышли");
-  };
 
   const renderContent = (text: string) => {
     return renderPreviewContent(text, 'board');
@@ -544,7 +536,7 @@ const Board = () => {
     setShowAgeVerification(false);
     setAgeVerified(true);
     if (board) {
-      loadThreads(board.id);
+      loadThreadsRef.current(board.id);
       
       // Award incel achievement
       if (user) {
@@ -631,7 +623,6 @@ const Board = () => {
         return;
       }
       setIsJoined(false);
-      setMembersCount((prev) => Math.max(0, prev - 1));
       toast.success("Вы вышли из саба");
       return;
     }
@@ -649,11 +640,9 @@ const Board = () => {
       return;
     }
     setIsJoined(true);
-    setMembersCount((prev) => prev + 1);
     toast.success("Вы вступили в саб");
   };
 
-  // Don't show fullscreen loader - let the content loader handle it
   if (!board || checkingRules) {
     return (
       <div className="bg-background flex items-center justify-center min-h-screen">
@@ -671,33 +660,6 @@ const Board = () => {
       />
     );
   }
-
-  // Group channels by category for sidebar
-  const channelCategories = useMemo(() => {
-    if (!channels.length) return [] as { category: string; channels: Channel[] }[];
-    const grouped = new Map<string, Channel[]>();
-    const uncategorized: Channel[] = [];
-    channels.forEach((ch) => {
-      const cat = (ch.category || "").trim();
-      if (cat) {
-        const existing = grouped.get(cat) || [];
-        existing.push(ch);
-        grouped.set(cat, existing);
-      } else {
-        uncategorized.push(ch);
-      }
-    });
-    const result = Array.from(grouped.entries()).map(([category, chs]) => ({ category, channels: chs }));
-    if (uncategorized.length) {
-      result.push({ category: "", channels: uncategorized });
-    }
-    return result;
-  }, [channels]);
-
-  const activeChannelSlug = useMemo(() => {
-    if (!activeChannelId) return null;
-    return channels.find((ch) => ch.id === activeChannelId)?.slug || null;
-  }, [activeChannelId, channels]);
 
   return (
     <main className={`${isGomoRoute ? "max-w-5xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative`}>
