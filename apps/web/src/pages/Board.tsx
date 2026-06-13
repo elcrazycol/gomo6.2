@@ -430,6 +430,10 @@ const Board = () => {
     if (!board) return;
     if (board.slug === 'd' && !ageVerified && !isGomoRoute) return;
 
+    setThreads([]);
+    setThreadsCursor(null);
+    setHasMoreThreads(true);
+
     const loadChannelThreads = async () => {
       setThreadsLoading(true);
       await loadThreadsRef.current(board.id);
@@ -1162,7 +1166,7 @@ const Board = () => {
 
 
         <div className="space-y-2 relative">
-          {(pageLoading || threadsLoading) ? (
+          {pageLoading ? (
             <>
               {/* Placeholder threads with blur */}
               {[1, 2, 3, 4, 5].map((i) => (
@@ -1189,14 +1193,18 @@ const Board = () => {
                 </div>
               ))}
               {/* Loader centered in viewport — only on full page load */}
-              {pageLoading && (
-                <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
-                  <PentagramLoader size="lg" />
-                </div>
-              )}
+              <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
+                <PentagramLoader size="lg" />
+              </div>
             </>
           ) : (
-            threads.map((thread) => (
+            <div>
+            {threadsLoading && (
+              <div className="flex justify-center py-4">
+                <PentagramLoader size="sm" />
+              </div>
+            )}
+            {threads.map((thread) => (
               isGomoRoute ? (
                 <Card key={thread.id} className="border-border/70 bg-card/95 p-0 overflow-hidden hover:border-primary/35 transition-colors rounded-xl">
                   <div className="p-3 sm:p-5">
@@ -1434,7 +1442,8 @@ const Board = () => {
                   </div>
                 </Link>
               )
-            ))
+            ))}
+            </div>
           )}
         </div>
 
