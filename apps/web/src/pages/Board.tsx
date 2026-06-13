@@ -97,6 +97,7 @@ const Board = () => {
   const [isModerator, setIsModerator] = useState(false);
   const [authResolved, setAuthResolved] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [threadsLoading, setThreadsLoading] = useState(false);
   const [showAgeVerification, setShowAgeVerification] = useState(false);
   const [ageVerified, setAgeVerified] = useState(false);
   const [searchParams] = useSearchParams();
@@ -332,12 +333,13 @@ const Board = () => {
     setLoadingMoreThreads(false);
   }, [searchParams, isGomoRoute, threadsCursor, channelSlug]);
 
-  // Refs for stable callback access inside loadBoard (breaks dependency cycle)
+  // Refs for stable callback access inside effects (breaks dependency cycle)
   const loadChannelsRef = useRef(loadChannels);
   loadChannelsRef.current = loadChannels;
   const loadThreadsRef = useRef(loadThreads);
   loadThreadsRef.current = loadThreads;
 
+  // Board load: only on slug/auth change — NOT on channelSlug change
   useEffect(() => {
     const loadBoard = async () => {
       if (isGomoRoute && !authResolved) {
@@ -354,7 +356,6 @@ const Board = () => {
       setHasAcceptedRules(!isGomoRoute);
       setCheckingRules(isGomoRoute);
 
-      // Fetch board by slug
       const boardResponse = await fetch(`/api/v1/boards/${slug}`);
       const boardResult = await boardResponse.json();
       const boardData = boardResult.data;
@@ -391,13 +392,10 @@ const Board = () => {
 
         setBoard(boardData);
 
-        // Load channels for gomosub boards
-        let resolvedChannelId: string | null = null;
         if (boardData.is_gomosub) {
-          resolvedChannelId = await loadChannelsRef.current(boardData.id, boardData.owner_id);
+          await loadChannelsRef.current(boardData.id, boardData.owner_id);
         }
 
-        // Check age verification for /d/ board
         if (boardData.slug === 'd') {
           const verified = sessionStorage.getItem('age_verified_d');
           if (!verified) {
@@ -405,10 +403,7 @@ const Board = () => {
             setPageLoading(false);
           } else {
             setAgeVerified(true);
-            await loadThreadsRef.current(boardData.id, false, resolvedChannelId);
             setPageLoading(false);
-            
-            // Award incel achievement
             if (user) {
               fetch('/api/rpc/award_achievement', {
                 method: 'POST',
@@ -418,8 +413,7 @@ const Board = () => {
             }
           }
         } else {
-          await loadThreadsRef.current(boardData.id, false, resolvedChannelId);
-            setPageLoading(false);
+          setPageLoading(false);
         }
       } else {
         setCheckingRules(false);
@@ -428,7 +422,21 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, channelSlug, user, searchParams, isGomoRoute, authResolved]);
+  }, [slug, user, searchParams, isGomoRoute, authResolved]);
+
+  // Thread load: runs when board is ready and channelSlug/board.id changes
+  // This is SEPARATE from board load so switching channels is instant
+  useEffect(() => {
+    if (!board) return;
+    if (board.slug === 'd' && !ageVerified && !isGomoRoute) return;
+
+    const loadChannelThreads = async () => {
+      setThreadsLoading(true);
+      await loadThreadsRef.current(board.id);
+      setThreadsLoading(false);
+    };
+    loadChannelThreads();
+  }, [board?.id, channelSlug, ageVerified, isGomoRoute]);
 
   useEffect(() => {
     const loadMembership = async () => {
@@ -661,8 +669,11 @@ const Board = () => {
     );
   }
 
+  const hasChannels = isGomoRoute && channels.length > 0;
+
   return (
-    <main className={`${isGomoRoute ? "max-w-5xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative`}>
+    <main className={`${hasChannels ? "" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
+        {/* Board header — always full width */}
         <div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
             <Card className="overflow-hidden border-primary/20 bg-card">
@@ -998,8 +1009,8 @@ const Board = () => {
                   </button>
                 ))}
               </div>
-            </div>
-          </div>
+        </div>
+        </div>{/* end flex container */}
           {(searchParams.get('content') || searchParams.get('format') || searchParams.get('atmosphere') || searchParams.get('flag') || searchParams.get('tag')) && (
             <div className="mt-2 flex items-center justify-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">Фильтр:</span>
@@ -1071,8 +1082,9 @@ const Board = () => {
           )}
         </div>
 
+        <div className="flex gap-6 items-start">
         {isGomoRoute && channels.length > 0 ? (
-          <div className="flex gap-4 md:gap-6 items-start">
+          <>
             {/* Channel Sidebar — Desktop */}
             <aside className="hidden md:block w-56 shrink-0">
               <nav className="sticky top-4 space-y-3">
@@ -1111,8 +1123,6 @@ const Board = () => {
               </nav>
             </aside>
 
-            {/* Content area */}
-            <div className="flex-1 min-w-0">
             {/* Mobile channel selector */}
             <div className="md:hidden w-full mb-2">
               <div className="flex gap-1.5 overflow-x-auto pb-2">
@@ -1141,12 +1151,8 @@ const Board = () => {
                 ))}
               </div>
             </div>
-            </div>
-          </div>
+          </>
         ) : null}
-
-        {/* Channel content (threads, create button etc.) */}
-        <div className={`${isGomoRoute && channels.length > 0 ? 'md:ml-64' : ''}`}>
 
         <div className="mb-3 sm:mb-4">
           <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1472,7 +1478,7 @@ const Board = () => {
           )}
         </div>
 
-        {threads.length === 0 && !pageLoading && (
+        {threads.length === 0 && !pageLoading && !threadsLoading && (
           <div className="text-center text-muted-foreground p-8">
             Тредов пока нет. Будьте первым!
           </div>
