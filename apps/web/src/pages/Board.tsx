@@ -422,7 +422,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute, authResolved]);
+  }, [slug, user, searchParams, isGomoRoute, authResolved, channelSlug]);
 
   // Thread load: runs when board is ready and channelSlug/board.id changes
   // This is SEPARATE from board load so switching channels is instant
@@ -1082,77 +1082,35 @@ const Board = () => {
           )}
         </div>
 
-        <div className="flex gap-6 items-start">
-        {isGomoRoute && channels.length > 0 ? (
-          <>
-            {/* Channel Sidebar — Desktop */}
-            <aside className="hidden md:block w-56 shrink-0">
-              <nav className="sticky top-4 space-y-3">
+        {isGomoRoute && channels.length > 0 && (
+          <div className="mb-4 -mx-2 sm:mx-0">
+            <div className="flex gap-1.5 overflow-x-auto pb-1 px-2 sm:px-0">
+              <Link
+                to={`/g/${slug}`}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
+                  !activeChannelId
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                # общий
+              </Link>
+              {channelCategories.map((group) => group.channels.map((ch) => (
                 <Link
-                  to={`/g/${slug}`}
-                  className={`block px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    !activeChannelId
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                  }`}
-                >
-                  # общий
-                </Link>
-                {channelCategories.map((group) => (
-                  <div key={group.category || "__uncategorized__"} className="space-y-1">
-                    {group.category && (
-                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                        {group.category}
-                      </div>
-                    )}
-                    {group.channels.map((ch) => (
-                      <Link
-                        key={ch.id}
-                        to={`/g/${slug}/c/${ch.slug}`}
-                        className={`block px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                          activeChannelSlug === ch.slug
-                            ? "bg-primary/10 text-primary font-medium"
-                            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                        }`}
-                      >
-                        # {ch.name}
-                      </Link>
-                    ))}
-                  </div>
-                ))}
-              </nav>
-            </aside>
-
-            {/* Mobile channel selector */}
-            <div className="md:hidden w-full mb-2">
-              <div className="flex gap-1.5 overflow-x-auto pb-2">
-                <Link
-                  to={`/g/${slug}`}
+                  key={ch.id}
+                  to={`/g/${slug}/c/${ch.slug}`}
                   className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
-                    !activeChannelId
+                    activeChannelSlug === ch.slug
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted/50 text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  # общий
+                  # {ch.name}
                 </Link>
-                {channels.map((ch) => (
-                  <Link
-                    key={ch.id}
-                    to={`/g/${slug}/c/${ch.slug}`}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
-                      activeChannelSlug === ch.slug
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    # {ch.name}
-                  </Link>
-                ))}
-              </div>
+              )))}
             </div>
-          </>
-        ) : null}
+          </div>
+        )}
 
         <div className="mb-3 sm:mb-4">
           <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1204,7 +1162,7 @@ const Board = () => {
 
 
         <div className="space-y-2 relative">
-          {pageLoading ? (
+          {(pageLoading || threadsLoading) ? (
             <>
               {/* Placeholder threads with blur */}
               {[1, 2, 3, 4, 5].map((i) => (
@@ -1230,10 +1188,12 @@ const Board = () => {
                   </div>
                 </div>
               ))}
-              {/* Loader centered in viewport */}
-              <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
-              <PentagramLoader size="lg" />
-            </div>
+              {/* Loader centered in viewport — only on full page load */}
+              {pageLoading && (
+                <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
+                  <PentagramLoader size="lg" />
+                </div>
+              )}
             </>
           ) : (
             threads.map((thread) => (
@@ -1496,7 +1456,6 @@ const Board = () => {
               Все треды загружены
             </div>
           )}
-        </div>
         </div>
 
         {board.is_gomosub && board.rules_markdown?.trim() && (

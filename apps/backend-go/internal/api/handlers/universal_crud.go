@@ -92,6 +92,30 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 			fmt.Printf("[CacheInvalidator] Invalidating chat conversation cache: conversation_id=%s\n", conversationID)
 			cache.InvalidateForChatConversation(h.redis, conversationID, "")
 		}
+	case "channels":
+		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
+			values["board_id"] = boardID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating channels cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channels*board_id=eq.%s*", values["board_id"]))
+	case "gomosub_roles":
+		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
+			values["board_id"] = boardID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating gomosub_roles cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_roles*board_id=eq.%s*", values["board_id"]))
+	case "channel_permissions":
+		if channelID, ok := result["channel_id"].(string); ok && channelID != "" {
+			values["channel_id"] = channelID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating channel_permissions cache: channel_id=%s\n", values["channel_id"])
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channel_permissions*channel_id=eq.%s*", values["channel_id"]))
+	case "gomosub_memberships":
+		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
+			values["board_id"] = boardID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating gomosub_memberships cache: board_id=%s\n", values["board_id"])
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", values["board_id"]))
 	default:
 		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 		cache.InvalidateForTable(h.redis, tableName, values)
