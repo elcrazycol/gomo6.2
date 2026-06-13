@@ -1,16 +1,14 @@
 # =============================================================================
 # deploy.yml — Build images on GitHub Actions, push to ghcr.io, deploy to VPS
 # =============================================================================
-# Why: VPS blocks outbound port 443 → npm ci over HTTP crashes.
-# Solution: Build on fast GitHub runners (HTTPS works), push to GitHub
-# Container Registry (ghcr.io), VPS just pulls pre-built images.
+# Optimizations:
+#   - 4 images build in PARALLEL (matrix strategy)
+#   - Docker BuildKit layer caching via GitHub Actions cache
+#   - Single docker buildx --push (no separate push step)
+#   - VPS pulls all images in parallel, then restarts once
 #
-# Required GitHub Secrets (Settings → Secrets and variables → Actions):
-#   VPS_HOST     — VPS IP or hostname
-#   VPS_USER     — SSH username (e.g., root)
-#   VPS_SSH_KEY  — Private SSH key for VPS access
-#   VPS_PORT     — SSH port (default: 22, optional)
-#   GHCR_PAT     — GitHub PAT with read:packages scope (passed to VPS for docker login)
+# Required GitHub Secrets:
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_PORT (optional), GHCR_PAT
 # =============================================================================
 
 name: Deploy to VPS
@@ -24,12 +22,32 @@ on:
 
 jobs:
   build-and-push:
-    name: Build & Push
+    name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            context: apps/backend-go
+            dockerfile: apps/backend-go/Dockerfile
+            build-args: ""
+          - service: web
+            context: .
+            dockerfile: apps/web/Dockerfile
+            build-args: "--build-arg VITE_GIT_COMMIT=${{ github.sha }}"
+          - service: docs
+            context: .
+            dockerfile: apps/docs/Dockerfile
+            build-args: ""
+          - service: dev-dashboard
+            context: .
+            dockerfile: apps/dev-dashboard/Dockerfile
+            build-args: ""
 
     steps:
       - name: Checkout
@@ -38,8 +56,10 @@ jobs:
       - name: Docker meta
         id: meta
         run: |
-          echo "sha_short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
-          echo "registry=ghcr.io/${{ github.repository_owner }}" >> $GITHUB_OUTPUT
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+          echo "image=${REGISTRY}/gomo6-${{ matrix.service }}" >> $GITHUB_OUTPUT
+          echo "sha_short=${SHA_SHORT}" >> $GITHUB_OUTPUT
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -51,88 +71,52 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push backend (Go)
-        run: |
-          IMG="${{ steps.meta.outputs.registry }}/gomo6-backend"
-          docker build -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/backend-go/Dockerfile apps/backend-go
-          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
-            for i in 1 2 3; do
-              echo "Push $IMG:$tag (attempt $i)"
-              docker push "$IMG:$tag" && continue 2
-              [ $i -lt 3 ] && sleep $((i * 10))
-            done
-            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
-            exit 1
-          done
-
-      - name: Build & push web frontend
-        run: |
-          IMG="${{ steps.meta.outputs.registry }}/gomo6-web"
-          docker build --build-arg VITE_GIT_COMMIT=${{ steps.meta.outputs.sha_short }} -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/web/Dockerfile .
-          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
-            for i in 1 2 3; do
-              echo "Push $IMG:$tag (attempt $i)"
-              docker push "$IMG:$tag" && continue 2
-              [ $i -lt 3 ] && sleep $((i * 10))
-            done
-            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
-            exit 1
-          done
-
-      - name: Build & push docs frontend
-        run: |
-          IMG="${{ steps.meta.outputs.registry }}/gomo6-docs"
-          docker build -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/docs/Dockerfile .
-          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
-            for i in 1 2 3; do
-              echo "Push $IMG:$tag (attempt $i)"
-              docker push "$IMG:$tag" && continue 2
-              [ $i -lt 3 ] && sleep $((i * 10))
-            done
-            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
-            exit 1
-          done
-
-      - name: Build & push dev-dashboard frontend
-        run: |
-          IMG="${{ steps.meta.outputs.registry }}/gomo6-dev-dashboard"
-          docker build -t "$IMG:latest" -t "$IMG:${{ steps.meta.outputs.sha_short }}" -f apps/dev-dashboard/Dockerfile .
-          for tag in latest ${{ steps.meta.outputs.sha_short }}; do
-            for i in 1 2 3; do
-              echo "Push $IMG:$tag (attempt $i)"
-              docker push "$IMG:$tag" && continue 2
-              [ $i -lt 3 ] && sleep $((i * 10))
-            done
-            echo "ERROR: Failed to push $IMG:$tag after 3 attempts" >&2
-            exit 1
-          done
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_short }}
+          build-args: ${{ matrix.build-args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     name: Deploy to VPS
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Pull images on VPS and restart
+      - name: Pull & restart on VPS
         uses: appleboy/ssh-action@v1.2.2
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          command_timeout: 10m
-          envs: GHCR_PAT
+          command_timeout: 5m
           script: |
-            export GHCR_PAT="$GHCR_PAT"
             set -e
             # Auto-locate the repo directory
             for d in /root/gomo6.2 /home/*/gomo6.2; do
               [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
             done
             [ "${PWD##*/}" = "gomo6.2" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
-            # Pull latest code FIRST so deploy-vps.sh itself is up to date
+            # Pull latest code
             git fetch origin main
             git reset --hard origin/main
-            # Now run the freshly-updated deploy script
-            bash scripts/deploy-vps.sh
-        env:
-          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+            # Login to ghcr.io
+            [ -n "${{ secrets.GHCR_PAT }}" ] && \
+              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u scramble22 --password-stdin || true
+            # Pull all images in parallel, then restart once
+            echo "Pulling images..."
+            for img in gomo6-backend gomo6-web gomo6-docs gomo6-dev-dashboard; do
+              docker pull "ghcr.io/scramble22/${img}:latest" &
+            done
+            wait
+            echo "All images pulled. Restarting..."
+            docker compose up -d --remove-orphans --no-build
+            docker image prune -f
+            echo "=== Deploy done ==="
