@@ -60,7 +60,7 @@ const GomoSubJoin = () => {
       const { data: { session } } = await api.auth.getSession();
       const token = session?.access_token;
 
-      const res = await fetch(`/api/rpc/invites/${code}/accept`, {
+      const res = await fetch(`/api/v1/invites/${code}/accept`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
