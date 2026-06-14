@@ -30,6 +30,7 @@ interface Board {
   description: string;
   is_rules_board: boolean;
   is_gomosub?: boolean | null;
+  visibility?: string | null;
   cover_image_url?: string | null;
   gomosub_avatar_url?: string | null;
   owner_id?: string | null;
@@ -107,6 +108,7 @@ const Board = () => {
   const [rulesConfirmed, setRulesConfirmed] = useState(false);
   const [checkingRules, setCheckingRules] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
+  const [privateAccessDenied, setPrivateAccessDenied] = useState(false);
   const [membershipLoading, setMembershipLoading] = useState(false);
   
   // Channels state
@@ -419,6 +421,23 @@ const Board = () => {
 
         setBoard(boardData);
 
+        // Private gomosub access control
+        if (boardData.is_gomosub && boardData.visibility === "private") {
+          const isOwner = user?.id && boardData.owner_id === user.id;
+          let isMember = false;
+          if (!isOwner && user?.id) {
+            const mRes = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${boardData.id}&user_id=eq.${user.id}`);
+            const mData = await mRes.json();
+            isMember = (mData.data || []).length > 0;
+          }
+          if (!isOwner && !isMember) {
+            setPrivateAccessDenied(true);
+            setPageLoading(false);
+            setCheckingRules(false);
+            return;
+          }
+        }
+
         if (boardData.is_gomosub) {
           await loadChannelsRef.current(boardData.id, boardData.owner_id);
         }
@@ -695,6 +714,22 @@ const Board = () => {
       <div className="bg-background flex items-center justify-center min-h-screen">
         <PentagramLoader size="lg" />
       </div>
+    );
+  }
+
+  if (privateAccessDenied) {
+    return (
+      <main className="max-w-md mx-auto p-6 pt-20 text-center space-y-4">
+        <Lock className="w-14 h-14 text-muted-foreground mx-auto" />
+        <h1 className="text-xl font-bold">Приватный g-саб</h1>
+        <p className="text-sm text-muted-foreground">
+          Этот g-саб доступен только по пригласительной ссылке.
+          Попроси владельца поделиться ссылкой-приглашением.
+        </p>
+        <Button variant="outline" onClick={() => navigate("/g")}>
+          К списку g-сабов
+        </Button>
+      </main>
     );
   }
   

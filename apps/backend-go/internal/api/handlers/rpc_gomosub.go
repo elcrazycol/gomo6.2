@@ -43,6 +43,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		Slug             string   `json:"slug"`
 		Name             string   `json:"name"`
 		Description      string   `json:"description"`
+		Visibility       string   `json:"visibility"`
 		RulesMarkdown    *string  `json:"rules_markdown"`
 		CoverImageURL    *string  `json:"cover_image_url"`
 		GomosubAvatarURL *string  `json:"gomosub_avatar_url"`
@@ -99,24 +100,31 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		tagsJSON = string(b)
 	}
 
+	// Default visibility to public
+	visibility := req.Visibility
+	if visibility != "private" {
+		visibility = "public"
+	}
+
 	query := `
-		INSERT INTO boards (slug, name, description, is_gomosub, is_rules_board, owner_id, 
+		INSERT INTO boards (slug, name, description, is_gomosub, is_rules_board, owner_id, visibility,
 		                   gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown)
-		VALUES ($1, $2, $3, true, false, $4, $5, $6, $7::jsonb, $8)
-		RETURNING id, slug, name, description, is_gomosub, is_rules_board, owner_id, 
+		VALUES ($1, $2, $3, true, false, $4, $5, $6, $7, $8::jsonb, $9)
+		RETURNING id, slug, name, description, is_gomosub, is_rules_board, owner_id, visibility,
 		          gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown, rules_updated_at, created_at
 	`
 
 	var board models.Board
 	err = h.db.QueryRow(query,
 		req.Slug, req.Name, req.Description,
-		claims.UserID,
+		claims.UserID, visibility,
 		req.GomosubAvatarURL, req.CoverImageURL,
 		tagsJSON,
 		req.RulesMarkdown,
 	).Scan(
 		&board.ID, &board.Slug, &board.Name, &board.Description,
 		&board.IsGomosub, &board.IsRulesBoard, &board.OwnerID,
+		&board.Visibility,
 		&board.GomosubAvatarURL, &board.CoverImageURL, &board.GomosubTags,
 		&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
 	)

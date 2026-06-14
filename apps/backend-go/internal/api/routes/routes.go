@@ -204,6 +204,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/posts", postsHandler.GetPosts)
 		rest.GET("/posts/:id", postsHandler.GetPost)
 
+		// Invite info (public — shows board name + status before joining)
+		rest.GET("/invites/:code", boardsHandler.GetInviteInfo)
+
 		// User status endpoints
 		rest.GET("/users/online", userStatusHandler.GetOnlineUsers)
 		rest.GET("/users/:id/status", userStatusHandler.GetUserStatus)
@@ -273,6 +276,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
 		rest.Any("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 
+		rest.Any("/gomosub_invites", universalHandler.HandleTableRequest)
+		rest.Any("/gomosub_invites/*path", universalHandler.HandleTableRequest)
+
 		rest.Any("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
 		rest.Any("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
 
@@ -296,6 +302,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PUT("/profiles/:id", profilesHandler.UpdateProfile)
 			protected.POST("/boards", boardsHandler.CreateBoard)
 			protected.PUT("/boards/:id", boardsHandler.UpdateBoard)
+			protected.POST("/boards/:id/invites", boardsHandler.CreateInvite)
+			protected.GET("/boards/:id/invites", boardsHandler.GetInvites)
+			protected.DELETE("/boards/:id/invites/:inviteId", boardsHandler.DeleteInvite)
 			protected.PUT("/threads/:id", threadsHandler.UpdateThread)
 			protected.PUT("/threads", threadsHandler.UpdateThread)
 			protected.PUT("/posts/:id", postsHandler.UpdatePost)
@@ -376,6 +385,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// GomoSub RPC functions
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
+
+			// Invite accept (any authenticated user)
+			protected.POST("/invites/:code/accept", boardsHandler.AcceptInvite)
 
 			// Thread/Post RPC functions
 			protected.POST("/create_thread", rpcHandler.CreateThreadRPC)

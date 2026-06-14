@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, memo } from "react";
+import { useEffect, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -35,6 +35,7 @@ const Placeholders = lazy(() => import("./pages/settings/Placeholders"));
 const GomoSubs = lazy(() => import("./pages/GomoSubs"));
 const GomoSubCreate = lazy(() => import("./pages/GomoSubCreate"));
 const GomoSubSettings = lazy(() => import("./pages/GomoSubSettings"));
+const GomoSubJoin = lazy(() => import("./pages/GomoSubJoin"));
 const SearchResults = lazy(() => import("./pages/SearchResults"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
@@ -163,6 +164,7 @@ const App = () => {
                   <Route path="g/:slug/create" element={<AuthGuard><LazyPage component={CreateGomoThread} /></AuthGuard>} />
                   <Route path="g/:slug/c/:channelSlug/create" element={<AuthGuard><LazyPage component={CreateGomoThread} /></AuthGuard>} />
                   <Route path="g/:slug/settings" element={<AuthGuard><LazyPage component={GomoSubSettings} /></AuthGuard>} />
+                  <Route path="g/:slug/join/:code" element={<LazyPage component={GomoSubJoin} />} />
                   <Route path="create" element={<AuthGuard><LazyPage component={CreateThread} /></AuthGuard>} />
                   <Route path="g/:slug/thread/:threadId" element={<LazyPage component={Thread} />} />
                   <Route path="g/:slug/c/:channelSlug/thread/:threadId" element={<LazyPage component={Thread} />} />

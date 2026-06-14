@@ -20,6 +20,7 @@ const RESERVED_SLUGS = [
 const SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{1,24}$/;
 
 type Step = "requirements" | "form";
+type Visibility = "public" | "private";
 
 const GomoSubCreate = () => {
   const navigate = useNavigate();
@@ -40,6 +41,7 @@ const GomoSubCreate = () => {
     description: "",
     standardRules: "Уважай участников, соблюдай тему саба и не публикуй запрещенный контент.",
   });
+  const [visibility, setVisibility] = useState<Visibility>("public");
 
   const [allowedRules, setAllowedRules] = useState<string[]>([""]);
   const [forbiddenRules, setForbiddenRules] = useState<string[]>([""]);
@@ -194,7 +196,8 @@ const GomoSubCreate = () => {
           slug,
           name: form.name.trim(),
           description: form.description.trim(),
-          rules_markdown: buildRulesMarkdown(),
+          visibility,
+          rules_markdown: visibility === "private" ? null : buildRulesMarkdown(),
           cover_image_url: coverImages[0] ?? null,
           gomosub_avatar_url: avatarImages[0] ?? null,
           gomosub_tags: [],
@@ -344,6 +347,39 @@ const GomoSubCreate = () => {
                 <Textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} rows={3} maxLength={240} />
               </div>
 
+              {/* Visibility Toggle */}
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
+                <label className="text-sm font-medium">Тип g-саба</label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setVisibility("public")}
+                    className={`flex-1 rounded-lg border p-3 text-left transition-all ${
+                      visibility === "public"
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-border bg-card hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="font-medium text-sm">Публичный</div>
+                    <div className="text-xs text-muted-foreground mt-1">Виден всем на /g, нужны правила, любой может вступить</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisibility("private")}
+                    className={`flex-1 rounded-lg border p-3 text-left transition-all ${
+                      visibility === "private"
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-border bg-card hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="font-medium text-sm">Приватный</div>
+                    <div className="text-xs text-muted-foreground mt-1">Только по приглашениям, не виден в общем списке, без правил</div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Rules section — only for public gomosubs */}
+              {visibility === "public" && (<>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Базовые правила</label>
                 <Textarea value={form.standardRules} onChange={(e) => setForm((p) => ({ ...p, standardRules: e.target.value }))} rows={3} />
@@ -379,6 +415,16 @@ const GomoSubCreate = () => {
                   ))}
                 </div>
               </div>
+              </>)}
+
+              {visibility === "private" && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+                  <p className="text-sm text-muted-foreground">
+                    Приватный g-саб не виден в общем списке. Доступ только по пригласительным ссылкам.
+                    Ты сможешь создать приглашения в настройках после создания.
+                  </p>
+                </div>
+              )}
 
               <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
                 <Button variant="outline" onClick={() => setStep("requirements")}>Назад</Button>
