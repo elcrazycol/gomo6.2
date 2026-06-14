@@ -25,9 +25,9 @@ func cacheTTLByPath(path string, defaultTTL time.Duration) time.Duration {
 	if strings.Contains(path, "/threads") || strings.Contains(path, "/posts") {
 		return 30 * time.Second
 	}
-	// Boards and profiles: long TTL — rarely change
+	// Boards and profiles: medium TTL — rarely change but must reflect updates quickly
 	if strings.Contains(path, "/boards") || strings.Contains(path, "/profiles") {
-		return 5 * time.Minute
+		return 30 * time.Second
 	}
 	return defaultTTL
 }
