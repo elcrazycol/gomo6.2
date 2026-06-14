@@ -19,7 +19,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./apps/backend-go/migrations:/docker-entrypoint-initdb.d
-      - ./scripts/init-mcaptcha-db.sh:/docker-entrypoint-initdb.d/init-mcaptcha-db.sh
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gomo6 -d gomo6"]
@@ -131,28 +130,6 @@ services:
 
         echo "Garage initialized."
 
-  # ── mCaptcha (Proof-of-Work CAPTCHA server, privacy-first) ───────────────
-  # Setup: after first deploy, open https://mcaptcha.${DOMAIN} in browser,
-  # create admin account, then create a "Site" to get site_key + secret.
-  # Set MCAPTCHA_SITE_KEY, MCAPTCHA_SECRET, MCAPTCHA_VERIFY_URL in backend env.
-  # Until configured, the built-in PoW CAPTCHA is used as fallback.
-  mcaptcha:
-    image: mcaptcha/mcaptcha:latest
-    environment:
-      DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/mcaptcha?sslmode=disable
-      MCAPTCHA_SERVER_IP: "0.0.0.0"
-      MCAPTCHA_SERVER_PORT: "8080"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   # ── Backend (Go API) ──────────────────────────────────────────────────────
   backend:
     image: ghcr.io/scramble22/gomo6-backend:latest
@@ -188,19 +165,6 @@ services:
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
       GARAGE_S3_USE_SSL: false
-      # mCaptcha (optional — if not set, built-in PoW CAPTCHA is used)
-      MCAPTCHA_SITE_KEY: ${MCAPTCHA_SITE_KEY:-}
-      MCAPTCHA_SECRET: ${MCAPTCHA_SECRET:-}
-      MCAPTCHA_VERIFY_URL: ${MCAPTCHA_VERIFY_URL:-http://mcaptcha:8080/api/v1/pow/verify}
-      # Base URL where the mCaptcha widget JS is served. Auto-derived from
-      # MCAPTCHA_VERIFY_URL (origin only) when empty.
-      MCAPTCHA_WIDGET_URL: ${MCAPTCHA_WIDGET_URL:-}
-      MCAPTCHA_POW_DIFFICULTY: ${MCAPTCHA_POW_DIFFICULTY:-16}
-      # CSP NOTE: when mCaptcha is enabled, your reverse proxy / Caddyfile
-      # must allow the mCaptcha origin in script-src and connect-src, e.g.:
-      #   script-src 'self' ${MCAPTCHA_WIDGET_URL} blob:
-      #   connect-src 'self' ${MCAPTCHA_WIDGET_URL}
-      # Otherwise the widget script will be blocked and the captcha will not render.
     depends_on:
       postgres:
         condition: service_healthy

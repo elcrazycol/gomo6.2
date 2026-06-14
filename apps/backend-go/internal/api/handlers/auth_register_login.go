@@ -32,20 +32,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// ── CAPTCHA verification (always required when enabled) ──
-	if h.captchaHandler != nil {
-		var captchaErr error
-		if h.captchaHandler.IsConfigured() {
-			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken)
-		} else if h.redis != nil {
-			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution)
-		}
-		if captchaErr != nil {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse(captchaErr.Error()))
-			return
-		}
-	}
-
 	// Validate password strength
 	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -95,13 +81,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // If device_id is provided and is trusted, 2FA is skipped.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Email        string `json:"email"`
-		Password     string `json:"password"`
-		DeviceID     string `json:"device_id,omitempty"`
-		ChallengeID  string `json:"challenge_id,omitempty"`  // PoW challenge ID
-		Solution     string `json:"solution,omitempty"`      // PoW solution string
-		CaptchaToken string `json:"captcha_token,omitempty"` // mCaptcha token (external)
-		Website      string `json:"website,omitempty"`       // Honeypot field — must be empty
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		DeviceID string `json:"device_id,omitempty"`
+		Website  string `json:"website,omitempty"` // Honeypot field — must be empty
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -115,20 +98,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		// Silently succeed to mislead the bot — generic invalid credentials
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
 		return
-	}
-
-	// ── CAPTCHA verification (always required when enabled) ──
-	if h.captchaHandler != nil {
-		var captchaErr error
-		if h.captchaHandler.IsConfigured() {
-			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.CaptchaToken)
-		} else if h.redis != nil {
-			captchaErr = h.captchaHandler.VerifyPoW(req.ChallengeID, req.Solution)
-		}
-		if captchaErr != nil {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse(captchaErr.Error()))
-			return
-		}
 	}
 
 	// Check account lockout
