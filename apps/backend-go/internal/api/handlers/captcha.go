@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -27,6 +28,7 @@ type CaptchaHandler struct {
 	siteKey    string
 	secret     string
 	verifyURL  string
+	widgetURL  string // base URL of the mCaptcha server (serves widget JS)
 	httpClient *http.Client
 	// PoW difficulty: number of leading zero bits required in SHA-256 hash.
 	// 12 bits = ~4k hashes avg (~50ms on a low-end phone, sub-ms on desktop)
@@ -45,6 +47,10 @@ type CaptchaHandler struct {
 //	MCAPTCHA_SITE_KEY  — public site key (exposed to frontend)
 //	MCAPTCHA_SECRET    — secret for backend verification
 //	MCAPTCHA_VERIFY_URL — mCaptcha server verification endpoint
+//	MCAPTCHA_WIDGET_URL — base URL of the mCaptcha server that serves the
+//	                      widget JS bundle (e.g. http://mcaptcha:8080).
+//	                      Defaults to derive from MCAPTCHA_VERIFY_URL by
+//	                      stripping "/api/v1/pow/verify".
 //	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 12, ~4k hashes avg)
 //
 // If mCaptcha is NOT configured, built-in Proof-of-Work is used as fallback.
@@ -56,11 +62,15 @@ func NewCaptchaHandler(redis *redis.Client) *CaptchaHandler {
 		}
 	}
 
+	verifyURL := os.Getenv("MCAPTCHA_VERIFY_URL")
+	widgetURL := deriveMCaptchaWidgetURL(os.Getenv("MCAPTCHA_WIDGET_URL"), verifyURL)
+
 	return &CaptchaHandler{
 		redis:         redis,
 		siteKey:       os.Getenv("MCAPTCHA_SITE_KEY"),
 		secret:        os.Getenv("MCAPTCHA_SECRET"),
-		verifyURL:     os.Getenv("MCAPTCHA_VERIFY_URL"),
+		verifyURL:     verifyURL,
+		widgetURL:     widgetURL,
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		powDifficulty: difficulty,
 	}
@@ -76,9 +86,10 @@ func (h *CaptchaHandler) IsConfigured() bool {
 func (h *CaptchaHandler) GetConfig(c *gin.Context) {
 	if h.IsConfigured() {
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
-			"type":     "mcaptcha",
-			"enabled":  true,
-			"site_key": h.siteKey,
+			"type":       "mcaptcha",
+			"enabled":    true,
+			"site_key":   h.siteKey,
+			"widget_url": h.widgetURL,
 		}))
 		return
 	}
@@ -291,6 +302,29 @@ func (e *captchaErr) Code() string { return e.code }
 // truth. Avoid using it in new code unless you need a code that doesn't have
 // a sentinel yet.
 func captchaError(code, msg string) error { return &captchaErr{code: code, message: msg} }
+
+// deriveMCaptchaWidgetURL picks the base URL where the mCaptcha widget JS is
+// served. If the operator set MCAPTCHA_WIDGET_URL explicitly, that wins.
+// Otherwise we derive it from MCAPTCHA_VERIFY_URL by taking the URL's origin
+// (scheme + host + port), which is where the widget bundle is also served
+// by the mCaptcha server. Using url.Parse (not string-suffix stripping) means
+// trailing slashes, query strings, and fragments on the verify URL don't
+// break the derivation.
+//
+// Extracted so it can be unit-tested without touching env vars or Redis.
+func deriveMCaptchaWidgetURL(explicit, verifyURL string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if verifyURL == "" {
+		return ""
+	}
+	u, err := url.Parse(verifyURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
 
 // hasLeadingZeroBits checks if the byte slice has at least 'n' leading zero bits.
 func hasLeadingZeroBits(data []byte, n int) bool {
