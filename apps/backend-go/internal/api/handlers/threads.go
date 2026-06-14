@@ -17,8 +17,9 @@ import (
 )
 
 type ThreadsHandler struct {
-	db    *sql.DB
-	redis *redis.Client
+	db          *sql.DB
+	redis       *redis.Client
+	authService *auth.AuthService
 }
 
 func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
@@ -28,6 +29,37 @@ func NewThreadsHandler(db *sql.DB) *ThreadsHandler {
 // SetRedis sets the Redis client for cache invalidation
 func (h *ThreadsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
+}
+
+// SetAuthService sets the auth service for optional token parsing
+func (h *ThreadsHandler) SetAuthService(authService *auth.AuthService) {
+	h.authService = authService
+}
+
+// getUserIdFromRequest extracts user ID from the Authorization header if present.
+// Returns empty string if no valid token is found (anonymous access).
+func (h *ThreadsHandler) getUserIdFromRequest(c *gin.Context) string {
+	// First try claims set by auth middleware
+	if claims, ok := bearerClaims(c); ok {
+		return claims.UserID
+	}
+	// Try to parse Authorization header directly (for public endpoints)
+	if h.authService == nil {
+		return ""
+	}
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	tokenParts := strings.Split(authHeader, " ")
+	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+		return ""
+	}
+	claims, err := h.authService.ValidateToken(tokenParts[1])
+	if err != nil {
+		return ""
+	}
+	return claims.UserID
 }
 
 // canAccessChannel checks if a user can access a channel.
@@ -56,6 +88,20 @@ func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, check
 	}
 	if ownerID == userID {
 		return true, nil
+	}
+	// Check if user is any member of this gomosub (basic read access even without a role)
+	if !checkWrite {
+		var isMember bool
+		memberErr := h.db.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM gomosub_memberships
+				WHERE board_id = (SELECT board_id FROM channels WHERE id = $1)
+				AND user_id = $2
+			)
+		`, channelID, userID).Scan(&isMember)
+		if memberErr == nil && isMember {
+			return true, nil
+		}
 	}
 	permColumn := "cp.can_read"
 	if checkWrite {
@@ -159,11 +205,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	// Verify channel access for private channels
 	if channelIDParam != "" {
-		claims, _ := bearerClaims(c)
-		userID := ""
-		if claims != nil {
-			userID = claims.UserID
-		}
+		userID := h.getUserIdFromRequest(c)
 		canAccess, err := h.canAccessChannel(userID, channelIDParam, false)
 		if err != nil && err != sql.ErrNoRows {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
