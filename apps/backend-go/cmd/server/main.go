@@ -25,6 +25,55 @@ func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
 
+	// ── Start HTTP server IMMEDIATELY with /health endpoint ───────────────
+	// Docker healthcheck uses /health. By starting the server BEFORE heavy
+	// initialization (DB migrations, Redis, bots), the container passes
+	// health checks within seconds, regardless of init delays.
+	router := gin.New()
+	router.Use(gin.Recovery()) // catch panics, return 500 instead of crashing
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+		srv := &http.Server{Addr: ":" + port, Handler: router}
+		go func() {
+			log.Printf("TLS enabled — HTTPS server + /health on port %s", port)
+			if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+				log.Fatal("TLS server failed:", err)
+			}
+		}()
+		if cfg.TLSRedirectHTTP && port == "443" {
+			go func() {
+				redirectSrv := &http.Server{
+					Addr: ":80",
+					Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						target := "https://" + r.Host + r.URL.RequestURI()
+						http.Redirect(w, r, target, http.StatusMovedPermanently)
+					}),
+				}
+				log.Printf("HTTP→HTTPS redirect on :80")
+				if err := redirectSrv.ListenAndServe(); err != nil {
+					log.Printf("HTTP redirect stopped: %v", err)
+				}
+			}()
+		}
+	} else {
+		go func() {
+			log.Printf("HTTP server + /health on port %s", port)
+			if err := router.Run(":" + port); err != nil {
+				log.Fatal("HTTP server failed:", err)
+			}
+		}()
+	}
+
+	// ── Heavy initialization (after /health is already available) ─────────
+
 	// Initialize database
 	db, err := database.InitDB()
 	if err != nil {
@@ -37,7 +86,7 @@ func main() {
 
 	// Initialize WebSocket Hub with Redis Pub/Sub and allowed origins
 	wsHub := websocket.NewHub(redisClient, cfg.AllowedOrigins)
-	wsHub.SetDB(db) // Set database connection for online status updates
+	wsHub.SetDB(db)
 	go wsHub.Run()
 	log.Printf("WebSocket Hub initialized with allowed origins: %v", cfg.AllowedOrigins)
 
@@ -50,17 +99,7 @@ func main() {
 	}
 	defer botManager.Stop()
 
-	// Initialize Gin router
-	router := gin.Default()
-
-	// Register /health IMMEDIATELY — before all heavy initialization.
-	// Docker healthcheck: start_period=30s + retries=5×interval=10s = 80s grace.
-	// DB, Redis, migrations, WebSocket, bots are all initialized AFTER.
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
-
-	// Add middleware
+	// Add middleware (does NOT affect /health — already registered above)
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
@@ -71,50 +110,8 @@ func main() {
 	// pprof for memory profiling
 	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))
 
-	// Get port from environment
-	port := os.Getenv("SERVER_PORT")
-	if port == "" {
-		port = "8080"
-	}
+	log.Println("All routes registered — server fully operational")
 
-	// TLS configuration
-	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
-		// HTTPS mode
-		log.Printf("TLS enabled — starting HTTPS server on port %s", port)
-
-		if cfg.TLSRedirectHTTP && port == "443" {
-			// Start a separate goroutine that redirects HTTP :80 → HTTPS :443
-			go func() {
-				redirectSrv := &http.Server{
-					Addr: ":80",
-					Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						target := "https://" + r.Host + r.URL.RequestURI()
-						http.Redirect(w, r, target, http.StatusMovedPermanently)
-					}),
-				}
-				log.Printf("HTTP→HTTPS redirect listening on :80")
-				if err := redirectSrv.ListenAndServe(); err != nil {
-					log.Printf("HTTP redirect server stopped: %v", err)
-				}
-			}()
-		} else if cfg.TLSRedirectHTTP {
-			log.Printf("Warning: TLS_REDIRECT_HTTP is set but SERVER_PORT is not 443 — redirect only works with standard HTTPS port 443")
-		}
-
-		// Start HTTPS server
-		srv := &http.Server{
-			Addr:    ":" + port,
-			Handler: router,
-		}
-		if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
-			log.Fatal("Failed to start TLS server:", err)
-		}
-	} else {
-		// Plain HTTP mode (development)
-		log.Printf("TLS not configured — starting HTTP server on port %s", port)
-		log.Printf("  Set TLS_CERT_FILE and TLS_KEY_FILE env vars to enable HTTPS")
-		if err := router.Run(":" + port); err != nil {
-			log.Fatal("Failed to start server:", err)
-		}
-	}
+	// Block main goroutine forever (server runs in background goroutine)
+	select {}
 }
