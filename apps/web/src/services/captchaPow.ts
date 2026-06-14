@@ -114,10 +114,10 @@ export interface MCaptchaInstance {
 const mCaptchaScriptCache = new Map<string, Promise<Window['mCaptcha']>>();
 
 export function loadMCaptchaScript(widgetUrl: string, timeoutMs = 15_000): Promise<Window['mCaptcha']> {
-  if (!widgetUrl) {
+  if (!widgetUrl || !widgetUrl.trim()) {
     return Promise.reject(new Error('mCaptcha widget URL is empty'));
   }
-  const normalized = widgetUrl.replace(/\/+$/, '');
+  const normalized = widgetUrl.trim().replace(/\/+$/, '');
   const cached = mCaptchaScriptCache.get(normalized);
   if (cached) return cached;
 
