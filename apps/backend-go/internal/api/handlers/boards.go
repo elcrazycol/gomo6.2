@@ -234,12 +234,22 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 		n++
 	}
 	if updates.RulesMarkdown != nil {
+		// Only update rules_updated_at if the content actually changed
+		var oldRulesMarkdown sql.NullString
+		_ = h.db.QueryRow(`SELECT rules_markdown FROM boards WHERE id = $1`, id).Scan(&oldRulesMarkdown)
+		oldVal := ""
+		if oldRulesMarkdown.Valid {
+			oldVal = oldRulesMarkdown.String
+		}
+		newVal := *updates.RulesMarkdown
 		sets = append(sets, fmt.Sprintf("rules_markdown = $%d", n))
-		args = append(args, *updates.RulesMarkdown)
+		args = append(args, newVal)
 		n++
-		sets = append(sets, fmt.Sprintf("rules_updated_at = $%d", n))
-		args = append(args, time.Now().UTC())
-		n++
+		if oldVal != newVal {
+			sets = append(sets, fmt.Sprintf("rules_updated_at = $%d", n))
+			args = append(args, time.Now().UTC())
+			n++
+		}
 	}
 	if updates.GomosubAvatarURL != nil {
 		sets = append(sets, fmt.Sprintf("gomosub_avatar_url = $%d", n))
