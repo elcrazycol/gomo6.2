@@ -75,11 +75,6 @@ func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, check
 	return hasAccess, nil
 }
 
-// canWriteChannel checks if a user can write to a channel.
-func (h *ThreadsHandler) canWriteChannel(userID string, channelID string) (bool, error) {
-	return h.canAccessChannel(userID, channelID, true)
-}
-
 // Migration 036 added tags JSONB column to threads table.
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
