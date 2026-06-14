@@ -57,6 +57,7 @@ type Board struct {
 	IsGomosub        bool       `json:"is_gomosub" db:"is_gomosub"`
 	IsRulesBoard     bool       `json:"is_rules_board" db:"is_rules_board"`
 	OwnerID          *string    `json:"owner_id" db:"owner_id"`
+	Visibility       string     `json:"visibility" db:"visibility"`
 	GomosubAvatarURL *string    `json:"gomosub_avatar_url" db:"gomosub_avatar_url"`
 	CoverImageURL    *string    `json:"cover_image_url" db:"cover_image_url"`
 	GomosubTags      JSONB      `json:"gomosub_tags" db:"gomosub_tags"`
@@ -388,4 +389,17 @@ type UpdateBotRequest struct {
 	Description *string `json:"description"`
 	LuaCode     *string `json:"lua_code"`
 	IsActive    *bool   `json:"is_active"`
+}
+
+// GomosubInvite — invite link for private gomosubs
+type GomosubInvite struct {
+	ID          string     `json:"id" db:"id"`
+	BoardID     string     `json:"board_id" db:"board_id"`
+	Code        string     `json:"code" db:"code"`
+	CreatedBy   string     `json:"created_by" db:"created_by"`
+	MaxUses     int        `json:"max_uses" db:"max_uses"`
+	CurrentUses int        `json:"current_uses" db:"current_uses"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty" db:"expires_at"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	IsActive    bool       `json:"is_active" db:"is_active"`
 }

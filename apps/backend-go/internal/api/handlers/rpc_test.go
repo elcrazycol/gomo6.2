@@ -658,12 +658,12 @@ func TestCreateGomoSub_Success(t *testing.T) {
 	now := time.Now()
 	mock.ExpectQuery(`(?s).*INSERT INTO boards.*RETURNING.*`).
 		WithArgs("my-test", "My Test", "A test gomosub",
-			"u1", nil, nil, "[]", nil).
+			"u1", "public", nil, nil, "[]", nil).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "slug", "name", "description", "is_gomosub", "is_rules_board", "owner_id",
+			"id", "slug", "name", "description", "is_gomosub", "is_rules_board", "owner_id", "visibility",
 			"gomosub_avatar_url", "cover_image_url", "gomosub_tags", "rules_markdown", "rules_updated_at", "created_at",
 		}).AddRow("board-1", "my-test", "My Test", "A test gomosub", true, false,
-			"u1", nil, nil, "[]", nil, nil, now))
+			"u1", "public", nil, nil, "[]", nil, nil, now))
 
 	c, w := newRPCPostContext(map[string]interface{}{
 		"slug":        "my-test",
@@ -857,7 +857,7 @@ func TestCreateGomoSub_DBErrorOnInsert(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*INSERT INTO boards.*RETURNING.*`).
 		WithArgs("my-test", "My Test", "A test gomosub",
-			"u1", nil, nil, "[]", nil).
+			"u1", "public", nil, nil, "[]", sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	c, w := newRPCPostContext(map[string]interface{}{
@@ -884,7 +884,7 @@ func TestCreateGomoSub_DuplicateKeyOnInsert(t *testing.T) {
 	// INSERT returns duplicate key error (race condition — was created between SELECT and INSERT)
 	mock.ExpectQuery(`(?s).*INSERT INTO boards.*RETURNING.*`).
 		WithArgs("my-test", "My Test", "A test gomosub",
-			"u1", nil, nil, "[]", nil).
+			"u1", "public", nil, nil, "[]", nil).
 		WillReturnError(errors.New("duplicate key value violates unique constraint"))
 
 	c, w := newRPCPostContext(map[string]interface{}{
