@@ -26,12 +26,14 @@ var TableCacheDeps = CacheDependencyMap{
 		"data:/api/v1/boards",
 		"data:/api/v1/boards?id=eq.{id}",
 		"data:/api/v1/boards/{id}",
+		"data:/api/v1/boards/{slug}",
 		"data:/api/v1/boards?slug=eq.{slug}",
 	},
 	"profiles": {
 		"data:/api/v1/profiles",
 		"data:/api/v1/profiles?id=eq.{id}",
 		"data:/api/v1/profiles/{id}",
+		"data:/api/v1/profiles/{username}",
 		"data:/api/v1/profiles?username=eq.{username}",
 	},
 	"users": {
@@ -142,10 +144,9 @@ func BuildCachePatterns(table string, values map[string]string) []string {
 		// Pattern to match this specific value anywhere in the query string
 		// e.g., "data:/api/v1/posts*thread_id=eq.123*"
 		patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s*%s=eq.%s*", table, key, value))
-		// Also match by id as a resource path: /api/v1/posts/123
-		if key == "id" {
-			patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s/%s*", table, value))
-		}
+		// Also match by key value as a resource path segment: /api/v1/boards/shroom, /api/v1/posts/123
+		// This covers endpoints that use slug/id/username in the URL path instead of query params
+		patterns = append(patterns, fmt.Sprintf("data:/api/v1/%s/%s?*", table, value))
 	}
 
 	return patterns
