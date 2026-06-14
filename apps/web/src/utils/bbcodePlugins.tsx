@@ -22,8 +22,32 @@ const processTextContent = (text: string, keyPrefix: string = 'bb'): React.React
   for (const part of parts) {
     if (!part) continue;
     
+    // Markdown heading ### text
+    if (part.match(/^###\s+(.+)/)) {
+      elements.push(
+        <h3 key={`${keyPrefix}-md-h3-${key++}`} className="text-base font-bold mt-3 mb-1 text-foreground">
+          {part.replace(/^###\s+/, '')}
+        </h3>
+      );
+    }
+    // Markdown heading ## text
+    else if (part.match(/^##\s+(.+)/)) {
+      elements.push(
+        <h2 key={`${keyPrefix}-md-h2-${key++}`} className="text-lg font-bold mt-3 mb-1 text-foreground">
+          {part.replace(/^##\s+/, '')}
+        </h2>
+      );
+    }
+    // Markdown bullet list item - item
+    else if (part.startsWith('- ') && part.length > 2) {
+      elements.push(
+        <li key={`${keyPrefix}-md-li-${key++}`} className="ml-4 list-disc text-sm">
+          {part.slice(2)}
+        </li>
+      );
+    }
     // Markdown bold **text**
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+    else if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
       elements.push(
         <strong key={`${keyPrefix}-md-bold-${key++}`} className="font-bold">
           {part.slice(2, -2)}
@@ -142,12 +166,9 @@ export const createCustomBbPreset = (options?: {
 }) => {
   const {
     currentUserId,
-    currentUsername,
     currentUserColor,
     postAuthorId,
-    authorUsername,
     authorColor,
-    keyPrefix = 'bb'
   } = options || {};
 
   return presetReact.extend((tags) => ({
