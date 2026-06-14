@@ -28,7 +28,7 @@ http://{$DOMAIN:localhost}, http://docs.{$DOMAIN:localhost}, http://dev.{$DOMAIN
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' wss: https:; font-src 'self'; media-src 'self' blob:;"
+		Content-Security-Policy "default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' data: wss: https:; font-src 'self'; media-src 'self' blob:;"
 	}
 
 	# ── Logging ────────────────────────────────────────────────────────────
