@@ -11,15 +11,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/redis/go-redis/v9"
 )
 
 type BoardsHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	redis *redis.Client
 }
 
 func NewBoardsHandler(db *sql.DB) *BoardsHandler {
 	return &BoardsHandler{db: db}
+}
+
+func (h *BoardsHandler) SetRedis(redis *redis.Client) {
+	h.redis = redis
 }
 
 func (h *BoardsHandler) GetBoards(c *gin.Context) {
@@ -284,6 +291,14 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	// Invalidate board cache so avatar/cover/rules changes appear immediately
+	if h.redis != nil {
+		var boardSlug string
+		if err := h.db.QueryRow(`SELECT slug FROM boards WHERE id = $1`, id).Scan(&boardSlug); err == nil {
+			cache.InvalidateForBoard(h.redis, id, boardSlug)
+		}
 	}
 
 	var board models.Board

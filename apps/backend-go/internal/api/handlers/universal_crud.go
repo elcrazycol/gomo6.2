@@ -377,6 +377,15 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			}
 		}
 
+		// Invalidate rules acceptance cache so the dialog doesn't re-appear after accepting
+		if tableName == "gomosub_rules_acceptance" && h.redis != nil {
+			uid := fmt.Sprint(result["user_id"])
+			bid := fmt.Sprint(result["board_id"])
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*user_id=eq.%s*", uid))
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*board_id=eq.%s*", bid))
+			cache.InvalidateByPattern(h.redis, "data:/api/v1/gomosub_rules_acceptance?*")
+		}
+
 		c.JSON(http.StatusOK, models.SuccessResponse(result))
 		return
 	}
