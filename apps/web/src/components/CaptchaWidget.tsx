@@ -14,7 +14,7 @@ import {
   fetchCaptchaConfig,
   fetchChallenge,
   solveChallenge,
-  type CaptchaConfig,
+  CaptchaTimeoutError,
 } from "@/services/captchaPow";
 
 interface CaptchaWidgetProps {
@@ -30,10 +30,13 @@ interface CaptchaWidgetProps {
 type WidgetState = "idle" | "solving" | "done" | "error";
 
 export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
-  const [config, setConfig] = useState<CaptchaConfig | null>(null);
   const [state, setState] = useState<WidgetState>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [elapsed, setElapsed] = useState("");
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [autoRetryIn, setAutoRetryIn] = useState<number | null>(null);
+  const autoRetryInRef = useRef<number | null>(null);
+  const activeWorkerRef = useRef<Worker | null>(null);
   const solved = useRef(false);
   const resultRef = useRef({
     challengeId: "",
@@ -49,13 +52,26 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
       return;
     }
 
+    // Terminate any in-flight worker from a previous attempt so we don't burn
+    // CPU on stale work.
+    if (activeWorkerRef.current) {
+      try { activeWorkerRef.current.terminate(); } catch { /* noop */ }
+      activeWorkerRef.current = null;
+    }
+
     setState("solving");
     setErrorMsg("");
+    setAutoRetryIn(null);
     try {
-      const challenge = await fetchChallenge();
-      const solution = await solveChallenge(challenge, (elapsedSec) => {
-        setElapsed(`${elapsedSec.toFixed(1)}с`);
-      });
+      // After a timeout (retryNonce > 0) ask the server for a slightly
+      // easier challenge. This is the safety net for the slowest devices.
+      const maxDifficulty = retryNonce > 0 ? Math.max(8, 12 - Math.min(retryNonce, 4) * 1) : undefined;
+      const challenge = await fetchChallenge(maxDifficulty);
+      const solution = await solveChallenge(
+        challenge,
+        (info) => setElapsed(`${info.elapsedSec.toFixed(1)}с`),
+        (w) => { activeWorkerRef.current = w; }
+      );
 
       resultRef.current = {
         challengeId: challenge.challenge_id,
@@ -65,19 +81,61 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
       };
       solved.current = true;
       setState("done");
+      setAutoRetryIn(null);
       onReady(resultRef.current);
     } catch (err) {
+      const isTimeout = err instanceof CaptchaTimeoutError;
       const msg = (err as Error).message || "Ошибка проверки";
       setState("error");
       setErrorMsg(msg);
       onError(msg);
+
+      // Auto-retry once on a fresh challenge after a short delay. The widget
+      // does the next fetch via the "Повторить" button too, but on slow
+      // devices a single auto-attempt at lower difficulty usually clears it.
+      //
+      // Guard: only schedule the countdown if one isn't already running.
+      // Without this, a device that times out repeatedly would get stuck in
+      // an infinite auto-retry loop because each failed attempt re-arms the
+      // countdown.
+      if (isTimeout && autoRetryInRef.current === null) {
+        setAutoRetryIn(2);
+      }
     }
-  }, [onReady, onError]);
+  }, [onReady, onError, retryNonce]);
+
+  // Auto-retry countdown — gives the user a chance to read the error first,
+  // then transparently re-fetches a (slightly easier) challenge. Aborts if
+  // state is no longer "error" (e.g. user manually retried and it succeeded).
+  useEffect(() => {
+    if (autoRetryIn === null) {
+      autoRetryInRef.current = null;
+      return;
+    }
+    if (state !== "error") {
+      setAutoRetryIn(null);
+      return;
+    }
+    autoRetryInRef.current = autoRetryIn;
+    if (autoRetryIn <= 0) {
+      setAutoRetryIn(null);
+      setRetryNonce((n) => n + 1);
+      return;
+    }
+    const t = window.setTimeout(() => setAutoRetryIn((v) => (v === null ? null : v - 1)), 1000);
+    return () => window.clearTimeout(t);
+  }, [autoRetryIn, state]);
+
+  // Whenever the auto-retry fires (retryNonce bumps), kick off a new solve.
+  useEffect(() => {
+    if (retryNonce === 0) return;
+    if (state !== "error") return;
+    doSolve();
+  }, [retryNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchCaptchaConfig()
       .then((cfg) => {
-        setConfig(cfg);
         if (cfg.type === "pow" && cfg.enabled) {
           doSolve();
         } else if (cfg.type === "mcaptcha") {
@@ -210,17 +268,24 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
 
           {/* ── Action ── */}
           {state === "error" && (
-            <button
-              type="button"
-              onClick={() => {
-                solved.current = false;
-                doSolve();
-              }}
-              className="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-destructive/80 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              Повторить
-            </button>
+            <div className="flex-shrink-0 flex items-center gap-2">
+              {autoRetryIn !== null && (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  авто · {autoRetryIn}с
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  solved.current = false;
+                  setRetryNonce((n) => n + 1);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-destructive/80 transition-colors"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Повторить
+              </button>
+            </div>
           )}
         </div>
       </div>
