@@ -3,7 +3,11 @@ package handlers
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"net/http"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 // =============================================================================
@@ -159,6 +163,102 @@ func TestCaptchaHandler_IsConfigured_MissingVerifyURL(t *testing.T) {
 	}
 	if h.IsConfigured() {
 		t.Error("missing verifyURL should NOT be configured")
+	}
+}
+
+// =============================================================================
+// captchaErr / typed-error sentinels
+// =============================================================================
+
+func TestCaptchaError_ErrorsIs_MatchesByCode(t *testing.T) {
+	err := captchaError(ErrCaptchaExpired.code, "expired")
+	if !errors.Is(err, ErrCaptchaExpired) {
+		t.Fatal("errors.Is must match sentinels by code")
+	}
+	if errors.Is(err, ErrCaptchaMissing) {
+		t.Fatal("errors.Is must NOT cross-match different codes")
+	}
+}
+
+func TestCaptchaError_SentinelsDistinctByCode(t *testing.T) {
+	// Each sentinel must have a distinct code — otherwise errors.Is is ambiguous.
+	codes := map[string]struct{}{
+		ErrCaptchaMissing.code: {},
+		ErrCaptchaExpired.code: {},
+		ErrCaptchaOffline.code: {},
+		ErrCaptchaInvalid.code: {},
+	}
+	if len(codes) != 4 {
+		t.Fatalf("sentinel codes must be distinct, got %d distinct out of 4: %v", len(codes), codes)
+	}
+}
+
+func TestCaptchaError_ErrorsIs_DirectSentinelEquality(t *testing.T) {
+	// Returning a sentinel directly should also be matchable.
+	if !errors.Is(ErrCaptchaOffline, ErrCaptchaOffline) {
+		t.Fatal("a sentinel must match itself")
+	}
+}
+
+func TestCaptchaError_Code_ReturnsLabel(t *testing.T) {
+	e := captchaError(ErrCaptchaInvalid.code, "x")
+	var c *captchaErr
+	if !errors.As(e, &c) {
+		t.Fatal("expected captchaErr concrete type")
+	}
+	if c.Code() != "captcha_invalid" {
+		t.Fatalf("Code() = %q, want %q", c.Code(), "captcha_invalid")
+	}
+}
+
+// =============================================================================
+// GetChallenge — nil-Redis guard
+// =============================================================================
+
+// We don't have a miniredis dependency wired into this package, so the
+// max_difficulty branch is only testable in integration. The unit-level guard
+// here is just that GetChallenge returns 503 cleanly when h.redis is nil
+// and a max_difficulty is supplied.
+func TestGetChallenge_RedisNil_ReturnsServiceUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &CaptchaHandler{
+		redis:         nil,
+		powDifficulty: 16,
+	}
+	c, w := newGETContext("/api/v1/auth/captcha-challenge", map[string]string{"max_difficulty": "8"})
+	h.GetChallenge(c)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 with nil redis, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// =============================================================================
+// applyMaxDifficulty — clamp client-requested difficulty cap
+// =============================================================================
+
+func TestApplyMaxDifficulty(t *testing.T) {
+	tests := []struct {
+		name          string
+		raw           string
+		serverDefault int
+		want          int
+	}{
+		{"empty falls back to default", "", 12, 12},
+		{"non-numeric falls back to default", "abc", 12, 12},
+		{"below min keeps default", "4", 12, 12},
+		{"above 32 keeps default", "40", 12, 12},
+		{"equal to default keeps default", "12", 12, 12},
+		{"above default keeps default", "20", 12, 12},
+		{"valid value below default is honored", "10", 12, 10},
+		{"min boundary", "8", 12, 8},
+		{"max boundary", "32", 33, 32},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := applyMaxDifficulty(tt.raw, tt.serverDefault); got != tt.want {
+				t.Errorf("applyMaxDifficulty(%q, %d) = %d, want %d", tt.raw, tt.serverDefault, got, tt.want)
+			}
+		})
 	}
 }
 
