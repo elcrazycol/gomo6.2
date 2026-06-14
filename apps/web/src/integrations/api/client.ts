@@ -219,15 +219,8 @@ class ApiClient {
   }
 
   // Auth Methods
-  async register(email: string, username: string, password: string, captcha?: {
-    challenge_id?: string;
-    solution?: string;
-    captcha_token?: string;
-  }): Promise<AuthResponse> {
+  async register(email: string, username: string, password: string): Promise<AuthResponse> {
     const body: Record<string, string> = { email, username, password };
-    if (captcha?.challenge_id) body.challenge_id = captcha.challenge_id;
-    if (captcha?.solution) body.solution = captcha.solution;
-    if (captcha?.captcha_token) body.captcha_token = captcha.captcha_token;
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/register', {
       method: 'POST',
@@ -245,20 +238,12 @@ class ApiClient {
   async login(
     email: string,
     password: string,
-    deviceId?: string,
-    captcha?: {
-      challenge_id?: string;
-      solution?: string;
-      captcha_token?: string;
-    }
+    deviceId?: string
   ): Promise<AuthResponse & { needs_2fa?: boolean }> {
     const body: Record<string, string | boolean> = { email, password };
     if (deviceId) {
       body.device_id = deviceId;
     }
-    if (captcha?.challenge_id) body.challenge_id = captcha.challenge_id;
-    if (captcha?.solution) body.solution = captcha.solution;
-    if (captcha?.captcha_token) body.captcha_token = captcha.captcha_token;
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/login', {
       method: 'POST',

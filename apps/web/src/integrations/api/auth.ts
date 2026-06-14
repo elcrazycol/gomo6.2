@@ -3,31 +3,22 @@
 import { apiClient, getDeviceId } from './client';
 
 export const apiAuth = {
-  signUp: async ({ email, password, options, ...captcha }: { email: string; password: string; options?: { data?: { username?: string } }; challenge_id?: string; solution?: string; captcha_token?: string }) => {
+  signUp: async ({ email, password, options }: { email: string; password: string; options?: { data?: { username?: string } } }) => {
     try {
       const result = await apiClient.register(
         email,
         options?.data?.username || email.split('@')[0],
-        password,
-        {
-          challenge_id: captcha.challenge_id,
-          solution: captcha.solution,
-          captcha_token: captcha.captcha_token,
-        }
+        password
       );
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
     } catch (error) {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  signInWithPassword: async ({ email, password, ...captcha }: { email: string; password: string; challenge_id?: string; solution?: string; captcha_token?: string }) => {
+  signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
     try {
       const deviceId = getDeviceId();
-      const result = await apiClient.login(email, password, deviceId, {
-        challenge_id: captcha.challenge_id,
-        solution: captcha.solution,
-        captcha_token: captcha.captcha_token,
-      });
+      const result = await apiClient.login(email, password, deviceId);
       
       if (result.needs_2fa) {
         return { 
@@ -53,7 +44,7 @@ export const apiAuth = {
       }
       const user = await apiClient.getCurrentUser();
       return { data: { user }, error: null };
-    } catch (error) {
+    } catch (_e) {
       return { data: { user: null }, error: null };
     }
   },
@@ -65,7 +56,7 @@ export const apiAuth = {
       }
       const user = await apiClient.getCurrentUser();
       return { data: { session: user ? { user, access_token: token } : null }, error: null };
-    } catch (error) {
+    } catch (_e) {
       return { data: { session: null }, error: null };
     }
   },

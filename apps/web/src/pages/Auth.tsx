@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
-import { apiClient, getDeviceId } from "@/integrations/api/client";
+import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { TermsOfService } from "@/components/TermsOfService";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { CaptchaWidget } from "@/components/CaptchaWidget";
 import { useQueryClient } from "@tanstack/react-query";
 import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "@/services/passkeys";
 import { Shield } from "lucide-react";
@@ -46,14 +45,6 @@ const Auth = () => {
   const [totpCode, setTotpCode] = useState("");
   const [trustDevice, setTrustDevice] = useState(false);
 
-  // CAPTCHA state
-  const captchaData = useRef<{
-    challengeId: string;
-    solution: string;
-    captchaToken: string;
-  }>({ challengeId: "", solution: "", captchaToken: "" });
-  const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaError, setCaptchaError] = useState<string | null>(null);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -81,28 +72,13 @@ const Auth = () => {
 
     setLoading(true);
 
-    // Guard: captcha must be ready before submission (Enter key can bypass disabled button)
-    if (!captchaReady) {
-      toast.error("Дождитесь завершения проверки на бота");
-      setLoading(false);
-      return;
-    }
-
     try {
       const email = `${username}@gomo6.local`;
-
-      // Captcha data (honeypot: NOT included — bots that inject "website" get caught server-side)
-      const captchaPayload = {
-        challenge_id: captchaData.current.challengeId,
-        solution: captchaData.current.solution,
-        captcha_token: captchaData.current.captchaToken,
-      };
 
       if (isLogin) {
         const { data, error } = await api.auth.signInWithPassword({
           email,
           password,
-          ...captchaPayload,
         });
 
         if (error) {
@@ -143,7 +119,6 @@ const Auth = () => {
             },
             emailRedirectTo: `${window.location.origin}/`,
           },
-          ...captchaPayload,
         });
 
         if (error) {
@@ -173,7 +148,7 @@ const Auth = () => {
         toast.success("Регистрация успешна! Можете войти.");
         setIsLogin(true);
       }
-    } catch (error: unknown) {
+    } catch (_: unknown) {
       toast.error("Произошла ошибка");
     } finally {
       setLoading(false);
@@ -192,7 +167,7 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const { data, error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
+      const { error } = await api.auth.verify2FA(partialToken, totpCode, trustDevice);
 
       if (error) {
         toast.error("Неверный код 2FA");
@@ -211,7 +186,7 @@ const Auth = () => {
 
       toast.success("Вход выполнен");
       navigate(redirectTo, { replace: true });
-    } catch (error: unknown) {
+    } catch (_: unknown) {
       toast.error("Ошибка проверки кода");
     } finally {
       setLoading(false);
@@ -243,7 +218,7 @@ const Auth = () => {
 
       // Step 3: send assertion to server with session token
       const serialized = serializeAuthentication(credential as PublicKeyCredential);
-      const result = await apiClient.finishPasskeyLogin(optionsData.session_token, serialized);
+      const _result = await apiClient.finishPasskeyLogin(optionsData.session_token, serialized);
 
       // Success — same post-login flow as password login
       await queryClient.invalidateQueries({ queryKey: ['auth'] });
@@ -359,6 +334,28 @@ const Auth = () => {
           </h2>
 
           <form onSubmit={handleAuth} className="space-y-4">
+            {/* ── HoneyPot: hidden from humans, visible to bots in DOM ── */}
+            <div
+              style={{
+                position: "absolute",
+                left: "-9999px",
+                opacity: 0,
+                height: 0,
+                width: 0,
+                overflow: "hidden",
+              }}
+              aria-hidden="true"
+            >
+              <label htmlFor="website">Website</label>
+              <input
+                type="text"
+                id="website"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
+
             <div>
               <Label htmlFor="username">Юзернейм</Label>
               <Input
@@ -411,24 +408,7 @@ const Auth = () => {
               </div>
             )}
 
-            {/* CAPTCHA + HoneyPot — invisible anti-bot protection */}
-            <CaptchaWidget
-              onReady={(data) => {
-                captchaData.current = data;
-                setCaptchaReady(true);
-                setCaptchaError(null);
-              }}
-              onError={(msg) => {
-                setCaptchaError(msg);
-                setCaptchaReady(false);
-              }}
-            />
-
-            {captchaError && (
-              <p className="text-xs text-destructive">{captchaError}</p>
-            )}
-
-            <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms) || !captchaReady}>
+            <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms)}>
               {loading ? "Загрузка..." : isLogin ? "Войти" : "Зарегистрироваться"}
             </Button>
 

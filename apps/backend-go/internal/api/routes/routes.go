@@ -140,9 +140,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Auth routes
 		authGroup := api.Group("/auth")
 		{
-			// CAPTCHA — public, no auth required
-			authGroup.GET("/captcha-config", authHandler.GetCaptchaConfig)
-			authGroup.GET("/captcha-challenge", authHandler.GetCaptchaChallenge)
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.POST("/login", authHandler.Login)
 			authGroup.POST("/refresh", middleware.AuthMiddleware(authService), authHandler.Refresh)

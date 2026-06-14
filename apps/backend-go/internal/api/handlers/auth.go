@@ -17,26 +17,22 @@ import (
 )
 
 type AuthHandler struct {
-	db             *sql.DB
-	authService    *auth.AuthService
-	redis          *redis.Client   // optional — enables lockout and token blacklist
-	captchaHandler *CaptchaHandler // optional — enables mCaptcha verification
+	db          *sql.DB
+	authService *auth.AuthService
+	redis       *redis.Client // optional — enables lockout and token blacklist
 }
 
 func NewAuthHandler(db *sql.DB) *AuthHandler {
 	return &AuthHandler{
-		db:             db,
-		authService:    auth.NewAuthService(),
-		captchaHandler: nil, // Will be set by SetRedis when Redis is available
+		db:          db,
+		authService: auth.NewAuthService(),
 	}
 }
 
-// SetRedis enables optional Redis-backed features: lockout, token blacklist, and PoW CAPTCHA.
+// SetRedis enables optional Redis-backed features: lockout, token blacklist.
 func (h *AuthHandler) SetRedis(rdb *redis.Client) {
 	h.redis = rdb
 	h.authService.SetRedis(rdb)
-	// Initialize captcha handler now that Redis is available (needed for PoW challenge storage)
-	h.captchaHandler = NewCaptchaHandler(rdb)
 }
 
 // ─── Internal helpers shared across auth modules ─────────────────────────────
