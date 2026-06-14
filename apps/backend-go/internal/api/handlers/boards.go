@@ -132,7 +132,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 }
 
 func (h *BoardsHandler) GetBoard(c *gin.Context) {
-	slug := c.Param("slug")
+	slug := c.Param("id")
 
 	query := `
 		SELECT id, slug, name, description, is_gomosub, is_rules_board, owner_id, visibility,

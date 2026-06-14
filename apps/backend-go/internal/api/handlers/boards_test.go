@@ -118,7 +118,7 @@ func TestGetBoards_DBError(t *testing.T) {
 func TestGetBoard_Success(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
 	c, w := newGETContext("/api/v1/boards/general", nil)
-	c.Params = []gin.Param{{Key: "slug", Value: "general"}}
+	c.Params = []gin.Param{{Key: "id", Value: "general"}}
 
 	row := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
@@ -151,7 +151,7 @@ func TestGetBoard_Success(t *testing.T) {
 func TestGetBoard_NotFound(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
 	c, w := newGETContext("/api/v1/boards/unknown", nil)
-	c.Params = []gin.Param{{Key: "slug", Value: "unknown"}}
+	c.Params = []gin.Param{{Key: "id", Value: "unknown"}}
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*WHERE slug = \$1`).
 		WithArgs("unknown").
@@ -167,7 +167,7 @@ func TestGetBoard_NotFound(t *testing.T) {
 func TestGetBoard_DBError(t *testing.T) {
 	handler, mock := setupBoardsHandler(t)
 	c, w := newGETContext("/api/v1/boards/general", nil)
-	c.Params = []gin.Param{{Key: "slug", Value: "general"}}
+	c.Params = []gin.Param{{Key: "id", Value: "general"}}
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*WHERE slug = \$1`).
 		WithArgs("general").
