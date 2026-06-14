@@ -305,6 +305,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/boards/:id/invites", boardsHandler.CreateInvite)
 			protected.GET("/boards/:id/invites", boardsHandler.GetInvites)
 			protected.DELETE("/boards/:id/invites/:inviteId", boardsHandler.DeleteInvite)
+			protected.POST("/invites/:code/accept", boardsHandler.AcceptInvite)
 			protected.PUT("/threads/:id", threadsHandler.UpdateThread)
 			protected.PUT("/threads", threadsHandler.UpdateThread)
 			protected.PUT("/posts/:id", postsHandler.UpdatePost)
@@ -385,9 +386,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// GomoSub RPC functions
 			protected.POST("/create_gomosub", rpcHandler.CreateGomoSub)
-
-			// Invite accept (any authenticated user)
-			protected.POST("/invites/:code/accept", boardsHandler.AcceptInvite)
 
 			// Thread/Post RPC functions
 			protected.POST("/create_thread", rpcHandler.CreateThreadRPC)

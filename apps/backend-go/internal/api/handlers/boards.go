@@ -415,6 +415,11 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 		return
 	}
 
+	// Invalidate cache for invites
+	if h.redis != nil {
+		cache.InvalidateForTable(h.redis, "gomosub_invites", map[string]string{"board_id": boardID})
+	}
+
 	c.JSON(http.StatusCreated, models.SuccessResponse(invite))
 }
 
@@ -509,6 +514,11 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 		return
 	}
 
+	// Invalidate cache for invites
+	if h.redis != nil {
+		cache.InvalidateForTable(h.redis, "gomosub_invites", map[string]string{"board_id": boardID})
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "deleted"}))
 }
 
@@ -562,6 +572,30 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		c.JSON(http.StatusConflict, models.ErrorResponse("You are already a member of this gomosub"))
 		return
 	}
+	if err != sql.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Atomically increment usage counter (prevents race conditions).
+	// Only succeeds if limit not reached (or unlimited when max_uses=0).
+	var ok bool
+	err = h.db.QueryRow(`
+		UPDATE gomosub_invites
+		SET current_uses = current_uses + 1
+		WHERE id = $1 AND is_active = TRUE
+		  AND (max_uses = 0 OR current_uses < max_uses)
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		RETURNING TRUE
+	`, inv.ID).Scan(&ok)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusGone, models.ErrorResponse("Invite has expired or reached maximum uses"))
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
 
 	// Add membership
 	_, err = h.db.Exec(`INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, inv.BoardID, userClaims.UserID)
@@ -570,8 +604,11 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
-	// Increment usage counter
-	_, _ = h.db.Exec(`UPDATE gomosub_invites SET current_uses = current_uses + 1 WHERE id = $1`, inv.ID)
+	// Invalidate cache for memberships and board
+	if h.redis != nil {
+		cache.InvalidateForTable(h.redis, "gomosub_memberships", map[string]string{"board_id": inv.BoardID})
+		cache.InvalidateForTable(h.redis, "boards", map[string]string{"id": inv.BoardID})
+	}
 
 	// Get board slug for redirect
 	var boardSlug string
