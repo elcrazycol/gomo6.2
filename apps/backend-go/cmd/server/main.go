@@ -26,25 +26,26 @@ func main() {
 	cfg := config.LoadConfig()
 
 	// ── Start HTTP server IMMEDIATELY with /health endpoint ───────────────
-	// Docker healthcheck uses /health. By starting the server BEFORE heavy
-	// initialization (DB migrations, Redis, bots), the container passes
-	// health checks within seconds, regardless of init delays.
-	router := gin.New()
-	router.Use(gin.Recovery()) // catch panics, return 500 instead of crashing
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
-	})
-
+	// Docker healthcheck uses /health. We use a plain http.ServeMux for the
+	// health endpoint so there's no Gin router involved — zero risk of
+	// concurrent map read/write panics when Gin routes are added later.
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "8080"
 	}
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	srv := &http.Server{Addr: ":" + port, Handler: mux}
+
 	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
-		srv := &http.Server{Addr: ":" + port, Handler: router}
 		go func() {
 			log.Printf("TLS enabled — HTTPS server + /health on port %s", port)
-			if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil {
+			if err := srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile); err != nil && err != http.ErrServerClosed {
 				log.Fatal("TLS server failed:", err)
 			}
 		}()
@@ -66,7 +67,7 @@ func main() {
 	} else {
 		go func() {
 			log.Printf("HTTP server + /health on port %s", port)
-			if err := router.Run(":" + port); err != nil {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Fatal("HTTP server failed:", err)
 			}
 		}()
@@ -99,7 +100,9 @@ func main() {
 	}
 	defer botManager.Stop()
 
-	// Add middleware (does NOT affect /health — already registered above)
+	// ── Setup Gin router (only AFTER all init — safe to write to router) ─
+	router := gin.New()
+	router.Use(gin.Recovery())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
@@ -109,6 +112,9 @@ func main() {
 
 	// pprof for memory profiling
 	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))
+
+	// Register Gin as catch-all — /health in mux takes priority (exact match)
+	mux.Handle("/", router)
 
 	log.Println("All routes registered — server fully operational")
 
