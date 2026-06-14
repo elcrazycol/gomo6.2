@@ -38,11 +38,11 @@ type CaptchaHandler struct {
 //	MCAPTCHA_SITE_KEY  — public site key (exposed to frontend)
 //	MCAPTCHA_SECRET    — secret for backend verification
 //	MCAPTCHA_VERIFY_URL — mCaptcha server verification endpoint
-//	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 20, ~1M iterations)
+//	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 16, ~65k hashes avg)
 //
 // If mCaptcha is NOT configured, built-in Proof-of-Work is used as fallback.
 func NewCaptchaHandler(redis *redis.Client) *CaptchaHandler {
-	difficulty := 16 // ~65k hashes avg, ~300-500ms on modern HW, ~1-2s on weak devices
+	difficulty := 16
 	if d := os.Getenv("MCAPTCHA_POW_DIFFICULTY"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed >= 8 && parsed <= 32 {
 			difficulty = parsed
