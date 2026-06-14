@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -28,7 +29,13 @@ type CaptchaHandler struct {
 	verifyURL  string
 	httpClient *http.Client
 	// PoW difficulty: number of leading zero bits required in SHA-256 hash.
-	// 16 bits = ~65k hashes avg (fast for humans, expensive for bots)
+	// 12 bits = ~4k hashes avg (~50ms on a low-end phone, sub-ms on desktop)
+	// 16 bits = ~65k hashes avg (~1–2s on a low-end phone, ~50ms on desktop)
+	//
+	// Default lowered to 12 so login works on weak devices. Bots still pay
+	// meaningful CPU cost at difficulty 12, while real users with old phones
+	// or low-end laptops get a sub-100ms experience. Operators who want
+	// stronger anti-bot can raise it via MCAPTCHA_POW_DIFFICULTY.
 	powDifficulty int
 }
 
@@ -38,11 +45,11 @@ type CaptchaHandler struct {
 //	MCAPTCHA_SITE_KEY  — public site key (exposed to frontend)
 //	MCAPTCHA_SECRET    — secret for backend verification
 //	MCAPTCHA_VERIFY_URL — mCaptcha server verification endpoint
-//	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 16, ~65k hashes avg)
+//	MCAPTCHA_POW_DIFFICULTY — PoW difficulty in bits (default: 12, ~4k hashes avg)
 //
 // If mCaptcha is NOT configured, built-in Proof-of-Work is used as fallback.
 func NewCaptchaHandler(redis *redis.Client) *CaptchaHandler {
-	difficulty := 16
+	difficulty := 12
 	if d := os.Getenv("MCAPTCHA_POW_DIFFICULTY"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed >= 8 && parsed <= 32 {
 			difficulty = parsed
@@ -97,11 +104,23 @@ type powChallenge struct {
 	ChallengeID string `json:"challenge_id"`
 	Nonce       string `json:"nonce"`      // hex-encoded random bytes
 	Difficulty  int    `json:"difficulty"` // number of leading zero bits required
-	ExpiresAt   int64  `json:"expires_at"` // unix timestamp
+	ExpiresAt   int64  `json:"expires_at"` // unix timestamp (seconds)
+	// IssuedAt is server time in milliseconds — useful for client diagnostics.
+	IssuedAt int64 `json:"issued_at"`
 }
+
+// minPowDifficulty is the lower bound for the PoW difficulty the server will
+// ever issue, even if a misbehaving client asks for less. Keeps some anti-bot
+// value while still letting weak devices log in.
+const minPowDifficulty = 8
 
 // GetChallenge generates a new PoW challenge and stores it in Redis.
 // GET /api/v1/auth/captcha-challenge
+//
+// Optional query params (used by the client to ask for a lower-difficulty
+// challenge when its previous attempt timed out — e.g. on a weak device):
+//
+//	?max_difficulty=10   — cap the issued difficulty to this value
 func (h *CaptchaHandler) GetChallenge(c *gin.Context) {
 	if h.IsConfigured() {
 		// External mCaptcha handles challenge generation client-side
@@ -118,15 +137,22 @@ func (h *CaptchaHandler) GetChallenge(c *gin.Context) {
 		return
 	}
 
+	// Optional client-requested difficulty cap (e.g. after a worker timeout
+	// on a slow device). The server still enforces a hard minimum so the
+	// challenge is always worth something.
+	difficulty := applyMaxDifficulty(c.Query("max_difficulty"), h.powDifficulty)
+
 	// Generate challenge
 	challengeID := randomHex(16)
 	nonce := randomHex(16)
+	now := time.Now()
 
 	challenge := powChallenge{
 		ChallengeID: challengeID,
 		Nonce:       nonce,
-		Difficulty:  h.powDifficulty,
-		ExpiresAt:   time.Now().Add(5 * time.Minute).Unix(),
+		Difficulty:  difficulty,
+		ExpiresAt:   now.Add(5 * time.Minute).Unix(),
+		IssuedAt:    now.UnixMilli(),
 	}
 
 	// Store in Redis with 5 min TTL
@@ -149,20 +175,55 @@ var getAndDelScript = redis.NewScript(`
 	return val
 `)
 
+// Captcha error sentinels — used by handlers/UI to distinguish between
+// "challenge already used / not found" and "solution was wrong" so they can
+// tell the user something actionable instead of the same generic message.
+//
+// They are real error values (not string constants) so callers can branch
+// with errors.Is(err, handlers.ErrCaptchaExpired).
+var (
+	ErrCaptchaMissing = &captchaErr{code: "captcha_missing", message: "missing captcha fields"}
+	ErrCaptchaExpired = &captchaErr{code: "captcha_expired", message: "captcha expired — please refresh"}
+	ErrCaptchaOffline = &captchaErr{code: "captcha_offline", message: "captcha service temporarily unavailable"}
+	ErrCaptchaInvalid = &captchaErr{code: "captcha_invalid", message: "captcha solution invalid — please try again"}
+)
+
+// applyMaxDifficulty clamps a client-requested difficulty cap to the valid
+// range [minPowDifficulty, 32] and to below the server's default. Returns
+// the effective difficulty to issue. Extracted so it can be unit-tested
+// without a Redis dependency.
+func applyMaxDifficulty(raw string, serverDefault int) int {
+	if raw == "" {
+		return serverDefault
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return serverDefault
+	}
+	if v < minPowDifficulty || v > 32 || v >= serverDefault {
+		return serverDefault
+	}
+	return v
+}
+
 // VerifyPoW checks if a PoW solution is valid for the given challenge.
 // For external mCaptcha: challengeID is empty, solution is the mCaptcha token.
 // For built-in PoW: challengeID identifies the Redis-stored challenge, solution is the found nonce.
+//
+// On any verification error the returned error wraps one of the ErrCaptcha*
+// sentinels via errors.Is, and the human-readable message is safe to show
+// directly to the end user.
 func (h *CaptchaHandler) VerifyPoW(challengeID, solution string) error {
 	if h.IsConfigured() {
 		return h.verifyExternalToken(solution)
 	}
 
 	if challengeID == "" || solution == "" {
-		return fmt.Errorf("missing captcha fields")
+		return ErrCaptchaMissing
 	}
 
 	if h.redis == nil {
-		return fmt.Errorf("captcha service offline")
+		return ErrCaptchaOffline
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -174,17 +235,17 @@ func (h *CaptchaHandler) VerifyPoW(challengeID, solution string) error {
 	data, err := getAndDelScript.Run(ctx, h.redis, []string{key}).Text()
 	if err != nil {
 		log.Printf("[CAPTCHA] Redis error for challenge %s: %v", challengeID[:min(8, len(challengeID))], err)
-		return fmt.Errorf("captcha expired — refresh and try again")
+		return ErrCaptchaOffline
 	}
 	if data == "" {
-		log.Printf("[CAPTCHA] Challenge not found: %s", challengeID[:min(8, len(challengeID))])
-		return fmt.Errorf("captcha expired — refresh and try again")
+		log.Printf("[CAPTCHA] Challenge not found (expired or already used): %s", challengeID[:min(8, len(challengeID))])
+		return ErrCaptchaExpired
 	}
 
 	var challenge powChallenge
 	if err := json.Unmarshal([]byte(data), &challenge); err != nil {
 		log.Printf("[CAPTCHA] Corrupt challenge data: %v", err)
-		return fmt.Errorf("captcha expired — refresh and try again")
+		return ErrCaptchaExpired
 	}
 
 	// Verify solution: SHA256(challengeID + nonce + solution) must have 'difficulty' leading zero bits
@@ -195,11 +256,41 @@ func (h *CaptchaHandler) VerifyPoW(challengeID, solution string) error {
 		hashHex := hex.EncodeToString(hash[:])
 		log.Printf("[CAPTCHA] PoW failed: challenge=%s solution_len=%d difficulty=%d hash=%s",
 			challengeID[:min(8, len(challengeID))], len(solution), challenge.Difficulty, hashHex[:16])
-		return fmt.Errorf("captcha failed — please try again")
+		return ErrCaptchaInvalid
 	}
 
 	return nil
 }
+
+// captchaError builds a typed error that wraps the sentinel code so callers
+// can match on it with errors.Is(err, ErrCaptchaXxx). The Code() method is
+// available for direct access without unwrapping.
+type captchaErr struct {
+	code    string
+	message string
+}
+
+func (e *captchaErr) Error() string { return e.message }
+
+// Is matches against any of the package-level sentinels by code, so callers
+// can write errors.Is(err, handlers.ErrCaptchaExpired) without caring
+// whether the receiver was built via captchaError() or is a sentinel itself.
+func (e *captchaErr) Is(target error) bool {
+	var t *captchaErr
+	if errors.As(target, &t) {
+		return e.code == t.code
+	}
+	return false
+}
+
+// Code returns the sentinel code constant for this error.
+func (e *captchaErr) Code() string { return e.code }
+
+// captchaError is kept for any future ad-hoc error sites, but VerifyPoW now
+// returns the sentinels directly so the message is always a single source of
+// truth. Avoid using it in new code unless you need a code that doesn't have
+// a sentinel yet.
+func captchaError(code, msg string) error { return &captchaErr{code: code, message: msg} }
 
 // hasLeadingZeroBits checks if the byte slice has at least 'n' leading zero bits.
 func hasLeadingZeroBits(data []byte, n int) bool {
