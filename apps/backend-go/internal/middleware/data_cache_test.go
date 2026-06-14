@@ -234,8 +234,8 @@ func TestCacheTTLByPath_Boards(t *testing.T) {
 	}
 	for _, path := range paths {
 		got := cacheTTLByPath(path, DefaultDataCacheTTL)
-		if got != 5*time.Minute {
-			t.Errorf("cacheTTLByPath(%q) = %v, want 5m", path, got)
+		if got != 30*time.Second {
+			t.Errorf("cacheTTLByPath(%q) = %v, want 30s", path, got)
 		}
 	}
 }
@@ -248,8 +248,8 @@ func TestCacheTTLByPath_Profiles(t *testing.T) {
 	}
 	for _, path := range paths {
 		got := cacheTTLByPath(path, DefaultDataCacheTTL)
-		if got != 5*time.Minute {
-			t.Errorf("cacheTTLByPath(%q) = %v, want 5m", path, got)
+		if got != 30*time.Second {
+			t.Errorf("cacheTTLByPath(%q) = %v, want 30s", path, got)
 		}
 	}
 }
