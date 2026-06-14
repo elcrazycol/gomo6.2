@@ -14,7 +14,10 @@ import {
   fetchCaptchaConfig,
   fetchChallenge,
   solveChallenge,
+  loadMCaptchaScript,
   CaptchaTimeoutError,
+  type CaptchaConfig,
+  type MCaptchaInstance,
 } from "@/services/captchaPow";
 
 interface CaptchaWidgetProps {
@@ -44,6 +47,98 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
     captchaToken: "",
     honeypotValue: "",
   });
+
+  // Real mCaptcha widget branch.
+  //
+  // mCaptcha is a self-hosted PoW CAPTCHA (Rust server) that exposes a global
+  // `mCaptcha` constructor. The constructor mounts an iframe inside `el`,
+  // hands out a PoW challenge, verifies the solution against its own server,
+  // and calls `onSuccess(token)` once the user passes.
+  //
+  // We only render this branch when the server told us cfg.type === "mcaptcha"
+  // and provided a site_key + widget_url. Token is forwarded to the parent
+  // form via onReady({ captchaToken }); the Go backend then verifies it via
+  // MCAPTCHA_VERIFY_URL (see captcha.go).
+  const [mcaptcha, setMcaptcha] = useState<{ siteKey: string; widgetUrl: string } | null>(null);
+  const mcaptchaContainerRef = useRef<HTMLDivElement | null>(null);
+  const mcaptchaInstanceRef = useRef<MCaptchaInstance | null>(null);
+
+  useEffect(() => {
+    if (!mcaptcha) return;
+    if (!mcaptchaContainerRef.current) return;
+    const container = mcaptchaContainerRef.current;
+
+    let cancelled = false;
+    setState("solving");
+    setErrorMsg("");
+
+    loadMCaptchaScript(mcaptcha.widgetUrl)
+      .then((ctor) => {
+        if (cancelled) return;
+        if (!mcaptchaContainerRef.current) return;
+        if (typeof ctor !== "function") {
+          throw new Error("mCaptcha constructor is not available");
+        }
+        const instance = ctor({
+          el: container,
+          siteKey: mcaptcha.siteKey,
+          widgetUrl: mcaptcha.widgetUrl,
+          onSuccess: (token: string) => {
+            if (cancelled) return;
+            resultRef.current = {
+              challengeId: "",
+              solution: "",
+              captchaToken: token,
+              honeypotValue: "",
+            };
+            solved.current = true;
+            setState("done");
+            setErrorMsg("");
+            onReadyRef.current(resultRef.current);
+          },
+          onError: (err: unknown) => {
+            if (cancelled) return;
+            const msg = err instanceof Error ? err.message : "Ошибка mCaptcha";
+            setState("error");
+            setErrorMsg(msg);
+            onErrorRef.current(msg);
+          },
+        });
+        mcaptchaInstanceRef.current = instance ?? null;
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : "Не удалось загрузить mCaptcha";
+        setState("error");
+        setErrorMsg(msg);
+        onErrorRef.current(msg);
+      });
+
+    return () => {
+      cancelled = true;
+      const inst = mcaptchaInstanceRef.current;
+      mcaptchaInstanceRef.current = null;
+      if (inst) {
+        try { inst.destroy?.(); } catch { /* noop */ }
+        try { inst.reset?.(); } catch { /* noop */ }
+      }
+      // The mCaptcha widget injects child nodes into the container; clear
+      // them so a remount starts clean.
+      while (container.firstChild) container.removeChild(container.firstChild);
+    };
+    // onReady/onError are intentionally read via refs (not deps) so parent
+    // re-renders that produce new function identities don't tear down an
+    // in-progress PoW challenge. The latest callback is always used.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mcaptcha]);
+
+  // Refs for the latest onReady/onError so the mcaptcha effect (which
+  // intentionally omits them from deps) can call through to the parent
+  // without re-running on every parent render.
+  const onReadyRef = useRef(onReady);
+  const onErrorRef = useRef(onError);
+  onReadyRef.current = onReady;
+  onErrorRef.current = onError;
 
   const doSolve = useCallback(async () => {
     if (solved.current) {
@@ -135,13 +230,21 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
 
   useEffect(() => {
     fetchCaptchaConfig()
-      .then((cfg) => {
+      .then((cfg: CaptchaConfig) => {
         if (cfg.type === "pow" && cfg.enabled) {
           doSolve();
         } else if (cfg.type === "mcaptcha") {
-          // External mCaptcha — its own widget handles lifecycle
-          setState("done");
-          onReady(resultRef.current);
+          if (cfg.site_key && cfg.widget_url) {
+            // Trigger the mCaptcha-mount effect above.
+            setMcaptcha({ siteKey: cfg.site_key, widgetUrl: cfg.widget_url });
+          } else {
+            // Misconfigured: operator set MCAPTCHA_SITE_KEY but not the URL,
+            // or the backend dropped the field. Don't silently pass through.
+            setState("error");
+            const msg = "mCaptcha настроен на сервере, но widget_url не передан";
+            setErrorMsg(msg);
+            onError(msg);
+          }
         } else {
           // CAPTCHA disabled — pass through
           setState("done");
@@ -180,7 +283,28 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
         />
       </div>
 
-      {/* ── Visible CAPTCHA widget ── */}
+      {/*
+        mCaptcha container — only mounted when the server told us to use the
+        external widget. The mCaptcha constructor injects an iframe here; we
+        do not render any UI ourselves so it can style itself.
+      */}
+      {mcaptcha && (
+        <div
+          key={retryNonce}
+          ref={mcaptchaContainerRef}
+          data-mcaptcha-widget
+          className="mcaptcha-container"
+        />
+      )}
+
+      {/*
+        Status strip.
+        - For the PoW branch this is the only captcha UI, so we always show it.
+        - For the mCaptcha branch the widget has its own UI, so we only show
+          the strip for the terminal states (done / error) and hide it during
+          the in-progress states (idle / solving) so the user isn't distracted.
+      */}
+      {(!mcaptcha || state === "done" || state === "error") && (
       <div
         className={`
           relative overflow-hidden rounded-md border transition-all duration-500
@@ -234,7 +358,7 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
             {state === "idle" && (
               <span className="text-sm text-muted-foreground">Загрузка...</span>
             )}
-            {state === "solving" && (
+            {state === "solving" && !mcaptcha && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-primary/80 font-medium">
                   Проверка на бота
@@ -278,6 +402,11 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
                 type="button"
                 onClick={() => {
                   solved.current = false;
+                  // Bump retryNonce — the container div's `key` prop is bound
+                  // to it, so React unmounts the old mCaptcha iframe and
+                  // mounts a fresh one atomically. The mcaptcha useEffect's
+                  // cleanup runs once during this transition, calling
+                  // destroy() on the stale instance.
                   setRetryNonce((n) => n + 1);
                 }}
                 className="inline-flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-destructive/80 transition-colors"
@@ -289,6 +418,7 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
           )}
         </div>
       </div>
+      )}
 
       {/* Tailwind keyframes for progress bar */}
       <style>{`
@@ -300,6 +430,9 @@ export function CaptchaWidget({ onReady, onError }: CaptchaWidgetProps) {
         @keyframes bounce {
           0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
           40% { transform: scale(1); opacity: 1; }
+        }
+        .mcaptcha-container {
+          margin-top: 0.5rem;
         }
       `}</style>
     </>

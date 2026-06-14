@@ -37,6 +37,10 @@ export interface CaptchaConfig {
   type: 'pow' | 'mcaptcha';
   enabled: boolean;
   site_key?: string;
+  // For mcaptcha: base URL of the mCaptcha server that serves the widget
+  // JS bundle (e.g. "https://mcaptcha.example.com" or "http://mcaptcha:8080").
+  // The widget script is loaded from `${widget_url}/mcaptcha.js`.
+  widget_url?: string;
 }
 
 // Fetch CAPTCHA config from server
@@ -74,6 +78,106 @@ export class CaptchaTimeoutError extends Error {
     super(message);
     this.name = 'CaptchaTimeoutError';
   }
+}
+
+// mCaptcha widget loader.
+//
+// The mCaptcha server exposes a global `mCaptcha` constructor at
+// `${widgetUrl}/mcaptcha.js`. We load it once and cache the promise so
+// concurrent captcha widgets share the same script tag.
+//
+// Usage:
+//   const mCaptcha = await loadMCaptchaScript(widgetUrl);
+//   const widget = mCaptcha({ el, siteKey, widgetUrl, onSuccess, onError });
+
+declare global {
+  interface Window {
+    mCaptcha?: (config: MCaptchaConfig) => MCaptchaInstance;
+  }
+}
+
+interface MCaptchaConfig {
+  el: HTMLElement | string;
+  siteKey: string;
+  widgetUrl: string;
+  onSuccess: (token: string) => void;
+  onError?: (err: unknown) => void;
+  onExpire?: () => void;
+}
+
+export interface MCaptchaInstance {
+  reset?: () => void;
+  render?: () => void;
+  destroy?: () => void;
+}
+
+const mCaptchaScriptCache = new Map<string, Promise<Window['mCaptcha']>>();
+
+export function loadMCaptchaScript(widgetUrl: string, timeoutMs = 15_000): Promise<Window['mCaptcha']> {
+  if (!widgetUrl) {
+    return Promise.reject(new Error('mCaptcha widget URL is empty'));
+  }
+  const normalized = widgetUrl.replace(/\/+$/, '');
+  const cached = mCaptchaScriptCache.get(normalized);
+  if (cached) return cached;
+
+  const scriptSrc = `${normalized}/mcaptcha.js`;
+
+  const promise = new Promise<Window['mCaptcha']>((resolve, reject) => {
+    // If the script was injected by something else (SSR, devtools, etc.),
+    // just use the existing global instead of adding a second <script>.
+    if (typeof window !== 'undefined' && typeof window.mCaptcha === 'function') {
+      resolve(window.mCaptcha);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = scriptSrc;
+    script.async = true;
+    script.defer = true;
+    // Intentionally NOT setting crossOrigin: the mCaptcha widget script is
+    // served as a static asset without CORS headers, and forcing
+    // crossOrigin="anonymous" would make the browser refuse to evaluate it
+    // in some browsers (opaque response / "Script error"). Same-origin or
+    // CORP-friendly cross-origin loads work fine without it.
+
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      script.remove();
+      mCaptchaScriptCache.delete(normalized);
+      reject(new Error(`mCaptcha widget script failed to load from ${scriptSrc} within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    script.onload = () => {
+      if (settled) return;
+      window.clearTimeout(timer);
+      // mCaptcha attaches itself to window on load. If it didn't, surface a
+      // clear error rather than resolving undefined and confusing the caller.
+      if (typeof window.mCaptcha !== 'function') {
+        settled = true;
+        mCaptchaScriptCache.delete(normalized);
+        reject(new Error(`mCaptcha widget script loaded from ${scriptSrc} but did not expose window.mCaptcha`));
+        return;
+      }
+      settled = true;
+      resolve(window.mCaptcha);
+    };
+    script.onerror = () => {
+      if (settled) return;
+      window.clearTimeout(timer);
+      settled = true;
+      script.remove();
+      mCaptchaScriptCache.delete(normalized);
+      reject(new Error(`mCaptcha widget script failed to load from ${scriptSrc}`));
+    };
+
+    document.head.appendChild(script);
+  });
+
+  mCaptchaScriptCache.set(normalized, promise);
+  return promise;
 }
 
 // Solve the PoW challenge using a Web Worker (synchronous SHA-256 inside the worker).
