@@ -22,14 +22,14 @@ func TestGetBoards_Success_NoFilter(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
-		"owner_id", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
+		"owner_id", "visibility", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
 		"rules_markdown", "rules_updated_at", "created_at",
 	}).AddRow(
 		"b1", "general", "General", "General discussion", false, false,
-		"u1", nil, nil, "[]", nil, nil, time.Now(),
+		"u1", "public", nil, nil, "[]", nil, nil, time.Now(),
 	).AddRow(
 		"b2", "random", "Random", "Random stuff", true, false,
-		"u2", nil, nil, `["tag1"]`, nil, nil, time.Now(),
+		"u2", "public", nil, nil, `["tag1"]`, nil, nil, time.Now(),
 	)
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
@@ -59,11 +59,11 @@ func TestGetBoards_Success_SlugFilter(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
-		"owner_id", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
+		"owner_id", "visibility", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
 		"rules_markdown", "rules_updated_at", "created_at",
 	}).AddRow(
 		"b1", "general", "General", nil, false, false,
-		nil, nil, nil, "[]", nil, nil, time.Now(),
+		nil, "public", nil, nil, "[]", nil, nil, time.Now(),
 	)
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*WHERE slug = \$1.*ORDER BY created_at DESC.*LIMIT \$2 OFFSET \$3`).
@@ -87,7 +87,7 @@ func TestGetBoards_Success_IsGomosubFilter(t *testing.T) {
 		WithArgs(true, 50, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
-			"owner_id", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
+			"owner_id", "visibility", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
 			"rules_markdown", "rules_updated_at", "created_at",
 		}))
 
@@ -122,11 +122,11 @@ func TestGetBoard_Success(t *testing.T) {
 
 	row := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
-		"owner_id", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
+		"owner_id", "visibility", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
 		"rules_markdown", "rules_updated_at", "created_at",
 	}).AddRow(
 		"b1", "general", "General", "Discussion", false, false,
-		"u1", nil, nil, "[]", nil, nil, time.Now(),
+		"u1", "public", nil, nil, "[]", nil, nil, time.Now(),
 	)
 
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards.*WHERE slug = \$1`).
@@ -196,15 +196,15 @@ func TestCreateBoard_Success(t *testing.T) {
 
 	insertRow := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
-		"owner_id", "gomosub_avatar_url", "cover_image_url", "gomosub_tags", "created_at",
+		"owner_id", "visibility", "gomosub_avatar_url", "cover_image_url", "gomosub_tags", "created_at",
 	}).AddRow(
 		"b-new", "new-board", "New Board", "A brand new board", false, false,
-		"u1", nil, nil, "[]", time.Now(),
+		"u1", "public", nil, nil, "[]", time.Now(),
 	)
 
 	mock.ExpectQuery(`INSERT INTO boards.*VALUES.*RETURNING`).
 		WithArgs("new-board", "New Board", "A brand new board", false, false,
-			"u1", nil, nil, sqlmock.AnyArg()).
+			"u1", "public", nil, nil, sqlmock.AnyArg()).
 		WillReturnRows(insertRow)
 
 	handler.CreateBoard(c)
@@ -250,7 +250,7 @@ func TestCreateBoard_DBError(t *testing.T) {
 
 	mock.ExpectQuery(`INSERT INTO boards.*`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.CreateBoard(c)
@@ -285,11 +285,11 @@ func TestUpdateBoard_Success_UpdateName(t *testing.T) {
 	// Re-fetch after update
 	fetchRow := sqlmock.NewRows([]string{
 		"id", "slug", "name", "description", "is_gomosub", "is_rules_board",
-		"owner_id", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
+		"owner_id", "visibility", "gomosub_avatar_url", "cover_image_url", "gomosub_tags",
 		"rules_markdown", "rules_updated_at", "created_at",
 	}).AddRow(
 		boardID, "test", "Updated Name", nil, false, false,
-		"u1", nil, nil, "[]", nil, nil, time.Now(),
+		"u1", "public", nil, nil, "[]", nil, nil, time.Now(),
 	)
 	mock.ExpectQuery(`SELECT id, slug.*FROM boards WHERE id = \$1`).
 		WithArgs(boardID).

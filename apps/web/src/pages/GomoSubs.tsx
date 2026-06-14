@@ -34,7 +34,7 @@ const GomoSubs = () => {
   const [myFeedLoading, setMyFeedLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "my-feed">("all");
 
-  const canCreate = useMemo(() => {
+  const _canCreate = useMemo(() => {
     const garmaOk = (profile?.garma ?? 0) >= 10;
     const ageOk = profile?.created_at
       ? Date.now() - safeDate(profile.created_at).getTime() >= 14 * 24 * 60 * 60 * 1000
@@ -74,9 +74,11 @@ const GomoSubs = () => {
           name,
           description,
           cover_image_url,
-          created_at
+          created_at,
+          visibility
         `)
           .eq("is_gomosub", true)
+          .eq("visibility", "public")
           .order("created_at", { ascending: false });
 
         const loadedSubs = (data as GomoSub[]) ?? [];
