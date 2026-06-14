@@ -1,11 +1,11 @@
-import { useState, cloneElement } from "react";
+import { useState, cloneElement, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
+import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
 import { processProfileBio } from "@/utils/profileBio";
 import { storageUrl } from "@/utils/storage";
@@ -80,17 +80,39 @@ const fetchProfileData = async (userId: string) => {
 
 export const ProfileHoverCard = ({ userId, children, disabled = false }: ProfileHoverCardProps) => {
   const [showCard, setShowCard] = useState(false);
+  const [flipLeft, setFlipLeft] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Detect viewport overflow and flip card to left side if needed
+  const checkOverflow = useCallback(() => {
+    if (!cardRef.current || !wrapperRef.current) return;
+    const cardRect = cardRef.current.getBoundingClientRect();
+    const wrapperRect = wrapperRef.current.getBoundingClientRect();
+    // Card is positioned at left-0 relative to wrapper, so right edge = wrapper.left + card.width
+    const rightEdge = wrapperRect.left + cardRect.width;
+    const overflow = rightEdge > window.innerWidth - 8;
+    setFlipLeft(overflow);
+  }, []);
+
+  useEffect(() => {
+    if (showCard && data) {
+      // Wait for DOM paint then check overflow
+      requestAnimationFrame(() => checkOverflow());
+    }
+  }, [showCard, data, checkOverflow]);
 
   // Use shared hook for real-time status updates
   // This hook manages WebSocket subscription and React Query cache updates
   useUserRealtimeStatus(userId);
 
   // Use React Query for caching - only fetch when card is shown
+  // 30s staleTime ensures avatar/profile changes appear quickly
   const { data } = useQuery({
     queryKey: ['profile-hover', userId],
     queryFn: () => fetchProfileData(userId),
     enabled: showCard && !!userId,
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes - other data cached long
+    staleTime: 30 * 1000, // Refetch after 30s to catch avatar/profile updates
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
   });
 
@@ -123,11 +145,11 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
     : `font-semibold truncate ${usernameColor ? getColorClass(usernameColor) : "text-foreground"}`;
 
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       {childrenWithHover}
 
-      {/* Hover Card */}
-      <div className="absolute top-full left-0 mt-1 z-50">
+      {/* Hover Card — flips to left side when near right viewport edge */}
+      <div ref={cardRef} className={`absolute top-full mt-1 z-50 ${flipLeft ? 'right-0' : 'left-0'}`}>
         <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg p-4 min-w-[280px] max-w-[320px]">
           <div className="flex items-start gap-3">
             {/* Avatar */}
