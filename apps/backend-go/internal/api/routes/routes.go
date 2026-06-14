@@ -198,7 +198,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/profiles", profilesHandler.GetProfiles)
 		rest.GET("/profiles/:id", profilesHandler.GetProfile)
 		rest.GET("/boards", boardsHandler.GetBoards)
-		rest.GET("/boards/:slug", boardsHandler.GetBoard)
+		rest.GET("/boards/:id", boardsHandler.GetBoard)
 		rest.GET("/threads", threadsHandler.GetThreads)
 		rest.GET("/threads/:id", threadsHandler.GetThread)
 		rest.GET("/posts", postsHandler.GetPosts)
