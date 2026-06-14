@@ -339,8 +339,19 @@ const Board = () => {
   loadChannelsRef.current = loadChannels;
   const loadThreadsRef = useRef(loadThreads);
   loadThreadsRef.current = loadThreads;
+  const activeChannelIdRef = useRef(activeChannelId);
+  activeChannelIdRef.current = activeChannelId;
 
-  // Board load: only on slug/auth change — NOT on channelSlug change
+  // Sync activeChannelId from URL channelSlug when channels are loaded
+  useEffect(() => {
+    if (!channels.length) return;
+    if (!channelSlug) {
+      setActiveChannelId(null);
+      return;
+    }
+    const found = channels.find(ch => ch.slug === channelSlug);
+    setActiveChannelId(found?.id || null);
+  }, [channelSlug, channels]);
   useEffect(() => {
     const loadBoard = async () => {
       if (isGomoRoute && !authResolved) {
@@ -433,19 +444,26 @@ const Board = () => {
   useEffect(() => {
     if (!board) return;
     if (board.slug === 'd' && !ageVerified && !isGomoRoute) return;
+    // Don't load threads until channels are resolved (avoids double fetch)
+    if (isGomoRoute && channels.length === 0) return;
 
     setThreads([]);
     setThreadsCursor(null);
     setHasMoreThreads(true);
 
+    // Resolve channel ID directly from URL slug (not from async state)
+    const resolvedChannelId = isGomoRoute && channelSlug
+      ? channels.find(ch => ch.slug === channelSlug)?.id || null
+      : null;
+
     const loadChannelThreads = async () => {
       setThreadsLoading(true);
-      await loadThreadsRef.current(board.id);
+      await loadThreadsRef.current(board.id, false, resolvedChannelId);
       setThreadsLoading(false);
     };
     loadChannelThreads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [board?.id, channelSlug, ageVerified, isGomoRoute]);
+  }, [board?.id, channelSlug, ageVerified, isGomoRoute, channels]);
 
   useEffect(() => {
     const loadMembership = async () => {
@@ -477,7 +495,7 @@ const Board = () => {
       const data = message.data as { board_id?: string } | undefined;
       // Only reload if the new thread belongs to this board
       if (data?.board_id === board.id) {
-        loadThreadsRef.current(board.id);
+        loadThreadsRef.current(board.id, false, activeChannelIdRef.current);
       }
     });
 
@@ -494,7 +512,7 @@ const Board = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMoreThreads && !loadingMoreThreads && board) {
-          loadThreadsRef.current(board.id, true);
+          loadThreadsRef.current(board.id, true, activeChannelIdRef.current);
         }
       },
       { threshold: 0.1, rootMargin: '200px' }
