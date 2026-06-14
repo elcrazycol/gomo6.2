@@ -228,7 +228,7 @@ docker compose up -d
 
 ### CSP и инфраструктура
 
-- **Content-Security-Policy** — добавлен `blob:` в `script-src` и новая директива `worker-src 'self' blob:` для сервис-воркеров и PoW-солвера.
+- **Content-Security-Policy** — добавлен `blob:` в `script-src`, `data:` в `connect-src`, и новая директива `worker-src 'self' blob:` для сервис-воркеров, PoW-солвера и кроппера аватаров.
 - **Caddy** — исправлен `http://` префикс для адресов серверов (без него Caddy не слушал порт 80).
 - **golangci-lint** — удалена неиспользуемая функция `canWriteChannel`, поправлены ESLint unused-vars в `bbcodePlugins.tsx`.
 
