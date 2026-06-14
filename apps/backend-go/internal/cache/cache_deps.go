@@ -99,6 +99,11 @@ var TableCacheDeps = CacheDependencyMap{
 		"data:/api/v1/polls?id=eq.{poll_id}",
 		"data:/api/v1/poll_votes?poll_id=eq.{poll_id}",
 	},
+	"gomosub_rules_acceptance": {
+		"data:/api/v1/gomosub_rules_acceptance",
+		"data:/api/v1/gomosub_rules_acceptance?user_id=eq.{user_id}",
+		"data:/api/v1/gomosub_rules_acceptance?board_id=eq.{board_id}",
+	},
 }
 
 // BuildCacheKeys generates cache key patterns with actual values
@@ -223,6 +228,8 @@ func GetForeignKeyColumns(table string) []string {
 		return []string{"thread_id", "user_id"}
 	case "poll_votes":
 		return []string{"poll_id", "user_id"}
+	case "gomosub_rules_acceptance":
+		return []string{"user_id", "board_id"}
 	default:
 		return nil
 	}
