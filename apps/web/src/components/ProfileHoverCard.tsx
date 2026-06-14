@@ -84,6 +84,20 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
   const cardRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
+  // Use React Query for caching - only fetch when card is shown
+  // 30s staleTime ensures avatar/profile changes appear quickly
+  const { data } = useQuery({
+    queryKey: ['profile-hover', userId],
+    queryFn: () => fetchProfileData(userId),
+    enabled: showCard && !!userId,
+    staleTime: 30 * 1000, // Refetch after 30s to catch avatar/profile updates
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+  });
+
+  // Use shared hook for real-time status updates
+  // This hook manages WebSocket subscription and React Query cache updates
+  useUserRealtimeStatus(userId);
+
   // Detect viewport overflow and flip card to left side if needed
   const checkOverflow = useCallback(() => {
     if (!cardRef.current || !wrapperRef.current) return;
@@ -101,20 +115,6 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
       requestAnimationFrame(() => checkOverflow());
     }
   }, [showCard, data, checkOverflow]);
-
-  // Use shared hook for real-time status updates
-  // This hook manages WebSocket subscription and React Query cache updates
-  useUserRealtimeStatus(userId);
-
-  // Use React Query for caching - only fetch when card is shown
-  // 30s staleTime ensures avatar/profile changes appear quickly
-  const { data } = useQuery({
-    queryKey: ['profile-hover', userId],
-    queryFn: () => fetchProfileData(userId),
-    enabled: showCard && !!userId,
-    staleTime: 30 * 1000, // Refetch after 30s to catch avatar/profile updates
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
-  });
 
   const childrenWithHover = cloneElement(children as React.ReactElement, disabled ? {} : {
     onMouseEnter: () => setShowCard(true),
