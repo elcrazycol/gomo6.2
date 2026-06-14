@@ -199,6 +199,7 @@ const Board = () => {
   }, [channelSlug, user?.id]);
 
   const loadThreads = useCallback(async (boardId: string, isLoadMore = false, channelId?: string | null) => {
+    const thisFetchId = ++fetchIdRef.current;
     if (isLoadMore) {
       setLoadingMoreThreads(true);
     }
@@ -236,6 +237,10 @@ const Board = () => {
       threadsData = threadsData.slice(0, 20);
     }
 
+    if (thisFetchId !== fetchIdRef.current) {
+      if (isLoadMore) setLoadingMoreThreads(false);
+      return;
+    }
     setThreadsCursor(nextCursor);
     setHasMoreThreads(hasMoreData && nextCursor !== null);
 
@@ -269,11 +274,11 @@ const Board = () => {
 
     if (!threadsData.length) {
       if (isLoadMore) {
-        setHasMoreThreads(false);
+        if (thisFetchId === fetchIdRef.current) setHasMoreThreads(false);
       } else {
-        setThreads([]);
+        if (thisFetchId === fetchIdRef.current) setThreads([]);
       }
-      setLoadingMoreThreads(false);
+      if (thisFetchId === fetchIdRef.current) setLoadingMoreThreads(false);
       return;
     }
 
@@ -326,6 +331,12 @@ const Board = () => {
       };
     });
 
+    // Discard stale responses from cancelled channel switches
+    if (thisFetchId !== fetchIdRef.current) {
+      if (isLoadMore) setLoadingMoreThreads(false);
+      return;
+    }
+
     if (isLoadMore) {
       setThreads(prev => [...prev, ...(threadsWithData as Thread[])]);
     } else {
@@ -341,6 +352,7 @@ const Board = () => {
   loadThreadsRef.current = loadThreads;
   const activeChannelIdRef = useRef(activeChannelId);
   activeChannelIdRef.current = activeChannelId;
+  const fetchIdRef = useRef(0);
 
   // Sync activeChannelId from URL channelSlug when channels are loaded
   useEffect(() => {
@@ -1252,7 +1264,7 @@ const Board = () => {
                     </div>
                   </>
                 ) : (
-                  <div>
+                  <>
                     {threadsLoading && (
                       <div className="flex justify-center py-4">
                         <PentagramLoader size="sm" />
@@ -1361,7 +1373,7 @@ const Board = () => {
                         </div>
                       </Card>
                     ))}
-                  </div>
+                  </>
                 )}
               </div>
 
@@ -1469,7 +1481,7 @@ const Board = () => {
               </div>
             </>
           ) : (
-            <div>
+            <>
             {threadsLoading && (
               <div className="flex justify-center py-4">
                 <PentagramLoader size="sm" />
@@ -1714,7 +1726,7 @@ const Board = () => {
                 </Link>
               )
             ))}
-            </div>
+            </>
           )}
         </div>
 
