@@ -5,6 +5,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/routes"
@@ -16,6 +17,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// primaryHandler is swapped atomically: nil → Gin after init completes.
+// Until swapped, only /health returns 200; all other paths return 404.
+var primaryHandler atomic.Value // stores http.Handler (nil before init)
+
 func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {
@@ -25,22 +30,33 @@ func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
 
-	// ── Start HTTP server IMMEDIATELY with /health endpoint ───────────────
-	// Docker healthcheck uses /health. We use a plain http.ServeMux for the
-	// health endpoint so there's no Gin router involved — zero risk of
-	// concurrent map read/write panics when Gin routes are added later.
+	// ── Start HTTP server IMMEDIATELY with /health ──────────────────────
+	// The catch-all handler serves /health always, and delegates everything
+	// else to the Gin router once it's ready (swapped via atomic.Value).
+	// This is race-free: no concurrent writes to any router/mux after start.
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// /health is always available, even before Gin is ready
+		if r.URL.Path == "/health" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"ok"}`))
+			return
+		}
+
+		// Delegate to Gin if ready; otherwise 404
+		if h, ok := primaryHandler.Load().(http.Handler); ok && h != nil {
+			h.ServeHTTP(w, r)
+			return
+		}
+
+		http.NotFound(w, r)
 	})
 
-	srv := &http.Server{Addr: ":" + port, Handler: mux}
+	srv := &http.Server{Addr: ":" + port, Handler: rootHandler}
 
 	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
 		go func() {
@@ -73,7 +89,7 @@ func main() {
 		}()
 	}
 
-	// ── Heavy initialization (after /health is already available) ─────────
+	// ── Heavy initialization ────────────────────────────────────────────
 
 	// Initialize database
 	db, err := database.InitDB()
@@ -100,21 +116,20 @@ func main() {
 	}
 	defer botManager.Stop()
 
-	// ── Setup Gin router (only AFTER all init — safe to write to router) ─
+	// ── Setup Gin router ────────────────────────────────────────────────
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
 
-	// Setup routes with WebSocket Hub and BotManager
 	routes.SetupRoutes(router, db, redisClient, wsHub, botManager)
 
 	// pprof for memory profiling
 	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))
 
-	// Register Gin as catch-all — /health in mux takes priority (exact match)
-	mux.Handle("/", router)
+	// Atomically swap in Gin — all non-/health requests now go to Gin
+	primaryHandler.Store(router)
 
 	log.Println("All routes registered — server fully operational")
 
