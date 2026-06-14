@@ -133,6 +133,37 @@ func TestCaptchaHandler_IsConfigured_AllFields(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// deriveMCaptchaWidgetURL — pure helper
+// =============================================================================
+
+func TestDeriveMCaptchaWidgetURL(t *testing.T) {
+	tests := []struct {
+		name       string
+		verifyURL  string
+		explicit   string
+		wantWidget string
+	}{
+		{"plain verify url", "http://mcaptcha:8080/api/v1/pow/verify", "", "http://mcaptcha:8080"},
+		{"trailing slash", "http://mcaptcha:8080/api/v1/pow/verify/", "", "http://mcaptcha:8080"},
+		{"query string is ignored on derivation", "http://mcaptcha:8080/api/v1/pow/verify?x=1", "", "http://mcaptcha:8080"},
+		{"https origin preserved", "https://mcaptcha.example.com/api/v1/pow/verify", "", "https://mcaptcha.example.com"},
+		{"non-default port preserved", "https://mcaptcha.example.com:9001/api/v1/pow/verify", "", "https://mcaptcha.example.com:9001"},
+		{"explicit env wins over derivation", "http://mcaptcha:8080/api/v1/pow/verify", "https://custom.example.com", "https://custom.example.com"},
+		{"empty verify url → empty widget url", "", "", ""},
+		{"garbage url → empty widget url", "://not a url", "", ""},
+		{"scheme-only url → empty widget url", "http://", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := deriveMCaptchaWidgetURL(tt.explicit, tt.verifyURL)
+			if got != tt.wantWidget {
+				t.Errorf("deriveMCaptchaWidgetURL(%q, %q) = %q, want %q", tt.explicit, tt.verifyURL, got, tt.wantWidget)
+			}
+		})
+	}
+}
+
 func TestCaptchaHandler_IsConfigured_MissingSiteKey(t *testing.T) {
 	h := &CaptchaHandler{
 		siteKey:   "",

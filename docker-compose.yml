@@ -192,7 +192,15 @@ services:
       MCAPTCHA_SITE_KEY: ${MCAPTCHA_SITE_KEY:-}
       MCAPTCHA_SECRET: ${MCAPTCHA_SECRET:-}
       MCAPTCHA_VERIFY_URL: ${MCAPTCHA_VERIFY_URL:-http://mcaptcha:8080/api/v1/pow/verify}
+      # Base URL where the mCaptcha widget JS is served. Auto-derived from
+      # MCAPTCHA_VERIFY_URL (origin only) when empty.
+      MCAPTCHA_WIDGET_URL: ${MCAPTCHA_WIDGET_URL:-}
       MCAPTCHA_POW_DIFFICULTY: ${MCAPTCHA_POW_DIFFICULTY:-16}
+      # CSP NOTE: when mCaptcha is enabled, your reverse proxy / Caddyfile
+      # must allow the mCaptcha origin in script-src and connect-src, e.g.:
+      #   script-src 'self' ${MCAPTCHA_WIDGET_URL} blob:
+      #   connect-src 'self' ${MCAPTCHA_WIDGET_URL}
+      # Otherwise the widget script will be blocked and the captcha will not render.
     depends_on:
       postgres:
         condition: service_healthy
