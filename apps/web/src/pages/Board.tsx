@@ -1124,12 +1124,22 @@ const Board = () => {
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
           <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
-            {/* Collapsible channel sidebar — sticky to viewport top-left */}
-            <aside className={`shrink-0 transition-all duration-300 overflow-hidden border-r border-border/50 bg-card/40 backdrop-blur-sm sticky top-0 self-start ${sidebarCollapsed ? 'w-0 border-r-0' : 'w-[220px] sm:w-[240px] h-[calc(100vh-4rem)]'}`}>
-              <div className="h-full overflow-y-auto py-3 px-2">
-                <div className="mb-3 px-2">
-                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Каналы</h3>
+            {/* Collapsible channel sidebar — floating card, sticky to viewport */}
+            <aside className={`shrink-0 transition-all duration-300 overflow-visible sticky top-4 self-start z-20 ${sidebarCollapsed ? 'w-0' : 'w-[220px] sm:w-[240px]'}`}>
+              <div className={`mx-2 rounded-xl border border-border/40 bg-card/85 backdrop-blur-md shadow-lg transition-shadow hover:shadow-xl ${sidebarCollapsed ? 'hidden' : ''}`}>
+                {/* Sidebar header with collapse button */}
+                <div className="flex items-center justify-between px-3 pt-3 pb-2">
+                  <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest select-none">Каналы</h3>
+                  <button
+                    onClick={() => setSidebarCollapsed(true)}
+                    className="w-5 h-5 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 transition-colors"
+                    title="Скрыть каналы"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
                 </div>
+                {/* Channel list — scrollable */}
+                <div className="max-h-[calc(100vh-9rem)] overflow-y-auto px-3 pb-3">
                 
                 {/* General channel — always first */}
                 <Link
@@ -1196,17 +1206,20 @@ const Board = () => {
                     </Link>
                   )}
                 </div>
+                </div>
               </div>
             </aside>
             
-            {/* Toggle button — sticky to viewport, tracks sidebar */}
-            <button
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className={`shrink-0 sticky top-4 self-start mt-3 -ml-3 w-6 h-6 rounded-full border border-border/60 bg-card hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20 shadow-sm ${sidebarCollapsed ? 'ml-0' : ''}`}
-              title={sidebarCollapsed ? "Показать каналы" : "Скрыть каналы"}
-            >
-              {sidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-            </button>
+            {/* Expand button — only visible when sidebar is collapsed */}
+            {sidebarCollapsed && (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                className="shrink-0 sticky top-4 self-start ml-2 w-7 h-7 rounded-lg border border-border/50 bg-card/85 backdrop-blur-md shadow-md hover:shadow-lg hover:bg-card flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20"
+                title="Показать каналы"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
             
             {/* Content area — scrolls independently */}
             <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
