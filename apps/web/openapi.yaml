@@ -62,7 +62,7 @@ paths:
                 properties:
                   difficulty:
                     type: integer
-                    example: 20
+                    example: 16
                   enabled:
                     type: boolean
 
