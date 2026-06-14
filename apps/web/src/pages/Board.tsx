@@ -227,8 +227,15 @@ const Board = () => {
       threadsUrl += `&cursor=${encodeURIComponent(threadsCursor)}`;
     }
 
-    // Fetch threads from Go backend
-    const threadsResponse = await fetch(threadsUrl);
+    // Fetch threads from Go backend — include auth token for gomosub private channel access
+    const fetchHeaders: Record<string, string> = {};
+    if (isGomoRoute) {
+      const { data: { session } } = await api.auth.getSession();
+      if (session?.access_token) {
+        fetchHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+    }
+    const threadsResponse = await fetch(threadsUrl, { headers: fetchHeaders });
     const threadsResult = await threadsResponse.json();
     let threadsData: Record<string, unknown>[] = (threadsResult.data || []) as Record<string, unknown>[];
     const nextCursor = threadsResult.next_cursor || null;

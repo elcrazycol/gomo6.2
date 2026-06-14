@@ -138,5 +138,10 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		return
 	}
 
+	// Auto-create membership for the creator (owner is always a member)
+	_, _ = h.db.Exec(`
+		INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+	`, board.ID, claims.UserID)
+
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }

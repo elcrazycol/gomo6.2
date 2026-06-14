@@ -66,6 +66,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	boardsHandler.SetRedis(redis)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetRedis(redis)
+	threadsHandler.SetAuthService(authService)
 	postsHandler := handlers.NewPostsHandler(db)
 	postsHandler.SetRedis(redis)
 	// Initialize achievement checker (must be before handlers that use it)
