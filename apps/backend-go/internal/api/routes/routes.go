@@ -63,6 +63,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		wsHandler = websocket.NewHandler(wsHub, authService)
 	}
 	boardsHandler := handlers.NewBoardsHandler(db)
+	boardsHandler.SetRedis(redis)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetRedis(redis)
 	postsHandler := handlers.NewPostsHandler(db)
