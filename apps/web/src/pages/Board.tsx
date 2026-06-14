@@ -1124,9 +1124,9 @@ const Board = () => {
         {/* Content area — with sidebar for gomosub, plain otherwise */}
         {hasChannels ? (
           <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
-            {/* Collapsible channel sidebar */}
-            <aside className={`shrink-0 transition-all duration-300 overflow-hidden border-r border-border/50 bg-card/40 ${sidebarCollapsed ? 'w-0 border-r-0' : 'w-[220px] sm:w-[240px]'}`}>
-              <div className="sticky top-0 h-[calc(100vh-4rem)] overflow-y-auto py-3 px-2">
+            {/* Collapsible channel sidebar — sticky to viewport top-left */}
+            <aside className={`shrink-0 transition-all duration-300 overflow-hidden border-r border-border/50 bg-card/40 backdrop-blur-sm sticky top-0 self-start ${sidebarCollapsed ? 'w-0 border-r-0' : 'w-[220px] sm:w-[240px] h-[calc(100vh-4rem)]'}`}>
+              <div className="h-full overflow-y-auto py-3 px-2">
                 <div className="mb-3 px-2">
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Каналы</h3>
                 </div>
@@ -1199,10 +1199,10 @@ const Board = () => {
               </div>
             </aside>
             
-            {/* Toggle button */}
+            {/* Toggle button — sticky to viewport, tracks sidebar */}
             <button
               onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className={`shrink-0 self-start mt-3 -ml-3 w-6 h-6 rounded-full border border-border/60 bg-card hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-10 shadow-sm ${sidebarCollapsed ? 'ml-0' : ''}`}
+              className={`shrink-0 sticky top-4 self-start mt-3 -ml-3 w-6 h-6 rounded-full border border-border/60 bg-card hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-20 shadow-sm ${sidebarCollapsed ? 'ml-0' : ''}`}
               title={sidebarCollapsed ? "Показать каналы" : "Скрыть каналы"}
             >
               {sidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
