@@ -14,7 +14,7 @@ import { storageUrl } from "@/utils/storage";
 import { CONTENT_TAGS, FORMAT_TAGS, ATMOSPHERE_TAGS, FLAG_TAGS } from "@/constants/tags";
 import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
-import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2 } from "lucide-react";
+import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -112,6 +112,7 @@ const Board = () => {
   // Channels state
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
   useSessionTime(user?.id);
   useOnlineStatus(user?.id);
@@ -355,6 +356,9 @@ const Board = () => {
       setShowRulesDialog(false);
       setHasAcceptedRules(!isGomoRoute);
       setCheckingRules(isGomoRoute);
+      // Reset channels when board changes (not on channel switch)
+      setChannels([]);
+      setActiveChannelId(null);
 
       const boardResponse = await fetch(`/api/v1/boards/${slug}`);
       const boardResult = await boardResponse.json();
@@ -422,7 +426,7 @@ const Board = () => {
     };
 
     loadBoard();
-  }, [slug, user, searchParams, isGomoRoute, authResolved, channelSlug]);
+  }, [slug, user, isGomoRoute, authResolved]);
 
   // Thread load: runs when board is ready and channelSlug/board.id changes
   // This is SEPARATE from board load so switching channels is instant
@@ -440,6 +444,7 @@ const Board = () => {
       setThreadsLoading(false);
     };
     loadChannelThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board?.id, channelSlug, ageVerified, isGomoRoute]);
 
   useEffect(() => {
@@ -1086,83 +1091,331 @@ const Board = () => {
           )}
         </div>
 
-        {isGomoRoute && channels.length > 0 && (
-          <div className="mb-4 -mx-2 sm:mx-0">
-            <div className="flex gap-1.5 overflow-x-auto pb-1 px-2 sm:px-0">
-              <Link
-                to={`/g/${slug}`}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
-                  !activeChannelId
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                # общий
-              </Link>
-              {channelCategories.map((group) => group.channels.map((ch) => (
+        {/* Content area — with sidebar for gomosub, plain otherwise */}
+        {hasChannels ? (
+          <div className="flex gap-0 flex-1 min-h-0 -mx-2 sm:-mx-4 md:-mx-5">
+            {/* Collapsible channel sidebar */}
+            <aside className={`shrink-0 transition-all duration-300 overflow-hidden border-r border-border/50 bg-card/40 ${sidebarCollapsed ? 'w-0 border-r-0' : 'w-[220px] sm:w-[240px]'}`}>
+              <div className="sticky top-0 h-[calc(100vh-4rem)] overflow-y-auto py-3 px-2">
+                <div className="mb-3 px-2">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Каналы</h3>
+                </div>
+                
+                {/* General channel — always first */}
                 <Link
-                  key={ch.id}
-                  to={`/g/${slug}/c/${ch.slug}`}
-                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
-                    activeChannelSlug === ch.slug
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                  to={`/g/${slug}`}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors mb-0.5 ${
+                    !activeChannelId
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                   }`}
+                  onClick={() => setActiveChannelId(null)}
                 >
-                  # {ch.name}
+                  <Hash className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">общий</span>
                 </Link>
-              )))}
-            </div>
-          </div>
-        )}
+                
+                {/* Categorized channels */}
+                {channelCategories.map((group) => (
+                  <div key={group.category || '__uncategorized'} className="mt-1.5">
+                    {group.category && (
+                      <div className="px-2 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
+                        {group.category}
+                      </div>
+                    )}
+                    {group.channels.map((ch) => (
+                      <Link
+                        key={ch.id}
+                        to={`/g/${slug}/c/${ch.slug}`}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
+                          activeChannelSlug === ch.slug
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                        }`}
+                      >
+                        {ch.is_private ? (
+                          <Lock className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                        ) : (
+                          <Hash className="w-3.5 h-3.5 shrink-0" />
+                        )}
+                        <span className="truncate">{ch.name}</span>
+                      </Link>
+                    ))}
+                  </div>
+                ))}
+                
+                {/* Quick actions at bottom of sidebar */}
+                <div className="mt-3 pt-3 border-t border-border/40 px-2 space-y-1">
+                  {board.rules_markdown?.trim() && (
+                    <button
+                      onClick={() => setShowRulesDialog(true)}
+                      disabled={checkingRules}
+                      className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    >
+                      <BookOpenText className="w-3.5 h-3.5 shrink-0" />
+                      <span>Правила</span>
+                    </button>
+                  )}
+                  {user?.id && board?.owner_id === user.id && (
+                    <Link
+                      to={`/g/${slug}/settings`}
+                      className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+                    >
+                      <Settings className="w-3.5 h-3.5 shrink-0" />
+                      <span>Настройки</span>
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </aside>
+            
+            {/* Toggle button */}
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className={`shrink-0 self-start mt-3 -ml-3 w-6 h-6 rounded-full border border-border/60 bg-card hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-all z-10 shadow-sm ${sidebarCollapsed ? 'ml-0' : ''}`}
+              title={sidebarCollapsed ? "Показать каналы" : "Скрыть каналы"}
+            >
+              {sidebarCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            </button>
+            
+            {/* Content area — scrolls independently */}
+            <div className="flex-1 min-w-0 flex flex-col p-2 sm:p-4 md:p-5">
+              <div className="mb-3 sm:mb-4">
+                <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {canCreateThread && (
+                    <Button
+                      onClick={() =>
+                        navigate(
+                          isGomoRoute
+                            ? activeChannelSlug
+                              ? `/g/${slug}/c/${activeChannelSlug}/create`
+                              : `/g/${slug}/create`
+                            : `/create?board=${slug}`
+                        )
+                      }
+                      className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
+                    >
+                      <Plus className="h-4 w-4 sm:mr-2" />
+                      <span className="hidden sm:inline">Создать тред</span>
+                    </Button>
+                  )}
+                </div>
+              </div>
 
-        <div className="mb-3 sm:mb-4">
-          <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
-            {canCreateThread && (
-              <Button
-                onClick={() =>
-                  navigate(
-                    isGomoRoute
-                      ? activeChannelSlug
-                        ? `/g/${slug}/c/${activeChannelSlug}/create`
-                        : `/g/${slug}/create`
-                      : `/create?board=${slug}`
-                  )
-                }
-                className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
-              >
-                <Plus className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Создать тред</span>
-              </Button>
-            )}
-            {hasSecondaryActions && (
-              <div className="flex items-center gap-2 ml-auto">
-                {isGomoRoute && board.rules_markdown?.trim() && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setShowRulesDialog(true)}
-                    className="h-8 px-3 text-xs sm:h-9 sm:text-sm rounded-lg border-primary/35 text-primary hover:bg-primary/10"
-                    disabled={checkingRules}
-                  >
-                    <BookOpenText className="w-3.5 h-3.5 mr-1.5" />
-                    Правила
-                  </Button>
-                )}
-                {isGomoRoute && user?.id && board?.owner_id === user.id && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/g/${slug}/settings`)}
-                    className="h-8 px-3 text-xs sm:h-9 sm:text-sm rounded-lg border-primary/35 text-primary hover:bg-primary/10"
-                  >
-                    Настройки
-                  </Button>
+              <div className="space-y-2 relative flex-1">
+                {/* Thread content — same as non-gomosub version below */}
+                {pageLoading ? (
+                  <>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div
+                        key={`placeholder-${i}`}
+                        className="block border border-border bg-card p-2 sm:p-3 opacity-60 blur-sm pointer-events-none"
+                      >
+                        <div className="relative flex items-start gap-3 min-h-[80px] sm:min-h-[100px]">
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 bg-muted rounded flex-shrink-0" />
+                          <div className="flex-shrink-0 max-w-[200px] sm:max-w-[250px]">
+                            <div className="h-5 bg-muted rounded mb-2 w-full" />
+                            <div className="h-3 bg-muted rounded w-1/2" />
+                          </div>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="h-3 bg-muted rounded w-1/2" />
+                          </div>
+                          <div className="absolute bottom-2 right-2">
+                            <div className="h-3 bg-muted rounded w-8" />
+                          </div>
+                          <div className="absolute top-2 right-2">
+                            <div className="w-6 h-6 bg-muted rounded-full" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
+                      <PentagramLoader size="lg" />
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    {threadsLoading && (
+                      <div className="flex justify-center py-4">
+                        <PentagramLoader size="sm" />
+                      </div>
+                    )}
+                    {threads.map((thread) => (
+                      <Card key={thread.id} className="border-border/70 bg-card/95 p-0 overflow-hidden hover:border-primary/35 transition-colors rounded-xl">
+                        <div className="p-3 sm:p-5">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                              <UserBadge
+                                userId={thread.user_id}
+                                username={thread.profiles?.username || "Аноним"}
+                                isAnonymous={thread.profiles?.is_anonymous}
+                                showOutline={false}
+                                disableLink={true}
+                                className="text-sm"
+                              />
+                              <span>
+                                {formatDistanceToNow(safeDate(thread.created_at), {
+                                  locale: ru,
+                                  addSuffix: true,
+                                })}
+                              </span>
+                            </div>
+                            <div className="h-px bg-border/35" />
+
+                            <Link
+                              to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
+                              className="block group/title"
+                            >
+                              <h3 className="font-bold text-lg sm:text-[1.35rem] leading-tight break-words group-hover/title:text-primary transition-colors">
+                                {thread.title}
+                              </h3>
+                            </Link>
+
+                            {Array.isArray(thread.tags?.gomosub_tags) && thread.tags.gomosub_tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {thread.tags.gomosub_tags.map((tag: string) => (
+                                  <span
+                                    key={`${thread.id}-g-${tag}`}
+                                    className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded-full border border-primary/20"
+                                  >
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="relative">
+                              <div
+                                className={`text-sm sm:text-base text-foreground/90 whitespace-pre-wrap break-words leading-relaxed ${thread.content.length > 900 ? "max-h-72 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]" : ""}`}
+                              >
+                                {hasVisibilityTags(thread.content)
+                                  ? 'зайдите в тему чтобы посмотреть'
+                                  : renderContent(thread.content)}
+                              </div>
+                              {thread.content.length > 900 && (
+                                <Link
+                                  to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`}
+                                  className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 mt-2"
+                                >
+                                  Читать полностью
+                                  <ArrowUpRight className="w-4 h-4" />
+                                </Link>
+                              )}
+                            </div>
+
+                            {thread.image_url && (
+                              <Link to={`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`} className="block pt-1">
+                                <img
+                                  src={storageUrl("content", thread.image_url) || thread.image_url}
+                                  alt="Thread"
+                                  className="max-w-[220px] sm:max-w-[280px] max-h-40 sm:max-h-48 object-cover rounded-md"
+                                />
+                              </Link>
+                            )}
+
+                            <div className="h-px bg-border/35 mt-1" />
+                            <div className="pt-2 flex items-center justify-between text-sm text-muted-foreground">
+                              <LikeButton
+                                postId={thread.id}
+                                currentUserId={user?.id ?? null}
+                                postAuthorId={thread.user_id}
+                                isThread={true}
+                              />
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => navigate(`${pathPrefix}/${slug}${channelSlug ? `/c/${channelSlug}` : ""}/thread/${thread.id}`)}
+                                className="h-9 rounded-full px-3 gap-2"
+                              >
+                                <MessageCircle className="w-4 h-4" />
+                                {thread.post_count > 0 ? thread.post_count : 0}
+                              </Button>
+                            </div>
+
+                            {thread.latest_post?.content && (
+                              <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                                <span className="font-medium">Последний комментарий:</span>{" "}
+                                {thread.latest_post.content.slice(0, 120)}
+                                {thread.latest_post.content.length > 120 && "..."}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
                 )}
               </div>
-            )}
+
+              {threads.length === 0 && !pageLoading && !threadsLoading && (
+                <div className="text-center text-muted-foreground p-8">
+                  Тредов пока нет. Будьте первым!
+                </div>
+              )}
+
+              <div ref={threadsSentinelRef} className="py-4">
+                {loadingMoreThreads && (
+                  <div className="flex justify-center">
+                    <PentagramLoader size="md" />
+                  </div>
+                )}
+                {!hasMoreThreads && threads.length > 0 && (
+                  <div className="text-center text-muted-foreground py-2 text-sm">
+                    Все треды загружены
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="mb-3 sm:mb-4">
+              <div className="flex items-center gap-2 sm:flex-row sm:items-center sm:justify-between">
+                {canCreateThread && (
+                  <Button
+                    onClick={() =>
+                      navigate(
+                        isGomoRoute
+                          ? activeChannelSlug
+                            ? `/g/${slug}/c/${activeChannelSlug}/create`
+                            : `/g/${slug}/create`
+                          : `/create?board=${slug}`
+                      )
+                    }
+                    className="h-8 w-8 p-0 rounded-lg sm:h-10 sm:w-auto sm:px-4 sm:text-sm"
+                  >
+                    <Plus className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Создать тред</span>
+                  </Button>
+                )}
+                {hasSecondaryActions && (
+                  <div className="flex items-center gap-2 ml-auto">
+                    {isGomoRoute && board.rules_markdown?.trim() && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setShowRulesDialog(true)}
+                        className="h-8 px-3 text-xs sm:h-9 sm:text-sm rounded-lg border-primary/35 text-primary hover:bg-primary/10"
+                        disabled={checkingRules}
+                      >
+                        <BookOpenText className="w-3.5 h-3.5 mr-1.5" />
+                        Правила
+                      </Button>
+                    )}
+                    {isGomoRoute && user?.id && board?.owner_id === user.id && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`/g/${slug}/settings`)}
+                        className="h-8 px-3 text-xs sm:h-9 sm:text-sm rounded-lg border-primary/35 text-primary hover:bg-primary/10"
+                      >
+                        Настройки
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
 
         <div className="space-y-2 relative">
@@ -1466,6 +1719,8 @@ const Board = () => {
             </div>
           )}
         </div>
+      </>
+        )}
 
         {board.is_gomosub && board.rules_markdown?.trim() && (
           <Dialog
