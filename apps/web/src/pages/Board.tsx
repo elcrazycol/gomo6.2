@@ -115,6 +115,8 @@ const Board = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [boardPermissions, setBoardPermissions] = useState<Record<string, boolean>>({});
+  const [isBoardOwner, setIsBoardOwner] = useState(false);
   
   useSessionTime(user?.id);
   useOnlineStatus(user?.id);
@@ -427,6 +429,23 @@ const Board = () => {
         }
 
         setBoard(boardData);
+
+        // Load user's permissions for gomosub management
+        if (boardData.is_gomosub && user?.id) {
+          try {
+            const { data: { session } } = await api.auth.getSession();
+            if (session?.access_token) {
+              const permRes = await fetch(`/api/rpc/get_board_user_permissions?_board_id=${boardData.id}`, {
+                headers: { Authorization: `Bearer ${session.access_token}` }
+              });
+              const permData = await permRes.json();
+              if (permData.data) {
+                setIsBoardOwner(permData.data.is_owner || false);
+                setBoardPermissions(permData.data.permissions || {});
+              }
+            }
+          } catch { /* ignore permission errors */ }
+        }
 
         // Private gomosub access control
         if (boardData.is_gomosub && boardData.visibility === "private") {
@@ -1238,7 +1257,7 @@ const Board = () => {
                       <span>Правила</span>
                     </button>
                   )}
-                  {user?.id && board?.owner_id === user.id && (
+                  {user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
                     <Link
                       to={`/g/${slug}/settings`}
                       className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
@@ -1487,7 +1506,7 @@ const Board = () => {
                         Правила
                       </Button>
                     )}
-                    {isGomoRoute && user?.id && board?.owner_id === user.id && (
+                    {isGomoRoute && user?.id && (isBoardOwner || boardPermissions.can_manage_channels || boardPermissions.can_manage_roles || boardPermissions.can_manage_members) && (
                       <Button
                         size="sm"
                         variant="outline"

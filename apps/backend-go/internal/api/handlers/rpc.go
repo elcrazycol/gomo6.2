@@ -645,3 +645,75 @@ func (h *RPCHandler) AwardAchievement(c *gin.Context) {
 
 	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }
+
+// GetBoardUserPermissions returns the user's effective permissions for a gomosub board.
+// Owner always gets all permissions. Non-owner gets permissions from their assigned role.
+func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
+	boardID := c.Query("_board_id")
+	if boardID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("_board_id is required"))
+		return
+	}
+
+	// Check if user is the board owner
+	var ownerID string
+	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	if ownerID == claims.UserID {
+		c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
+			"is_owner": true,
+			"permissions": map[string]bool{
+				"can_manage_roles":    true,
+				"can_manage_channels": true,
+				"can_manage_members":  true,
+				"can_delete_threads":  true,
+				"can_pin_threads":     true,
+			},
+		}))
+		return
+	}
+
+	// Get user's role permissions from membership
+	var permissions json.RawMessage
+	err = h.db.QueryRow(`
+		SELECT gr.permissions
+		FROM gomosub_memberships gm
+		JOIN gomosub_roles gr ON gm.role_id = gr.id
+		WHERE gm.board_id = $1 AND gm.user_id = $2
+	`, boardID, claims.UserID).Scan(&permissions)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
+			"is_owner":    false,
+			"permissions": map[string]bool{},
+		}))
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	var perms map[string]bool
+	if err := json.Unmarshal(permissions, &perms); err != nil {
+		perms = map[string]bool{}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(map[string]interface{}{
+		"is_owner":    false,
+		"permissions": perms,
+	}))
+}
