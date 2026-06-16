@@ -316,4 +316,281 @@ describe("ApiClient", () => {
       window.removeEventListener("auth:expired", handler);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chunk 4: Board/Thread/Post methods
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("boards", () => {
+    it("getBoards with no params calls GET /api/v1/boards", async () => {
+      mockFetch({ success: true, data: [], count: 0 });
+      const result = await apiClient.getBoards();
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/boards"),
+        expect.anything(),
+      );
+      expect(result.data).toEqual([]);
+    });
+
+    it("getBoards with slug adds slug=eq:slug param", async () => {
+      mockFetch({ success: true, data: [], count: 0 });
+      await apiClient.getBoards({ slug: "my-board" });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("slug=eq%3Amy-board");
+    });
+
+    it("getBoards with is_gomosub adds param", async () => {
+      mockFetch({ success: true, data: [], count: 0 });
+      await apiClient.getBoards({ is_gomosub: true });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("is_gomosub=eq%3Atrue");
+    });
+
+    it("getBoard(slug) calls GET /api/v1/boards/{slug}", async () => {
+      mockFetch({ success: true, data: { slug: "test", name: "Test" } });
+      const result = await apiClient.getBoard("test");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/boards/test"),
+        expect.anything(),
+      );
+      expect(result.data).toEqual({ slug: "test", name: "Test" });
+    });
+
+    it("createBoard calls POST with JSON body", async () => {
+      mockFetch({ success: true, data: { id: "board-1" } });
+      await apiClient.createBoard({ name: "New Board", slug: "new" });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/boards"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ name: "New Board", slug: "new" }),
+        }),
+      );
+    });
+  });
+
+  describe("threads", () => {
+    it("getThreads with board_id adds query param", async () => {
+      mockFetch({ success: true, data: [] });
+      await apiClient.getThreads({ board_id: "board-1" });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("board_id=board-1");
+    });
+
+    it("getThread(id) calls GET /api/v1/threads/{id}", async () => {
+      mockFetch({ success: true, data: { id: "t-1", title: "Hello" } });
+      const result = await apiClient.getThread("t-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/threads/t-1"),
+        expect.anything(),
+      );
+      expect(result.data).toEqual({ id: "t-1", title: "Hello" });
+    });
+
+    it("createThread calls POST to /api/rpc/create_thread", async () => {
+      mockFetch({ success: true, data: { id: "t-2" } });
+      await apiClient.createThread({ title: "New", content: "Body" });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/rpc/create_thread"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ title: "New", content: "Body" }),
+        }),
+      );
+    });
+
+    it("getThreads with limit/offset adds pagination params", async () => {
+      mockFetch({ success: true, data: [] });
+      await apiClient.getThreads({ limit: 10, offset: 20 });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("limit=10");
+      expect(url).toContain("offset=20");
+    });
+  });
+
+  describe("posts", () => {
+    it("getPosts with thread_id adds query param", async () => {
+      mockFetch({ success: true, data: [] });
+      await apiClient.getPosts({ thread_id: "thread-1" });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("thread_id=thread-1");
+    });
+
+    it("getPost(id) calls GET /api/v1/posts/{id}", async () => {
+      mockFetch({ success: true, data: { id: "p-1", content: "Hello" } });
+      const result = await apiClient.getPost("p-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/posts/p-1"),
+        expect.anything(),
+      );
+      expect(result.data).toEqual({ id: "p-1", content: "Hello" });
+    });
+
+    it("createPost calls POST to /api/rpc/create_post", async () => {
+      mockFetch({ success: true, data: { id: "p-2" } });
+      await apiClient.createPost({ thread_id: "t-1", content: "Reply" });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/rpc/create_post"),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ thread_id: "t-1", content: "Reply" }),
+        }),
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chunk 5: Profile + Like + RPC methods
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("profiles", () => {
+    it("getProfiles with username filter", async () => {
+      mockFetch({ success: true, data: [] });
+      await apiClient.getProfiles({ username: "alice" });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("username=alice");
+    });
+
+    it("getProfile(id) calls GET", async () => {
+      mockFetch({ success: true, data: { id: "u-1", username: "bob" } });
+      const result = await apiClient.getProfile("u-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/profiles/u-1"),
+        expect.anything(),
+      );
+      expect(result.data).toEqual({ id: "u-1", username: "bob" });
+    });
+
+    it("updateProfile(id, data) calls PUT", async () => {
+      mockFetch({ success: true, data: { id: "u-1" } });
+      await apiClient.updateProfile("u-1", { bio: "New bio" });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/profiles/u-1"),
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ bio: "New bio" }),
+        }),
+      );
+    });
+  });
+
+  describe("likes", () => {
+    it("likeThread calls POST", async () => {
+      mockFetch({ success: true, data: { id: "like-1" } });
+      await apiClient.likeThread("thread-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/threads/thread-1/like"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("unlikeThread calls DELETE", async () => {
+      mockFetch({ success: true, data: null });
+      await apiClient.unlikeThread("thread-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/threads/thread-1/like"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+
+    it("likePost calls POST", async () => {
+      mockFetch({ success: true, data: { id: "like-1" } });
+      await apiClient.likePost("post-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/posts/post-1/like"),
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("unlikePost calls DELETE", async () => {
+      mockFetch({ success: true, data: null });
+      await apiClient.unlikePost("post-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/posts/post-1/like"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+
+    it("getThreadLikes with params", async () => {
+      mockFetch({ success: true, data: [] });
+      await apiClient.getThreadLikes("thread-1", { limit: 5, offset: 10 });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("limit=5");
+      expect(url).toContain("offset=10");
+    });
+  });
+
+  describe("RPC methods", () => {
+    it("getPostLikesCount", async () => {
+      mockFetch({ success: true, data: 42 });
+      const result = await apiClient.getPostLikesCount("post-uuid");
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("post_uuid=post-uuid");
+      expect(result.data).toBe(42);
+    });
+
+    it("getThreadLikesCount", async () => {
+      mockFetch({ success: true, data: 7 });
+      const result = await apiClient.getThreadLikesCount("thread-uuid");
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("thread_uuid=thread-uuid");
+      expect(result.data).toBe(7);
+    });
+
+    it("hasUserLikedPost", async () => {
+      mockFetch({ success: true, data: true });
+      const result = await apiClient.hasUserLikedPost("post-uuid", "user-uuid");
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("post_uuid=post-uuid");
+      expect(url).toContain("user_uuid=user-uuid");
+      expect(result.data).toBe(true);
+    });
+
+    it("hasUserLikedThread", async () => {
+      mockFetch({ success: true, data: false });
+      const result = await apiClient.hasUserLikedThread("thread-uuid", "user-uuid");
+
+      expect(result.data).toBe(false);
+    });
+
+    it("getUserLikesReceivedCount with encoded UUID", async () => {
+      mockFetch({ success: true, data: 15 });
+      const result = await apiClient.getUserLikesReceivedCount("user-uuid");
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("user_uuid=user-uuid");
+      expect(result.data).toBe(15);
+    });
+
+    it("getRecentPostLikers with custom limit", async () => {
+      mockFetch({ success: true, data: [] });
+      await apiClient.getRecentPostLikers("post-uuid", 5);
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("limit_count=5");
+    });
+  });
 });
