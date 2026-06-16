@@ -18,7 +18,6 @@ services:
       POSTGRES_PASSWORD: gomo6password
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./apps/backend-go/migrations:/docker-entrypoint-initdb.d
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gomo6 -d gomo6"]
