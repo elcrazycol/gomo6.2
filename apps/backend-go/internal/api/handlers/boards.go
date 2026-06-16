@@ -418,6 +418,8 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 	// Invalidate cache for invites
 	if h.redis != nil {
 		cache.InvalidateForTable(h.redis, "gomosub_invites", map[string]string{"board_id": boardID})
+		// Also invalidate the dedicated handler cache key (GET /api/v1/boards/:id/invites)
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/boards/%s/invites*", boardID))
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(invite))
@@ -517,6 +519,8 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 	// Invalidate cache for invites
 	if h.redis != nil {
 		cache.InvalidateForTable(h.redis, "gomosub_invites", map[string]string{"board_id": boardID})
+		// Also invalidate the dedicated handler cache key (GET /api/v1/boards/:id/invites)
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/boards/%s/invites*", boardID))
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{"status": "deleted"}))
