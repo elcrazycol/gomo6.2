@@ -15,14 +15,14 @@
 # =============================================================================
 
 {
-	auto_https off
+	auto_https on
 	# email admin@example.com  # раскомментируй для получения писем от Let's Encrypt
 }
 
 # Uploads and object serving go through backend (/storage/v1/upload, /storage/v1/object).
 # Garage is never exposed directly to browsers — no CORS issues, no S3 signature issues.
 
-http://{$DOMAIN:localhost}, http://docs.{$DOMAIN:localhost}, http://dev.{$DOMAIN:localhost}, http://mcaptcha.{$DOMAIN:localhost} {
+{$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost}, mcaptcha.{$DOMAIN:localhost} {
 	# ── Security headers ──────────────────────────────────────────────────
 	header {
 		X-Content-Type-Options "nosniff"
