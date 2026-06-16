@@ -312,7 +312,6 @@ describe("Auth Page", () => {
         password: "secret123",
         options: {
           data: { username: "newuser" },
-          emailRedirectTo: `${window.location.origin}/`,
         },
       });
     });
