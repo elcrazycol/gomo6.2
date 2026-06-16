@@ -207,8 +207,12 @@ const Index = () => {
 
       setSubscriptionsLoading(true);
 
-      const { data: memberships } = await api
-        .from("gomosub_memberships")
+      const fromResult = api.from("gomosub_memberships");
+      if (!fromResult) {
+        setSubscriptionsLoading(false);
+        return;
+      }
+      const { data: memberships } = await fromResult
         .select("board_id")
         .eq("user_id", user.id);
       const joinedBoardIds = (memberships ?? []).map((m: { board_id: string }) => m.board_id);

@@ -51,7 +51,9 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
         setShowRecoveryCodes(false);
       }
     } catch (error) {
-      toast.error("Ошибка настройки 2FA: " + (error instanceof Error ? error.message : String(error)));
+      const errObj = error as Record<string, unknown>;
+      const msg = error instanceof Error ? error.message : typeof errObj?.message === "string" ? errObj.message : String(error);
+      toast.error("Ошибка настройки 2FA: " + msg);
     }
   };
 
@@ -97,7 +99,9 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
       setShowRecoveryCodes(false);
       toast.success("2FA отключена");
     } catch (error) {
-      toast.error("Ошибка отключения 2FA: " + (error instanceof Error ? error.message : String(error)));
+      const errObj = error as Record<string, unknown>;
+      const msg = error instanceof Error ? error.message : typeof errObj?.message === "string" ? errObj.message : String(error);
+      toast.error("Ошибка отключения 2FA: " + msg);
     }
   };
 
