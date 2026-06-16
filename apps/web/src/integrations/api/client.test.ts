@@ -593,4 +593,170 @@ describe("ApiClient", () => {
       expect(url).toContain("limit_count=5");
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chunk 6: Notifications + Passkeys
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("notifications", () => {
+    it("getNotifications with pagination", async () => {
+      mockFetch({ success: true, data: [], count: 0 });
+      await apiClient.getNotifications({ limit: 25, offset: 50 });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("limit=25");
+      expect(url).toContain("offset=50");
+    });
+
+    it("markNotificationAsRead calls PUT", async () => {
+      mockFetch({ success: true, data: null });
+      await apiClient.markNotificationAsRead("notif-1");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/notifications/notif-1/read"),
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    it("markAllNotificationsAsRead calls PUT", async () => {
+      mockFetch({ success: true, data: null });
+      await apiClient.markAllNotificationsAsRead();
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/notifications/read-all"),
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    it("getUnreadNotificationsCount", async () => {
+      mockFetch({ success: true, data: { unread_count: 5 } });
+      const result = await apiClient.getUnreadNotificationsCount();
+
+      expect(result.data).toEqual({ unread_count: 5 });
+    });
+
+    it("getMessengerUnreadCount", async () => {
+      mockFetch({ success: true, data: { unread_count: 3 } });
+      const result = await apiClient.getMessengerUnreadCount();
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("/api/rpc/get_messenger_unread_count");
+      expect(result.data).toEqual({ unread_count: 3 });
+    });
+  });
+
+  describe("passkeys", () => {
+    it("beginPasskeyRegistration calls POST", async () => {
+      apiClient.setTokens("token", null);
+      mockFetch({
+        success: true,
+        data: { challenge: "abc123", rp: { name: "gomo6" } },
+      });
+      const result = await apiClient.beginPasskeyRegistration();
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/auth/webauthn/register/begin"),
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(result).toEqual({ challenge: "abc123", rp: { name: "gomo6" } });
+    });
+
+    it("finishPasskeyRegistration sends credential with name", async () => {
+      apiClient.setTokens("token", null);
+      mockFetch({ success: true, data: { ok: true } });
+      const result = await apiClient.finishPasskeyRegistration("My Key", {
+        id: "cred-1",
+      });
+
+      const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      expect(url).toContain("name=My%20Key");
+      expect(result).toEqual({ ok: true });
+    });
+
+    it("beginPasskeyLogin returns options and session_token", async () => {
+      mockFetch({
+        success: true,
+        data: { options: { challenge: "xyz" }, session_token: "sess-1" },
+      });
+      const result = await apiClient.beginPasskeyLogin();
+
+      expect(result.options).toEqual({ challenge: "xyz" });
+      expect(result.session_token).toBe("sess-1");
+    });
+
+    it("finishPasskeyLogin sets tokens", async () => {
+      mockFetch({
+        success: true,
+        data: { token: "pk-token", refresh_token: "pk-refresh", user: { id: "u1" } },
+      });
+      const result = await apiClient.finishPasskeyLogin("sess-1", {
+        id: "cred-1",
+      });
+
+      expect(apiClient.getToken()).toBe("pk-token");
+      expect(apiClient.getRefreshToken()).toBe("pk-refresh");
+    });
+
+    it("listPasskeys returns credentials array", async () => {
+      mockFetch({
+        success: true,
+        data: {
+          credentials: [
+            { credential_id: "c1", name: "Key 1", attestation_type: "none", created_at: "2024-01-01" },
+          ],
+        },
+      });
+      const result = await apiClient.listPasskeys();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe("Key 1");
+    });
+
+    it("listPasskeys returns empty array when no credentials", async () => {
+      mockFetch({ success: true, data: { credentials: null } });
+      const result = await apiClient.listPasskeys();
+
+      expect(result).toEqual([]);
+    });
+
+    it("deletePasskey calls DELETE", async () => {
+      mockFetch({ success: true, data: { ok: true } });
+      await apiClient.deletePasskey("cred-123");
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/auth/webauthn/credentials/cred-123"),
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chunk 7: getDeviceId()
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe("getDeviceId", () => {
+    it("returns existing device_id from localStorage", async () => {
+      localStorage.setItem("device_id", "existing-id");
+      const { getDeviceId } = await import("./client");
+      expect(getDeviceId()).toBe("existing-id");
+    });
+
+    it("generates new device_id if none stored", async () => {
+      localStorage.removeItem("device_id");
+      const { getDeviceId } = await import("./client");
+      const id = getDeviceId();
+
+      expect(id).toMatch(/^device_/);
+      expect(localStorage.getItem("device_id")).toBe(id);
+    });
+
+    it("returns same device_id on subsequent calls", async () => {
+      localStorage.removeItem("device_id");
+      const { getDeviceId } = await import("./client");
+      const id1 = getDeviceId();
+      const id2 = getDeviceId();
+
+      expect(id1).toBe(id2);
+    });
+  });
 });
