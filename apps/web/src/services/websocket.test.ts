@@ -40,7 +40,7 @@ class MockWebSocket {
   }
 
   simulateError() {
-    this.onerror?.({} as Event);
+    this.onerror?.();
   }
 
   simulateClose(code = 1000) {
