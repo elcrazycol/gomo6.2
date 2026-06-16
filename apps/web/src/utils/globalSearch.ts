@@ -1,4 +1,4 @@
-import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
 
 export type SearchUser = {
   id: string;
@@ -12,6 +12,7 @@ export type SearchGomoSub = {
   name: string;
   description?: string | null;
   cover_image_url?: string | null;
+  is_gomosub?: boolean | null;
 };
 
 export type SearchThread = {
@@ -21,85 +22,85 @@ export type SearchThread = {
   created_at: string;
   updated_at: string;
   board_id: string;
-  boards: {
-    slug: string;
-    name: string;
-    is_gomosub?: boolean | null;
-  };
+  board_slug: string;
+  board_name: string;
+  board_is_gomosub?: boolean | null;
+};
+
+export type SearchPost = {
+  id: string;
+  content: string;
+  created_at: string;
+  thread_id: string;
+  thread_title: string;
+  board_id: string;
+  board_slug: string;
+  board_name: string;
+  board_is_gomosub?: boolean | null;
+  username?: string | null;
+  avatar_url?: string | null;
 };
 
 export type GlobalSearchResult = {
   users: SearchUser[];
-  gomosubs: SearchGomoSub[];
+  boards: SearchGomoSub[];
   threads: SearchThread[];
+  posts: SearchPost[];
 };
 
-const dedupeById = <T extends { id: string }>(items: T[]): T[] => {
-  const seen = new Set<string>();
-  const out: T[] = [];
-  for (const item of items) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    out.push(item);
-  }
-  return out;
-};
+// Normalise thread results to the shape expected by the UI (with boards object)
+const normaliseThread = (t: Record<string, unknown>): SearchThread => ({
+  id: t.id as string,
+  title: t.title as string,
+  content: t.content as string,
+  created_at: t.created_at as string,
+  updated_at: t.updated_at as string,
+  board_id: t.board_id as string,
+  board_slug: t.board_slug as string,
+  board_name: t.board_name as string,
+  board_is_gomosub: t.board_is_gomosub as boolean | null | undefined,
+});
 
 export const searchGlobal = async (
   query: string,
-  limits?: { users?: number; gomosubs?: number; threads?: number }
+  limits?: { users?: number; boards?: number; threads?: number; posts?: number }
 ): Promise<GlobalSearchResult> => {
   const term = query.trim();
   if (term.length < 2) {
-    return { users: [], gomosubs: [], threads: [] };
+    return { users: [], boards: [], threads: [], posts: [] };
   }
 
-  const userLimit = limits?.users ?? 8;
-  const gomosubLimit = limits?.gomosubs ?? 8;
-  const threadLimit = limits?.threads ?? 20;
-  const like = `%${term}%`;
+  try {
+    const response = await apiClient.rawRequest(
+      `/api/v1/search?q=${encodeURIComponent(term)}`
+    );
 
-  const [usersRes, gomosubsNameRes, gomosubsSlugRes, threadsByTitleRes, threadsByContentRes] = await Promise.all([
-    api
-      .from("profiles")
-      .select("id, username, avatar_url")
-      .ilike("username", like)
-      .limit(userLimit),
-    api
-      .from("boards")
-      .select("id, slug, name, description, cover_image_url")
-      .eq("is_gomosub", true)
-      .ilike("name", like)
-      .limit(gomosubLimit),
-    api
-      .from("boards")
-      .select("id, slug, name, description, cover_image_url")
-      .eq("is_gomosub", true)
-      .ilike("slug", like)
-      .limit(gomosubLimit),
-    api
-      .from("threads")
-      .select("id, title, content, created_at, updated_at, board_id, boards!inner(slug, name, is_gomosub)")
-      .ilike("title", like)
-      .order("updated_at", { ascending: false })
-      .limit(threadLimit),
-    api
-      .from("threads")
-      .select("id, title, content, created_at, updated_at, board_id, boards!inner(slug, name, is_gomosub)")
-      .ilike("content", like)
-      .order("updated_at", { ascending: false })
-      .limit(threadLimit),
-  ]);
+    if (!response.success || !response.data) {
+      return { users: [], boards: [], threads: [], posts: [] };
+    }
 
-  const users = dedupeById((usersRes.data ?? []) as SearchUser[]).slice(0, userLimit);
-  const gomosubs = dedupeById(
-    ([...(gomosubsNameRes.data ?? []), ...(gomosubsSlugRes.data ?? [])] as SearchGomoSub[])
-  ).slice(0, gomosubLimit);
-  const threads = dedupeById(
-    ([...(threadsByTitleRes.data ?? []), ...(threadsByContentRes.data ?? [])] as SearchThread[])
-  )
-    .sort((a, b) => +new Date(b.updated_at) - +new Date(a.updated_at))
-    .slice(0, threadLimit);
+    const data = response.data as {
+      users?: SearchUser[];
+      boards?: SearchGomoSub[];
+      threads?: Record<string, unknown>[];
+      posts?: SearchPost[];
+    };
 
-  return { users, gomosubs, threads };
+    const userLimit = limits?.users ?? 8;
+    const boardLimit = limits?.boards ?? 8;
+    const threadLimit = limits?.threads ?? 20;
+    const postLimit = limits?.posts ?? 10;
+
+    const threads = (data.threads ?? []).map(normaliseThread);
+
+    return {
+      users: (data.users ?? []).slice(0, userLimit),
+      boards: (data.boards ?? []).slice(0, boardLimit),
+      threads: threads.slice(0, threadLimit),
+      posts: (data.posts ?? []).slice(0, postLimit),
+    };
+  } catch (e) {
+    console.error("Search failed:", e);
+    return { users: [], boards: [], threads: [], posts: [] };
+  }
 };

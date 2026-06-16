@@ -839,7 +839,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
     const timeoutId = window.setTimeout(async () => {
       setSearchLoading(true);
-      const result = await searchGlobal(term, { users: 4, gomosubs: 4, threads: 4 });
+      const result = await searchGlobal(term, { users: 4, boards: 4, threads: 4 });
       setSearchResults(result);
       setSearchOpen(true);
       setSearchLoading(false);
@@ -874,7 +874,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => window.clearTimeout(id);
   }, [desktopSearchExpanded]);
 
-  const totalSearchHits = searchResults.users.length + searchResults.gomosubs.length + searchResults.threads.length;
+  const totalSearchHits = searchResults.users.length + searchResults.boards.length + searchResults.threads.length + searchResults.posts.length;
 
   const submitSearch = (event?: FormEvent) => {
     if (event) event.preventDefault();
@@ -1000,32 +1000,43 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                           ))}
                         </div>
                       )}
-                      {searchResults.gomosubs.length > 0 && (
+                      {searchResults.boards.length > 0 && (
                         <div className="space-y-1">
-                          <div className="text-xs uppercase tracking-wide text-muted-foreground">G-сабы</div>
-                          {searchResults.gomosubs.map((item) => (
-                            <Link
-                              key={item.id}
-                              to={`/g/${item.slug}`}
-                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                            >
-                              g/{item.slug} - {item.name}
-                            </Link>
-                          ))}
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">Доски и G-сабы</div>
+                          {searchResults.boards.map((item) => {
+                            const isGomo = item.is_gomosub;
+                            const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
+                            const prefix = isGomo ? "g/" : "/";
+                            return (
+                              <Link
+                                key={item.id}
+                                to={link}
+                                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+                              >
+                                {prefix}{item.slug} - {item.name}
+                              </Link>
+                            );
+                          })}
                         </div>
                       )}
                       {searchResults.threads.length > 0 && (
                         <div className="space-y-1">
                           <div className="text-xs uppercase tracking-wide text-muted-foreground">Треды</div>
-                          {searchResults.threads.map((item) => (
-                            <Link
-                              key={item.id}
-                              to={`${item.boards?.is_gomosub ? "/g" : ""}/${item.boards?.slug}/thread/${item.id}`}
-                              className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
-                            >
-                              {item.title}
-                            </Link>
-                          ))}
+                          {searchResults.threads.map((item) => {
+                            const isGomo = item.board_is_gomosub;
+                            const link = isGomo
+                              ? `/g/${item.board_slug}/thread/${item.id}`
+                              : `/${item.board_slug}/thread/${item.id}`;
+                            return (
+                              <Link
+                                key={item.id}
+                                to={link}
+                                className="block px-2 py-1.5 rounded-md hover:bg-muted transition-colors text-sm"
+                              >
+                                {item.title}
+                              </Link>
+                            );
+                          })}
                         </div>
                       )}
                       <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
@@ -1097,16 +1108,27 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
                         @{item.username}
                       </Link>
                     ))}
-                    {searchResults.gomosubs.map((item) => (
-                      <Link key={item.id} to={`/g/${item.slug}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        g/{item.slug} - {item.name}
-                      </Link>
-                    ))}
-                    {searchResults.threads.map((item) => (
-                      <Link key={item.id} to={`${item.boards?.is_gomosub ? "/g" : ""}/${item.boards?.slug}/thread/${item.id}`} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
-                        {item.title}
-                      </Link>
-                    ))}
+                    {searchResults.boards.map((item) => {
+                      const isGomo = item.is_gomosub;
+                      const link = isGomo ? `/g/${item.slug}` : `/${item.slug}`;
+                      const prefix = isGomo ? "g/" : "/";
+                      return (
+                        <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                          {prefix}{item.slug} - {item.name}
+                        </Link>
+                      );
+                    })}
+                    {searchResults.threads.map((item) => {
+                      const isGomo = item.board_is_gomosub;
+                      const link = isGomo
+                        ? `/g/${item.board_slug}/thread/${item.id}`
+                        : `/${item.board_slug}/thread/${item.id}`;
+                      return (
+                        <Link key={item.id} to={link} className="block px-2 py-1.5 rounded-md hover:bg-muted text-sm">
+                          {item.title}
+                        </Link>
+                      );
+                    })}
                     <Button className="w-full" variant="outline" onClick={() => submitSearch()}>
                       Показать все результаты
                     </Button>
