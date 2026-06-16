@@ -358,52 +358,30 @@ describe("ThreadCard", () => {
 
   // ─── Recent posts ───────────────────────────────────────────────────────────
 
-  it("shows recent post preview when api returns posts", async () => {
-    mockFrom.mockImplementation((table: string) => {
-      switch (table) {
-        case "posts":
-          return makeChain({
-            data: [
-              {
-                id: "recent-post-1",
-                content: "Recent reply content",
-                content_json: null,
-                created_at: "2025-01-19T15:00:00Z",
-                user_id: "reply-author-1",
-              },
-            ],
-            error: null,
-          });
-        case "profiles":
-          return makeChain({
-            data: [
-              { id: "reply-author-1", username: "replyuser", is_anonymous: false, avatar_url: null },
-            ],
-            error: null,
-          });
-        case "thread_likes":
-          return makeChain({ data: null, error: null });
-        default:
-          return makeChain({ data: [], error: null });
-      }
-    });
-
+  it("shows recent post preview from initialRecentPost prop", async () => {
     render(
       <ThreadCardComponent
         thread={createMockThread()}
         currentUserId="current-user"
         currentUsername="currentuser"
+        initialRecentPost={{
+          id: "recent-post-1",
+          content: "Recent reply content",
+          created_at: "2025-01-19T15:00:00Z",
+          user_id: "reply-author-1",
+          profiles: { username: "replyuser", is_anonymous: false },
+        }}
       />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Recent reply content")).toBeInTheDocument();
+      expect(screen.getByText(/Recent reply content/)).toBeInTheDocument();
     });
 
     expect(screen.getByText("replyuser:")).toBeInTheDocument();
   });
 
-  it("does not show recent post preview when api returns empty", async () => {
+  it("does not show recent post preview when no initialRecentPost prop", async () => {
     render(
       <ThreadCardComponent
         thread={createMockThread()}
@@ -416,36 +394,24 @@ describe("ThreadCard", () => {
       expect(screen.getByText("Test Thread Title")).toBeInTheDocument();
     });
 
-    await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith("posts");
-    });
-
     expect(screen.queryByText("replyuser:")).not.toBeInTheDocument();
   });
 
   // ─── Likes ──────────────────────────────────────────────────────────────────
 
-  it("loads likes data from API on mount", async () => {
+  it("displays initial likes data from props", async () => {
     render(
       <ThreadCardComponent
         thread={createMockThread()}
         currentUserId="current-user"
         currentUsername="currentuser"
+        initialLikesCount={42}
+        initialUserLiked={true}
       />,
     );
 
     await waitFor(() => {
-      expect(mockRpc).toHaveBeenCalledWith("get_thread_likes_count", {
-        thread_uuid: "thread-1",
-      });
-    });
-    expect(mockRpc).toHaveBeenCalledWith("get_recent_thread_likers", {
-      thread_uuid: "thread-1",
-      limit_count: 3,
-    });
-    expect(mockRpc).toHaveBeenCalledWith("has_user_liked_thread", {
-      thread_uuid: "thread-1",
-      user_uuid: "current-user",
+      expect(screen.getByText("42")).toBeInTheDocument();
     });
   });
 

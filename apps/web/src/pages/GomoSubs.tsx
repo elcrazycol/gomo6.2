@@ -31,6 +31,7 @@ const GomoSubs = () => {
   const [membersBySub, setMembersBySub] = useState<Record<string, number>>({});
   const [togglingSubId, setTogglingSubId] = useState<string | null>(null);
   const [myFeedThreads, setMyFeedThreads] = useState<any[]>([]);
+  const [feedLikesMap, setFeedLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
   const [myFeedLoading, setMyFeedLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "my-feed">("all");
 
@@ -176,6 +177,23 @@ const GomoSubs = () => {
         profiles: profilesData?.find((profile: { id: string }) => profile.id === thread.user_id) || null
       }));
       setMyFeedThreads(merged);
+
+      // Batch fetch likes for all feed threads
+      if (merged.length > 0 && userId) {
+        const threadIds = merged.map((t: Record<string, unknown>) => String(t.id)).join(",");
+        try {
+          const likesResp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${threadIds}&user_uuid=${userId}`);
+          const likesResult = await likesResp.json();
+          if (likesResult.data && Array.isArray(likesResult.data)) {
+            const newMap = new Map<string, { count: number; isLiked: boolean }>();
+            for (const item of likesResult.data) {
+              newMap.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
+            }
+            setFeedLikesMap(newMap);
+          }
+        } catch { /* ignore */ }
+      }
+
       setMyFeedLoading(false);
     };
 
@@ -388,14 +406,19 @@ const GomoSubs = () => {
             </Card>
           ) : (
             <div className="space-y-4">
-              {myFeedThreads.map((thread) => (
-                <ThreadCard
-                  key={String(thread.id)}
-                  thread={thread}
-                  currentUserId={userId}
-                  currentUsername={profile?.username || ""}
-                />
-              ))}
+              {myFeedThreads.map((thread) => {
+                const likes = feedLikesMap.get(thread.id);
+                return (
+                  <ThreadCard
+                    key={String(thread.id)}
+                    thread={thread}
+                    currentUserId={userId}
+                    currentUsername={profile?.username || ""}
+                    initialLikesCount={likes?.count ?? 0}
+                    initialUserLiked={likes?.isLiked ?? false}
+                  />
+                );
+              })}
             </div>
           )}
         </TabsContent>
