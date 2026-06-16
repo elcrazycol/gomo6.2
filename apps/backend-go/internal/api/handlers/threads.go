@@ -36,9 +36,9 @@ func (h *ThreadsHandler) SetAuthService(authService *auth.AuthService) {
 	h.authService = authService
 }
 
-// getUserIdFromRequest extracts user ID from the Authorization header if present.
+// getUserIDFromRequest extracts user ID from the Authorization header if present.
 // Returns empty string if no valid token is found (anonymous access).
-func (h *ThreadsHandler) getUserIdFromRequest(c *gin.Context) string {
+func (h *ThreadsHandler) getUserIDFromRequest(c *gin.Context) string {
 	// First try claims set by auth middleware
 	if claims, ok := bearerClaims(c); ok {
 		return claims.UserID
@@ -205,7 +205,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	// Verify channel access for private channels
 	if channelIDParam != "" {
-		userID := h.getUserIdFromRequest(c)
+		userID := h.getUserIDFromRequest(c)
 		canAccess, err := h.canAccessChannel(userID, channelIDParam, false)
 		if err != nil && err != sql.ErrNoRows {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))

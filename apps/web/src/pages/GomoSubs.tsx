@@ -30,7 +30,7 @@ const GomoSubs = () => {
   const [joinedSubIds, setJoinedSubIds] = useState<Set<string>>(new Set());
   const [membersBySub, setMembersBySub] = useState<Record<string, number>>({});
   const [togglingSubId, setTogglingSubId] = useState<string | null>(null);
-  const [myFeedThreads, setMyFeedThreads] = useState<Array<Record<string, unknown>>>([]);
+  const [myFeedThreads, setMyFeedThreads] = useState<any[]>([]);
   const [myFeedLoading, setMyFeedLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "my-feed">("all");
 

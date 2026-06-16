@@ -73,7 +73,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [desktopSearchExpanded, setDesktopSearchExpanded] = useState(false);
-  const [searchResults, setSearchResults] = useState<GlobalSearchResult>({ users: [], gomosubs: [], threads: [] });
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult>({ users: [], boards: [], threads: [], posts: [] });
   const [hideMessengerChrome, setHideMessengerChrome] = useState(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const desktopSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -831,7 +831,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   useEffect(() => {
     const term = searchQuery.trim();
     if (term.length < 2) {
-      setSearchResults({ users: [], gomosubs: [], threads: [] });
+      setSearchResults({ users: [], boards: [], threads: [], posts: [] });
       setSearchOpen(false);
       setSearchLoading(false);
       return;

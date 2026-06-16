@@ -1679,7 +1679,7 @@ const Board = () => {
 
                       {/* Tags */}
                       <div>
-                        {renderTags(thread.tags, 'mobile')}
+                        {renderTags(thread.tags as Record<string, string>, 'mobile')}
                       </div>
 
                       {/* Thread Content Preview */}
@@ -1763,7 +1763,7 @@ const Board = () => {
                             })}
                           </span>
                           <div className="flex-1">
-                            {renderTags(thread.tags, 'inline')}
+                            {renderTags(thread.tags as Record<string, string>, 'inline')}
                           </div>
                         </div>
 

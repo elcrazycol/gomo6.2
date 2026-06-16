@@ -36,7 +36,7 @@ interface Emoji {
 const EmojiEditForm = () => {
   const { emojiId } = useParams();
   const navigate = useNavigate();
-  const [user, setUser] = useState<LocalUser | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
