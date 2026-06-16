@@ -1,15 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "@/integrations/api/compat";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { ProcessedContent } from "@/components/ProcessedContent";
-import { LikeButton } from "@/components/LikeButton";
 import { Heart, MessageCircle, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/integrations/api/compat";
 
 interface ThreadCardProps {
   thread: {
@@ -22,7 +21,7 @@ interface ThreadCardProps {
     created_at: string;
     updated_at: string;
     user_id: string | null;
-    tags?: Record<string, string>; // Thread tags object
+    tags?: Record<string, string>;
     ephemeral_type?: string | null;
     ephemeral_value?: number | null;
     auto_delete_at?: string | null;
@@ -30,35 +29,36 @@ interface ThreadCardProps {
       username: string;
       is_anonymous: boolean;
       avatar_url?: string | null;
-  } | null;
-  boards: {
-    slug: string;
-    name: string;
-    is_gomosub?: boolean | null;
-  };
-  post_count?: number;
+    } | null;
+    boards: {
+      slug: string;
+      name: string;
+      is_gomosub?: boolean | null;
+    };
+    post_count?: number;
   };
   currentUserId: string | null;
   currentUsername: string;
   currentUserColor?: string;
   showPreview?: boolean;
   hideTimestampOnCompactMobile?: boolean;
-}
-
-interface RecentPost {
-  id: string;
-  content: string;
-  content_json?: unknown;
-  created_at: string;
-  user_id: string | null;
-  profiles: {
-    username: string;
-    is_anonymous: boolean;
-    avatar_url?: string | null;
+  initialLikesCount?: number;
+  initialUserLiked?: boolean;
+  initialRecentLikers?: { username: string; id: string; avatar_url: string | null; is_anonymous: boolean }[];
+  initialRecentPost?: {
+    id: string;
+    content: string;
+    content_json?: unknown;
+    created_at: string;
+    user_id: string | null;
+    profiles: {
+      username: string;
+      is_anonymous: boolean;
+      avatar_url?: string | null;
+    } | null;
   } | null;
 }
 
-// Helper function to render tags
 export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'block' | 'mobile' | 'board' = 'block', thread?: Record<string, unknown>) => {
   const containerClass = layout === 'inline'
     ? "flex flex-wrap gap-1"
@@ -68,7 +68,6 @@ export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'blo
 
   return (
     <div className={containerClass}>
-      {/* Ephemeral tag */}
       {thread?.ephemeral_type && (
         <button
           onClick={(e) => {
@@ -84,7 +83,6 @@ export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'blo
         </button>
       )}
 
-      {/* Content tag */}
       {tags?.content && (
         <button
           onClick={(e) => {
@@ -107,7 +105,6 @@ export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'blo
         </button>
       )}
 
-      {/* Format tag */}
       {tags?.format && (
         <button
           onClick={(e) => {
@@ -128,7 +125,6 @@ export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'blo
         </button>
       )}
 
-      {/* Atmosphere tag */}
       {tags?.atmosphere && (
         <button
           onClick={(e) => {
@@ -147,7 +143,6 @@ export const renderTags = (tags: Record<string, string>, layout: 'inline' | 'blo
         </button>
       )}
 
-      {/* Night tag */}
       {tags?.flag === 'night' && (
         <span className="inline-block px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 rounded-full
                border border-blue-500/20">
@@ -165,125 +160,29 @@ const ThreadCard = ({
   currentUserColor,
   showPreview = true,
   hideTimestampOnCompactMobile = false,
+  initialLikesCount = 0,
+  initialUserLiked = false,
+  initialRecentLikers = [],
+  initialRecentPost = null,
 }: ThreadCardProps) => {
   const navigate = useNavigate();
-  const [recentPosts, setRecentPosts] = useState<RecentPost[]>([]);
-  const [likesCount, setLikesCount] = useState(0);
-  const [userLiked, setUserLiked] = useState(false);
-  const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+  const [likesCount, setLikesCount] = useState(initialLikesCount);
+  const [userLiked, setUserLiked] = useState(initialUserLiked);
   const [isExpanded, setIsExpanded] = useState(false);
   const [imagesExpanded, setImagesExpanded] = useState(false);
-  // Calculate last post date from thread updated_at if it's different from created_at
+  const [hasOverflowImages, setHasOverflowImages] = useState(false);
+
   const lastPostDate = thread.updated_at && thread.updated_at !== thread.created_at
     ? thread.updated_at
     : null;
-  const [recentLikers, setRecentLikers] = useState<{username: string, id: string, avatar_url: string | null, is_anonymous: boolean}[]>([]);
-  const [hasOverflowImages, setHasOverflowImages] = useState(false);
-
-  const loadRecentPosts = useCallback(async () => {
-    if (isLoadingPosts) return; // Prevent multiple simultaneous loads
-
-    setIsLoadingPosts(true);
-    try {
-      // Get posts first
-      const { data: postsData, error: postsError } = await api
-        .from("posts")
-        .select(`
-          id,
-          content,
-          content_json,
-          created_at,
-          user_id
-        `)
-        .eq("thread_id", thread.id)
-        .order("created_at", { ascending: false })
-        .limit(1); // Always load at least 1 post
-
-      if (postsError || !postsData || postsData.length === 0) {
-        setRecentPosts([]);
-        return;
-      }
-
-      // Get profiles separately
-      const userIds = postsData.map(post => post.user_id).filter(Boolean);
-      const { data: profilesData } = await api
-        .from("profiles")
-        .select("id, username, is_anonymous, avatar_url")
-        .in("id", userIds);
-
-      // Combine posts with profiles
-      const postsWithProfiles = postsData.map(post => ({
-        ...post,
-        profiles: profilesData?.find(profile => profile.id === post.user_id) || null
-      }));
-
-      const data = postsWithProfiles;
-
-      if (data && data.length > 0) {
-        setRecentPosts(data.reverse()); // Reverse to show oldest first
-      } else {
-        setRecentPosts([]);
-      }
-    } catch (error) {
-      console.error("Error loading recent posts:", error);
-    } finally {
-      setIsLoadingPosts(false);
-    }
-  }, [isLoadingPosts, thread.id]);
-
-  const loadLikesData = useCallback(async () => {
-    try {
-      // Get likes count
-      const { data: likesData, error: likesError } = await api.rpc(
-        "get_thread_likes_count",
-        { thread_uuid: thread.id }
-      );
-
-      if (!likesError && likesData !== null) {
-        setLikesCount(likesData as number);
-      }
-
-      // Get recent likers for tooltip (always load, even if no likes yet)
-      const { data: likersData, error: likersError } = await api.rpc(
-        "get_recent_thread_likers",
-        {
-          thread_uuid: thread.id,
-          limit_count: 3
-        }
-      );
-
-      if (!likersError && likersData) {
-        setRecentLikers(likersData as {username: string; id: string; avatar_url: string | null; is_anonymous: boolean}[]);
-      }
-
-      // Check if current user liked this thread
-      if (currentUserId) {
-        const { data: likedData, error: likedError } = await api.rpc(
-          "has_user_liked_thread",
-          {
-            thread_uuid: thread.id,
-            user_uuid: currentUserId
-          }
-        );
-
-        if (!likedError) {
-          setUserLiked(likedData as boolean);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading likes data:", error);
-    }
-  }, [currentUserId, thread.id]);
 
   useEffect(() => {
-    loadRecentPosts();
-    loadLikesData();
-    // Reset overflow state when thread changes
+    setLikesCount(initialLikesCount);
+    setUserLiked(initialUserLiked);
     setHasOverflowImages(false);
-  }, [thread.id, loadRecentPosts, loadLikesData]);
+  }, [thread.id, initialLikesCount, initialUserLiked]);
 
   useEffect(() => {
-    // Reset overflow state when expanding images
     if (imagesExpanded) {
       setHasOverflowImages(false);
     }
@@ -291,13 +190,10 @@ const ThreadCard = ({
 
   const handleLike = async () => {
     if (!currentUserId) return;
-
-    // Prevent liking your own thread
     if (thread.user_id === currentUserId) return;
 
     try {
       if (userLiked) {
-        // Unlike
         const { error } = await api
           .from("thread_likes")
           .delete()
@@ -309,7 +205,6 @@ const ThreadCard = ({
           setLikesCount(prev => prev - 1);
         }
       } else {
-        // Like
         const { error } = await api
           .from("thread_likes")
           .insert({
@@ -327,16 +222,15 @@ const ThreadCard = ({
     }
   };
 
-  const boardPrefix = thread.boards.is_gomosub ? "/g" : "";
+  const boardPrefix = thread.boards?.is_gomosub ? "/g" : "";
+  const boardSlug = thread.boards?.slug || "b";
 
   return (
     <article
       className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-all duration-200 cursor-pointer"
-      onClick={() => navigate(`${boardPrefix}/${thread.boards.slug}/thread/${thread.id}`)}
+      onClick={() => navigate(`${boardPrefix}/${boardSlug}/thread/${thread.id}`)}
     >
-        {/* Thread Header */}
         <div className="flex items-start gap-3 mb-3">
-          {/* Author Avatar */}
           <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
             {thread.profiles?.avatar_url ? (
               <img
@@ -351,7 +245,6 @@ const ThreadCard = ({
             )}
           </div>
 
-          {/* Thread Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <UserBadge
@@ -363,11 +256,11 @@ const ThreadCard = ({
                 stopPropagationOnClick={true}
               />
               <Link
-                to={`${boardPrefix}/${thread.boards.slug}`}
+                to={`${boardPrefix}/${boardSlug}`}
                 className="text-xs text-muted-foreground hover:text-primary transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >
-                в {boardPrefix || ""}/{thread.boards.slug}/
+                в {boardPrefix || ""}/{boardSlug}/
               </Link>
               <span className={`text-xs text-muted-foreground ${hideTimestampOnCompactMobile ? "compact-mobile-hide" : ""}`}>
                 {formatDistanceToNow(safeDate(thread.created_at), {
@@ -406,13 +299,11 @@ const ThreadCard = ({
                   group-hover/title:w-full">
                 </span>
               </span>
-              {/* Desktop: inline tags */}
               <div className="hidden md:inline ml-2">
                 {renderTags(thread.tags, 'inline', thread)}
               </div>
             </h3>
 
-            {/* Mobile: tags below title */}
             <div className="md:hidden">
               {renderTags(thread.tags, 'block', thread)}
             </div>
@@ -420,7 +311,6 @@ const ThreadCard = ({
 
         </div>
 
-        {/* Thread Content */}
         <div className="mb-3">
           <div className={`text-sm break-words relative ${!isExpanded && thread.content.length > 300 ? 'max-h-20 overflow-hidden' : ''}`}>
             <ProcessedContent
@@ -450,7 +340,6 @@ const ThreadCard = ({
             )}
           </div>
 
-            {/* Images */}
             {thread.image_urls && thread.image_urls.length > 0 && (
             <div className="mt-3 relative">
               <div className={`grid grid-cols-2 gap-2 ${!imagesExpanded ? 'max-h-32 overflow-hidden' : ''}`}>
@@ -462,7 +351,6 @@ const ThreadCard = ({
                     className={`w-full ${imagesExpanded ? 'h-auto max-h-96' : 'h-32'} object-cover object-top rounded border border-border`}
                     onLoad={(e) => {
                       const img = e.currentTarget;
-                      // Check if image height exceeds container height (128px = 32 * 4px rem)
                       if (!imagesExpanded && img.naturalHeight > 128) {
                         setHasOverflowImages(true);
                       }
@@ -488,42 +376,30 @@ const ThreadCard = ({
             )}
         </div>
 
-        {/* Last Post Preview */}
-        {recentPosts.length > 0 && (
+        {initialRecentPost && (
           <div className="border-t border-border pt-3">
             <div className="bg-muted/20 rounded p-3 text-xs ml-4 border-l-2 border-primary/30">
               <div className="flex items-center gap-2 mb-2">
                 <span className="font-medium text-xs">
-                  {recentPosts[0].profiles?.username || "Аноним"}:
+                  {initialRecentPost.profiles?.username || "Аноним"}:
                 </span>
                 <span className="text-muted-foreground text-xs">
-                  {formatDistanceToNow(safeDate(recentPosts[0].created_at), {
+                  {formatDistanceToNow(safeDate(initialRecentPost.created_at), {
                     locale: ru,
                     addSuffix: true,
                   })}
                 </span>
               </div>
               <div className="text-xs break-words line-clamp-3">
-                <ProcessedContent
-                  content={recentPosts[0].content}
-                  contentJson={recentPosts[0].content_json}
-                  currentUserId={currentUserId}
-                  isAdmin={false}
-                  currentUsername={currentUsername}
-                  currentUserColor={currentUserColor}
-                  postAuthorId={recentPosts[0].user_id}
-                  authorUsername={recentPosts[0].profiles?.username}
-                  showHiddenIndicators={false}
-                />
+                {initialRecentPost.content.substring(0, 150)}
+                {initialRecentPost.content.length > 150 && '...'}
               </div>
             </div>
           </div>
         )}
 
-        {/* Thread Stats */}
         <div className="flex items-center justify-between mt-3 pt-2 border-t border-border">
           <div className="flex items-center gap-2">
-            {/* Like button in left corner */}
             <div className="relative group/likes">
               <Button
                 variant="ghost"
@@ -548,7 +424,6 @@ const ThreadCard = ({
                 <span className="text-xs">{likesCount}</span>
               </Button>
 
-              {/* Tooltip with recent likers */}
               <div className="
                 absolute bottom-full left-1/2 -translate-x-1/2
                 opacity-0 pointer-events-none
@@ -560,8 +435,8 @@ const ThreadCard = ({
                     {likesCount > 3 ? `+${likesCount - 3} других` : `${likesCount} лайков`}
                   </div>
                   <div className="space-y-2">
-                    {recentLikers.length > 0 ? (
-                      recentLikers.slice(0, 3).map((liker) => (
+                    {initialRecentLikers.length > 0 ? (
+                      initialRecentLikers.slice(0, 3).map((liker) => (
                         <div key={liker.id} className="flex items-center">
                           <UserBadge
                             userId={liker.id}
@@ -585,7 +460,7 @@ const ThreadCard = ({
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                navigate(`${boardPrefix}/${thread.boards.slug}/thread/${thread.id}`);
+                navigate(`${boardPrefix}/${boardSlug}/thread/${thread.id}`);
               }}
               className="
                 flex items-center gap-1

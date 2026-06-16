@@ -40,6 +40,7 @@ export const ThreadFeed = ({
   limit = 20
 }: ThreadFeedProps) => {
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [likesMap, setLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -47,6 +48,28 @@ export const ThreadFeed = ({
   const observerRef = useRef<IntersectionObserver>();
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchLikesBatch = useCallback(async (threadIds: string[]) => {
+    if (!threadIds.length) return;
+    const idsParam = threadIds.join(",");
+    const userParam = currentUserId ? `&user_uuid=${currentUserId}` : "";
+    try {
+      const resp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${idsParam}${userParam}`);
+      const result = await resp.json();
+      if (result.data && Array.isArray(result.data)) {
+        setLikesMap(prev => {
+          const next = new Map(prev);
+          for (const item of result.data) {
+            next.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
+          }
+          return next;
+        });
+      }
+    } catch {
+      // silently ignore — UI shows 0 likes
+    }
+  }, [currentUserId]);
 
   const loadThreads = useCallback(async (isLoadMore = false) => {
     try {
@@ -56,24 +79,26 @@ export const ThreadFeed = ({
         setLoading(true);
       }
 
-      // Build URL with cursor-based pagination
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       let url = `/api/v1/threads?order=updated_at.desc&limit=${limit + 1}`;
       if (isLoadMore && cursor) {
         url += `&cursor=${encodeURIComponent(cursor)}`;
       }
 
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
       let threadsData = (result.data || []) as Record<string, unknown>[];
       const nextCursor = result.next_cursor || null;
 
-      // Remove the extra item we fetched (limit+1) to detect hasMore
       const hasMoreData = threadsData.length > limit;
       if (hasMoreData) {
         threadsData = threadsData.slice(0, limit);
       }
 
-      // If user is logged in and this is the initial load, try recommendations
       if (currentUserId && !isLoadMore && !initialLoadDone.current) {
         initialLoadDone.current = true;
         const { data: recommended, error: recError } = await api.rpc(
@@ -86,27 +111,17 @@ export const ThreadFeed = ({
         );
 
         if (!recError && recommended && (recommended as Array<{ thread_id: string; score: number }>).length > 0) {
-          // Get full thread data for recommendations
           const recommendedIds = (recommended as Array<{ thread_id: string; score: number }>).map((r) => r.thread_id);
           const recResponse = await fetch(`/api/v1/threads?id=in.(${recommendedIds.join(',')})&limit=${limit}`);
           const recResult = await recResponse.json();
           const recThreadsData = (recResult.data || []) as Record<string, unknown>[];
 
           if (recThreadsData.length > 0) {
-            // Get profiles separately
-            const userIds = recThreadsData.map(t => t.user_id as string).filter(Boolean);
-            const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${[...new Set(userIds)].join(',')})`);
-            const profilesResult = await profilesResponse.json();
-            const profilesData = (profilesResult.data || []) as { id: string; username: string; is_anonymous: boolean; avatar_url?: string | null }[];
-
-            // Combine threads with profiles
-            const recThreadsWithProfiles = recThreadsData.map(thread => ({
+            const sortedRecThreads = recThreadsData.map(thread => ({
               ...thread,
-              profiles: profilesData.find(profile => profile.id === thread.user_id) || null
             })) as unknown as Thread[];
 
-            // Sort by recommendation score
-            const sortedRecThreads = recThreadsWithProfiles.sort((a, b) => {
+            sortedRecThreads.sort((a, b) => {
               const aScore = (recommended as Array<{ thread_id: string; score: number }>).find((r) => r.thread_id === a.id)?.score || 0;
               const bScore = (recommended as Array<{ thread_id: string; score: number }>).find((r) => r.thread_id === b.id)?.score || 0;
               return bScore - aScore;
@@ -114,6 +129,7 @@ export const ThreadFeed = ({
 
             setThreads(sortedRecThreads);
             setLoading(false);
+            fetchLikesBatch(sortedRecThreads.map(t => t.id));
             return;
           }
         }
@@ -127,38 +143,33 @@ export const ThreadFeed = ({
         return;
       }
 
-      // Get profiles separately
-      const userIds = threadsData.map(t => t.user_id as string).filter(Boolean);
-      const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${[...new Set(userIds)].join(',')})`);
-      const profilesResult = await profilesResponse.json();
-      const profilesData = (profilesResult.data || []) as { id: string; username: string; is_anonymous: boolean; avatar_url?: string | null }[];
-
-      // Combine threads with profiles
       const threadsWithProfiles = threadsData.map(thread => ({
         ...thread,
-        profiles: profilesData.find(profile => profile.id === thread.user_id) || null
       })) as unknown as Thread[];
 
       if (isLoadMore) {
         setThreads(prev => [...prev, ...threadsWithProfiles]);
+        fetchLikesBatch(threadsWithProfiles.map(t => t.id));
       } else {
         setThreads(threadsWithProfiles);
+        fetchLikesBatch(threadsWithProfiles.map(t => t.id));
       }
 
-      // Update cursor for next page
       setCursor(nextCursor);
       setHasMore(hasMoreData && nextCursor !== null);
     } catch (error) {
+      if ((error as Error).name === 'AbortError') return;
       console.error("Error in loadThreads:", error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [currentUserId, cursor, limit]);
+  }, [currentUserId, cursor, limit, fetchLikesBatch]);
 
   useEffect(() => {
     loadThreads();
-  }, []); // Only on mount
+    return () => { abortRef.current?.abort(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -193,18 +204,22 @@ export const ThreadFeed = ({
 
   return (
     <div className="space-y-4">
-      {threads.map((thread) => (
-        <ThreadCard
-          key={thread.id}
-          thread={thread}
-          currentUserId={currentUserId}
-          currentUsername={currentUsername}
-          currentUserColor={currentUserColor}
-          showPreview={true}
-        />
-      ))}
+      {threads.map((thread) => {
+        const likes = likesMap.get(thread.id);
+        return (
+          <ThreadCard
+            key={thread.id}
+            thread={thread}
+            currentUserId={currentUserId}
+            currentUsername={currentUsername}
+            currentUserColor={currentUserColor}
+            showPreview={true}
+            initialLikesCount={likes?.count ?? 0}
+            initialUserLiked={likes?.isLiked ?? false}
+          />
+        );
+      })}
 
-      {/* Load More Trigger */}
       <div ref={loadMoreRef} className="py-4">
         {loadingMore && (
           <div className="flex justify-center">
