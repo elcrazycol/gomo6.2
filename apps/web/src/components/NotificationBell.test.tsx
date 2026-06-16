@@ -6,7 +6,7 @@ const mockGetUnreadNotificationsCount = vi.fn();
 const mockGetNotifications = vi.fn();
 const mockMarkNotificationAsRead = vi.fn();
 const mockSubscribeToNotifications = vi.fn();
-const mockOn = vi.fn(() => vi.fn());
+const mockOn = vi.fn((_event: string, _cb: any) => vi.fn());
 const mockNavigateFn = vi.fn();
 
 vi.mock("@/integrations/api/client", () => ({
@@ -20,7 +20,7 @@ vi.mock("@/integrations/api/client", () => ({
 vi.mock("@/services/websocket", () => ({
   wsService: {
     subscribeToNotifications: (...args: any[]) => mockSubscribeToNotifications(...args),
-    on: (...args: any[]) => mockOn(...args),
+    on: (event: string, cb: any) => mockOn(event, cb),
     connected: true,
   },
 }));

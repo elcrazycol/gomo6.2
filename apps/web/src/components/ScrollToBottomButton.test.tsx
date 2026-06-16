@@ -33,7 +33,7 @@ describe("ScrollToBottomButton", () => {
     Object.defineProperty(target, "scrollTop", { value: 0, writable: true });
     Object.defineProperty(target, "scrollHeight", { value: 2000, writable: true });
     Object.defineProperty(target, "clientHeight", { value: 500, writable: true });
-    target.scrollTo = vi.fn();
+    target.scrollTo = vi.fn() as any;
 
     render(<ScrollToBottomButton targetElement={target} />);
     fireEvent.click(screen.getByTitle("Перейти к последним сообщениям"));
