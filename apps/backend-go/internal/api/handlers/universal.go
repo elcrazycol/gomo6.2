@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
@@ -94,6 +97,13 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	if !allowedTables[tableName] {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Table not found"))
 		return
+	}
+
+	// Check gomosub management permissions for write operations
+	if c.Request.Method != "GET" && isGomosubManagementTable(tableName) {
+		if !h.checkGomosubWritePermission(c, tableName) {
+			return
+		}
 	}
 
 	switch c.Request.Method {
@@ -239,4 +249,127 @@ func extractRecordID(urlPath string, tableName string) string {
 		return ""
 	}
 	return trimmed
+}
+
+// isGomosubManagementTable returns true if the table requires gomosub permission checks.
+func isGomosubManagementTable(table string) bool {
+	switch table {
+	case "channels", "gomosub_roles", "channel_permissions", "gomosub_memberships":
+		return true
+	default:
+		return false
+	}
+}
+
+// checkGomosubWritePermission verifies the user has management permissions for the
+// gomosub board. It extracts board_id from the request body or query params.
+// Returns true if allowed, false if denied (response already sent).
+func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName string) bool {
+	claimsInterface, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		c.Abort()
+		return false
+	}
+	claims := claimsInterface.(*auth.Claims)
+
+	// Extract board_id from the request
+	boardID := c.Query("board_id")
+	if boardID == "" {
+		// Try eq filter: board_id=eq.xxx
+		if bf := c.Query("board_id"); bf != "" {
+			parts := strings.SplitN(bf, ".", 2)
+			if len(parts) == 2 {
+				boardID = parts[1]
+			} else {
+				boardID = bf
+			}
+		}
+	}
+
+	// For POST, board_id is typically in the JSON body
+	if boardID == "" && c.Request.Method == "POST" && c.Request.Body != nil {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		c.Request.Body.Close()
+		if err == nil && len(bodyBytes) > 0 {
+			var body map[string]interface{}
+			if json.Unmarshal(bodyBytes, &body) == nil {
+				if bid, ok := body["board_id"].(string); ok {
+					boardID = bid
+				}
+			}
+			// Restore body for downstream handlers
+			c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		}
+	}
+
+	if boardID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("board_id is required"))
+		c.Abort()
+		return false
+	}
+
+	// Check if user is the board owner
+	var ownerID string
+	err := h.db.QueryRow(`SELECT owner_id FROM boards WHERE id = $1`, boardID).Scan(&ownerID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
+		c.Abort()
+		return false
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		c.Abort()
+		return false
+	}
+
+	// Owner always has full access
+	if ownerID == claims.UserID {
+		return true
+	}
+
+	// Get user's role permissions
+	var permissionsRaw json.RawMessage
+	err = h.db.QueryRow(`
+		SELECT gr.permissions
+		FROM gomosub_memberships gm
+		JOIN gomosub_roles gr ON gm.role_id = gr.id
+		WHERE gm.board_id = $1 AND gm.user_id = $2
+	`, boardID, claims.UserID).Scan(&permissionsRaw)
+	if err != nil {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
+		c.Abort()
+		return false
+	}
+
+	var perms map[string]bool
+	if err := json.Unmarshal(permissionsRaw, &perms); err != nil {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
+		c.Abort()
+		return false
+	}
+
+	// Check table-specific permissions
+	needed := gomosubTablePermission(tableName)
+	if needed == "" || perms[needed] {
+		return true
+	}
+
+	c.JSON(http.StatusForbidden, models.ErrorResponse("You don't have permission to perform this action"))
+	c.Abort()
+	return false
+}
+
+// gomosubTablePermission returns the permission key needed to write to a gomosub table.
+func gomosubTablePermission(table string) string {
+	switch table {
+	case "channels", "channel_permissions":
+		return "can_manage_channels"
+	case "gomosub_roles":
+		return "can_manage_roles"
+	case "gomosub_memberships":
+		return "can_manage_members"
+	default:
+		return ""
+	}
 }
