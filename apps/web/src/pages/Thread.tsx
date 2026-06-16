@@ -83,7 +83,7 @@ const Thread = () => {
   // Use isFetching for pagination (not isLoading) to avoid full-page flash.
   // placeholderData keeps previous page visible while next page loads.
   const { data: postsPage = [], isFetching: postsFetching, isError: postsError, error: postsQueryError } = usePosts(threadId, { limit: postsPerPage, offset: postOffset }, {
-    placeholderData: (prev: PostWithExtras[] | undefined) => prev,
+    placeholderData: (prev) => prev as PostWithExtras[] | undefined,
   });
 
   // Track initial loading separately (true only when no data has ever loaded)

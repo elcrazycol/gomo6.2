@@ -117,8 +117,7 @@ const Auth = () => {
             data: {
               username,
             },
-            emailRedirectTo: `${window.location.origin}/`,
-          },
+          } as { data?: { username?: string } },
         });
 
         if (error) {

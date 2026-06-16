@@ -5,7 +5,7 @@ export const storage = {
   from: (bucket: string) => {
     const token = localStorage.getItem('auth_token') || undefined;
     return {
-      upload: async (path: string, file: File) => {
+      upload: async (path: string, file: File, _options?: Record<string, unknown>) => {
         try {
           const result = await uploadFile(bucket, path, file, token);
           return { data: { path: result.path }, error: null };

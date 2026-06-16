@@ -70,7 +70,7 @@ const Board = () => {
   const navigate = useNavigate();
   const [board, setBoard] = useState<Board | null>(null);
   const [threads, setThreads] = useState<Thread[]>([]);
-  const [user, setUser] = useState<{ id: string } | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");

@@ -65,10 +65,10 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
         const countFunction = isThread ? 'get_thread_likes_count' : 'get_post_likes_count';
         const hasLikedFunction = isThread ? 'has_user_liked_thread' : 'has_user_liked_post';
 
-        const promises: [Promise<{ data?: number }>, Promise<{ data?: boolean }>?] = [
+        const promises: Promise<{ data?: number | boolean }>[] = [
           api.rpc(countFunction, {
             [isThread ? 'thread_uuid' : 'post_uuid']: postId
-          })
+          }) as Promise<{ data?: number | boolean }>
         ];
 
         if (userId) {
@@ -76,13 +76,13 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
             api.rpc(hasLikedFunction, {
               [isThread ? 'thread_uuid' : 'post_uuid']: postId,
               user_uuid: userId
-            })
+            }) as Promise<{ data?: number | boolean }>
           );
         }
 
         const results = await Promise.all(promises);
         const count = (results[0] as { data?: number }).data || 0;
-        const isLiked = userId ? ((results[1] as { data?: boolean })?.data || false) : false;
+        const isLiked = userId ? ((results[1] as unknown as { data?: boolean })?.data || false) : false;
 
         const likeData: LikeData = {
           count,

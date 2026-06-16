@@ -144,7 +144,7 @@ export const CreateWallPost = ({
       } else {
         const { data, error } = await api
           .from("profile_wall_posts")
-          .insert([postData])
+          .insert(postData as Record<string, unknown>)
           .select(`
             id,
             user_id,

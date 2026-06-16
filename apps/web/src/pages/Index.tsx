@@ -48,7 +48,7 @@ interface FeedThread {
   user_id: string | null;
   board_id: string;
   post_count: number;
-  tags?: Record<string, unknown>;
+  tags?: Record<string, string>;
   profiles: {
     username: string;
     is_anonymous: boolean;

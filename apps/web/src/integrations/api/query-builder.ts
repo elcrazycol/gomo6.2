@@ -28,13 +28,15 @@ type QueryState = {
 // ── Response types ────────────────────────────────────────────────────────────
 
 interface QueryResponse {
-  data: Record<string, unknown>[] | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any[] | null;
   error: unknown;
   count?: number;
 }
 
 interface SingleResponse {
-  data: Record<string, unknown> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
   error: unknown;
   count?: number;
 }
@@ -238,19 +240,19 @@ export const from = (table: string): TableApi => {
   const flattenSingleResponse = (r: QueryResponse): SingleResponse => {
     const data = r.data;
     if (Array.isArray(data)) {
-      return data.length === 1 ? { ...r, data: data[0] as Record<string, unknown> } : { ...r, data: null };
+      return data.length === 1 ? { ...r, data: data[0] } : { ...r, data: null };
     }
     // Non-array: backend returned a single object (e.g., POST insert response)
-    return { ...r, data: data as Record<string, unknown> | null };
+    return { ...r, data: data ?? null };
   };
 
   const flattenMaybeSingleResponse = (r: QueryResponse): SingleResponse => {
     const data = r.data;
     if (Array.isArray(data)) {
-      return data.length > 0 ? { ...r, data: data[0] as Record<string, unknown> } : { ...r, data: null };
+      return data.length > 0 ? { ...r, data: data[0] } : { ...r, data: null };
     }
     // Non-array: backend returned a single object (e.g., POST insert response)
-    return { ...r, data: data as Record<string, unknown> | null };
+    return { ...r, data: data ?? null };
   };
 
   // ── Mutation builder (PUT / DELETE) ──────────────────────────────────

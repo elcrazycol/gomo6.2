@@ -33,7 +33,7 @@ export interface Post {
 export function usePosts(
   threadId: string | undefined,
   options?: { limit?: number; offset?: number },
-  extraOptions?: { placeholderData?: (prev: Post[] | undefined) => Post[] | undefined }
+  extraOptions?: { placeholderData?: (prev: any) => any }
 ) {
   const { limit = 50, offset = 0 } = options || {};
 
