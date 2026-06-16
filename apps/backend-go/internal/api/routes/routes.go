@@ -92,6 +92,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	universalHandler.SetBotEventPublisher(botEventPublisher)
 	universalHandler.SetRedis(redis)
 	universalHandler.SetAchievementChecker(achChecker)
+	searchHandler := handlers.NewSearchHandler(db)
 	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	audioHandler := handlers.NewAudioHandler()
@@ -191,6 +192,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
+
+		// Search endpoint (full-text, public)
+		rest.GET("/search", searchHandler.Search)
 
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)
