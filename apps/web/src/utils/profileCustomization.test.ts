@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseCssToStyle, getProfileCustomization, clearCustomizationCache } from "./profileCustomization";
 
 const mockFrom = vi.fn();
