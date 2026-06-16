@@ -106,7 +106,7 @@ export function AchievementToastListener() {
         name: ach.name,
         description: ach.description || "",
         icon: ach.icon || "sparkles",
-        rarity: ach.rarity || "common",
+        rarity: (ach.rarity || "common") as UnlockData['rarity'],
         level: ach.level || 1,
         max_level: ach.max_level || 1,
         is_first_time: ach.is_first_time || false,
