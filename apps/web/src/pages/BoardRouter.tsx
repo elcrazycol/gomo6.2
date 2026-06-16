@@ -204,18 +204,14 @@ const Board = () => {
     const userIds = new Set<string>();
     threadsData.forEach((t: Record<string, unknown>) => { if (t.user_id) userIds.add(t.user_id as string); });
 
-    // Fetch latest post for each thread in parallel
-    const postsPromises = threadsData.map(async (thread: Record<string, unknown>) => {
-      const postResponse = await fetch(`/api/v1/posts?thread_id=eq.${thread.id as string}&order=created_at.desc&limit=1`);
-      const postResult = await postResponse.json();
-      return { threadId: thread.id as string, posts: (postResult.data || []) as Record<string, unknown>[] };
-    });
-    const postsResults = await Promise.all(postsPromises);
+    // Batch fetch latest posts for ALL threads in ONE request (N+1 fix)
+    const threadIds = threadsData.map((t: Record<string, unknown>) => t.id as string).join(',');
+    const postsResponse = await fetch(`/api/v1/posts?thread_id=in.(${threadIds})&latest=true`);
+    const postsResult = await postsResponse.json();
+    const allLatestPosts: Record<string, unknown>[] = (postsResult.data || []) as Record<string, unknown>[];
 
     // Collect post author IDs
-    postsResults.forEach(({ posts }) => {
-      posts.forEach((p: Record<string, unknown>) => { if (p.user_id) userIds.add(p.user_id as string); });
-    });
+    allLatestPosts.forEach((p: Record<string, unknown>) => { if (p.user_id) userIds.add(p.user_id as string); });
 
     // Batch fetch all profiles (for is_anonymous)
     const profilesMap = new Map<string, { id: string; username: string; is_anonymous: boolean }>();
@@ -226,8 +222,13 @@ const Board = () => {
       (profilesResult.data || []).forEach((p: { id: string; username: string; is_anonymous: boolean }) => profilesMap.set(p.id, p));
     }
 
-    // Build result
-    const postsByThread = new Map(postsResults.map(r => [r.threadId, r.posts]));
+    // Build result with profiles and latest posts
+    const postsByThread = new Map<string, Record<string, unknown>[]>();
+    allLatestPosts.forEach((p: Record<string, unknown>) => {
+      const tid = p.thread_id as string;
+      if (!postsByThread.has(tid)) postsByThread.set(tid, []);
+      postsByThread.get(tid)!.push(p);
+    });
 
     const threadsWithData = threadsData.map((thread: Record<string, unknown>) => {
       const profile = profilesMap.get(thread.user_id as string);

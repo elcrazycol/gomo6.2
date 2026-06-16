@@ -1483,3 +1483,65 @@ func TestCreateThreadRPC_DBErrorOnInsert(t *testing.T) {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// ─── GetThreadLikesBatch ────────────────────────────────────────────────────
+
+func TestGetThreadLikesBatch_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	t1 := "550e8400-e29b-41d4-a716-446655440000"
+	t2 := "550e8400-e29b-41d4-a716-446655440001"
+
+	mock.ExpectQuery(`SELECT thread_id, COUNT\(\*\) FROM thread_likes WHERE thread_id IN \(\$1,\$2\) GROUP BY thread_id`).
+		WithArgs(t1, t2).
+		WillReturnRows(sqlmock.NewRows([]string{"thread_id", "count"}).AddRow(t1, 5).AddRow(t2, 2))
+
+	c, w := newRPCGETContext(map[string]string{"thread_ids": t1 + "," + t2})
+	h.GetThreadLikesBatch(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+}
+
+func TestGetThreadLikesBatch_Empty(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCGETContext(map[string]string{"thread_ids": ""})
+	h.GetThreadLikesBatch(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetThreadLikesBatch_WithUser(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	t1 := "550e8400-e29b-41d4-a716-446655440000"
+	t2 := "550e8400-e29b-41d4-a716-446655440001"
+	uid := "660e8400-e29b-41d4-a716-446655440001"
+
+	mock.ExpectQuery(`SELECT thread_id, COUNT\(\*\) FROM thread_likes WHERE thread_id IN \(\$1,\$2\) GROUP BY thread_id`).
+		WithArgs(t1, t2).
+		WillReturnRows(sqlmock.NewRows([]string{"thread_id", "count"}).AddRow(t1, 3).AddRow(t2, 0))
+
+	mock.ExpectQuery(`SELECT thread_id FROM thread_likes WHERE user_id = \$1 AND thread_id IN \(\$2,\$3\)`).
+		WithArgs(uid, t1, t2).
+		WillReturnRows(sqlmock.NewRows([]string{"thread_id"}).AddRow(t1))
+
+	c, w := newRPCGETContext(map[string]string{
+		"thread_ids": t1 + "," + t2,
+		"user_uuid":  uid,
+	})
+	h.GetThreadLikesBatch(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}

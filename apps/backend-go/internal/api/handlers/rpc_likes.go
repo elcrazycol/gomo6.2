@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -411,6 +412,113 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(out))
+}
+
+// ThreadLikeBatchItem is a single item in the batch likes response.
+type ThreadLikeBatchItem struct {
+	ThreadID string `json:"thread_id"`
+	Count    int    `json:"count"`
+	IsLiked  bool   `json:"is_liked"`
+	IsRecent bool   `json:"is_recent"`
+}
+
+// GetThreadLikesBatch returns like counts and user-like status for multiple threads in one query.
+// GET /api/rpc/get_thread_likes_batch?thread_ids=uuid1,uuid2,...&user_uuid=uuid
+func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
+	idsRaw := c.Query("thread_ids")
+	if idsRaw == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_ids parameter required"))
+		return
+	}
+
+	rawParts := strings.Split(idsRaw, ",")
+	var threadIDs []string
+	for _, p := range rawParts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, err := uuid.Parse(p); err != nil {
+			continue // skip invalid UUIDs silently
+		}
+		threadIDs = append(threadIDs, p)
+	}
+
+	if len(threadIDs) == 0 {
+		c.JSON(http.StatusOK, models.SuccessResponse([]ThreadLikeBatchItem{}))
+		return
+	}
+
+	// Cap at 50 threads to prevent abuse
+	if len(threadIDs) > 50 {
+		threadIDs = threadIDs[:50]
+	}
+
+	placeholders := make([]string, len(threadIDs))
+	args := make([]interface{}, len(threadIDs))
+	for i, id := range threadIDs {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+		args[i] = id
+	}
+	ph := strings.Join(placeholders, ",")
+
+	// Bulk like counts
+	countQuery := `SELECT thread_id, COUNT(*) FROM thread_likes WHERE thread_id IN (` + ph + `) GROUP BY thread_id`
+	countRows, err := h.db.Query(countQuery, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	defer countRows.Close()
+
+	countMap := make(map[string]int)
+	for countRows.Next() {
+		var tid string
+		var cnt int
+		if err := countRows.Scan(&tid, &cnt); err != nil {
+			continue
+		}
+		countMap[tid] = cnt
+	}
+
+	// Bulk is_liked check (only if user is authenticated)
+	userID := c.Query("user_uuid")
+	likedMap := make(map[string]bool)
+	if userID != "" {
+		if _, err := uuid.Parse(userID); err == nil {
+			uArgs := make([]interface{}, 0, len(threadIDs)+1)
+			uArgs = append(uArgs, userID)
+			uPlaceholders := make([]string, len(threadIDs))
+			for i, id := range threadIDs {
+				uPlaceholders[i] = "$" + strconv.Itoa(i+2)
+				uArgs = append(uArgs, id)
+			}
+			uPh := strings.Join(uPlaceholders, ",")
+			likedQuery := `SELECT thread_id FROM thread_likes WHERE user_id = $1 AND thread_id IN (` + uPh + `)`
+			likedRows, err := h.db.Query(likedQuery, uArgs...)
+			if err == nil {
+				defer likedRows.Close()
+				for likedRows.Next() {
+					var tid string
+					if err := likedRows.Scan(&tid); err == nil {
+						likedMap[tid] = true
+					}
+				}
+			}
+		}
+	}
+
+	result := make([]ThreadLikeBatchItem, 0, len(threadIDs))
+	for _, tid := range threadIDs {
+		result = append(result, ThreadLikeBatchItem{
+			ThreadID: tid,
+			Count:    countMap[tid],
+			IsLiked:  likedMap[tid],
+			IsRecent: false,
+		})
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
 
 // GetUserThreadLikesReceivedTimestamps returns created_at for each like on threads authored by user_uuid.

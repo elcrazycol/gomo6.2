@@ -79,6 +79,7 @@ const Index = () => {
   const [gomoSubsMembers, setGomoSubsMembers] = useState<Record<string, number>>({});
   const [joinedGomoSubs, setJoinedGomoSubs] = useState<GomoSub[]>([]);
   const [subscriptionsFeed, setSubscriptionsFeed] = useState<FeedThread[]>([]);
+  const [feedLikesMap, setFeedLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
   const [subscribedPostUpdates, setSubscribedPostUpdates] = useState<SubscribedPostUpdate[]>([]);
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [activeFeed, setActiveFeed] = useState<"recommended" | "subscriptions">("recommended");
@@ -281,6 +282,22 @@ const Index = () => {
       })) as FeedThread[];
       setSubscriptionsFeed(feedThreads);
 
+      // Batch fetch likes for all subscription feed threads
+      if (feedThreads.length > 0 && user?.id) {
+        const idsParam = feedThreads.map(t => t.id).join(",");
+        try {
+          const likesResp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${idsParam}&user_uuid=${user.id}`);
+          const likesResult = await likesResp.json();
+          if (likesResult.data && Array.isArray(likesResult.data)) {
+            const newMap = new Map<string, { count: number; isLiked: boolean }>();
+            for (const item of likesResult.data) {
+              newMap.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
+            }
+            setFeedLikesMap(newMap);
+          }
+        } catch { /* ignore */ }
+      }
+
       if (subscribedThreadIds.length > 0) {
         const { data: postsData } = await api
           .from("posts")
@@ -455,16 +472,21 @@ const Index = () => {
                     </CardContent>
                   </Card>
                 ) : (
-                  subscriptionsFeed.map((thread) => (
-                    <ThreadCard
-                      key={thread.id}
-                      thread={thread}
-                      currentUserId={user?.id ?? null}
-                      currentUsername={currentUserUsername}
-                      currentUserColor={currentUserColor}
-                      hideTimestampOnCompactMobile={true}
-                    />
-                  ))
+                  subscriptionsFeed.map((thread) => {
+                    const likes = feedLikesMap.get(thread.id);
+                    return (
+                      <ThreadCard
+                        key={thread.id}
+                        thread={thread}
+                        currentUserId={user?.id ?? null}
+                        currentUsername={currentUserUsername}
+                        currentUserColor={currentUserColor}
+                        hideTimestampOnCompactMobile={true}
+                        initialLikesCount={likes?.count ?? 0}
+                        initialUserLiked={likes?.isLiked ?? false}
+                      />
+                    );
+                  })
                 )}
               </div>
             )}

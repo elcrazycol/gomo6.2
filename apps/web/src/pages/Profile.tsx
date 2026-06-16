@@ -148,6 +148,7 @@ const Profile = () => {
     time: false,
   });
   const [userThreads, setUserThreads] = useState<any[]>([]);
+  const [profileLikesMap, setProfileLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [avatarHistory, setAvatarHistory] = useState<AvatarHistoryItem[]>([]);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -398,6 +399,21 @@ const Profile = () => {
       }));
 
       setUserThreads(threadsWithData);
+
+      // Batch fetch likes for all user threads
+      if (threadIds.length > 0) {
+        try {
+          const likesResp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${threadIds.join(",")}&user_uuid=${currentUser?.id || ""}`);
+          const likesResult = await likesResp.json();
+          if (likesResult.data && Array.isArray(likesResult.data)) {
+            const newMap = new Map<string, { count: number; isLiked: boolean }>();
+            for (const item of likesResult.data) {
+              newMap.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
+            }
+            setProfileLikesMap(newMap);
+          }
+        } catch { /* ignore */ }
+      }
     } catch (error) {
       console.error('Error loading user threads:', error);
       toast.error('Ошибка загрузки тредов');
@@ -1135,16 +1151,21 @@ const Profile = () => {
                 <p className="text-muted-foreground">У пользователя пока нет тредов</p>
               ) : (
                 <div className="space-y-4">
-                  {userThreads.map((thread) => (
-                    <ThreadCard
-                      key={thread.id}
-                      thread={thread}
-                      currentUserId={currentUser?.id || null}
-                      currentUsername={currentUserUsername}
-                      currentUserColor={currentUserColor}
-                      showPreview={true}
-                    />
-                  ))}
+                  {userThreads.map((thread) => {
+                    const likes = profileLikesMap.get(thread.id);
+                    return (
+                      <ThreadCard
+                        key={thread.id}
+                        thread={thread}
+                        currentUserId={currentUser?.id || null}
+                        currentUsername={currentUserUsername}
+                        currentUserColor={currentUserColor}
+                        showPreview={true}
+                        initialLikesCount={likes?.count ?? 0}
+                        initialUserLiked={likes?.isLiked ?? false}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>

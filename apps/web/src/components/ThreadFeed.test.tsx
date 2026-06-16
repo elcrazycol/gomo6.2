@@ -289,6 +289,7 @@ describe("ThreadFeed", () => {
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/threads"),
+        expect.any(Object),
       );
     });
   });
