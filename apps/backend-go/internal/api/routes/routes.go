@@ -100,6 +100,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	botHandler := handlers.NewBotHandler(db)
 	botHandler.SetBotManager(botManager)
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
+	giftsHandler := handlers.NewGiftsHandler(db)
+	giftsHandler.SetRedis(redis)
+	giftsHandler.SetWebSocketHub(wsHub)
+	giftAdminHandler := handlers.NewGiftAdminHandler(db)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -217,6 +221,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/users/:id/status", userStatusHandler.GetUserStatus)
 		rest.POST("/users/status/bulk", userStatusHandler.GetBulkUserStatus)
 
+		// Gift catalog (public)
+		rest.GET("/gift_catalog", giftsHandler.GetGiftCatalog)
+		// User gifts (public)
+		rest.GET("/user_gifts", giftsHandler.GetUserGifts)
+
 		// Additional tables (frontend compatibility)
 		rest.Any("/user_roles", universalHandler.HandleTableRequest)
 		rest.Any("/user_roles/*path", universalHandler.HandleTableRequest)
@@ -331,6 +340,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PUT("/notifications/:id/read", notificationsHandler.MarkAsRead)
 			protected.PUT("/notifications/read-all", notificationsHandler.MarkAllAsRead)
 			protected.GET("/notifications/unread-count", notificationsHandler.GetUnreadCount)
+
+			// Gifts
+			protected.POST("/gifts/send", giftsHandler.SendGift)
+
+			// Admin gift management
+			protected.GET("/admin/gifts", giftAdminHandler.ListGifts)
+			protected.POST("/admin/gifts", giftAdminHandler.CreateGift)
+			protected.PUT("/admin/gifts/:id", giftAdminHandler.UpdateGift)
+			protected.DELETE("/admin/gifts/:id", giftAdminHandler.DeleteGift)
 
 			// -- Messenger (clean API) --
 			// Read-only endpoints — higher rate limit (300 req/min)

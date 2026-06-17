@@ -5,11 +5,12 @@ import { Toaster } from "sonner";
 import DeveloperApps from "./pages/Apps";
 import CreateApp from "./pages/CreateApp";
 import AppDetail from "./pages/AppDetail";
+import GiftAdmin from "./pages/Gifts";
 import Login from "./pages/Login";
 import Callback from "./pages/Callback";
 import { getSavedUser, logout, OAuthUser, checkAuth } from "@/lib/oauth";
 import { Button } from "@/components/ui/button";
-import { LogOut, BookOpen, Github } from "lucide-react";
+import { LogOut, BookOpen, Github, Gift } from "lucide-react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -90,6 +91,15 @@ function Header() {
                 </a>
 
               <nav className="hidden sm:flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate("/gifts")}
+                  className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
+                >
+                  <Gift className="w-3.5 h-3.5" />
+                  Подарки
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -243,6 +253,16 @@ const App = () => {
                 <AuthGuard>
                   <AppLayout>
                     <AppDetail />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/gifts"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <GiftAdmin />
                   </AppLayout>
                 </AuthGuard>
               }
