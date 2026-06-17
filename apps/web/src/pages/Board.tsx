@@ -772,7 +772,7 @@ const Board = () => {
   const hasChannels = isGomoRoute && channels.length > 0;
 
   return (
-    <main className={`${hasChannels ? "" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
+    <main className={`${hasChannels ? "max-w-6xl" : "max-w-5xl"} mx-auto p-2 sm:p-4 md:p-5 flex-1 relative flex flex-col`}>
         {/* Board header — always full width */}
         <div className="mb-3 sm:mb-4 space-y-3">
           {board.is_gomosub ? (
