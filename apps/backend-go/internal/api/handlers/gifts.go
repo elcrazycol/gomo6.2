@@ -194,7 +194,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	limit := 50
 	offset := 0
 	if l := c.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+		if n, err := strconv.Atoi(l); err == nil && n >= 0 && n <= 100 {
 			limit = n
 		}
 	}
@@ -202,6 +202,16 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		if n, err := strconv.Atoi(o); err == nil && n >= 0 {
 			offset = n
 		}
+	}
+
+	// Get total count
+	var totalCount int
+	h.db.QueryRow(`SELECT COUNT(*) FROM user_gifts WHERE recipient_id = $1`, recipientID).Scan(&totalCount)
+
+	// If limit=0, return only count
+	if limit == 0 {
+		c.JSON(http.StatusOK, models.SuccessResponseWithCount([]models.UserGift{}, totalCount))
+		return
 	}
 
 	rows, err := h.db.Query(`
@@ -246,7 +256,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		gifts = []models.UserGift{}
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponseWithCount(gifts, len(gifts)))
+	c.JSON(http.StatusOK, models.SuccessResponseWithCount(gifts, totalCount))
 }
 
 // GetGiftCatalog — GET /api/v1/gift_catalog (public)
