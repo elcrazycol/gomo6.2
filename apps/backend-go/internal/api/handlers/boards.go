@@ -225,10 +225,12 @@ func (h *BoardsHandler) GetBoard(c *gin.Context) {
 
 	if board.Visibility == "private" {
 		userID := h.getUserIDFromRequest(c)
-		canAccess, accessErr := h.canAccessBoard(userID, board.ID)
-		if accessErr == nil && !canAccess {
-			c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
-			return
+		if userID != "" {
+			canAccess, accessErr := h.canAccessBoard(userID, board.ID)
+			if accessErr == nil && !canAccess {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
+				return
+			}
 		}
 	}
 
