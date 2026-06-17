@@ -32,7 +32,6 @@ import { OnlineStatus } from "@/components/OnlineStatus";
 import { AvatarGallery } from "@/components/AvatarGallery";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
 import { GiftsTab } from "@/components/GiftsTab";
-import { GiftSendDialog } from "@/components/GiftSendDialog";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 
 interface Profile {
@@ -158,9 +157,7 @@ const Profile = () => {
   const [showAvatarGallery, setShowAvatarGallery] = useState(false);
   const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
-  const [showGiftCatalog, setShowGiftCatalog] = useState(false);
-  const [showGiftDialog, setShowGiftDialog] = useState(false);
-  const [selectedGift, setSelectedGift] = useState<GiftCatalogItem | null>(null);
+  const [giftCount, setGiftCount] = useState(0);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -228,6 +225,19 @@ const Profile = () => {
     };
     loadCatalog();
   }, []);
+
+  // Load gift count for profile
+  useEffect(() => {
+    if (!userId) return;
+    const loadCount = async () => {
+      try {
+        const res = await fetch(`/api/v1/user_gifts?recipient_id=eq.${userId}&limit=0`);
+        const result = await res.json();
+        setGiftCount(result.count ?? 0);
+      } catch { /* ignore */ }
+    };
+    loadCount();
+  }, [userId]);
 
   useEffect(() => {
     if (userId) {
@@ -933,29 +943,16 @@ const Profile = () => {
               </Button>
             )}
 
-            {/* Write + Gift Buttons for other users */}
+            {/* Write Button for other users */}
             {!isOwnProfile && currentUser && (
-              <div className="flex gap-2">
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => navigate(`/messages?user=${userId}`)}
-                  className="text-xs sm:text-sm"
-                >
-                  Написать
-                </Button>
-                {giftCatalog.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowGiftCatalog(true)}
-                    className="text-xs sm:text-sm"
-                  >
-                    <Gift className="w-3.5 h-3.5 mr-1" />
-                    Подарить
-                  </Button>
-                )}
-              </div>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => navigate(`/messages?user=${userId}`)}
+                className="text-xs sm:text-sm"
+              >
+                Написать
+              </Button>
             )}
           </div>
 
@@ -1097,7 +1094,7 @@ const Profile = () => {
                   >
                     <span className="flex items-center gap-1">
                       <Gift className="w-3.5 h-3.5" />
-                      Подарки
+                      Подарки ({giftCount})
                     </span>
                   </button>
                 </div>
@@ -1218,7 +1215,16 @@ const Profile = () => {
 
           {activeTab === 'gifts' && (
             <div>
-              <GiftsTab userId={userId!} />
+              <GiftsTab
+                userId={userId!}
+                isOwnProfile={isOwnProfile}
+                giftCatalog={giftCatalog}
+                recipientUsername={profile.username}
+                onGiftSent={() => {
+                  setGiftCount((c) => c + 1);
+                  loadProfile();
+                }}
+              />
             </div>
           )}
         </div>
@@ -1238,57 +1244,6 @@ const Profile = () => {
             canDelete={isOwnProfile}
           />
         )}
-
-        {/* Gift Catalog Picker */}
-        <Dialog open={showGiftCatalog} onOpenChange={setShowGiftCatalog}>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Выберите подарок</DialogTitle>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-3 py-2">
-              {giftCatalog.map((gift) => (
-                <button
-                  key={gift.id}
-                  onClick={() => {
-                    setSelectedGift(gift);
-                    setShowGiftCatalog(false);
-                    setShowGiftDialog(true);
-                  }}
-                  className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
-                    {gift.image_url ? (
-                      <img
-                        src={storageUrl("post-images", gift.image_url) || gift.image_url}
-                        alt={gift.name}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <Gift className="w-8 h-8 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-medium">{gift.name}</p>
-                    <p className="text-xs text-muted-foreground">{gift.price} gарм</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Gift Send Dialog */}
-        <GiftSendDialog
-          gift={selectedGift}
-          recipientId={userId!}
-          recipientUsername={profile.username}
-          open={showGiftDialog}
-          onOpenChange={setShowGiftDialog}
-          onSent={() => {
-            setSelectedGift(null);
-            loadProfile();
-          }}
-        />
       </main>
   );
 };
