@@ -70,6 +70,36 @@ vi.mock("@/components/PrefetchLink", () => ({
   ),
 }));
 
+vi.mock("@/services/messengerWebSocket", () => ({
+  messengerWs: { connect: vi.fn(), disconnect: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() },
+}));
+vi.mock("@/stores/messengerStore", () => ({
+  useMessengerStore: Object.assign(vi.fn((selector: any) => selector?.({
+    conversations: [],
+    selectedConversationId: null,
+    messages: [],
+    typingUsers: {},
+    isInitialLoading: false,
+    isMessagesLoading: false,
+    isSending: false,
+    error: null,
+    me: null,
+    receipts: {},
+    totalUnread: 0,
+    init: vi.fn(),
+    selectConversation: vi.fn(),
+    createConversation: vi.fn(),
+    setError: vi.fn(),
+    sendMessage: vi.fn(),
+    editMessage: vi.fn(),
+    deleteMessage: vi.fn(),
+    markRead: vi.fn(),
+    markDelivered: vi.fn(),
+    togglePin: vi.fn(),
+    updateConversationFromWs: vi.fn(),
+    selectedConversation: vi.fn(() => null),
+  })), { getState: vi.fn(() => ({ conversations: [], selectedConversationId: null, markDelivered: vi.fn(), markRead: vi.fn() })) }),
+}));
 vi.mock("@/hooks/useSessionTime", () => ({ useSessionTime: vi.fn() }));
 vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
 vi.mock("@/hooks/useUserColor", () => ({ useUserColor: () => ({ data: "" }) }));
@@ -168,9 +198,7 @@ describe("Index", () => {
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  afterEach(() => {});
 
   it("shows pentagram loader while loading", () => {
     mockAuth.getSession.mockReturnValue(new Promise(() => {}));
