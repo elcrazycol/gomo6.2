@@ -119,6 +119,11 @@ export const ThreadFeed = ({
           if (recThreadsData.length > 0) {
             const sortedRecThreads = recThreadsData.map(thread => ({
               ...thread,
+              profiles: {
+                username: (thread.username as string) || "Аноним",
+                is_anonymous: Boolean(thread.is_anonymous),
+                avatar_url: thread.avatar_url as string | null,
+              },
             })) as unknown as Thread[];
 
             sortedRecThreads.sort((a, b) => {
@@ -145,6 +150,11 @@ export const ThreadFeed = ({
 
       const threadsWithProfiles = threadsData.map(thread => ({
         ...thread,
+        profiles: {
+          username: (thread.username as string) || "Аноним",
+          is_anonymous: Boolean(thread.is_anonymous),
+          avatar_url: thread.avatar_url as string | null,
+        },
       })) as unknown as Thread[];
 
       if (isLoadMore) {
