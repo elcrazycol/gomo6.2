@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, type FormEvent } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
-import { api } from "@/integrations/api/compat";
+import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -37,6 +37,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const location = useLocation();
   const queryClient = useQueryClient();
   const { user } = useAuth(); // Use cached auth hook instead of local state
+  const { loadProfile } = useProfileCache();
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
@@ -770,63 +771,19 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [handleNowPlayingControl]);
 
   useEffect(() => {
-    // Load user profile data when user changes
-    const loadUserProfile = async () => {
-      if (!user?.id) {
-        setIsModerator(false);
-        setCurrentUserUsername("");
-        setCurrentUserColor("");
-        return;
-      }
+    if (!user?.id) {
+      setIsModerator(false);
+      setCurrentUserUsername("");
+      setCurrentUserColor("");
+      return;
+    }
 
-      // Load user role
-      const { data: roles } = await api
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id);
-
-      setIsModerator(roles?.some(r => r.role === 'moderator' || r.role === 'admin') || false);
-
-      // Load current user profile and color
-      const { data: profile } = await api
-        .from("profiles")
-        .select("username")
-        .eq("id", user.id)
-        .single();
-
-      if (profile) {
-        setCurrentUserUsername(profile.username);
-      }
-
-      // Load current user color
-      const { data: achievements } = await api
-        .from("user_achievements")
-        .select(`
-          achievement_id,
-          achievements (
-            reward_type,
-            reward_value
-          )
-        `)
-        .eq("user_id", user.id);
-
-      if (achievements) {
-        const colorRewards = achievements
-          .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
-          .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
-
-        const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-        for (const p of priority) {
-          if (colorRewards.includes(p)) {
-            setCurrentUserColor(p);
-            break;
-          }
-        }
-      }
-    };
-
-    loadUserProfile();
-  }, [user?.id]);
+    loadProfile(user.id).then((data) => {
+      setIsModerator(data.isAdmin);
+      setCurrentUserUsername(data.username);
+      setCurrentUserColor(data.color);
+    });
+  }, [user?.id, loadProfile]);
 
   useEffect(() => {
     const term = searchQuery.trim();

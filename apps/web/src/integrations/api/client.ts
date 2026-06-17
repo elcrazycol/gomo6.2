@@ -93,6 +93,8 @@ class ApiClient {
     this.refreshToken = null;
     this.tokenExpiresAt = null;
     this.cachedUser = null;
+    this.currentUserPromise = null;
+    this.currentUserCacheTime = 0;
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_refresh_token');
   }
@@ -285,25 +287,37 @@ class ApiClient {
 
   // Last known good user profile (survives network errors)
   private cachedUser: User | null = null;
+  private currentUserPromise: Promise<User | null> | null = null;
+  private currentUserCacheTime = 0;
 
   async getCurrentUser(): Promise<User | null> {
     if (!this.token) { this.cachedUser = null; return null; }
 
-    try {
-      const response = await this.request<User>('/api/v1/auth/me');
-      const user = response.data as User;
-      if (user) this.cachedUser = user;
-      return user;
-    } catch (error) {
-      // If tokens were cleared (401 + refresh failed), we're logged out
-      if (!this.token) return null;
-      const err = error as Error & { status?: number };
-      // Direct 401 (no refresh token available) — also logged out
-      if (err.status === 401) return null;
-      // Network error (502, timeout, DNS) — return cached user if available
-      console.warn('[API] getCurrentUser network error, using cached profile:', err.message);
-      return this.cachedUser;
+    // Deduplicate concurrent calls and cache for 30s
+    if (this.currentUserPromise && Date.now() - this.currentUserCacheTime < 30000) {
+      return this.currentUserPromise;
     }
+
+    this.currentUserCacheTime = Date.now();
+    this.currentUserPromise = (async () => {
+      try {
+        const response = await this.request<User>('/api/v1/auth/me');
+        const user = response.data as User;
+        if (user) this.cachedUser = user;
+        return user;
+      } catch (error) {
+        // If tokens were cleared (401 + refresh failed), we're logged out
+        if (!this.token) return null;
+        const err = error as Error & { status?: number };
+        // Direct 401 (no refresh token available) — also logged out
+        if (err.status === 401) return null;
+        // Network error (502, timeout, DNS) — return cached user if available
+        console.warn('[API] getCurrentUser network error, using cached profile:', err.message);
+        return this.cachedUser;
+      }
+    })();
+
+    return this.currentUserPromise;
   }
 
   logout() {

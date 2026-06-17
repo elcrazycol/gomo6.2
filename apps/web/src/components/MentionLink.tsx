@@ -3,6 +3,7 @@ import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
 import { User } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
+import { useUserColor } from "@/hooks/useUserColor";
 
 interface MentionLinkProps {
   username: string;
@@ -28,8 +29,9 @@ const getColorClass = (color: string): string => {
 export const MentionLink = ({ username }: MentionLinkProps) => {
   const [userExists, setUserExists] = useState<boolean | null>(null);
   const [userData, setUserData] = useState<unknown>(null);
-  const [color, setColor] = useState<string>("");
+  const [userId, setUserId] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const { data: color = "" } = useUserColor(userId || undefined);
 
   useEffect(() => {
     // Check cache first
@@ -37,7 +39,7 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
       const cached = userCache.get(username)!;
       setUserExists(cached.exists);
       setUserData(cached.data);
-      setColor(cached.color || "");
+      setUserId((cached.data as { id?: string })?.id || "");
       setAvatarUrl(storageUrl("post-images", cached.avatarUrl ?? null));
       return;
     }
@@ -56,38 +58,10 @@ export const MentionLink = ({ username }: MentionLinkProps) => {
         } else {
           setUserExists(true);
           setUserData(data);
+          setUserId(data.id);
           const resolvedAvatar = storageUrl("post-images", data.avatar_url);
           setAvatarUrl(resolvedAvatar);
-
-          // Load color from achievements
-          const { data: achievements } = await api
-            .from("user_achievements")
-            .select(`
-              achievement_id,
-              achievements (
-                reward_type,
-                reward_value
-              )
-            `)
-            .eq("user_id", data.id);
-
-          let userColor = "";
-          if (achievements) {
-            const colorRewards = achievements
-              .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-              .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-            const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-            for (const p of priority) {
-              if (colorRewards.includes(p)) {
-                userColor = p;
-                break;
-              }
-            }
-          }
-
-          setColor(userColor);
-          userCache.set(username, { exists: true, data, color: userColor, avatarUrl: resolvedAvatar });
+          userCache.set(username, { exists: true, data, avatarUrl: resolvedAvatar });
         }
       } catch (error) {
         setUserExists(false);
