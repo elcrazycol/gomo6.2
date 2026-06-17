@@ -562,10 +562,12 @@ class ApiClient {
   async getNotifications(params?: {
     limit?: number;
     offset?: number;
+    is_read?: string;
   }): Promise<ApiResponse<Notification[]>> {
     const searchParams = new URLSearchParams();
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
+    if (params?.is_read) searchParams.set('is_read', params.is_read);
 
     const query = searchParams.toString();
     return this.request<Notification[]>(`/api/v1/notifications${query ? `?${query}` : ''}`);

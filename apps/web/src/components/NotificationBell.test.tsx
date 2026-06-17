@@ -1,28 +1,26 @@
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NotificationBell } from "./NotificationBell";
 
-const mockGetUnreadNotificationsCount = vi.fn();
-const mockGetNotifications = vi.fn();
-const mockMarkNotificationAsRead = vi.fn();
-const mockSubscribeToNotifications = vi.fn();
-const mockOn = vi.fn((_event: string, _cb: any) => vi.fn());
+const mockInit = vi.fn();
+const mockMarkAsRead = vi.fn();
 const mockNavigateFn = vi.fn();
+let notifications: any[] = [];
+let unreadCount = 0;
 
-vi.mock("@/integrations/api/client", () => ({
-  apiClient: {
-    getUnreadNotificationsCount: (...args: any[]) => mockGetUnreadNotificationsCount(...args),
-    getNotifications: (...args: any[]) => mockGetNotifications(...args),
-    markNotificationAsRead: (...args: any[]) => mockMarkNotificationAsRead(...args),
+vi.mock("@/stores/notificationStore", () => ({
+  useNotificationStore: (selector: any) => {
+    const state = { notifications, unreadCount, init: mockInit, markAsRead: mockMarkAsRead };
+    return selector(state);
   },
 }));
 
+vi.mock("@/integrations/api/client", () => ({
+  apiClient: {},
+}));
+
 vi.mock("@/services/websocket", () => ({
-  wsService: {
-    subscribeToNotifications: (...args: any[]) => mockSubscribeToNotifications(...args),
-    on: (event: string, cb: any) => mockOn(event, cb),
-    connected: true,
-  },
+  wsService: {},
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -45,14 +43,8 @@ vi.mock("date-fns/locale", () => ({ ru: {} }));
 describe("NotificationBell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    mockGetUnreadNotificationsCount.mockResolvedValue({ data: { unread_count: 3 }, error: null });
-    mockGetNotifications.mockResolvedValue({ data: [], error: null });
-    mockOn.mockReturnValue(vi.fn());
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
+    notifications = [];
+    unreadCount = 0;
   });
 
   it("renders bell icon", () => {
@@ -60,45 +52,27 @@ describe("NotificationBell", () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
-  it("loads unread count on mount", async () => {
+  it("calls init on mount", () => {
     render(<NotificationBell userId="user-1" />);
-    await waitFor(() => {
-      expect(mockGetUnreadNotificationsCount).toHaveBeenCalled();
-    });
+    expect(mockInit).toHaveBeenCalledWith("user-1");
   });
 
-  it("shows unread badge", async () => {
+  it("shows unread badge", () => {
+    unreadCount = 3;
     render(<NotificationBell userId="user-1" />);
-    await waitFor(() => {
-      expect(screen.getByText("3")).toBeInTheDocument();
-    });
+    expect(screen.getByText("3")).toBeInTheDocument();
   });
 
-  it("shows 99+ for counts over 99", async () => {
-    mockGetUnreadNotificationsCount.mockResolvedValue({ data: { unread_count: 150 }, error: null });
+  it("shows 99+ for counts over 99", () => {
+    unreadCount = 150;
     render(<NotificationBell userId="user-1" />);
-    await waitFor(() => {
-      expect(screen.getByText("99+")).toBeInTheDocument();
-    });
+    expect(screen.getByText("99+")).toBeInTheDocument();
   });
 
-  it("does not show badge when count is 0", async () => {
-    mockGetUnreadNotificationsCount.mockResolvedValue({ data: { unread_count: 0 }, error: null });
+  it("does not show badge when count is 0", () => {
+    unreadCount = 0;
     render(<NotificationBell userId="user-1" />);
-    await waitFor(() => {
-      expect(mockGetUnreadNotificationsCount).toHaveBeenCalled();
-    });
     expect(screen.queryByText("0")).not.toBeInTheDocument();
-  });
-
-  it("subscribes to notifications on mount", async () => {
-    render(<NotificationBell userId="user-1" />);
-    expect(mockSubscribeToNotifications).toHaveBeenCalledWith("user-1");
-  });
-
-  it("registers websocket listener", async () => {
-    render(<NotificationBell userId="user-1" />);
-    expect(mockOn).toHaveBeenCalledWith("new_notification", expect.any(Function));
   });
 
   it("navigates to /notify on click", async () => {
@@ -124,13 +98,10 @@ describe("NotificationBell", () => {
   });
 
   it("shows notifications when loaded", async () => {
-    mockGetNotifications.mockResolvedValue({
-      data: [
-        { id: "n1", title: "New like", message: "User liked your post", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
-        { id: "n2", title: "New comment", message: "User commented", is_read: true, created_at: "2025-01-01T00:00:00Z", related_thread_id: null },
-      ],
-      error: null,
-    });
+    notifications = [
+      { id: "n1", title: "New like", message: "User liked your post", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
+      { id: "n2", title: "New comment", message: "User commented", is_read: true, created_at: "2025-01-01T00:00:00Z", related_thread_id: null },
+    ];
 
     render(<NotificationBell userId="user-1" />);
     fireEvent.mouseEnter(screen.getByRole("button"));
@@ -150,12 +121,9 @@ describe("NotificationBell", () => {
   });
 
   it("marks notification as read on hover", async () => {
-    mockGetNotifications.mockResolvedValue({
-      data: [
-        { id: "n1", title: "New like", message: "User liked", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
-      ],
-      error: null,
-    });
+    notifications = [
+      { id: "n1", title: "New like", message: "User liked", is_read: false, created_at: "2025-01-01T00:00:00Z", related_thread_id: "t1" },
+    ];
 
     render(<NotificationBell userId="user-1" />);
     fireEvent.mouseEnter(screen.getByRole("button"));
@@ -168,17 +136,14 @@ describe("NotificationBell", () => {
     fireEvent.mouseEnter(notifLink);
 
     await waitFor(() => {
-      expect(mockMarkNotificationAsRead).toHaveBeenCalledWith("n1");
+      expect(mockMarkAsRead).toHaveBeenCalledWith("n1");
     });
   });
 
   it("does not mark already-read notifications", async () => {
-    mockGetNotifications.mockResolvedValue({
-      data: [
-        { id: "n1", title: "Old notif", message: "Already read", is_read: true, created_at: "2025-01-01T00:00:00Z", related_thread_id: null },
-      ],
-      error: null,
-    });
+    notifications = [
+      { id: "n1", title: "Old notif", message: "Already read", is_read: true, created_at: "2025-01-01T00:00:00Z", related_thread_id: null },
+    ];
 
     render(<NotificationBell userId="user-1" />);
     fireEvent.mouseEnter(screen.getByRole("button"));
@@ -190,6 +155,6 @@ describe("NotificationBell", () => {
     const notifLink = screen.getByText("Old notif").closest("a")!;
     fireEvent.mouseEnter(notifLink);
 
-    expect(mockMarkNotificationAsRead).not.toHaveBeenCalled();
+    expect(mockMarkAsRead).not.toHaveBeenCalled();
   });
 });

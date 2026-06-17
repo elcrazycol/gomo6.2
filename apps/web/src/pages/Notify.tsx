@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { apiClient, type Notification } from "@/integrations/api/client";
+import { useNotificationStore } from "@/stores/notificationStore";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -14,20 +15,24 @@ interface NotifWithSlug extends Notification {
   board_slug?: string;
 }
 
-const PAGE_SIZE = 20;
-
 const Notify = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [notifications, setNotifications] = useState<NotifWithSlug[]>([]);
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "unread">("newest");
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [slugifiedNotifs, setSlugifiedNotifs] = useState<NotifWithSlug[]>([]);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Attach board slugs to notifications — all lookups in parallel across notifications
+  const notifications = useNotificationStore((s) => s.notifications);
+  const hasMore = useNotificationStore((s) => s.hasMore);
+  const isLoadingMore = useNotificationStore((s) => s.isLoadingMore);
+  const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const fetchMore = useNotificationStore((s) => s.fetchMore);
+  const resetAndFetch = useNotificationStore((s) => s.resetAndFetch);
+  const markAsRead = useNotificationStore((s) => s.markAsRead);
+  const markAllAsRead = useNotificationStore((s) => s.markAllAsRead);
+
   const attachSlugs = useCallback(async (notifs: Notification[]): Promise<NotifWithSlug[]> => {
     const withSlugs = await Promise.all(
       notifs.map(async (notif): Promise<NotifWithSlug> => {
@@ -55,60 +60,33 @@ const Notify = () => {
     return withSlugs;
   }, []);
 
-  const loadNotifications = useCallback(async (offset: number = 0) => {
-    try {
-      const params: { limit: number; offset: number } = { limit: PAGE_SIZE, offset };
+  useEffect(() => {
+    const getUser = async () => {
+      const userData = await apiClient.getCurrentUser();
+      setUser(userData);
+      setLoading(false);
+    };
+    getUser();
+  }, []);
 
-      // Build query string manually for is_read filter
-      let queryStr = `limit=${PAGE_SIZE}&offset=${offset}`;
-      if (sortBy === "unread") {
-        queryStr += "&is_read=false";
-      }
-
-      const notifResp = await apiClient.getNotifications(params);
-      const data = notifResp.data as Notification[] | null;
-
-      if (!data || !Array.isArray(data)) {
-        if (offset === 0) setNotifications([]);
-        setHasMore(false);
-        return;
-      }
-
-      const withSlugs = await attachSlugs(data);
-
-      if (offset === 0) {
-        setNotifications(withSlugs);
-      } else {
-        setNotifications(prev => {
-          const existingIds = new Set(prev.map(n => n.id));
-          const newItems = withSlugs.filter(n => !existingIds.has(n.id));
-          return [...prev, ...newItems];
-        });
-      }
-
-      setHasMore(notifResp.has_more ?? data.length >= PAGE_SIZE);
-    } catch (err) {
-      console.error("[Notify] Failed to load notifications:", err);
-      if (offset === 0) setNotifications([]);
+  useEffect(() => {
+    if (user) {
+      const isRead = sortBy === "unread" ? "false" : undefined;
+      resetAndFetch(isRead);
     }
-  }, [sortBy, attachSlugs]);
+  }, [sortBy, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load more for infinite scroll
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    await loadNotifications(notifications.length);
-    setLoadingMore(false);
-  }, [loadingMore, hasMore, loadNotifications, notifications.length]);
+  useEffect(() => {
+    attachSlugs(notifications).then(setSlugifiedNotifs);
+  }, [notifications, attachSlugs]);
 
-  // IntersectionObserver for infinite scroll
   useEffect(() => {
     if (observerRef.current) observerRef.current.disconnect();
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasMore && !loadingMore) {
-          loadMore();
+        if (entries[0]?.isIntersecting && hasMore && !isLoadingMore) {
+          fetchMore();
         }
       },
       { threshold: 0.1 }
@@ -121,60 +99,14 @@ const Notify = () => {
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
     };
-  }, [hasMore, loadingMore, loadMore]);
+  }, [hasMore, isLoadingMore, fetchMore]);
 
-  useEffect(() => {
-    const getUser = async () => {
-      const userData = await apiClient.getCurrentUser();
-      setUser(userData);
-
-      if (userData) {
-        await loadNotifications(0);
-      }
-
-      setLoading(false);
-    };
-
-    getUser();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Reload when sort changes
-  useEffect(() => {
-    if (user) {
-      setNotifications([]);
-      setHasMore(true);
-      loadNotifications(0);
-    }
-  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const markAsRead = async (id: string) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-    );
-
-    try {
-      await apiClient.markNotificationAsRead(id);
-    } catch (err) {
-      console.error("[Notify] Failed to mark as read:", err);
-    }
+  const handleMarkAsRead = (id: string) => {
+    markAsRead(id);
   };
 
-  const markAllAsRead = async () => {
-    if (!user) return;
-
-    setNotifications(prev =>
-      prev.map(n => ({ ...n, is_read: true }))
-    );
-
-    try {
-      await apiClient.markAllNotificationsAsRead();
-      // Reload to get fresh state
-      setNotifications([]);
-      setHasMore(true);
-      await loadNotifications(0);
-    } catch (err) {
-      console.error("[Notify] Failed to mark all as read:", err);
-    }
+  const handleMarkAllAsRead = () => {
+    markAllAsRead();
   };
 
   if (loading) {
@@ -190,11 +122,8 @@ const Notify = () => {
     return null;
   }
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  // Client-side sorting for "unread first" and "oldest first"
   const displayNotifications = (() => {
-    const sorted = [...notifications];
+    const sorted = [...slugifiedNotifs];
     if (sortBy === "oldest") {
       sorted.sort((a, b) => safeDate(a.created_at).getTime() - safeDate(b.created_at).getTime());
     } else if (sortBy === "unread") {
@@ -205,7 +134,6 @@ const Notify = () => {
         return a.is_read ? 1 : -1;
       });
     }
-    // "newest" is already in server order (desc)
     return sorted;
   })();
 
@@ -241,7 +169,7 @@ const Notify = () => {
               </SelectContent>
             </Select>
             {unreadCount > 0 && (
-              <Button variant="outline" size="sm" onClick={markAllAsRead}>
+              <Button variant="outline" size="sm" onClick={handleMarkAllAsRead}>
                 Прочитать все
               </Button>
             )}
@@ -262,15 +190,21 @@ const Notify = () => {
                   : '#';
 
               return (
-                <Link
+                <a
                   key={notif.id}
-                  to={link}
+                  href={link}
                   onMouseEnter={() => {
                     if (!notif.is_read) {
-                      markAsRead(notif.id);
+                      handleMarkAsRead(notif.id);
                     }
                   }}
-                  onClick={() => markAsRead(notif.id)}
+                  onClick={(e) => {
+                    handleMarkAsRead(notif.id);
+                    if (link !== '#') {
+                      e.preventDefault();
+                      navigate(link);
+                    }
+                  }}
                   className={`block p-4 border text-foreground transition-all duration-200 rounded relative ${
                     !notif.is_read
                       ? "bg-muted/30 border-muted-foreground/20 border-l-2 border-l-muted-foreground/40"
@@ -289,14 +223,13 @@ const Notify = () => {
                       </p>
                     </div>
                   </div>
-                </Link>
+                </a>
               );
             })}
 
-            {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} className="h-4" />
 
-            {loadingMore && (
+            {isLoadingMore && (
               <div className="flex justify-center py-4">
                 <PentagramLoader size="sm" />
               </div>
