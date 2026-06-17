@@ -101,9 +101,13 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 
 	// Check gomosub management permissions for write operations
 	if c.Request.Method != "GET" && isGomosubManagementTable(tableName) {
-		// Allow self-join: users can create their own membership without management permissions
-		if tableName == "gomosub_memberships" && c.Request.Method == "POST" && h.isSelfJoin(c) {
-			// Fall through to handlePost — no management permission needed
+		if tableName == "gomosub_memberships" {
+			// Allow self-join (POST) and self-leave (DELETE) without management permissions
+			if (c.Request.Method == "POST" && h.isSelfJoin(c)) || (c.Request.Method == "DELETE" && h.isSelfLeave(c)) {
+				// Fall through — no management permission needed
+			} else if !h.checkGomosubWritePermission(c, tableName) {
+				return
+			}
 		} else if !h.checkGomosubWritePermission(c, tableName) {
 			return
 		}
@@ -289,6 +293,21 @@ func (h *UniversalHandler) isSelfJoin(c *gin.Context) bool {
 	return ok && uid == claims.UserID
 }
 
+// isSelfLeave checks if a DELETE on gomosub_memberships targets the user's own membership.
+func (h *UniversalHandler) isSelfLeave(c *gin.Context) bool {
+	claimsInterface, exists := c.Get("claims")
+	if !exists {
+		return false
+	}
+	claims := claimsInterface.(*auth.Claims)
+
+	userIDParam := c.Query("user_id")
+	if strings.HasPrefix(userIDParam, "eq.") {
+		userIDParam = userIDParam[3:]
+	}
+	return userIDParam == claims.UserID
+}
+
 // checkGomosubWritePermission verifies the user has management permissions for the
 // gomosub board. It extracts board_id from the request body or query params.
 // Returns true if allowed, false if denied (response already sent).
@@ -304,15 +323,13 @@ func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName
 	// Extract board_id from the request
 	boardID := c.Query("board_id")
 	if boardID == "" {
-		// Try eq filter: board_id=eq.xxx
 		if bf := c.Query("board_id"); bf != "" {
-			parts := strings.SplitN(bf, ".", 2)
-			if len(parts) == 2 {
-				boardID = parts[1]
-			} else {
-				boardID = bf
-			}
+			boardID = bf
 		}
+	}
+	// Strip eq. prefix if present (Supabase-style filter format)
+	if strings.HasPrefix(boardID, "eq.") {
+		boardID = boardID[3:]
 	}
 
 	// For POST, board_id is typically in the JSON body
