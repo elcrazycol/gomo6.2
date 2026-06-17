@@ -301,10 +301,7 @@ func (h *UniversalHandler) isSelfLeave(c *gin.Context) bool {
 	}
 	claims := claimsInterface.(*auth.Claims)
 
-	userIDParam := c.Query("user_id")
-	if strings.HasPrefix(userIDParam, "eq.") {
-		userIDParam = userIDParam[3:]
-	}
+	userIDParam := strings.TrimPrefix(c.Query("user_id"), "eq.")
 	return userIDParam == claims.UserID
 }
 
@@ -328,9 +325,7 @@ func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName
 		}
 	}
 	// Strip eq. prefix if present (Supabase-style filter format)
-	if strings.HasPrefix(boardID, "eq.") {
-		boardID = boardID[3:]
-	}
+	boardID = strings.TrimPrefix(boardID, "eq.")
 
 	// For POST, board_id is typically in the JSON body
 	if boardID == "" && c.Request.Method == "POST" && c.Request.Body != nil {
