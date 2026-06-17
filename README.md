@@ -42,6 +42,7 @@
 | Federation | ActivityPub-compatible federation |
 | GomoSubs | Discord-like servers with channels, roles, permissions |
 | Achievements | Gamification system with rarity tiers |
+| Gifts | Send collectible gifts to users for garma, admin catalog management |
 | Blockchain nicknames | ERC-721 NFT nicknames on Base L2 |
 
 ---

@@ -834,11 +834,11 @@ const Profile = () => {
           <div className="space-y-6">
           {/* Profile Header */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               {/* Avatar */}
               <div className="relative">
                 <div
-                  className="w-20 h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                  className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
                   onClick={handleAvatarClick}
                 >
                   {avatarUploading ? (
@@ -881,7 +881,7 @@ const Profile = () => {
                   ) : (
                     <div className="flex items-center gap-2 flex-wrap">
                       <h1 
-                        className="text-2xl font-bold"
+                        className="text-xl sm:text-2xl font-bold"
                         style={customization?.username_css ? parseCssToStyle(customization.username_css) : {}}
                       >
                         {profile.username}
@@ -1004,38 +1004,38 @@ const Profile = () => {
                 const summaryAllowed = isOwn || showProfileStats;
                 if (!summaryAllowed) return null;
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-post-header border border-border">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
                     <button
                       type="button"
                       onClick={() => navigate(`/stats?metric=threads&user=${userId}`)}
                       className="text-left"
                     >
-                      <p className="text-sm text-muted-foreground">Тредов создано</p>
-                      <p className="text-2xl font-bold">{profile.thread_count}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Тредов</p>
+                      <p className="text-xl sm:text-2xl font-bold">{profile.thread_count}</p>
                     </button>
                     <button
                       type="button"
                       onClick={() => navigate(`/stats?metric=posts&user=${userId}`)}
                       className="text-left"
                     >
-                      <p className="text-sm text-muted-foreground">Постов написано</p>
-                      <p className="text-2xl font-bold">{profile.post_count}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Постов</p>
+                      <p className="text-xl sm:text-2xl font-bold">{profile.post_count}</p>
                     </button>
                     <button
                       type="button"
                       onClick={() => navigate(`/stats?metric=postLikes&user=${userId}`)}
                       className="text-left"
                     >
-                      <p className="text-sm text-muted-foreground">Лайков</p>
-                      <p className="text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Лайков</p>
+                      <p className="text-xl sm:text-2xl font-bold">{likesReceived}/{profile.thread_likes_received_count}</p>
                     </button>
                     <button
                       type="button"
                       onClick={() => navigate(`/stats?metric=garma&user=${userId}`)}
                       className="text-left"
                     >
-                      <p className="text-sm text-muted-foreground">gармы</p>
-                      <p className="text-2xl font-bold">{profile.garma}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">gармы</p>
+                      <p className="text-xl sm:text-2xl font-bold">{profile.garma}</p>
                     </button>
                   </div>
                 );
@@ -1048,12 +1048,12 @@ const Profile = () => {
               )}
 
               {/* Profile Tabs */}
-              <div className="border-b border-border">
-                <div className="flex gap-0">
+              <div className="border-b border-border overflow-x-auto">
+                <div className="flex gap-0 min-w-max">
                   {showProfileWall && (
                     <button
                       onClick={() => setActiveTab('wall')}
-                      className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                      className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                         activeTab === 'wall'
                           ? 'text-primary border-b-2 border-primary'
                           : 'text-muted-foreground hover:text-foreground'
@@ -1064,18 +1064,18 @@ const Profile = () => {
                   )}
                   <button
                     onClick={() => setActiveTab('achievements')}
-                    className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                    className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                       activeTab === 'achievements'
                         ? 'text-primary border-b-2 border-primary'
                         : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    Достижения ({achievements.length})
-                  </button>
-                  {showThreadsTab && (
+                      }`}
+                    >
+                      Достижения ({achievements.length})
+                    </button>
+                    {showThreadsTab && (
                     <button
                       onClick={() => setActiveTab('threads')}
-                      className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                      className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                         activeTab === 'threads'
                           ? 'text-primary border-b-2 border-primary'
                           : 'text-muted-foreground hover:text-foreground'
@@ -1086,7 +1086,7 @@ const Profile = () => {
                   )}
                   <button
                     onClick={() => setActiveTab('gifts')}
-                    className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                    className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
                       activeTab === 'gifts'
                         ? 'text-primary border-b-2 border-primary'
                         : 'text-muted-foreground hover:text-foreground'
