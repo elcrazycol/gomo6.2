@@ -101,7 +101,10 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 
 	// Check gomosub management permissions for write operations
 	if c.Request.Method != "GET" && isGomosubManagementTable(tableName) {
-		if !h.checkGomosubWritePermission(c, tableName) {
+		// Allow self-join: users can create their own membership without management permissions
+		if tableName == "gomosub_memberships" && c.Request.Method == "POST" && h.isSelfJoin(c) {
+			// Fall through to handlePost — no management permission needed
+		} else if !h.checkGomosubWritePermission(c, tableName) {
 			return
 		}
 	}
@@ -259,6 +262,31 @@ func isGomosubManagementTable(table string) bool {
 	default:
 		return false
 	}
+}
+
+// isSelfJoin checks if a POST to gomosub_memberships is a user joining a board themselves.
+func (h *UniversalHandler) isSelfJoin(c *gin.Context) bool {
+	claimsInterface, exists := c.Get("claims")
+	if !exists {
+		return false
+	}
+	claims := claimsInterface.(*auth.Claims)
+
+	bodyBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return false
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	if len(bodyBytes) == 0 {
+		return false
+	}
+	var body map[string]interface{}
+	if json.Unmarshal(bodyBytes, &body) != nil {
+		return false
+	}
+	uid, ok := body["user_id"].(string)
+	return ok && uid == claims.UserID
 }
 
 // checkGomosubWritePermission verifies the user has management permissions for the
