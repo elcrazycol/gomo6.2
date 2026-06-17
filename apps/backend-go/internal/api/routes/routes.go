@@ -193,6 +193,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
+		// Populate claims if auth token is present (does not block anonymous requests)
+		rest.Use(middleware.OptionalAuthMiddleware(authService))
 
 		// Search endpoint (full-text, public)
 		rest.GET("/search", searchHandler.Search)
