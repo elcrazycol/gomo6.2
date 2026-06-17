@@ -218,7 +218,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		SELECT ug.id, ug.gift_id, ug.sender_id, ug.recipient_id, ug.message,
 		       ug.is_anonymous, ug.created_at,
 		       gc.name AS gift_name, gc.image_url AS gift_image_url, gc.price AS gift_price,
-		       u.username AS sender_username
+		       u.username AS sender_username, u.avatar_url AS sender_avatar_url
 		FROM user_gifts ug
 		JOIN gift_catalog gc ON gc.id = ug.gift_id
 		LEFT JOIN users u ON u.id = ug.sender_id
@@ -238,7 +238,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		err := rows.Scan(
 			&g.ID, &g.GiftID, &g.SenderID, &g.RecipientID, &g.Message,
 			&g.IsAnonymous, &g.CreatedAt,
-			&g.GiftName, &g.GiftImageURL, &g.GiftPrice, &g.SenderUsername,
+			&g.GiftName, &g.GiftImageURL, &g.GiftPrice, &g.SenderUsername, &g.SenderAvatarURL,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
