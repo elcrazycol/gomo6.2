@@ -50,7 +50,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	result.Boards = h.searchTable(
 		`SELECT id, slug, name, description, cover_image_url, is_gomosub
 		 FROM boards
-		 WHERE search_vector @@ plainto_tsquery('russian', $1)
+		 WHERE search_vector @@ plainto_tsquery('russian', $1) AND visibility != 'private'
 		 ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 24`, q)
 
@@ -60,7 +60,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		        b.slug AS board_slug, b.name AS board_name, b.is_gomosub AS board_is_gomosub
 		 FROM threads t
 		 JOIN boards b ON b.id = t.board_id
-		 WHERE t.search_vector @@ plainto_tsquery('russian', $1)
+		 WHERE t.search_vector @@ plainto_tsquery('russian', $1) AND b.visibility != 'private'
 		 ORDER BY ts_rank(t.search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 60`, q)
 
@@ -74,7 +74,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		 JOIN threads t ON t.id = p.thread_id
 		 JOIN boards b ON b.id = t.board_id
 		 LEFT JOIN users u ON u.id = p.user_id
-		 WHERE p.search_vector @@ plainto_tsquery('russian', $1)
+		 WHERE p.search_vector @@ plainto_tsquery('russian', $1) AND b.visibility != 'private'
 		 ORDER BY ts_rank(p.search_vector, plainto_tsquery('russian', $1)) DESC
 		 LIMIT 30`, q)
 

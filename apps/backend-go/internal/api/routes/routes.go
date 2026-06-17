@@ -64,6 +64,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	}
 	boardsHandler := handlers.NewBoardsHandler(db)
 	boardsHandler.SetRedis(redis)
+	boardsHandler.SetAuthService(authService)
 	threadsHandler := handlers.NewThreadsHandler(db)
 	threadsHandler.SetRedis(redis)
 	threadsHandler.SetAuthService(authService)

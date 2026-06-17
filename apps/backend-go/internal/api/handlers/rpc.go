@@ -209,6 +209,26 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		return
 	}
 
+	// Check board-level access for the thread's board
+	var postBoardID string
+	err = h.db.QueryRow("SELECT board_id FROM threads WHERE id = $1", req.ThreadID).Scan(&postBoardID)
+	if err == nil {
+		var postBoardVisibility string
+		var postBoardOwnerID string
+		err = h.db.QueryRow("SELECT visibility, owner_id FROM boards WHERE id = $1", postBoardID).Scan(&postBoardVisibility, &postBoardOwnerID)
+		if err == nil && postBoardVisibility == "private" && postBoardOwnerID != claims.UserID {
+			var isMember bool
+			memberErr := h.db.QueryRow(
+				"SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)",
+				postBoardID, claims.UserID,
+			).Scan(&isMember)
+			if memberErr == nil && !isMember {
+				c.JSON(http.StatusForbidden, models.ErrorResponse("You are not a member of this gomosub"))
+				return
+			}
+		}
+	}
+
 	var imageURLs models.JSONB
 	if len(req.ImageURLs) > 0 {
 		imageURLs = make(models.JSONB, len(req.ImageURLs))
@@ -349,6 +369,22 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	if err != nil || !boardExists {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Board not found"))
 		return
+	}
+
+	// Check board-level access for private boards
+	var boardVisibility string
+	var boardOwnerID string
+	err = h.db.QueryRow("SELECT visibility, owner_id FROM boards WHERE id = $1", req.BoardID).Scan(&boardVisibility, &boardOwnerID)
+	if err == nil && boardVisibility == "private" && boardOwnerID != claims.UserID {
+		var isMember bool
+		memberErr := h.db.QueryRow(
+			"SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)",
+			req.BoardID, claims.UserID,
+		).Scan(&isMember)
+		if memberErr == nil && !isMember {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("You are not a member of this gomosub"))
+			return
+		}
 	}
 
 	// Check channel write access for private channels

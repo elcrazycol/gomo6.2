@@ -19,8 +19,9 @@ import (
 )
 
 type BoardsHandler struct {
-	db    *sql.DB
-	redis *redis.Client
+	db          *sql.DB
+	redis       *redis.Client
+	authService *auth.AuthService
 }
 
 func NewBoardsHandler(db *sql.DB) *BoardsHandler {
@@ -29,6 +30,59 @@ func NewBoardsHandler(db *sql.DB) *BoardsHandler {
 
 func (h *BoardsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
+}
+
+func (h *BoardsHandler) SetAuthService(authService *auth.AuthService) {
+	h.authService = authService
+}
+
+func (h *BoardsHandler) getUserIDFromRequest(c *gin.Context) string {
+	if claims, ok := bearerClaims(c); ok {
+		return claims.UserID
+	}
+	if h.authService == nil {
+		return ""
+	}
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	tokenParts := strings.Split(authHeader, " ")
+	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+		return ""
+	}
+	claims, err := h.authService.ValidateToken(tokenParts[1])
+	if err != nil {
+		return ""
+	}
+	return claims.UserID
+}
+
+func (h *BoardsHandler) canAccessBoard(userID string, boardID string) (bool, error) {
+	var visibility string
+	var ownerID string
+	err := h.db.QueryRow("SELECT visibility, owner_id FROM boards WHERE id = $1", boardID).Scan(&visibility, &ownerID)
+	if err != nil {
+		return false, err
+	}
+	if visibility != "private" {
+		return true, nil
+	}
+	if userID == "" {
+		return false, nil
+	}
+	if ownerID == userID {
+		return true, nil
+	}
+	var isMember bool
+	err = h.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)",
+		boardID, userID,
+	).Scan(&isMember)
+	if err != nil {
+		return false, err
+	}
+	return isMember, nil
 }
 
 func generateInviteCode() string {
@@ -60,6 +114,16 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 		if v == "public" || v == "private" {
 			conditions = append(conditions, "visibility = $"+strconv.Itoa(len(args)+1))
 			args = append(args, v)
+		}
+	} else {
+		userID := h.getUserIDFromRequest(c)
+		if userID != "" {
+			p1 := strconv.Itoa(len(args) + 1)
+			p2 := strconv.Itoa(len(args) + 2)
+			conditions = append(conditions, "(visibility != 'private' OR owner_id = $"+p1+" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = boards.id AND gm.user_id = $"+p2+"))")
+			args = append(args, userID, userID)
+		} else {
+			conditions = append(conditions, "visibility != 'private'")
 		}
 	}
 
@@ -157,6 +221,15 @@ func (h *BoardsHandler) GetBoard(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	if board.Visibility == "private" {
+		userID := h.getUserIDFromRequest(c)
+		canAccess, accessErr := h.canAccessBoard(userID, board.ID)
+		if accessErr == nil && !canAccess {
+			c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(board))

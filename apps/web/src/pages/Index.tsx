@@ -168,6 +168,7 @@ const Index = () => {
         .from("boards")
         .select("id, slug, name, description")
         .eq("is_gomosub", true)
+        .eq("visibility", "public")
         .order("created_at", { ascending: false })
         .limit(30);
 

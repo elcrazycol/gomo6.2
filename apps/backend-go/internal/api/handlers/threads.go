@@ -121,6 +121,34 @@ func (h *ThreadsHandler) canAccessChannel(userID string, channelID string, check
 	return hasAccess, nil
 }
 
+// canAccessBoard checks if a user can access a private board.
+func (h *ThreadsHandler) canAccessBoard(userID string, boardID string) (bool, error) {
+	var visibility string
+	var ownerID string
+	err := h.db.QueryRow("SELECT visibility, owner_id FROM boards WHERE id = $1", boardID).Scan(&visibility, &ownerID)
+	if err != nil {
+		return false, err
+	}
+	if visibility != "private" {
+		return true, nil
+	}
+	if userID == "" {
+		return false, nil
+	}
+	if ownerID == userID {
+		return true, nil
+	}
+	var isMember bool
+	err = h.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM gomosub_memberships WHERE board_id = $1 AND user_id = $2)",
+		boardID, userID,
+	).Scan(&isMember)
+	if err != nil {
+		return false, err
+	}
+	return isMember, nil
+}
+
 // Migration 036 added tags JSONB column to threads table.
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
@@ -216,6 +244,17 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: []models.ThreadWithBoards{}, Count: &emptyCount})
 			return
 		}
+	}
+
+	// Filter out threads from private boards the user cannot access
+	userID := h.getUserIDFromRequest(c)
+	if userID != "" {
+		p1 := strconv.Itoa(len(args) + 1)
+		p2 := strconv.Itoa(len(args) + 2)
+		conditions = append(conditions, "(b.visibility != 'private' OR b.owner_id = $"+p1+" OR EXISTS(SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id = $"+p2+"))")
+		args = append(args, userID, userID)
+	} else {
+		conditions = append(conditions, "b.visibility != 'private'")
 	}
 
 	// Determine ORDER BY (before cursor, since cursor direction depends on order)
@@ -393,6 +432,14 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Check board-level access for private boards
+	userID := h.getUserIDFromRequest(c)
+	canAccess, accessErr := h.canAccessBoard(userID, thread.BoardID)
+	if accessErr == nil && !canAccess {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 		return
 	}
 
