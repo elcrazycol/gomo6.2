@@ -157,7 +157,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2">
             {gifts.map((gift) => {
               const img = giftImageUrl(gift.gift_image_url);
               const senderImg = !gift.is_anonymous ? giftImageUrl(gift.sender_avatar_url) : null;
