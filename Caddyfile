@@ -19,7 +19,7 @@
 }
 
 # Uploads and object serving go through backend (/storage/v1/upload, /storage/v1/object).
-# Garage is never exposed directly to browsers — no CORS issues, no S3 signature issues.
+# Garage does not support anonymous access in v1.3.1 — all reads go through backend.
 
 {$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost}, mcaptcha.{$DOMAIN:localhost} {
 	# ── Security headers ──────────────────────────────────────────────────
