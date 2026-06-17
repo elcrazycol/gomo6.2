@@ -663,9 +663,13 @@ const Board = () => {
     const rulesVersion = board.rules_updated_at || "v1";
 
     if (user?.id) {
+      const token = localStorage.getItem('auth_token');
       const response = await fetch('/api/v1/gomosub_rules_acceptance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           user_id: user.id,
           board_id: board.id,
@@ -703,9 +707,14 @@ const Board = () => {
     }
 
     setMembershipLoading(true);
+    const authHeaders: Record<string, string> = {};
+    const token = localStorage.getItem('auth_token');
+    if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+
     if (isJoined) {
       const response = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`, {
         method: 'DELETE',
+        headers: authHeaders,
       });
       const result = await response.json();
 
@@ -721,7 +730,7 @@ const Board = () => {
 
     const response = await fetch('/api/v1/gomosub_memberships', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ board_id: board.id, user_id: user.id }),
     });
     const result = await response.json();
