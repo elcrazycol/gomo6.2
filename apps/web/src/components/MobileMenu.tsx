@@ -82,6 +82,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
         .from("boards")
         .select("id, slug, name")
         .eq("is_gomosub", true)
+        .eq("visibility", "public")
         .limit(30);
 
       if (allGSubs && allGSubs.length > 0) {
