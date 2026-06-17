@@ -433,7 +433,8 @@ type UserGift struct {
 	GiftImageURL *string `json:"gift_image_url,omitempty" db:"gift_image_url"`
 	GiftPrice    *int    `json:"gift_price,omitempty" db:"gift_price"`
 	// Joined field from users (sender)
-	SenderUsername *string `json:"sender_username,omitempty" db:"sender_username"`
+	SenderUsername    *string `json:"sender_username,omitempty" db:"sender_username"`
+	SenderAvatarURL   *string `json:"sender_avatar_url,omitempty" db:"sender_avatar_url"`
 }
 
 // SendGiftRequest — request body for sending a gift
