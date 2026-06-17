@@ -98,6 +98,15 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 		}
 		fmt.Printf("[CacheInvalidator] Invalidating channels cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
 		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/channels*board_id=eq.%s*", values["board_id"]))
+	case "gift_catalog":
+		fmt.Printf("[CacheInvalidator] Invalidating gift_catalog cache: id=%s\n", values["id"])
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/gift_catalog*")
+	case "user_gifts":
+		if recipientID, ok := result["recipient_id"].(string); ok && recipientID != "" {
+			values["recipient_id"] = recipientID
+		}
+		fmt.Printf("[CacheInvalidator] Invalidating user_gifts cache: id=%s, recipient_id=%s\n", values["id"], values["recipient_id"])
+		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_gifts*recipient_id=eq.%s*", values["recipient_id"]))
 	case "gomosub_roles":
 		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
 			values["board_id"] = boardID

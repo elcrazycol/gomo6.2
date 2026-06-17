@@ -16,7 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -31,6 +31,9 @@ import { ProcessedContent } from "@/components/ProcessedContent";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { AvatarGallery } from "@/components/AvatarGallery";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
+import { GiftsTab } from "@/components/GiftsTab";
+import { GiftSendDialog } from "@/components/GiftSendDialog";
+import type { GiftCatalogItem } from "@/components/GiftCard";
 
 interface Profile {
   id: string;
@@ -134,7 +137,7 @@ const Profile = () => {
   const [showProfileWall, setShowProfileWall] = useState(true);
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
   const [newPassword, setNewPassword] = useState("");
-  const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads'>('achievements');
+  const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [showProfileStats, setShowProfileStats] = useState(false);
   const [showDetailedStats, setShowDetailedStats] = useState(false);
@@ -154,6 +157,10 @@ const Profile = () => {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [showAvatarGallery, setShowAvatarGallery] = useState(false);
   const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
+  const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
+  const [showGiftCatalog, setShowGiftCatalog] = useState(false);
+  const [showGiftDialog, setShowGiftDialog] = useState(false);
+  const [selectedGift, setSelectedGift] = useState<GiftCatalogItem | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -208,6 +215,18 @@ const Profile = () => {
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // Load gift catalog
+  useEffect(() => {
+    const loadCatalog = async () => {
+      try {
+        const res = await fetch("/api/v1/gift_catalog");
+        const result = await res.json();
+        setGiftCatalog(result.data || []);
+      } catch { /* ignore */ }
+    };
+    loadCatalog();
   }, []);
 
   useEffect(() => {
@@ -914,16 +933,29 @@ const Profile = () => {
               </Button>
             )}
 
-            {/* Write Button for other users */}
+            {/* Write + Gift Buttons for other users */}
             {!isOwnProfile && currentUser && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => navigate(`/messages?user=${userId}`)}
-                className="text-xs sm:text-sm"
-              >
-                Написать
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => navigate(`/messages?user=${userId}`)}
+                  className="text-xs sm:text-sm"
+                >
+                  Написать
+                </Button>
+                {giftCatalog.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowGiftCatalog(true)}
+                    className="text-xs sm:text-sm"
+                  >
+                    <Gift className="w-3.5 h-3.5 mr-1" />
+                    Подарить
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -1055,6 +1087,19 @@ const Profile = () => {
                       Треды
                     </button>
                   )}
+                  <button
+                    onClick={() => setActiveTab('gifts')}
+                    className={`px-6 py-3 text-sm font-medium transition-colors relative ${
+                      activeTab === 'gifts'
+                        ? 'text-primary border-b-2 border-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <Gift className="w-3.5 h-3.5" />
+                      Подарки
+                    </span>
+                  </button>
                 </div>
               </div>
 
@@ -1170,6 +1215,12 @@ const Profile = () => {
               )}
             </div>
           )}
+
+          {activeTab === 'gifts' && (
+            <div>
+              <GiftsTab userId={userId!} />
+            </div>
+          )}
         </div>
         )}
 
@@ -1187,6 +1238,57 @@ const Profile = () => {
             canDelete={isOwnProfile}
           />
         )}
+
+        {/* Gift Catalog Picker */}
+        <Dialog open={showGiftCatalog} onOpenChange={setShowGiftCatalog}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Выберите подарок</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 py-2">
+              {giftCatalog.map((gift) => (
+                <button
+                  key={gift.id}
+                  onClick={() => {
+                    setSelectedGift(gift);
+                    setShowGiftCatalog(false);
+                    setShowGiftDialog(true);
+                  }}
+                  className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                    {gift.image_url ? (
+                      <img
+                        src={storageUrl("post-images", gift.image_url) || gift.image_url}
+                        alt={gift.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Gift className="w-8 h-8 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-medium">{gift.name}</p>
+                    <p className="text-xs text-muted-foreground">{gift.price} gарм</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Gift Send Dialog */}
+        <GiftSendDialog
+          gift={selectedGift}
+          recipientId={userId!}
+          recipientUsername={profile.username}
+          open={showGiftDialog}
+          onOpenChange={setShowGiftDialog}
+          onSent={() => {
+            setSelectedGift(null);
+            loadProfile();
+          }}
+        />
       </main>
   );
 };

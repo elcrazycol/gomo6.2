@@ -401,3 +401,45 @@ type GomosubInvite struct {
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 	IsActive    bool       `json:"is_active" db:"is_active"`
 }
+
+// GiftCatalog — admin-managed gift definitions
+type GiftCatalog struct {
+	ID          string    `json:"id" db:"id"`
+	Name        string    `json:"name" db:"name"`
+	Description *string   `json:"description" db:"description"`
+	ImageURL    string    `json:"image_url" db:"image_url"`
+	Price       int       `json:"price" db:"price"`
+	Category    string    `json:"category" db:"category"`
+	IsActive    bool      `json:"is_active" db:"is_active"`
+	IsLimited   bool      `json:"is_limited" db:"is_limited"`
+	MaxQuantity *int      `json:"max_quantity,omitempty" db:"max_quantity"`
+	SoldCount   int       `json:"sold_count" db:"sold_count"`
+	SortOrder   int       `json:"sort_order" db:"sort_order"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// UserGift — a gift sent from one user to another
+type UserGift struct {
+	ID          string    `json:"id" db:"id"`
+	GiftID      string    `json:"gift_id" db:"gift_id"`
+	SenderID    *string   `json:"sender_id" db:"sender_id"`
+	RecipientID string    `json:"recipient_id" db:"recipient_id"`
+	Message     *string   `json:"message" db:"message"`
+	IsAnonymous bool      `json:"is_anonymous" db:"is_anonymous"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	// Joined fields from gift_catalog
+	GiftName     *string `json:"gift_name,omitempty" db:"gift_name"`
+	GiftImageURL *string `json:"gift_image_url,omitempty" db:"gift_image_url"`
+	GiftPrice    *int    `json:"gift_price,omitempty" db:"gift_price"`
+	// Joined field from users (sender)
+	SenderUsername *string `json:"sender_username,omitempty" db:"sender_username"`
+}
+
+// SendGiftRequest — request body for sending a gift
+type SendGiftRequest struct {
+	GiftID      string  `json:"gift_id" binding:"required"`
+	RecipientID string  `json:"recipient_id" binding:"required"`
+	Message     *string `json:"message"`
+	IsAnonymous bool    `json:"is_anonymous"`
+}
