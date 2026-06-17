@@ -6,6 +6,7 @@ import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";
 import { RichContentRenderer } from "./RichContentRenderer";
 import { isLegacyVisibilityContent } from "@/utils/lexicalContent";
+import { useUserColor } from "@/hooks/useUserColor";
 
 interface ProcessedContentProps {
   content: string;
@@ -30,11 +31,11 @@ export const ProcessedContent = ({
   authorUsername,
   showHiddenIndicators = true
 }: ProcessedContentProps) => {
+  const { data: authorColor = "" } = useUserColor(postAuthorId || undefined);
   const [visibilityResult, setVisibilityResult] = useState<VisibilityResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(true);
   const [visibleUsernames, setVisibleUsernames] = useState<string[]>([]);
   const [hiddenUsernames, setHiddenUsernames] = useState<string[]>([]);
-  const [authorColor, setAuthorColor] = useState<string>("");
 
   useEffect(() => {
     const processContent = async () => {
@@ -98,41 +99,6 @@ export const ProcessedContent = ({
 
     processContent();
   }, [content, currentUserId, isAdmin, currentUsername, postAuthorId, authorUsername]);
-
-  // Load author color
-  useEffect(() => {
-    if (!postAuthorId) return;
-
-    const loadAuthorColor = async () => {
-      const { data } = await api
-        .from("user_achievements")
-        .select(`
-          achievement_id,
-          achievements (
-            reward_type,
-            reward_value
-          )
-        `)
-        .eq("user_id", postAuthorId);
-
-      if (data) {
-        // Get the highest priority color
-        const colorRewards = data
-          .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-          .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-        const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-        for (const p of priority) {
-          if (colorRewards.includes(p)) {
-            setAuthorColor(p);
-            break;
-          }
-        }
-      }
-    };
-
-    loadAuthorColor();
-  }, [postAuthorId]);
 
   const renderContent = (text: string) => {
     // Process special markers first (before BB code parsing)

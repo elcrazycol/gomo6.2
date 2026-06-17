@@ -37,6 +37,10 @@ vi.mock("@/components/RichContentRenderer", () => ({
   ),
 }));
 
+vi.mock("@/hooks/useUserColor", () => ({
+  useUserColor: () => ({ data: "" }),
+}));
+
 vi.mock("react-router-dom", () => ({
   Link: ({ children, to, className }: any) => (
     <a href={to} className={className}>{children}</a>

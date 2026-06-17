@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
+import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -74,6 +75,7 @@ interface SubscribedPostUpdate {
 }
 
 const Index = () => {
+  const { loadProfile } = useProfileCache();
   const [boards, setBoards] = useState<Board[]>([]);
   const [gomoSubs, setGomoSubs] = useState<GomoSub[]>([]);
   const [gomoSubsMembers, setGomoSubsMembers] = useState<Record<string, number>>({});
@@ -101,36 +103,15 @@ const Index = () => {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        // Parallelize all independent queries after session is available
-        const [rolesRes, profileRes, achievementsRes, termsRes] = await Promise.all([
-          api.from("user_roles").select("role").eq("user_id", session.user.id),
-          api.from("profiles").select("username").eq("id", session.user.id).single(),
-          api.from("user_achievements").select(`achievement_id, achievements(reward_type, reward_value)`).eq("user_id", session.user.id),
+        const [profileData, termsRes] = await Promise.all([
+          loadProfile(session.user.id),
           api.from("user_terms_acceptance").select("*").eq("user_id", session.user.id).maybeSingle(),
         ]);
 
-        const roles = rolesRes.data;
-        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
+        setIsModerator(profileData.isAdmin);
+        setCurrentUserUsername(profileData.username);
+        setCurrentUserColor(profileData.color);
 
-        const profile = profileRes.data;
-        if (profile) {
-          setCurrentUserUsername((profile as Record<string, unknown>).username as string);
-        }
-
-        const achievements = achievementsRes.data;
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
-            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
-        
         if (!termsRes.data) {
           setShowTerms(true);
         } else {
@@ -147,7 +128,7 @@ const Index = () => {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [loadProfile]);
 
   useEffect(() => {
     const loadSidebarData = async () => {

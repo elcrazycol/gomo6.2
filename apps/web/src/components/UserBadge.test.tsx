@@ -30,6 +30,10 @@ vi.mock("@/components/AdminBadge", () => ({
   AdminBadge: ({ userId }: any) => <span data-testid="admin-badge">{userId}</span>,
 }));
 
+vi.mock("@/hooks/useUserColor", () => ({
+  useUserColor: () => ({ data: "" }),
+}));
+
 describe("UserBadge", () => {
   beforeEach(() => {
     vi.clearAllMocks();

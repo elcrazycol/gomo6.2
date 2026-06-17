@@ -6,10 +6,6 @@ import { BrowserRouter } from "react-router-dom";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
-const mockFrom = vi.fn<any>().mockImplementation(() => makePromiseChain({ data: [], error: null }));
-const mockRpc = vi.fn<any>().mockResolvedValue({ data: null, error: null });
-const mockAuth = { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn() };
-
 // makePromiseChain must be defined BEFORE mockFrom uses it
 function makePromiseChain(resolvedValue: any): any {
   const chain: Record<string, any> = {
@@ -31,6 +27,12 @@ function makePromiseChain(resolvedValue: any): any {
   };
   return chain;
 }
+
+const { mockFrom, mockRpc, mockAuth } = vi.hoisted(() => ({
+  mockFrom: vi.fn<any>().mockImplementation(() => makePromiseChain({ data: [], error: null })),
+  mockRpc: vi.fn<any>().mockResolvedValue({ data: null, error: null }),
+  mockAuth: { getSession: vi.fn(), getUser: vi.fn(), onAuthStateChange: vi.fn(), signOut: vi.fn() },
+}));
 
 vi.mock("@/integrations/api/compat", () => ({
   api: {
@@ -70,6 +72,15 @@ vi.mock("@/components/PrefetchLink", () => ({
 
 vi.mock("@/hooks/useSessionTime", () => ({ useSessionTime: vi.fn() }));
 vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
+vi.mock("@/hooks/useUserColor", () => ({ useUserColor: () => ({ data: "" }) }));
+vi.mock("@/contexts/ProfileCacheContext", () => ({
+  ProfileCacheProvider: ({ children }: { children: React.ReactNode }) => children,
+  useProfileCache: () => ({
+    getProfile: vi.fn(() => null),
+    loadProfile: vi.fn(() => Promise.resolve({ username: "", color: "", isAdmin: false, customization: null })),
+    clearCache: vi.fn(),
+  }),
+}));
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -221,7 +232,7 @@ describe("Index", () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith("user_roles");
+      expect(mockFrom).toHaveBeenCalled();
     });
   });
 });

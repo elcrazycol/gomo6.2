@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { api } from "@/integrations/api/compat";
 import { Link } from "react-router-dom";
 import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
+import { useUserColor } from "@/hooks/useUserColor";
 
 import {
   Tooltip,
@@ -35,45 +35,12 @@ export const UserBadge = ({
   isThreadOpener,
   className,
 }: UserBadgeProps) => {
-  const [color, setColor] = useState<string>("");
+  const { data: color = "" } = useUserColor(userId && !isAnonymous ? userId : undefined);
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
 
   useEffect(() => {
     if (!userId || isAnonymous) return;
-
-    const loadData = async () => {
-      // Load achievements for fallback color
-      const { data } = await api
-        .from("user_achievements")
-        .select(`
-          achievement_id,
-          achievements (
-            reward_type,
-            reward_value
-          )
-        `)
-        .eq("user_id", userId);
-
-      if (data) {
-        const colorRewards = data
-          .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-          .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-        const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-        for (const p of priority) {
-          if (colorRewards.includes(p)) {
-            setColor(p);
-            break;
-          }
-        }
-      }
-
-      // Load customization
-      const custom = await getProfileCustomization(userId);
-      setCustomization(custom);
-    };
-
-    loadData();
+    getProfileCustomization(userId).then(setCustomization);
   }, [userId, isAnonymous]);
 
   const textSizeClass = showOutline ? "text-base" : "text-xs sm:text-sm";
