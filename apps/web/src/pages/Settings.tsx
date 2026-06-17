@@ -875,6 +875,19 @@ const Settings = () => {
                       </p>
                       <TwoFASection userId={user.id} />
                     </div>
+
+                    {/* Blockchain Nicknames */}
+                    <div className="border-t border-border pt-4 mt-4">
+                      <h3 className="text-lg font-semibold mb-2">Блокчейн никнеймы</h3>
+                      <p className="text-sm text-muted-foreground mt-1 mb-3">
+                        Уникальные никнеймы на Base blockchain. Коллекционируйте, передавайте, продавайте.
+                      </p>
+                      <Link to="/blockchain/nicknames">
+                        <Button variant="outline">
+                          Управление никнеймами
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </TabsContent>

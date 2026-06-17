@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/handlers"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/blockchain"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/oauth"
 	stor "github.com/gomo6/backend/internal/storage"
@@ -53,6 +54,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Initialize WebAuthn handler for passkey support (Redis-backed sessions)
 	webauthnHandler := handlers.NewWebAuthnHandler(db, redis, authService)
+
+	// Initialize Blockchain handler for nickname system
+	blockchainConfig := blockchain.LoadConfig()
+	blockchainHandler := handlers.NewBlockchainHandler(db, blockchainConfig)
 
 	// Initialize BotEventPublisher
 	botEventPublisher := handlers.NewBotEventPublisher(redis)
@@ -209,6 +214,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/posts", postsHandler.GetPosts)
 		rest.GET("/posts/:id", postsHandler.GetPost)
 
+		// Blockchain nickname endpoints (public: check availability, info)
+		rest.GET("/blockchain/nickname/:name", blockchainHandler.GetNicknameInfo)
+
 		// Invite info (public — shows board name + status before joining)
 		rest.GET("/invites/:code", boardsHandler.GetInviteInfo)
 
@@ -300,6 +308,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
 		{
+
+			// Blockchain nickname endpoints (protected)
+			protected.POST("/blockchain/nickname/check", blockchainHandler.CheckAvailability)
+			protected.POST("/blockchain/nickname/register", blockchainHandler.RegisterNickname)
+			protected.POST("/blockchain/nickname/transfer", blockchainHandler.TransferNickname)
+			protected.PUT("/blockchain/nickname/primary", blockchainHandler.SetPrimaryNickname)
+			protected.GET("/blockchain/nicknames", blockchainHandler.GetUserNicknames)
+			protected.GET("/blockchain/wallet", blockchainHandler.GetWalletInfo)
 
 			protected.POST("/profiles", func(c *gin.Context) {
 				c.JSON(501, gin.H{"error": "Profile creation not implemented"})

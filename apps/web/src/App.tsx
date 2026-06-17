@@ -42,6 +42,7 @@ const Notify = lazy(() => import("./pages/Notify"));
 const Bots = lazy(() => import("./pages/Bots"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const Achievements = lazy(() => import("./pages/Achievements"));
+const BlockchainNicknames = lazy(() => import("./pages/BlockchainNicknames"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Prefetch critical routes on app start
@@ -154,6 +155,7 @@ const App = () => {
                     <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
                     <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
                     <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
+                    <Route path="blockchain/nicknames" element={<AuthGuard><LazyPage component={BlockchainNicknames} /></AuthGuard>} />
                     <Route path="bots" element={<AuthGuard><LazyPage component={Bots} /></AuthGuard>} />
                     <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />
                     <Route path="notify" element={<AuthGuard><LazyPage component={Notify} /></AuthGuard>} />
