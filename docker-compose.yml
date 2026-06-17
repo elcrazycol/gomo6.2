@@ -40,9 +40,10 @@ services:
 
   # ── Object Storage (Garage S3) ────────────────────────────────────────────
   garage:
-    image: dxflrs/garage:v1.3.1
+    image: dxflrs/garage:v2.3.0
     ports:
       - "3900:3900"
+      - "3902:3902"
     volumes:
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
@@ -124,6 +125,11 @@ services:
             echo "  => read+write+owner granted for $$bucket"
           else
             echo "ERROR: bucket allow failed for $$bucket"
+          fi
+          if $$G bucket website --allow "$$bucket" 2>&1; then
+            echo "  => website access enabled for $$bucket"
+          else
+            echo "WARNING: could not enable website access for $$bucket"
           fi
         done
 

@@ -17,3 +17,7 @@ root_domain = ".s3.garage.localhost"
 api_bind_addr = "[::]:3903"
 admin_token = "garage-admin-token"
 
+[s3_web]
+bind_addr = "0.0.0.0:3902"
+root_domain = ".storage.garage.localhost"
+
