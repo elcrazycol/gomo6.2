@@ -153,6 +153,7 @@ type ThreadWithBoards struct {
 	IsRemote     bool            `json:"is_remote" db:"is_remote"`
 	Username     string          `json:"username"`
 	AvatarURL    *string         `json:"avatar_url"`
+	IsAnonymous  bool            `json:"is_anonymous"`
 	Boards       BoardInfo       `json:"boards"`
 }
 
