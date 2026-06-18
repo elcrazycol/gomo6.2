@@ -39,7 +39,7 @@ jobs:
           - service: web
             context: .
             dockerfile: apps/web/Dockerfile
-            build-args: "--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}"
+            build-args: "--build-arg VITE_GIT_COMMIT=${{ github.sha }}"
           - service: docs
             context: .
             dockerfile: apps/docs/Dockerfile
@@ -80,7 +80,9 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image }}:latest
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_short }}
-          build-args: ${{ matrix.build-args }}
+          build-args: |
+            ${{ matrix.build-args }}
+            ${{ (matrix.service == 'web') && format('VITE_DEPAY_INTEGRATION_ID={0}', secrets.VITE_DEPAY_INTEGRATION_ID) || '' }}
           no-cache: true
 
   deploy:
