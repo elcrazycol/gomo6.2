@@ -28,6 +28,8 @@ import { ThreadCard } from "@/components/ThreadCard";
 import { AvatarCropper } from "@/components/AvatarCropper";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 import { ProcessedContent } from "@/components/ProcessedContent";
+import { DropsShop } from "@/components/DropsShop";
+import { Droplets } from "lucide-react";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { AvatarGallery } from "@/components/AvatarGallery";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
@@ -138,6 +140,7 @@ const Profile = () => {
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts'>('achievements');
+  const [showDropsShop, setShowDropsShop] = useState(false);
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [showProfileStats, setShowProfileStats] = useState(false);
   const [showDetailedStats, setShowDetailedStats] = useState(false);
@@ -1040,10 +1043,14 @@ const Profile = () => {
                       <p className="text-xl sm:text-2xl font-bold">{profile.garma}</p>
                     </button>
                     {isOwnProfile && (
-                      <div className="text-left">
+                      <button
+                        type="button"
+                        onClick={() => setShowDropsShop(true)}
+                        className="text-left"
+                      >
                         <p className="text-xs sm:text-sm text-muted-foreground">💧 Капли</p>
                         <p className="text-xl sm:text-2xl font-bold">{profile.drops}</p>
-                      </div>
+                      </button>
                     )}
                   </div>
                 );
@@ -1252,6 +1259,9 @@ const Profile = () => {
             canDelete={isOwnProfile}
           />
         )}
+
+        {/* Drops Shop */}
+        <DropsShop open={showDropsShop} onOpenChange={setShowDropsShop} />
       </main>
   );
 };
