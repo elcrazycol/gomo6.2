@@ -130,7 +130,7 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	// Record drops transaction (in same TX as gift creation)
 	_, err = tx.Exec(`
 		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
-		VALUES ($1, 'gift_send', -$2, $3, $4::uuid, 'gift', $5)
+		VALUES ($1, 'gift_send', 0 - $2, $3, $4::uuid, 'gift', $5)
 	`, senderID, price, balanceAfter, giftID.String(), fmt.Sprintf("Sent gift to %s", recipientID))
 	if err != nil {
 		log.Printf("[Gifts] record transaction error: %v", err)
