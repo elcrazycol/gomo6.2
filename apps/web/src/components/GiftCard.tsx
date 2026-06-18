@@ -37,13 +37,13 @@ interface GiftCardProps {
   onSend?: (gift: GiftCatalogItem) => void;
 }
 
-const formatGarmaLabel = (value: number) => {
+const formatDropsLabel = (value: number) => {
   const abs = Math.abs(value);
   const mod10 = abs % 10;
   const mod100 = abs % 100;
-  if (mod10 === 1 && mod100 !== 11) return "gарма";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "gармы";
-  return "gарм";
+  if (mod10 === 1 && mod100 !== 11) return "капля";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
+  return "капель";
 };
 
 export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
@@ -86,7 +86,7 @@ export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
         )}
         {isCatalog && catalogGift && (
           <p className="text-xs text-muted-foreground">
-            {price} {formatGarmaLabel(price)}
+            {price} {formatDropsLabel(price)}
             {catalogGift.is_limited && (
               <span className="ml-1 text-amber-500">·Limited</span>
             )}

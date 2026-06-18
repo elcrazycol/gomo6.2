@@ -19,13 +19,13 @@ interface GiftSendDialogProps {
   onSent?: () => void;
 }
 
-const formatGarmaLabel = (value: number) => {
+const formatDropsLabel = (value: number) => {
   const abs = Math.abs(value);
   const mod10 = abs % 10;
   const mod100 = abs % 100;
-  if (mod10 === 1 && mod100 !== 11) return "gарма";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "gармы";
-  return "gарм";
+  if (mod10 === 1 && mod100 !== 11) return "капля";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
+  return "капель";
 };
 
 export function GiftSendDialog({ gift, recipientId, recipientUsername, open, onOpenChange, onSent }: GiftSendDialogProps) {
@@ -105,7 +105,7 @@ export function GiftSendDialog({ gift, recipientId, recipientUsername, open, onO
                 <p className="text-sm text-muted-foreground line-clamp-2">{gift.description}</p>
               )}
               <p className="text-sm text-muted-foreground mt-1">
-                {gift.price} {formatGarmaLabel(gift.price)}
+                {gift.price} {formatDropsLabel(gift.price)}
               </p>
             </div>
           </div>
@@ -153,7 +153,7 @@ export function GiftSendDialog({ gift, recipientId, recipientUsername, open, onO
             ) : (
               <>
                 <Gift className="w-4 h-4 mr-2" />
-                Отправить за {gift.price} {formatGarmaLabel(gift.price)}
+                Отправить за {gift.price} {formatDropsLabel(gift.price)}
               </>
             )}
           </Button>
