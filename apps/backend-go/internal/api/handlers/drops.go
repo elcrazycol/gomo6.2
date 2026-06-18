@@ -145,10 +145,9 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 
 		sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
 		if err != nil {
-			// Try standard base64
 			sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
 			if err != nil {
-				log.Printf("[Drops] Invalid signature format: %v", err)
+				log.Printf("[Drops] Invalid signature format: %v (len=%d, first30=%q)", err, len(sigHeader), sigHeader[:min(30, len(sigHeader))])
 				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature format"))
 				return
 			}
