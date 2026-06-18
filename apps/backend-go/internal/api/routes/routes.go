@@ -378,7 +378,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// Write endpoints — lower rate limit (60 req/min for sends/edits/deletes)
 			messengerWrite := protected.Group("")
 			messengerWrite.Use(middleware.MessengerRateLimitMiddleware(
-				middleware.NewMessengerRateLimiter(60, 1*time.Minute)))
+				middleware.NewMessengerRateLimiter(120, 1*time.Minute)))
 			{
 				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
 				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)

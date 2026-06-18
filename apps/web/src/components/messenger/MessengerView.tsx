@@ -37,7 +37,7 @@ export const MessengerView = () => {
   // and WS is connected. No disconnect — ChatIcon stays alive across page navs.
   useEffect(() => {
     init();
-    messengerWs.connect();
+    messengerWs.connect(); // registers handlers on shared wsService
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
