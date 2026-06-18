@@ -384,11 +384,18 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   updateConversationFromWs: (convId, updates, incrementUnread = false) => {
-    set((s) => ({
-      conversations: s.conversations.map((c) => {
+    const s = get();
+    const found = s.conversations.some((c) => c.id === convId);
+    if (!found) {
+      // Conversation doesn't exist locally yet (e.g. first message from new user) — reload list
+      s.loadConversations();
+      return;
+    }
+    set((s2) => ({
+      conversations: s2.conversations.map((c) => {
         if (c.id !== convId) return c;
         const updated = { ...c, ...updates };
-        if (incrementUnread && s.selectedConversationId !== convId) {
+        if (incrementUnread && s2.selectedConversationId !== convId) {
           updated.unread_count = (c.unread_count ?? 0) + 1;
         }
         return updated;
