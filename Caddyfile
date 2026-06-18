@@ -29,7 +29,7 @@
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' data: wss: https:; font-src 'self'; media-src 'self' blob:;"
+		Content-Security-Policy "default-src 'self'; script-src 'self' blob: 'unsafe-eval' https://integrate.depay.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' data: wss: https: https://api.depay.com; font-src 'self'; media-src 'self' blob:;"
 	}
 
 	# ── Logging ────────────────────────────────────────────────────────────

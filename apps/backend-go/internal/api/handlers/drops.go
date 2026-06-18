@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -38,6 +39,8 @@ func (h *DropsHandler) loadKeys() {
 	// Load DePay public key for verifying incoming signatures
 	pubKeyPEM := os.Getenv("DEPAY_PUBLIC_KEY")
 	if pubKeyPEM != "" {
+		// Convert literal \n to real newlines (for env var storage)
+		pubKeyPEM = strings.ReplaceAll(pubKeyPEM, "\\n", "\n")
 		block, _ := pem.Decode([]byte(pubKeyPEM))
 		if block != nil {
 			pub, err := x509.ParsePKIXPublicKey(block.Bytes)
@@ -50,6 +53,7 @@ func (h *DropsHandler) loadKeys() {
 	// Load our private key for signing dynamic config responses
 	privKeyPEM := os.Getenv("DEPAY_PRIVATE_KEY")
 	if privKeyPEM != "" {
+		privKeyPEM = strings.ReplaceAll(privKeyPEM, "\\n", "\n")
 		block, _ := pem.Decode([]byte(privKeyPEM))
 		if block != nil {
 			priv, err := x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -184,6 +188,11 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 				"receiver":   receiver,
 			})
 		}
+	}
+
+	if len(accept) == 0 {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("No payment receivers configured"))
+		return
 	}
 
 	config := gin.H{
