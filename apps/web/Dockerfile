@@ -24,8 +24,10 @@ COPY apps/web/ ./apps/web/
 # Build for production (no SpeedInsights in Docker)
 ARG VITE_DOCKER=true
 ARG VITE_GIT_COMMIT=unknown
+ARG VITE_DEPAY_INTEGRATION_ID=""
 ENV VITE_DOCKER=$VITE_DOCKER
 ENV VITE_GIT_COMMIT=$VITE_GIT_COMMIT
+ENV VITE_DEPAY_INTEGRATION_ID=$VITE_DEPAY_INTEGRATION_ID
 RUN npm run build --workspace=@gomo6/web
 
 # Stage 2: Serve with nginx
