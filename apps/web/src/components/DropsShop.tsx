@@ -21,6 +21,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
   const [drops, setDrops] = useState<number | null>(null);
   const [pollAttempts, setPollAttempts] = useState(0);
   const balanceBeforeRef = useRef<number | null>(null);
+  const dropsRef = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBalance = useCallback(async () => {
@@ -35,6 +36,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
       const data = await res.json();
       if (data.success) {
         setDrops(data.data.drops);
+        dropsRef.current = data.data.drops;
       }
     } catch {
       // silent
@@ -89,11 +91,12 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
         setPollAttempts(attempts);
         const prevDrops = balanceBeforeRef.current;
         await fetchBalance();
-        if (prevDrops !== null && drops !== null && drops > prevDrops) {
+        const currentDrops = dropsRef.current;
+        if (prevDrops !== null && currentDrops !== null && currentDrops > prevDrops) {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           pollTimerRef.current = null;
           setWaitingConfirmation(false);
-          toast.success(`Зачислено ${drops - prevDrops} капель!`);
+          toast.success(`Зачислено ${currentDrops - prevDrops} капель!`);
           return;
         }
         if (attempts >= 40) {
