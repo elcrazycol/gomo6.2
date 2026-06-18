@@ -39,15 +39,21 @@ func (h *DropsHandler) loadKeys() {
 	// Load DePay public key for verifying incoming signatures
 	pubKeyPEM := os.Getenv("DEPAY_PUBLIC_KEY")
 	if pubKeyPEM != "" {
-		// Convert literal \n to real newlines (for env var storage)
 		pubKeyPEM = strings.ReplaceAll(pubKeyPEM, "\\n", "\n")
 		block, _ := pem.Decode([]byte(pubKeyPEM))
 		if block != nil {
 			pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 			if err == nil {
 				h.publicKey = pub.(*rsa.PublicKey)
+				log.Println("[Drops] DePay public key loaded OK")
+			} else {
+				log.Printf("[Drops] Failed to parse DEPAY_PUBLIC_KEY: %v", err)
 			}
+		} else {
+			log.Println("[Drops] Failed to decode DEPAY_PUBLIC_KEY PEM block")
 		}
+	} else {
+		log.Println("[Drops] DEPAY_PUBLIC_KEY not set")
 	}
 
 	// Load our private key for signing dynamic config responses
@@ -59,8 +65,15 @@ func (h *DropsHandler) loadKeys() {
 			priv, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 			if err == nil {
 				h.privateKey = priv.(*rsa.PrivateKey)
+				log.Println("[Drops] DePay private key loaded OK")
+			} else {
+				log.Printf("[Drops] Failed to parse DEPAY_PRIVATE_KEY: %v", err)
 			}
+		} else {
+			log.Println("[Drops] Failed to decode DEPAY_PRIVATE_KEY PEM block")
 		}
+	} else {
+		log.Println("[Drops] DEPAY_PRIVATE_KEY not set")
 	}
 }
 
@@ -116,36 +129,42 @@ const pricePerDropUSD = 0.02
 
 // DropsConfig — POST /api/v1/drops/config (public, dynamic config for DePay Widget)
 func (h *DropsHandler) DropsConfig(c *gin.Context) {
-	// Verify DePay signature
-	if h.publicKey != nil {
-		sigHeader := c.GetHeader("x-signature")
-		if sigHeader != "" {
-			bodyBytes, err := io.ReadAll(c.Request.Body)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("Failed to read body"))
-				return
-			}
-			// Restore body for later reading
-			c.Request.Body = io.NopCloser(
-				bytes.NewBuffer(bodyBytes),
-			)
+	sigHeader := c.GetHeader("x-signature")
+	log.Printf("[Drops] Config request from %s, hasSig=%v, publicKey=%v",
+		c.ClientIP(), sigHeader != "", h.publicKey != nil)
 
-			sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
+	// Verify DePay signature
+	if h.publicKey != nil && sigHeader != "" {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			log.Printf("[Drops] Failed to read body: %v", err)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Failed to read body"))
+			return
+		}
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+		sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
+		if err != nil {
+			// Try standard base64
+			sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
 			if err != nil {
+				log.Printf("[Drops] Invalid signature format: %v", err)
 				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature format"))
 				return
 			}
-
-			hash := sha256.Sum256(bodyBytes)
-			err = rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, &rsa.PSSOptions{
-				SaltLength: 64,
-				Hash:       crypto.SHA256,
-			})
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
-				return
-			}
 		}
+
+		hash := sha256.Sum256(bodyBytes)
+		err = rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, &rsa.PSSOptions{
+			SaltLength: 64,
+			Hash:       crypto.SHA256,
+		})
+		if err != nil {
+			log.Printf("[Drops] Signature verification failed: %v", err)
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
+			return
+		}
+		log.Println("[Drops] Signature verified OK")
 	}
 
 	var req DropsConfigRequest
