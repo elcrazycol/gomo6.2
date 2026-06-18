@@ -355,6 +355,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// Drops
 			protected.GET("/user/drops", dropsHandler.GetDropsBalance)
 			protected.GET("/drops/history", dropsHandler.GetDropsHistory)
+			protected.POST("/drops/manual-verify", dropsHandler.ManualVerify)
 
 			// Admin gift management
 			protected.GET("/admin/gifts", giftAdminHandler.ListGifts)

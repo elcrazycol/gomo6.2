@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,9 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
   const [purchasing, setPurchasing] = useState(false);
   const [waitingConfirmation, setWaitingConfirmation] = useState(false);
   const [drops, setDrops] = useState<number | null>(null);
+  const [pollAttempts, setPollAttempts] = useState(0);
+  const balanceBeforeRef = useRef<number | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBalance = useCallback(async () => {
     try {
@@ -41,7 +44,14 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
   useEffect(() => {
     if (open) {
       fetchBalance();
+      setPollAttempts(0);
     }
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
   }, [open, fetchBalance]);
 
   const priceUSD = (dropsAmount * PRICE_PER_DROP).toFixed(2);
@@ -52,30 +62,55 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
       return;
     }
 
+    const { data: { user } } = await api.auth.getUser();
+    if (!user) {
+      toast.error("Нужно войти в аккаунт");
+      return;
+    }
+
     setPurchasing(true);
+    balanceBeforeRef.current = drops;
     try {
       const DePayWidgets = (await import("@depay/widgets")).default;
 
       DePayWidgets.Payment({
         integration: import.meta.env.VITE_DEPAY_INTEGRATION_ID || "",
-        payload: { drops_amount: dropsAmount },
+        payload: {
+          drops_amount: dropsAmount,
+          user_id: user.id,
+        },
       });
 
       setWaitingConfirmation(true);
+      setPollAttempts(0);
       let attempts = 0;
-      const pollInterval = setInterval(async () => {
+      pollTimerRef.current = setInterval(async () => {
         attempts++;
+        setPollAttempts(attempts);
+        const prevDrops = balanceBeforeRef.current;
         await fetchBalance();
-        if (attempts >= 20) {
-          clearInterval(pollInterval);
+        if (prevDrops !== null && drops !== null && drops > prevDrops) {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
           setWaitingConfirmation(false);
+          toast.success(`Зачислено ${drops - prevDrops} капель!`);
+          return;
+        }
+        if (attempts >= 40) {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
+          setWaitingConfirmation(false);
+          toast.error("Транзакция не подтверждена. Попробуйте обновить страницу.");
         }
       }, 3000);
 
       setTimeout(() => {
-        clearInterval(pollInterval);
-        setWaitingConfirmation(false);
-      }, 60000);
+        if (pollTimerRef.current) {
+          clearInterval(pollTimerRef.current);
+          pollTimerRef.current = null;
+          setWaitingConfirmation(false);
+        }
+      }, 120000);
     } catch {
       toast.error("Ошибка при открытии виджета оплаты");
     } finally {
@@ -102,9 +137,16 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
         )}
 
         {waitingConfirmation && (
-          <div className="flex items-center justify-center gap-2 py-3 text-sm text-blue-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Ожидаем подтверждения транзакции...
+          <div className="space-y-1">
+            <div className="flex items-center justify-center gap-2 py-3 text-sm text-blue-400">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Ожидаем подтверждения транзакции...
+            </div>
+            {pollAttempts > 10 && (
+              <p className="text-xs text-muted-foreground text-center">
+                Подтверждение на блокчейне может занять время. Это нормально.
+              </p>
+            )}
           </div>
         )}
 
