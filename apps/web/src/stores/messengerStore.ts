@@ -56,6 +56,12 @@ export function queueMarkRead(conversationId: string, messageId: string): void {
   if (!existing || messageId > existing) {
     pendingRead.set(conversationId, messageId);
   }
+  // Reset unread count locally so UI reflects read state immediately
+  useMessengerStore.setState((s) => ({
+    conversations: s.conversations.map((c) =>
+      c.id === conversationId ? { ...c, unread_count: 0 } : c,
+    ),
+  }));
   startFlushTimer();
 }
 
@@ -382,7 +388,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       conversations: s.conversations.map((c) => {
         if (c.id !== convId) return c;
         const updated = { ...c, ...updates };
-        if (incrementUnread) {
+        if (incrementUnread && s.selectedConversationId !== convId) {
           updated.unread_count = (c.unread_count ?? 0) + 1;
         }
         return updated;

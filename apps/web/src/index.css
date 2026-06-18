@@ -358,6 +358,18 @@ html, body {
 
 /* ── Avatars ── */
 
+.avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.avatar-wrapper .online-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  border: 2px solid hsl(var(--card));
+}
+
 .avatar {
   width: 44px;
   height: 44px;

@@ -21,7 +21,7 @@ export const formatConversationDate = (dateStr: string | null): string => {
   const d = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
 
   if (diffDays === 0) return formatTime(dateStr);
   if (diffDays === 1) return "Вчера";

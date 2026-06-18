@@ -32,15 +32,17 @@ const ConversationCard = memo(function ConversationCard({
       className={`conversation-card${isSelected ? " is-active" : ""}${unread > 0 ? " has-unread" : ""}`}
       onClick={onSelect}
     >
-      <div className="avatar">
-        {conversation.other_avatar_url ? (
-          <img
-            src={storageUrl("post-images", conversation.other_avatar_url) || undefined}
-            alt={conversation.other_username}
-          />
-        ) : (
-          <span>{getInitials(conversation.other_username)}</span>
-        )}
+      <div className="avatar-wrapper">
+        <div className="avatar">
+          {conversation.other_avatar_url ? (
+            <img
+              src={storageUrl("post-images", conversation.other_avatar_url) || undefined}
+              alt={conversation.other_username}
+            />
+          ) : (
+            <span>{getInitials(conversation.other_username)}</span>
+          )}
+        </div>
         {isOnline && <span className="online-dot" title="Онлайн" />}
       </div>
       <div className="conversation-copy">
