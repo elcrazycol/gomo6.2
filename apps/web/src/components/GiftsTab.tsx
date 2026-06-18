@@ -301,7 +301,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
       {/* Catalog picker dialog */}
       <Dialog open={showCatalog} onOpenChange={setShowCatalog}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
+          <DialogHeader className="pr-10">
             <div className="flex items-center justify-between">
               <DialogTitle>Выберите подарок</DialogTitle>
               <DropsBalance />
@@ -342,7 +342,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
       {/* Send gift dialog */}
       <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
         <DialogContent className="max-w-md">
-          <DialogHeader>
+          <DialogHeader className="pr-10">
             <div className="flex items-center justify-between">
               <DialogTitle>Отправить подарок</DialogTitle>
               <DropsBalance />
