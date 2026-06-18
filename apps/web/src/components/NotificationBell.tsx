@@ -12,7 +12,8 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const [showCard, setShowCard] = useState(false);
   const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const notifications = useNotificationStore((s) => s.notifications.slice(0, 5));
+  const allNotifications = useNotificationStore((s) => s.notifications);
+  const notifications = allNotifications.slice(0, 5);
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const init = useNotificationStore((s) => s.init);
   const markAsRead = useNotificationStore((s) => s.markAsRead);
