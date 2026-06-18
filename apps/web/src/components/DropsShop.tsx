@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,12 +17,7 @@ interface DropsShopProps {
 export function DropsShop({ open, onOpenChange }: DropsShopProps) {
   const [dropsAmount, setDropsAmount] = useState(50);
   const [purchasing, setPurchasing] = useState(false);
-  const [waitingConfirmation, setWaitingConfirmation] = useState(false);
   const [drops, setDrops] = useState<number | null>(null);
-  const [pollAttempts, setPollAttempts] = useState(0);
-  const balanceBeforeRef = useRef<number | null>(null);
-  const dropsRef = useRef<number | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBalance = useCallback(async () => {
     try {
@@ -36,7 +31,6 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
       const data = await res.json();
       if (data.success) {
         setDrops(data.data.drops);
-        dropsRef.current = data.data.drops;
       }
     } catch {
       // silent
@@ -46,14 +40,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
   useEffect(() => {
     if (open) {
       fetchBalance();
-      setPollAttempts(0);
     }
-    return () => {
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
-      }
-    };
   }, [open, fetchBalance]);
 
   const priceUSD = (dropsAmount * PRICE_PER_DROP).toFixed(2);
@@ -71,7 +58,6 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
     }
 
     setPurchasing(true);
-    balanceBeforeRef.current = drops;
     try {
       const DePayWidgets = (await import("@depay/widgets")).default;
 
@@ -83,37 +69,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
         },
       });
 
-      setWaitingConfirmation(true);
-      setPollAttempts(0);
-      let attempts = 0;
-      pollTimerRef.current = setInterval(async () => {
-        attempts++;
-        setPollAttempts(attempts);
-        const prevDrops = balanceBeforeRef.current;
-        await fetchBalance();
-        const currentDrops = dropsRef.current;
-        if (prevDrops !== null && currentDrops !== null && currentDrops > prevDrops) {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-          setWaitingConfirmation(false);
-          toast.success(`Зачислено ${currentDrops - prevDrops} капель!`);
-          return;
-        }
-        if (attempts >= 40) {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-          setWaitingConfirmation(false);
-          toast.error("Транзакция не подтверждена. Попробуйте обновить страницу.");
-        }
-      }, 3000);
-
-      setTimeout(() => {
-        if (pollTimerRef.current) {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-          setWaitingConfirmation(false);
-        }
-      }, 120000);
+      onOpenChange(false);
     } catch {
       toast.error("Ошибка при открытии виджета оплаты");
     } finally {
@@ -136,20 +92,6 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
         {drops !== null && (
           <div className="text-center py-2 text-sm text-muted-foreground">
             Баланс: <span className="font-medium text-foreground">{drops} капель</span>
-          </div>
-        )}
-
-        {waitingConfirmation && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-center gap-2 py-3 text-sm text-blue-400">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Ожидаем подтверждения транзакции...
-            </div>
-            {pollAttempts > 10 && (
-              <p className="text-xs text-muted-foreground text-center">
-                Подтверждение на блокчейне может занять время. Это нормально.
-              </p>
-            )}
           </div>
         )}
 
@@ -211,7 +153,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
 
           <Button
             onClick={handlePurchase}
-            disabled={purchasing || waitingConfirmation || dropsAmount < 1}
+            disabled={purchasing || dropsAmount < 1}
             className="w-full"
             size="lg"
           >
