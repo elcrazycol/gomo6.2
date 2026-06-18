@@ -4,6 +4,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Gift, Send, User } from "lucide-react";
+import { DropsBalance } from "@/components/DropsBalance";
 import { storageUrl } from "@/utils/storage";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -301,7 +302,10 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
       <Dialog open={showCatalog} onOpenChange={setShowCatalog}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Выберите подарок</DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle>Выберите подарок</DialogTitle>
+              <DropsBalance />
+            </div>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
             {giftCatalog.map((gift) => (
@@ -339,7 +343,10 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
       <Dialog open={showSendDialog} onOpenChange={setShowSendDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Отправить подарок</DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle>Отправить подарок</DialogTitle>
+              <DropsBalance />
+            </div>
           </DialogHeader>
           {selectedCatalogGift && (
             <div className="space-y-4">

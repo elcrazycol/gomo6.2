@@ -133,6 +133,7 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 		VALUES ($1, 'gift_send', -$2, $3, $4::uuid, 'gift', $5)
 	`, senderID, price, balanceAfter, giftID.String(), fmt.Sprintf("Sent gift to %s", recipientID))
 	if err != nil {
+		log.Printf("[Gifts] record transaction error: %v", err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record transaction"))
 		return
 	}
