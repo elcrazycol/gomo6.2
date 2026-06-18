@@ -1,6 +1,7 @@
 import { memo, useCallback, useState, useRef, useEffect } from "react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, MoreHorizontal } from "lucide-react";
 import { formatTime } from "./utils";
+import { MessageContent } from "./MessageContent";
 import type { MessageView } from "./types";
 
 interface Props {
@@ -173,7 +174,7 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         {/* Content */}
-        <p>{message.content}</p>
+        <MessageContent content={message.content} />
 
         {/* Meta: time + status */}
         <div className="message-meta">
