@@ -39,7 +39,7 @@ jobs:
           - service: web
             context: .
             dockerfile: apps/web/Dockerfile
-            build-args: "--build-arg VITE_GIT_COMMIT=${{ github.sha }}"
+            build-args: "--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}"
           - service: docs
             context: .
             dockerfile: apps/docs/Dockerfile
