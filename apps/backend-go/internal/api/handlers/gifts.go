@@ -171,11 +171,13 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 
 	if h.hub != nil {
 		if err := h.hub.PublishNewNotification(map[string]interface{}{
+			"id":              notificationID,
 			"user_id":         recipientID,
 			"type":            "gift_received",
 			"title":           title,
 			"message":         message,
 			"notification_id": notificationID,
+			"is_read":         false,
 		}); err != nil {
 			log.Printf("[Gifts] WS notification error: %v", err)
 		}

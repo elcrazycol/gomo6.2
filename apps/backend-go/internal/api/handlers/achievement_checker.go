@@ -370,11 +370,13 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 	if ac.wsHub != nil {
 		if hub, ok := ac.wsHub.(*websocket.Hub); ok {
 			if err := hub.PublishNewNotification(map[string]interface{}{
+				"id":              notificationID,
 				"user_id":         userID,
 				"type":            "achievement_unlock",
 				"title":           title,
 				"message":         message,
 				"notification_id": notificationID,
+				"is_read":         false,
 				"achievement": map[string]interface{}{
 					"id":            ach.ID,
 					"group_key":     ach.GroupKey,
