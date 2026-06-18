@@ -104,6 +104,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	giftsHandler.SetRedis(redis)
 	giftsHandler.SetWebSocketHub(wsHub)
 	giftAdminHandler := handlers.NewGiftAdminHandler(db)
+	dropsHandler := handlers.NewDropsHandler(db)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -226,6 +227,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// User gifts (public)
 		rest.GET("/user_gifts", giftsHandler.GetUserGifts)
 
+		// Drops packages (public)
+		rest.GET("/drops/packages", dropsHandler.GetDropsPackages)
+
+		// DePay integration (public — no auth, signature verified by handler)
+		rest.POST("/drops/config", dropsHandler.DropsConfig)
+		rest.POST("/drops/callback", dropsHandler.DropsCallback)
+
 		// Additional tables (frontend compatibility)
 		rest.Any("/user_roles", universalHandler.HandleTableRequest)
 		rest.Any("/user_roles/*path", universalHandler.HandleTableRequest)
@@ -343,6 +351,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 			// Gifts
 			protected.POST("/gifts/send", giftsHandler.SendGift)
+
+			// Drops
+			protected.GET("/user/drops", dropsHandler.GetDropsBalance)
+			protected.GET("/drops/history", dropsHandler.GetDropsHistory)
 
 			// Admin gift management
 			protected.GET("/admin/gifts", giftAdminHandler.ListGifts)

@@ -43,6 +43,7 @@ interface Profile {
   thread_count: number;
   post_count: number;
   garma: number;
+  drops: number;
   thread_likes_received_count: number;
   created_at: string;
   avatar_url?: string | null;
@@ -300,6 +301,7 @@ const Profile = () => {
         ...data,
         bio_json: (data as { bio_json?: unknown }).bio_json ?? undefined,
         garma: data.garma ?? 0,
+        drops: data.drops ?? 0,
         thread_likes_received_count: threadLikesCount
       });
       setUsername(data.username);
@@ -1034,9 +1036,15 @@ const Profile = () => {
                       onClick={() => navigate(`/stats?metric=garma&user=${userId}`)}
                       className="text-left"
                     >
-                      <p className="text-xs sm:text-sm text-muted-foreground">gармы</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Гарма</p>
                       <p className="text-xl sm:text-2xl font-bold">{profile.garma}</p>
                     </button>
+                    {isOwnProfile && (
+                      <div className="text-left">
+                        <p className="text-xs sm:text-sm text-muted-foreground">💧 Капли</p>
+                        <p className="text-xl sm:text-2xl font-bold">{profile.drops}</p>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

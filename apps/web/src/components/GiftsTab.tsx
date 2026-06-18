@@ -33,13 +33,13 @@ interface GiftsTabProps {
   onGiftSent?: () => void;
 }
 
-const formatGarmaLabel = (value: number) => {
+const formatDropsLabel = (value: number) => {
   const abs = Math.abs(value);
   const mod10 = abs % 10;
   const mod100 = abs % 100;
-  if (mod10 === 1 && mod100 !== 11) return "gарма";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "gармы";
-  return "gарм";
+  if (mod10 === 1 && mod100 !== 11) return "капля";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
+  return "капель";
 };
 
 export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername, onGiftSent }: GiftsTabProps) {
@@ -274,7 +274,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">Стоимость:</span>
                     <span className="text-sm font-medium">
-                      {detailGift.gift_price} {formatGarmaLabel(detailGift.gift_price)}
+                      {detailGift.gift_price} {formatDropsLabel(detailGift.gift_price)}
                     </span>
                   </div>
                 )}
@@ -327,7 +327,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                 </div>
                 <div className="text-center">
                   <p className="text-sm font-medium">{gift.name}</p>
-                  <p className="text-xs text-muted-foreground">{gift.price} {formatGarmaLabel(gift.price)}</p>
+                  <p className="text-xs text-muted-foreground">{gift.price} {formatDropsLabel(gift.price)}</p>
                 </div>
               </button>
             ))}
@@ -353,7 +353,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                 </div>
                 <div>
                   <p className="font-medium">{selectedCatalogGift.name}</p>
-                  <p className="text-sm text-muted-foreground">{selectedCatalogGift.price} {formatGarmaLabel(selectedCatalogGift.price)}</p>
+                  <p className="text-sm text-muted-foreground">{selectedCatalogGift.price} {formatDropsLabel(selectedCatalogGift.price)}</p>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -383,7 +383,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                 </button>
               </div>
               <Button onClick={handleSendGift} disabled={sending} className="w-full">
-                {sending ? "Отправка..." : `Отправить за ${selectedCatalogGift.price} ${formatGarmaLabel(selectedCatalogGift.price)}`}
+                {sending ? "Отправка..." : `Отправить за ${selectedCatalogGift.price} ${formatDropsLabel(selectedCatalogGift.price)}`}
               </Button>
             </div>
           )}

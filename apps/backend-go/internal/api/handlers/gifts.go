@@ -85,7 +85,7 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 		return
 	}
 
-	// Step 2: Get gift price and deduct garma atomically
+	// Step 2: Get gift price and deduct drops atomically
 	var price int
 	err = tx.QueryRow("SELECT price FROM gift_catalog WHERE id = $1", giftID).Scan(&price)
 	if err != nil {
@@ -94,16 +94,24 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	}
 
 	result, err = tx.Exec(`
-		UPDATE users SET garma = garma - $1
-		WHERE id = $2 AND garma >= $1
+		UPDATE users SET drops = drops - $1
+		WHERE id = $2 AND drops >= $1
 	`, price, senderID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to deduct garma"))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to deduct drops"))
 		return
 	}
 	affected, _ = result.RowsAffected()
 	if affected == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient garma"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient drops"))
+		return
+	}
+
+	// Get new balance for transaction record
+	var balanceAfter int
+	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&balanceAfter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get balance"))
 		return
 	}
 
@@ -116,6 +124,16 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	`, giftID, senderID, recipientID, req.Message, req.IsAnonymous).Scan(&giftRecordID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to send gift"))
+		return
+	}
+
+	// Record drops transaction (in same TX as gift creation)
+	_, err = tx.Exec(`
+		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
+		VALUES ($1, 'gift_send', -$2, $3, $4, 'gift', $5)
+	`, senderID, price, balanceAfter, giftID, fmt.Sprintf("Sent gift to %s", recipientID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record transaction"))
 		return
 	}
 

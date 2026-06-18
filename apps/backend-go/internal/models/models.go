@@ -39,6 +39,7 @@ type User struct {
 	Bio         *string         `json:"bio" db:"bio"`
 	BioJSON     json.RawMessage `json:"bio_json,omitempty" db:"bio_json"`
 	Garma       *int            `json:"garma" db:"garma"`
+	Drops       *int            `json:"drops" db:"drops"`
 	PostCount   *int            `json:"post_count" db:"post_count"`
 	ThreadCount *int            `json:"thread_count" db:"thread_count"`
 	IsOnline    bool            `json:"is_online" db:"is_online"`
@@ -443,4 +444,29 @@ type SendGiftRequest struct {
 	RecipientID string  `json:"recipient_id" binding:"required"`
 	Message     *string `json:"message"`
 	IsAnonymous bool    `json:"is_anonymous"`
+}
+
+// DropsPackage — a package of drops available for purchase
+type DropsPackage struct {
+	ID          string  `json:"id" db:"id"`
+	Name        string  `json:"name" db:"name"`
+	DropsAmount int     `json:"drops_amount" db:"drops_amount"`
+	PriceUSD    float64 `json:"price_usd" db:"price_usd"`
+	IsActive    bool    `json:"is_active" db:"is_active"`
+	SortOrder   int     `json:"sort_order" db:"sort_order"`
+}
+
+// DropsTransaction — ledger entry for drops balance changes
+type DropsTransaction struct {
+	ID            string    `json:"id" db:"id"`
+	UserID        string    `json:"user_id" db:"user_id"`
+	Type          string    `json:"type" db:"type"`
+	Amount        int       `json:"amount" db:"amount"`
+	BalanceAfter  int       `json:"balance_after" db:"balance_after"`
+	ReferenceID   *string   `json:"reference_id,omitempty" db:"reference_id"`
+	ReferenceType *string   `json:"reference_type,omitempty" db:"reference_type"`
+	Description   *string   `json:"description,omitempty" db:"description"`
+	Blockchain    *string   `json:"blockchain,omitempty" db:"blockchain"`
+	TxHash        *string   `json:"tx_hash,omitempty" db:"tx_hash"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 }
