@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Users, MessageSquare, ArrowRight } from "lucide-react";
+import { Users, MessageSquare, ArrowRight } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";

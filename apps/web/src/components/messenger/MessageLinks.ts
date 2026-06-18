@@ -34,9 +34,6 @@ const PATTERNS: Array<{ type: string; regex: RegExp; extract: (m: RegExpMatchArr
   },
 ];
 
-// External: only http/https — blocks javascript:, data:, file:
-const EXTERNAL_REGEX = /https?:\/\/[^\s<>"')]+/g;
-
 // Full URL regex for initial split (catches any URL-like token)
 const URL_LIKE = /https?:\/\/[^\s<>"')]+/g;
 
