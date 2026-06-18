@@ -130,8 +130,8 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 	// Record drops transaction (in same TX as gift creation)
 	_, err = tx.Exec(`
 		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
-		VALUES ($1, 'gift_send', -$2, $3, $4, 'gift', $5)
-	`, senderID, price, balanceAfter, giftID, fmt.Sprintf("Sent gift to %s", recipientID))
+		VALUES ($1, 'gift_send', -$2, $3, $4::uuid, 'gift', $5)
+	`, senderID, price, balanceAfter, giftID.String(), fmt.Sprintf("Sent gift to %s", recipientID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record transaction"))
 		return
