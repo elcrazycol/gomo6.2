@@ -19,9 +19,10 @@
 }
 
 # Storage architecture:
-# - Reads (GET/HEAD /storage/v1/object/*) → Caddy strips prefix → Garage website port (direct, no backend)
+# - Reads (GET/HEAD /storage/v1/object/*) → Caddy rewrites Host + path → Garage website port (direct)
 # - Writes (POST /storage/v1/upload, DELETE /storage/v1/object/*) → Go backend → Garage S3 API
-# Uploads require auth + validation. Reads go straight to Garage for performance.
+# path_regexp extracts bucket name and rewrites Host to <bucket>.storage.garage.localhost
+# so Garage resolves the correct bucket in virtual-hosted style.
 
 {$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost}, mcaptcha.{$DOMAIN:localhost} {
 	# ── Security headers ──────────────────────────────────────────────────
@@ -97,13 +98,16 @@
 		handle /ws {
 			reverse_proxy backend:8080
 		}
-		# ── Storage: reads → Garage, writes → backend ────────────────────────
+		# ── Storage: reads → Garage (direct), writes → backend ────────────────
+		# path_regexp captures bucket (group 1) and key (group 2) from the URL.
+		# Host header is rewritten to <bucket>.storage.garage.localhost so Garage
+		# resolves the correct bucket in virtual-hosted style.
 		@storageGet {
-			path /storage/v1/object/*
 			method GET HEAD
+			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
 		}
 		handle @storageGet {
-			handle_path /storage/v1/object/* {
+			route {
 				header {
 					Access-Control-Allow-Origin "*"
 					Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
@@ -112,7 +116,10 @@
 					Cache-Control "public, max-age=3600"
 					Accept-Ranges "bytes"
 				}
-				reverse_proxy garage:3902
+				rewrite * /{re.storage_read.2}
+				reverse_proxy garage:3902 {
+					header_up Host "{re.storage_read.1}.storage.garage.localhost"
+				}
 			}
 		}
 		handle /storage/v1/upload {
