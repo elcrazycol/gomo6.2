@@ -46,7 +46,7 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
-		// Skip caching for achievement endpoints — they must be real-time
+		// Skip caching for achievements endpoints — they must be real-time
 		if strings.Contains(c.Request.URL.Path, "achievements") {
 			c.Next()
 			return
@@ -55,6 +55,12 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		// Skip caching for messenger endpoints — they must be real-time
 		// Caching causes multi-minute delays in message delivery and conversation updates
 		if strings.Contains(c.Request.URL.Path, "messenger") {
+			c.Next()
+			return
+		}
+
+		// Skip caching for drops balance — must reflect immediate balance changes after payment
+		if strings.Contains(c.Request.URL.Path, "user/drops") {
 			c.Next()
 			return
 		}
