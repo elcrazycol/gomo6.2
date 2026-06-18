@@ -166,6 +166,13 @@ services:
       ISSUER_URL: https://${DOMAIN:-localhost}
       FRONTEND_URL: https://${DOMAIN:-localhost}
       DEV_DASHBOARD_URL: https://dev.${DOMAIN:-localhost}
+      # DePay
+      DEPAY_PUBLIC_KEY: ${DEPAY_PUBLIC_KEY:-}
+      DEPAY_PRIVATE_KEY: ${DEPAY_PRIVATE_KEY:-}
+      DEPAY_RECEIVER_ETH: ${DEPAY_RECEIVER_ETH:-}
+      DEPAY_RECEIVER_POLYGON: ${DEPAY_RECEIVER_POLYGON:-}
+      DEPAY_RECEIVER_BASE: ${DEPAY_RECEIVER_BASE:-}
+      DEPAY_RECEIVER_SOLANA: ${DEPAY_RECEIVER_SOLANA:-}
       # Garage S3 — credentials from /garage-keys/s3.env (written by garage-init)
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
