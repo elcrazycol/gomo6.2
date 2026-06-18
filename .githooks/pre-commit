@@ -137,37 +137,71 @@ if [ "$HAS_BACKEND" -eq 1 ]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ФРОНТЕНД (ESLint) — все workspace'ы
+# ФРОНТЕНД (ESLint + TypeCheck) — все workspace'ы
 # ═══════════════════════════════════════════════════════════════════════════════
 if [ "$HAS_FRONTEND" -eq 1 ]; then
-  task "Frontend (ESLint)"
+  task "Frontend (ESLint + TypeCheck)"
 
-  # Группируем staged файлы по директориям
+  # Определяем какие workspace'ы затронуты
+  TOUCHED_WS=()
   for dir in "${FRONTEND_DIRS[@]}"; do
+    for f in "${STAGED_FE[@]}"; do
+      if [[ "$f" == "$dir/"* ]]; then
+        TOUCHED_WS+=("$dir")
+        break
+      fi
+    done
+  done
+
+  # Убираем дубликаты
+  TOUCHED_WS=($(echo "${TOUCHED_WS[@]}" | tr ' ' '\n' | sort -u))
+
+  for dir in "${TOUCHED_WS[@]}"; do
     DIR_FILES=()
     for f in "${STAGED_FE[@]}"; do
       [[ "$f" == "$dir/"* ]] && DIR_FILES+=("$f")
     done
-    [ ${#DIR_FILES[@]} -eq 0 ] && continue
 
-    if [ ! -d "$dir/node_modules" ]; then
-      warn "node_modules не найдены в $dir, пропускаю"
-      continue
+    # ── ESLint ──
+    if [ -d "$dir/node_modules" ]; then
+      REL_FILES=()
+      for f in "${DIR_FILES[@]}"; do
+        REL_FILES+=("${f#$dir/}")
+      done
+
+      cd "$dir"
+      if ! npx eslint "${REL_FILES[@]}" --max-warnings=1000 2>&1; then
+        fail "eslint ($dir, ${#DIR_FILES[@]} файлов)"
+        exit 1
+      fi
+      pass "eslint ($dir, ${#DIR_FILES[@]} файлов)"
+      cd "$ROOT_DIR"
     fi
 
-    # Strip directory prefix from file paths for eslint (runs from within workspace)
-    REL_FILES=()
-    for f in "${DIR_FILES[@]}"; do
-      REL_FILES+=("${f#$dir/}")
-    done
-
+    # ── TypeScript check ──
+    TSC_EXIT=0
     cd "$dir"
-    if ! npx eslint "${REL_FILES[@]}" --max-warnings=1000 2>&1; then
-      fail "eslint ($dir, ${#DIR_FILES[@]} файлов)"
+    if [ -x "./node_modules/.bin/tsc" ]; then
+      case "$dir" in
+        apps/web)
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.app.json 2>&1 || TSC_EXIT=$?
+          ;;
+        apps/dev-dashboard)
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.json 2>&1 || TSC_EXIT=$?
+          ;;
+        apps/docs)
+          ./node_modules/.bin/tsc --noEmit -p tsconfig.json 2>&1 || TSC_EXIT=$?
+          ;;
+      esac
+    else
+      warn "tsc не найден в $dir, пропускаю typecheck"
+    fi
+    cd "$ROOT_DIR"
+    if [ "$TSC_EXIT" -ne 0 ]; then
+      fail "tsc ($dir)"
       exit 1
     fi
-    pass "eslint ($dir, ${#DIR_FILES[@]} файлов)"
-    cd "$ROOT_DIR"
+    pass "tsc ($dir)"
   done
 fi
 
