@@ -2,15 +2,15 @@ import { StrictMode, useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import Dashboard from "./pages/Dashboard";
 import DeveloperApps from "./pages/Apps";
 import CreateApp from "./pages/CreateApp";
 import AppDetail from "./pages/AppDetail";
 import GiftAdmin from "./pages/Gifts";
 import Login from "./pages/Login";
 import Callback from "./pages/Callback";
-import { getSavedUser, logout, OAuthUser, checkAuth } from "@/lib/oauth";
-import { Button } from "@/components/ui/button";
-import { LogOut, BookOpen, Github, Gift } from "lucide-react";
+import { checkAuth } from "@/lib/oauth";
+import { Sidebar } from "@/components/Sidebar";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,7 +21,6 @@ const queryClient = new QueryClient({
   },
 });
 
-// Auth guard component
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -51,169 +50,31 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Header with user info and logout — matching main site style
-function Header() {
-  const navigate = useNavigate();
-  const [user, setUser] = useState<OAuthUser | null>(null);
-  const [scrolled, setScrolled] = useState(false);
+function AppLayout({ children }: { children: React.ReactNode }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem("dev-sidebar-collapsed") === "true";
+  });
 
-  useEffect(() => {
-    setUser(getSavedUser());
-
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login");
+  const toggleSidebar = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("dev-sidebar-collapsed", String(next));
+      return next;
+    });
   };
 
   return (
-    <header
-      className={`sticky top-0 z-50 transition-shadow duration-200 ${
-        scrolled ? "shadow-lg shadow-black/5" : "shadow-none"
-      }`}
-    >
-      <div className="bg-board-header text-board-header-foreground">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-14">
-            {/* Left: Logo + Nav */}
-            <div className="flex items-center gap-6">                <a
-                  href="/"
-                  className="flex items-center gap-2 font-bold text-lg tracking-tight hover:text-emerald-300 transition-colors"
-                >
-                  <span>gomo6</span>
-                  <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-white/10 text-emerald-200">
-                    Dev
-                  </span>
-                </a>
-
-              <nav className="hidden sm:flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => navigate("/gifts")}
-                  className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
-                >
-                  <Gift className="w-3.5 h-3.5" />
-                  Подарки
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => window.open(`//docs.${window.location.hostname.replace(/^(docs|dev|www)\./, '')}/oauth`, "_blank")}
-                  className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  Документация
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => window.open("https://github.com/scramble22/gomo6", "_blank")}
-                  className="text-xs gap-1.5 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
-                >
-                  <Github className="w-3.5 h-3.5" />
-                  GitHub
-                </Button>
-              </nav>
-            </div>
-
-            {/* Right: User info */}
-            <div className="flex items-center gap-2">
-              {user && (
-                <div className="flex items-center gap-2.5">
-                  <div className="hidden sm:flex items-center gap-2 text-sm">
-                    {user.picture ? (
-                      <img
-                        src={user.picture}
-                        alt=""
-                        className="w-7 h-7 rounded-full ring-2 ring-white/20"
-                      />
-                    ) : (
-                      <div className="w-7 h-7 rounded-full bg-emerald-500/30 flex items-center justify-center ring-2 ring-white/20">
-                        <span className="text-xs font-semibold text-emerald-200">
-                          {(user.preferred_username || user.name || "?")[0].toUpperCase()}
-                        </span>
-                      </div>
-                    )}
-                    <span className="text-xs font-medium text-board-header-foreground/90 max-w-[120px] truncate">
-                      {user.preferred_username || user.name || user.email || ""}
-                    </span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleLogout}
-                    className="text-xs text-board-header-foreground/70 hover:text-white hover:bg-white/10"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              )}
-
-              {/* Mobile nav trigger */}
-              <div className="sm:hidden flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => window.open(`//docs.${window.location.hostname.replace(/^(docs|dev|www)\./, '')}/oauth`, "_blank")}
-                  className="text-xs px-2 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
-                >
-                  <BookOpen className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => window.open("https://github.com/scramble22/gomo6", "_blank")}
-                  className="text-xs px-2 text-board-header-foreground/90 hover:bg-white/15 hover:text-white transition-colors"
-                >
-                  <Github className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </div>
+    <div className="min-h-screen bg-background">
+      <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
+      <main
+        className={`pt-4 pb-12 transition-all duration-200 ${
+          sidebarCollapsed ? "lg:pl-[68px]" : "lg:pl-60"
+        }`}
+      >
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 lg:pt-8">
+          {children}
         </div>
-      </div>
-      {/* Subtle bottom border */}
-      <div className="h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
-    </header>
-  );
-}
-
-// Main layout with header
-function AppLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Header />
-      <main className="flex-1 pb-12 pt-6 sm:pt-8">
-        {children}
       </main>
-      <footer className="border-t border-border bg-card mt-auto">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex items-center justify-center gap-4">
-            <p className="text-xs text-muted-foreground">
-              © 2026 gomo6 Dev Portal
-            </p>
-            <span className="text-muted-foreground/30">·</span>
-            <a
-              href={`//docs.${window.location.hostname.replace(/^(docs|dev|www)\./, '')}/oauth`}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              OAuth API Docs
-            </a>
-            <span className="text-muted-foreground/30">·</span>
-            <a
-              href="/"
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              gomo6
-            </a>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
@@ -227,6 +88,16 @@ const App = () => {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/callback" element={<Callback />} />
+            <Route
+              path="/"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <Dashboard />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
             <Route
               path="/apps"
               element={
@@ -267,7 +138,7 @@ const App = () => {
                 </AuthGuard>
               }
             />
-            <Route path="/" element={<Navigate to="/apps" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </QueryClientProvider>

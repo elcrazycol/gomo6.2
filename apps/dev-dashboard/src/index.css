@@ -72,3 +72,13 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 }
+
+/* Smooth transitions for cards */
+@layer utilities {
+  .card-hover {
+    @apply transition-all duration-200;
+  }
+  .card-hover:hover {
+    @apply shadow-md;
+  }
+}
