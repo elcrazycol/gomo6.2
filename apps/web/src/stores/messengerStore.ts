@@ -2,6 +2,67 @@ import { create } from "zustand";
 import type { ConversationView, MessageView, TypingUser, ReceiptRow } from "@/components/messenger/types";
 import { messengerApi } from "@/services/messengerApi";
 
+// ─── Batched markDelivered/markRead ─────────────────────────────────────────
+// Instead of hitting the API on every message, we queue the latest message ID
+// per conversation and flush every 2 seconds. The backend's MarkRead/MarkDelivered
+// use WHERE sent_at <= target, so sending just the latest ID marks all before it.
+
+let flushTimer: ReturnType<typeof setInterval> | null = null;
+const pendingDelivered = new Map<string, string>(); // convId → latestMessageId
+const pendingRead = new Map<string, string>();       // convId → latestMessageId
+const lastFlushed = { delivered: new Map<string, string>(), read: new Map<string, string>() };
+
+function startFlushTimer(): void {
+  if (flushTimer) return;
+  flushTimer = setInterval(flushPending, 2000);
+}
+
+function flushPending(): void {
+  if (pendingDelivered.size === 0 && pendingRead.size === 0) {
+    if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+    return;
+  }
+
+  // Flush delivered
+  for (const [convId, msgId] of pendingDelivered) {
+    if (lastFlushed.delivered.get(convId) !== msgId) {
+      lastFlushed.delivered.set(convId, msgId);
+      messengerApi.markDelivered(convId, msgId).catch(() => {});
+    }
+  }
+  pendingDelivered.clear();
+
+  // Flush read
+  for (const [convId, msgId] of pendingRead) {
+    if (lastFlushed.read.get(convId) !== msgId) {
+      lastFlushed.read.set(convId, msgId);
+      messengerApi.markRead(convId, msgId).catch(() => {});
+    }
+  }
+  pendingRead.clear();
+}
+
+export function queueMarkDelivered(conversationId: string, messageId: string): void {
+  // Only track the latest message per conversation — older ones are covered by backend
+  const existing = pendingDelivered.get(conversationId);
+  if (!existing || messageId > existing) {
+    pendingDelivered.set(conversationId, messageId);
+  }
+  startFlushTimer();
+}
+
+export function queueMarkRead(conversationId: string, messageId: string): void {
+  const existing = pendingRead.get(conversationId);
+  if (!existing || messageId > existing) {
+    pendingRead.set(conversationId, messageId);
+  }
+  startFlushTimer();
+}
+
+// ─── Receipts debounce ──────────────────────────────────────────────────────
+const lastReceiptsLoad = new Map<string, number>(); // convId → timestamp
+const RECEIPTS_COOLDOWN_MS = 3000;
+
 // ─── Store shape ────────────────────────────────────────────────────────────
 
 type MessengerStore = {
@@ -126,12 +187,26 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
     try {
       const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId);
-      set((s) => ({
-        messages: s.messages.map((m) => (m.client_id === clientId ? { ...msg, localStatus: "sent" as const } : m)),
-        isSending: false,
-      }));
-      // Refresh conversation list to update last_message_preview
-      get().loadConversations();
+      const sentAt = msg.sent_at;
+      set((s) => {
+        // Update message from optimistic to real
+        const messages = s.messages.map((m) =>
+          m.client_id === clientId ? { ...msg, localStatus: "sent" as const } : m,
+        );
+        // Optimistically update conversation: move to top with new preview
+        const target = s.conversations.find((c) => c.id === selectedConversationId);
+        let conversations = s.conversations;
+        if (target) {
+          const updated = {
+            ...target,
+            last_message_at: sentAt,
+            last_message_preview: content.slice(0, 80),
+            last_message_sender_id: s.me!.id,
+          };
+          conversations = [updated, ...s.conversations.filter((c) => c.id !== selectedConversationId)];
+        }
+        return { messages, conversations, isSending: false };
+      });
       return msg.id;
     } catch (e) {
       set((s) => ({
@@ -229,8 +304,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
   },
 
-  // ── Load receipts ─────────────────────────────────────────────────────
+  // ── Load receipts (debounced) ─────────────────────────────────────────
   loadReceipts: async (conversationId: string) => {
+    const now = Date.now();
+    const last = lastReceiptsLoad.get(conversationId) ?? 0;
+    if (now - last < RECEIPTS_COOLDOWN_MS) return;
+    lastReceiptsLoad.set(conversationId, now);
+
     try {
       const rows = await messengerApi.getReceipts(conversationId);
       set((s) => {

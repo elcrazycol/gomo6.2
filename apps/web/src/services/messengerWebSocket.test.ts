@@ -1,67 +1,68 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ─── Mock WebSocket ──────────────────────────────────────────────────────────
+// ─── Mock wsService (hoisted) ────────────────────────────────────────────────
 
-class MockWebSocket {
-  static OPEN = 1;
-  static CONNECTING = 0;
-  static CLOSED = 3;
-  static instances: MockWebSocket[] = [];
+const { mockWsService, emitToHandlers } = vi.hoisted(() => {
+  const handlers = new Map<string, Set<(msg: unknown) => void>>();
+  let _connected = false;
 
-  readyState: number = MockWebSocket.CONNECTING;
-  onopen: (() => void) | null = null;
-  onclose: ((event?: CloseEvent) => void) | null = null;
-  onmessage: ((event: MessageEvent) => void) | null = null;
-  onerror: (() => void) | null = null;
-  sentMessages: string[] = [];
-  url: string;
+  const mockWsService = {
+    get connected() { return _connected; },
+    connect: vi.fn(() => { _connected = true; }),
+    disconnect: vi.fn(() => { _connected = false; }),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+    sendRaw: vi.fn(),
+    on: vi.fn((type: string, handler: (msg: unknown) => void) => {
+      if (!handlers.has(type)) handlers.set(type, new Set());
+      handlers.get(type)!.add(handler);
+      return () => { handlers.get(type)?.delete(handler); };
+    }),
+  };
 
-  constructor(url: string) {
-    this.url = url;
-    MockWebSocket.instances.push(this);
+  function emitToHandlers(type: string, data: unknown) {
+    const h = handlers.get(type);
+    if (h) {
+      for (const fn of h) {
+        fn({ type, data, timestamp: Date.now() });
+      }
+    }
   }
 
-  send(data: string) {
-    this.sentMessages.push(data);
-  }
+  return { mockWsService, emitToHandlers };
+});
 
-  close(_code?: number, _reason?: string) {
-    this.readyState = MockWebSocket.CLOSED;
-    this.onclose?.();
-  }
+vi.mock("@/services/websocket", () => ({
+  wsService: mockWsService,
+}));
 
-  simulateMessage(data: unknown) {
-    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
-  }
+// ─── Mock zustand store (hoisted) ───────────────────────────────────────────
 
-  simulateOpen() {
-    this.readyState = MockWebSocket.OPEN;
-    this.onopen?.();
-  }
-}
-
-// @ts-expect-error - replace global WebSocket
-global.WebSocket = MockWebSocket;
-
-// ─── Mock zustand store ──────────────────────────────────────────────────────
-
-const storeMocks = {
-  addMessage: vi.fn(),
-  updateMessage: vi.fn(),
-  removeMessage: vi.fn(),
-  setTyping: vi.fn(),
-  setUserOnline: vi.fn(),
-  updateConversationFromWs: vi.fn(),
-  loadReceipts: vi.fn(),
-};
+const { storeMocks, queueMarkDeliveredMock, queueMarkReadMock } = vi.hoisted(() => {
+  const storeMocks = {
+    addMessage: vi.fn(),
+    updateMessage: vi.fn(),
+    removeMessage: vi.fn(),
+    setTyping: vi.fn(),
+    setUserOnline: vi.fn(),
+    updateConversationFromWs: vi.fn(),
+    loadReceipts: vi.fn(),
+  };
+  const queueMarkDeliveredMock = vi.fn();
+  const queueMarkReadMock = vi.fn();
+  return { storeMocks, queueMarkDeliveredMock, queueMarkReadMock };
+});
 
 vi.mock("@/stores/messengerStore", () => ({
   useMessengerStore: {
     getState: vi.fn(() => ({
       ...storeMocks,
+      me: { id: "u1", username: "test" },
       selectedConversationId: "conv-1",
     })),
   },
+  queueMarkDelivered: (...args: unknown[]) => queueMarkDeliveredMock(...args),
+  queueMarkRead: (...args: unknown[]) => queueMarkReadMock(...args),
 }));
 
 // ─── Import after mocks ──────────────────────────────────────────────────────
@@ -71,113 +72,60 @@ import { messengerWs } from "./messengerWebSocket";
 describe("messengerWebSocket", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    MockWebSocket.instances = [];
     localStorage.setItem("auth_token", "test-token");
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
     messengerWs.disconnect();
-    vi.useRealTimers();
   });
 
   describe("connect", () => {
-    it("creates WebSocket when token exists", () => {
-      const promise = messengerWs.connect();
-      expect(MockWebSocket.instances.length).toBe(1);
+    it("registers handlers on wsService (does not call wsService.connect)", () => {
+      messengerWs.connect();
+      expect(mockWsService.connect).not.toHaveBeenCalled();
+      expect(mockWsService.on).toHaveBeenCalledWith("new_chat_message", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("message_edited", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("message_deleted", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("read_receipt", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("chat_typing", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("user_online", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("user_offline", expect.any(Function));
     });
 
-    it("does not connect if no token", () => {
-      localStorage.removeItem("auth_token");
+    it("does not double-register handlers", () => {
       messengerWs.connect();
-      expect(MockWebSocket.instances.length).toBe(0);
-    });
-
-    it("does not double-connect while connecting", () => {
       messengerWs.connect();
-      expect(MockWebSocket.instances.length).toBe(1);
-      messengerWs.connect();
-      expect(MockWebSocket.instances.length).toBe(1);
-    });
-
-    it("reconnects on close with backoff", () => {
-      messengerWs.connect();
-      const ws = MockWebSocket.instances[0]!;
-
-      // Simulate close
-      ws.close();
-      expect(MockWebSocket.instances.length).toBe(1);
-
-      // First reconnect attempt
-      vi.advanceTimersByTime(1100);
-      expect(MockWebSocket.instances.length).toBe(2);
-
-      // Second close
-      MockWebSocket.instances[1]!.close();
-      vi.advanceTimersByTime(2100);
-      expect(MockWebSocket.instances.length).toBe(3);
+      expect(mockWsService.on).toHaveBeenCalledTimes(7);
     });
   });
 
   describe("subscribe / unsubscribe", () => {
-    it("sends auth on open, subscribe after server confirms", () => {
-      messengerWs.connect();
+    it("delegates to wsService.subscribe", () => {
       messengerWs.subscribe("chat_conv-1");
-
-      const ws = MockWebSocket.instances[0]!;
-      expect(ws.sentMessages.length).toBe(0); // Not connected yet
-
-      // Connection opens — sends auth first
-      ws.simulateOpen();
-      expect(ws.sentMessages.length).toBeGreaterThanOrEqual(1);
-      const authMsg = JSON.parse(ws.sentMessages[0]!);
-      expect(authMsg.type).toBe("auth");
-
-      // Server confirms auth — triggers resubscribeAll
-      ws.simulateMessage({ type: "connected", data: { user_id: "u1" } });
-      expect(ws.sentMessages.length).toBeGreaterThanOrEqual(2);
-      const subMsg = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]!);
-      expect(subMsg.type).toBe("subscribe");
+      expect(mockWsService.subscribe).toHaveBeenCalledWith("chat_conv-1");
     });
 
-    it("sends unsubscribe message when connected", () => {
-      messengerWs.connect();
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateOpen(); // Must be connected first
-
-      messengerWs.subscribe("chat_conv-1");
+    it("delegates to wsService.unsubscribe", () => {
       messengerWs.unsubscribe("chat_conv-1");
-
-      // Should have sent both subscribe and unsubscribe
-      const messages = ws.sentMessages.map((m) => JSON.parse(m));
-      const types = messages.map((m) => m.type as string);
-      expect(types).toContain("subscribe");
-      expect(types).toContain("unsubscribe");
+      expect(mockWsService.unsubscribe).toHaveBeenCalledWith("chat_conv-1");
     });
   });
 
   describe("message handling", () => {
     beforeEach(() => {
       messengerWs.connect();
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateOpen();
-      messengerWs.subscribe("chat_conv-1");
     });
 
     it("handles new_chat_message", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "new_chat_message",
-        data: {
-          id: "msg-1",
-          conversation_id: "conv-1",
-          sender_user_id: "u2",
-          content: "Hello!",
-          is_edited: false,
-          is_deleted: false,
-          sent_at: "2025-01-01T00:00:00Z",
-          client_id: "c1",
-        },
+      emitToHandlers("new_chat_message", {
+        id: "msg-1",
+        conversation_id: "conv-1",
+        sender_user_id: "u2",
+        content: "Hello!",
+        is_edited: false,
+        is_deleted: false,
+        sent_at: "2025-01-01T00:00:00Z",
+        client_id: "c1",
       });
 
       expect(storeMocks.addMessage).toHaveBeenCalledWith(
@@ -187,10 +135,9 @@ describe("messengerWebSocket", () => {
     });
 
     it("handles message_edited", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "message_edited",
-        data: { id: "msg-1", content: "Edited" },
+      emitToHandlers("message_edited", {
+        id: "msg-1",
+        content: "Edited",
       });
 
       expect(storeMocks.updateMessage).toHaveBeenCalledWith("msg-1", expect.objectContaining({
@@ -200,78 +147,73 @@ describe("messengerWebSocket", () => {
     });
 
     it("handles message_deleted", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "message_deleted",
-        data: { id: "msg-1" },
-      });
-
+      emitToHandlers("message_deleted", { id: "msg-1" });
       expect(storeMocks.removeMessage).toHaveBeenCalledWith("msg-1");
     });
 
     it("handles read_receipt", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "read_receipt",
-        data: { message_id: "msg-1", user_id: "u2" },
-      });
-
+      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2" });
       expect(storeMocks.loadReceipts).toHaveBeenCalledWith("conv-1");
     });
 
     it("handles chat_typing", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "chat_typing",
-        data: { user_id: "u2", username: "alice", is_typing: true },
-      });
-
+      emitToHandlers("chat_typing", { user_id: "u2", username: "alice", is_typing: true });
       expect(storeMocks.setTyping).toHaveBeenCalled();
     });
 
     it("handles user_online", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "user_online",
-        data: { user_id: "u2" },
-      });
-
+      emitToHandlers("user_online", { user_id: "u2" });
       expect(storeMocks.setUserOnline).toHaveBeenCalledWith("u2", true);
     });
 
     it("handles user_offline", () => {
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateMessage({
-        type: "user_offline",
-        data: { user_id: "u2" },
-      });
-
+      emitToHandlers("user_offline", { user_id: "u2" });
       expect(storeMocks.setUserOnline).toHaveBeenCalledWith("u2", false);
     });
 
-    it("ignores malformed JSON gracefully", () => {
-      const ws = MockWebSocket.instances[0]!;
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    it("queues markDelivered and markRead for incoming messages", () => {
+      emitToHandlers("new_chat_message", {
+        id: "msg-1",
+        conversation_id: "conv-1",
+        sender_user_id: "u2",
+        content: "Hi",
+        sent_at: "2025-01-01T00:00:00Z",
+      });
 
-      ws.onmessage?.({ data: "not valid json" } as MessageEvent);
-      // Should not throw
+      expect(queueMarkDeliveredMock).toHaveBeenCalledWith("conv-1", "msg-1");
+      expect(queueMarkReadMock).toHaveBeenCalledWith("conv-1", "msg-1");
+    });
 
-      consoleError.mockRestore();
+    it("skips markDelivered/markRead for own messages", () => {
+      emitToHandlers("new_chat_message", {
+        id: "msg-1",
+        conversation_id: "conv-1",
+        sender_user_id: "u1",
+        content: "Hi",
+        sent_at: "2025-01-01T00:00:00Z",
+      });
+
+      expect(queueMarkDeliveredMock).not.toHaveBeenCalled();
+      expect(queueMarkReadMock).not.toHaveBeenCalled();
     });
   });
 
   describe("sendTyping", () => {
-    it("sends typing event", () => {
-      messengerWs.connect();
-      const ws = MockWebSocket.instances[0]!;
-      ws.simulateOpen();
+    it("sends typing event via wsService.sendRaw", () => {
       messengerWs.sendTyping("conv-1", true);
+      expect(mockWsService.sendRaw).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "chat_typing",
+          room: "chat_conv-1",
+          data: { is_typing: true, conversation_id: "conv-1" },
+        }),
+      );
+    });
+  });
 
-      const msgs = ws.sentMessages;
-      expect(msgs.length).toBeGreaterThan(0);
-      const msg = JSON.parse(msgs[msgs.length - 1]!);
-      expect(msg.type).toBe("chat_typing");
-      expect(msg.room).toBe("chat_conv-1");
+  describe("connected", () => {
+    it("reflects wsService.connected", () => {
+      expect(messengerWs.connected).toBe(false);
     });
   });
 });

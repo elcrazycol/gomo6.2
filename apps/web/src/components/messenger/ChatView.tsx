@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronDown, MessageCircle, Pin } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
-import { useMessengerStore } from "@/stores/messengerStore";
+import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
 import { formatPresence, getInitials } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
@@ -38,8 +38,6 @@ export const ChatView = memo(function ChatView({
   const sendMessage = useMessengerStore((s) => s.sendMessage);
   const editMessage = useMessengerStore((s) => s.editMessage);
   const deleteMessage = useMessengerStore((s) => s.deleteMessage);
-  const markRead = useMessengerStore((s) => s.markRead);
-  const markDelivered = useMessengerStore((s) => s.markDelivered);
   const togglePin = useMessengerStore((s) => s.togglePin);
 
   const [draft, setDraft] = useState("");
@@ -84,16 +82,15 @@ export const ChatView = memo(function ChatView({
     prevLength.current = messages.length;
   }, [messages.length, isScrolledUp]);
 
-  // Mark last message delivered + read when new messages arrive
+  // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {
-    if (!me?.id || messages.length === 0) return;
-    // Only mark the last received message from the other user as delivered + read
+    if (!me?.id || !conversation || messages.length === 0) return;
     const lastOther = [...messages].reverse().find(
       (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.localStatus,
     );
     if (lastOther) {
-      markDelivered(lastOther.id);
-      markRead(lastOther.id);
+      queueMarkDelivered(conversation.id, lastOther.id);
+      queueMarkRead(conversation.id, lastOther.id);
     }
   }, [messages.length, conversation?.id]);
 

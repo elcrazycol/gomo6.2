@@ -36,7 +36,11 @@ export type WebSocketMessageType =
   | 'user_online'
   | 'user_offline'
   | 'new_notification'
-  | 'new_chat_message';
+  | 'new_chat_message'
+  | 'message_edited'
+  | 'message_deleted'
+  | 'read_receipt'
+  | 'chat_typing';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;
@@ -276,6 +280,13 @@ class WebSocketService {
         timestamp: Date.now()
       });
     }
+  }
+
+  /**
+   * Send an arbitrary message (used by messengerWs for typing indicators etc.)
+   */
+  sendRaw(message: Partial<WebSocketMessage>): boolean {
+    return this.send(message);
   }
 
   /**
