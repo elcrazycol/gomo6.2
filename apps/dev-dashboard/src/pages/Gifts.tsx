@@ -3,14 +3,25 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Plus, Trash2, Edit2, Gift, X } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Edit2,
+  Gift,
+  X,
+  Search,
+  Package,
+  Star,
+  Eye,
+  BarChart3,
+} from "lucide-react";
 import { toast } from "sonner";
 
 interface GiftItem {
@@ -52,6 +63,14 @@ const defaultForm: GiftForm = {
   sort_order: 0,
 };
 
+const categoryColors: Record<string, string> = {
+  general: "bg-slate-500/10 text-slate-600 dark:text-slate-400",
+  rare: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  epic: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
+  legendary: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  special: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+};
+
 const GiftAdmin = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -59,6 +78,8 @@ const GiftAdmin = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingGift, setEditingGift] = useState<GiftItem | null>(null);
   const [form, setForm] = useState<GiftForm>(defaultForm);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
 
   useEffect(() => {
     api.getSession().then(({ session }) => {
@@ -165,6 +186,19 @@ const GiftAdmin = () => {
     setForm(defaultForm);
   };
 
+  const filteredGifts = gifts?.filter((gift) => {
+    const matchesSearch =
+      !searchQuery ||
+      gift.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      gift.description?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = filterCategory === "all" || gift.category === filterCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories = Array.from(new Set(gifts?.map((g) => g.category) || []));
+  const totalSold = gifts?.reduce((sum, g) => sum + g.sold_count, 0) || 0;
+  const activeCount = gifts?.filter((g) => g.is_active).length || 0;
+
   if (!sessionChecked || isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -174,37 +208,94 @@ const GiftAdmin = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6">
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Gift className="w-6 h-6" />
-            Управление подарками
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Подарки</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Создавайте и редактируйте каталог подарков
+            Управляйте каталогом подарков для пользователей
           </p>
         </div>
         {!showForm && (
-          <Button onClick={() => { setEditingGift(null); setForm(defaultForm); setShowForm(true); }}>
-            <Plus className="w-4 h-4 mr-2" />
+          <Button onClick={() => { setEditingGift(null); setForm(defaultForm); setShowForm(true); }} className="gap-2">
+            <Plus className="w-4 h-4" />
             Добавить подарок
           </Button>
         )}
       </div>
 
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <Package className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{gifts?.length || 0}</p>
+                <p className="text-[11px] text-muted-foreground">Всего</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Eye className="w-4 h-4 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{activeCount}</p>
+                <p className="text-[11px] text-muted-foreground">Активных</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <BarChart3 className="w-4 h-4 text-violet-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{totalSold}</p>
+                <p className="text-[11px] text-muted-foreground">Продано</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <Star className="w-4 h-4 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{categories.length}</p>
+                <p className="text-[11px] text-muted-foreground">Категорий</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Form */}
       {showForm && (
-        <Card className="mb-8">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>{editingGift ? "Редактировать подарок" : "Новый подарок"}</CardTitle>
-            <Button variant="ghost" size="sm" onClick={handleCancel}>
+        <Card className="border-emerald-500/20">
+          <CardHeader className="flex flex-row items-center justify-between pb-4">
+            <CardTitle className="text-lg">
+              {editingGift ? "Редактировать подарок" : "Новый подарок"}
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={handleCancel} className="h-8 w-8 p-0">
               <X className="w-4 h-4" />
             </Button>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="name">Название *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="name" className="text-sm font-medium">Название *</Label>
                 <Input
                   id="name"
                   value={form.name}
@@ -212,8 +303,8 @@ const GiftAdmin = () => {
                   placeholder="Название подарка"
                 />
               </div>
-              <div>
-                <Label htmlFor="image_url">URL изображения *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="image_url" className="text-sm font-medium">URL изображения *</Label>
                 <Input
                   id="image_url"
                   value={form.image_url}
@@ -221,8 +312,8 @@ const GiftAdmin = () => {
                   placeholder="path/to/image.png"
                 />
               </div>
-              <div>
-                <Label htmlFor="price">Цена (gарма) *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="price" className="text-sm font-medium">Цена (gарма) *</Label>
                 <Input
                   id="price"
                   type="number"
@@ -231,8 +322,8 @@ const GiftAdmin = () => {
                   onChange={(e) => setForm({ ...form, price: parseInt(e.target.value) || 0 })}
                 />
               </div>
-              <div>
-                <Label htmlFor="category">Категория</Label>
+              <div className="space-y-2">
+                <Label htmlFor="category" className="text-sm font-medium">Категория</Label>
                 <Input
                   id="category"
                   value={form.category}
@@ -240,8 +331,8 @@ const GiftAdmin = () => {
                   placeholder="general"
                 />
               </div>
-              <div>
-                <Label htmlFor="sort_order">Порядок сортировки</Label>
+              <div className="space-y-2">
+                <Label htmlFor="sort_order" className="text-sm font-medium">Порядок сортировки</Label>
                 <Input
                   id="sort_order"
                   type="number"
@@ -250,8 +341,8 @@ const GiftAdmin = () => {
                 />
               </div>
               {form.is_limited && (
-                <div>
-                  <Label htmlFor="max_quantity">Макс. количество</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="max_quantity" className="text-sm font-medium">Макс. количество</Label>
                   <Input
                     id="max_quantity"
                     type="number"
@@ -262,8 +353,8 @@ const GiftAdmin = () => {
                 </div>
               )}
             </div>
-            <div>
-              <Label htmlFor="description">Описание</Label>
+            <div className="space-y-2">
+              <Label htmlFor="description" className="text-sm font-medium">Описание</Label>
               <Textarea
                 id="description"
                 value={form.description}
@@ -272,27 +363,27 @@ const GiftAdmin = () => {
                 rows={2}
               />
             </div>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex items-center gap-2.5">
                 <Switch
                   id="is_active"
                   checked={form.is_active}
                   onCheckedChange={(v) => setForm({ ...form, is_active: v })}
                 />
-                <Label htmlFor="is_active">Активен</Label>
+                <Label htmlFor="is_active" className="text-sm">Активен</Label>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5">
                 <Switch
                   id="is_limited"
                   checked={form.is_limited}
                   onCheckedChange={(v) => setForm({ ...form, is_limited: v })}
                 />
-                <Label htmlFor="is_limited">Лимитированный</Label>
+                <Label htmlFor="is_limited" className="text-sm">Лимитированный</Label>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending}>
-                {editingGift ? "Сохранить" : "Создать"}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="gap-2">
+                {editingGift ? "Сохранить изменения" : "Создать подарок"}
               </Button>
               <Button variant="outline" onClick={handleCancel}>Отмена</Button>
             </div>
@@ -300,46 +391,174 @@ const GiftAdmin = () => {
         </Card>
       )}
 
-      <div className="space-y-3">
-        {gifts && gifts.length === 0 && (
-          <p className="text-center text-muted-foreground py-12">Подарков пока нет. Создайте первый!</p>
-        )}
-        {gifts?.map((gift) => (
-          <Card key={gift.id} className={!gift.is_active ? "opacity-50" : ""}>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
-                {gift.image_url ? (
-                  <img src={gift.image_url} alt={gift.name} className="w-full h-full object-cover" />
-                ) : (
-                  <Gift className="w-6 h-6 text-muted-foreground" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium">{gift.name}</p>
-                  {!gift.is_active && <Badge variant="secondary">Неактивен</Badge>}
-                  {gift.is_limited && <Badge variant="outline">Лимит {gift.max_quantity}</Badge>}
-                  <Badge variant="secondary">{gift.category}</Badge>
+      {/* Search and filters */}
+      {gifts && gifts.length > 0 && !showForm && (
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск подарков..."
+              className="pl-9"
+            />
+          </div>
+          {categories.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => setFilterCategory("all")}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  filterCategory === "all"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                Все
+              </button>
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setFilterCategory(cat)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    filterCategory === cat
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Gift grid */}
+      {gifts && gifts.length === 0 && (
+        <Card className="border-dashed">
+          <CardContent className="py-16 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/10 flex items-center justify-center mx-auto mb-5">
+              <Gift className="w-7 h-7 text-violet-500/60" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">Каталог пуст</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6 leading-relaxed">
+              Создайте первый подарок, чтобы пользователи могли отправлять друг друга подарки на gomo6.
+            </p>
+            <Button onClick={() => { setForm(defaultForm); setShowForm(true); }} className="gap-2">
+              <Plus className="w-4 h-4" />
+              Создать подарок
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {filteredGifts && filteredGifts.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filteredGifts.map((gift) => (
+            <Card
+              key={gift.id}
+              className={`group hover:shadow-md transition-all duration-200 ${
+                !gift.is_active ? "opacity-50" : ""
+              }`}
+            >
+              <CardContent className="p-0">
+                {/* Image */}
+                <div className="aspect-[4/3] bg-muted rounded-t-lg overflow-hidden relative">
+                  {gift.image_url ? (
+                    <img
+                      src={gift.image_url}
+                      alt={gift.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Gift className="w-10 h-10 text-muted-foreground/40" />
+                    </div>
+                  )}
+                  {/* Overlay badges */}
+                  <div className="absolute top-2 left-2 flex gap-1.5">
+                    {gift.is_limited && (
+                      <Badge className="bg-amber-500/90 text-white border-0 text-[10px]">
+                        Limited
+                      </Badge>
+                    )}
+                    {!gift.is_active && (
+                      <Badge className="bg-muted/90 text-muted-foreground border-0 text-[10px]">
+                        Неактивен
+                      </Badge>
+                    )}
+                  </div>
+                  {/* Price badge */}
+                  <div className="absolute bottom-2 right-2">
+                    <Badge className="bg-background/90 backdrop-blur text-foreground border-0 text-xs font-semibold">
+                      {gift.price} г
+                    </Badge>
+                  </div>
                 </div>
-                {gift.description && (
-                  <p className="text-sm text-muted-foreground truncate">{gift.description}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {gift.price} gарм · Продано: {gift.sold_count} · Порядок: {gift.sort_order}
-                </p>
-              </div>
-              <div className="flex gap-1 flex-shrink-0">
-                <Button variant="ghost" size="sm" onClick={() => handleEdit(gift)}>
-                  <Edit2 className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(gift.id)}>
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+
+                {/* Info */}
+                <div className="p-3.5 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-sm truncate">{gift.name}</h3>
+                      {gift.description && (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {gift.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge
+                      variant="secondary"
+                      className={`text-[10px] ${categoryColors[gift.category] || ""}`}
+                    >
+                      {gift.category}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground">
+                      Продано: {gift.sold_count}
+                    </span>
+                    {gift.is_limited && gift.max_quantity && (
+                      <span className="text-[10px] text-muted-foreground">
+                        Осталось: {gift.max_quantity - gift.sold_count}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-1.5 pt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEdit(gift)}
+                      className="flex-1 gap-1.5 h-8 text-xs"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      Изменить
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteMutation.mutate(gift.id)}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {filteredGifts && filteredGifts.length === 0 && gifts && gifts.length > 0 && (
+        <div className="text-center py-12">
+          <Search className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Ничего не найдено</p>
+        </div>
+      )}
     </div>
   );
 };
