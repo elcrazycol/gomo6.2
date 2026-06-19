@@ -7,14 +7,16 @@ import (
 	"log"
 	"time"
 
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 // AchievementChecker handles automatic achievement awarding when users perform actions.
 type AchievementChecker struct {
 	db    *sql.DB
-	redis interface{}
-	wsHub interface{}
+	redis *redis.Client
+	wsHub *websocket.Hub
 }
 
 // NewAchievementChecker creates a new achievement checker.
@@ -23,10 +25,10 @@ func NewAchievementChecker(db *sql.DB) *AchievementChecker {
 }
 
 // SetRedis sets the Redis client for cache/notifications.
-func (ac *AchievementChecker) SetRedis(redis interface{}) { ac.redis = redis }
+func (ac *AchievementChecker) SetRedis(redis *redis.Client) { ac.redis = redis }
 
 // SetWebSocketHub sets the WebSocket hub for real-time notifications.
-func (ac *AchievementChecker) SetWebSocketHub(hub interface{}) { ac.wsHub = hub }
+func (ac *AchievementChecker) SetWebSocketHub(hub *websocket.Hub) { ac.wsHub = hub }
 
 // UnlockedAchievement represents an unlocked or upgraded achievement for notification purposes.
 type UnlockedAchievement struct {
@@ -358,40 +360,45 @@ func (ac *AchievementChecker) sendUnlockNotification(userID string, ach Unlocked
 	message := ach.Description
 
 	var notificationID string
+	var createdAt time.Time
 	err := ac.db.QueryRow(`
 		INSERT INTO notifications (user_id, type, title, message, is_read, created_at)
 		VALUES ($1, 'achievement_unlock', $2, $3, false, $4)
-		RETURNING id
-	`, userID, title, message, time.Now()).Scan(&notificationID)
+		RETURNING id, created_at
+	`, userID, title, message, time.Now()).Scan(&notificationID, &createdAt)
 	if err != nil {
 		log.Printf("[Achievements] notification insert error: %v", err)
+		return ""
+	}
+
+	if ac.redis != nil {
+		middleware.InvalidateCacheForNotification(ac.redis, userID)
 	}
 
 	if ac.wsHub != nil {
-		if hub, ok := ac.wsHub.(*websocket.Hub); ok {
-			if err := hub.PublishNewNotification(map[string]interface{}{
-				"id":              notificationID,
-				"user_id":         userID,
-				"type":            "achievement_unlock",
-				"title":           title,
-				"message":         message,
-				"notification_id": notificationID,
-				"is_read":         false,
-				"achievement": map[string]interface{}{
-					"id":            ach.ID,
-					"group_key":     ach.GroupKey,
-					"name":          ach.Name,
-					"description":   ach.Description,
-					"icon":          ach.Icon,
-					"rarity":        ach.Rarity,
-					"level":         ach.Level,
-					"max_level":     ach.MaxLevel,
-					"is_first_time": ach.IsFirstTime,
-					"prev_level":    ach.PrevLevel,
-				},
-			}); err != nil {
-				log.Printf("[Achievements] WS notification error: %v", err)
-			}
+		if err := ac.wsHub.PublishNewNotification(map[string]interface{}{
+			"id":              notificationID,
+			"user_id":         userID,
+			"type":            "achievement_unlock",
+			"title":           title,
+			"message":         message,
+			"notification_id": notificationID,
+			"is_read":         false,
+			"created_at":      createdAt.Format(time.RFC3339Nano),
+			"achievement": map[string]interface{}{
+				"id":            ach.ID,
+				"group_key":     ach.GroupKey,
+				"name":          ach.Name,
+				"description":   ach.Description,
+				"icon":          ach.Icon,
+				"rarity":        ach.Rarity,
+				"level":         ach.Level,
+				"max_level":     ach.MaxLevel,
+				"is_first_time": ach.IsFirstTime,
+				"prev_level":    ach.PrevLevel,
+			},
+		}); err != nil {
+			log.Printf("[Achievements] WS notification error: %v", err)
 		}
 	}
 

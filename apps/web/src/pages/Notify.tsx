@@ -34,30 +34,50 @@ const Notify = () => {
   const markAllAsRead = useNotificationStore((s) => s.markAllAsRead);
 
   const attachSlugs = useCallback(async (notifs: Notification[]): Promise<NotifWithSlug[]> => {
-    const withSlugs = await Promise.all(
-      notifs.map(async (notif): Promise<NotifWithSlug> => {
-        if (!notif.related_thread_id) return notif as NotifWithSlug;
-        try {
-          const threadResp = await apiClient.request<{ data: { board_id?: string } }>(
-            `/api/v1/threads/${notif.related_thread_id}?select=board_id`
-          );
-          const threadData = (threadResp as { data?: { board_id?: string } }).data;
-          if (threadData?.board_id) {
-            const boardResp = await apiClient.request<{ data: Array<{ slug?: string }> }>(
-              `/api/v1/boards?id=eq.${threadData.board_id}&select=slug`
-            );
-            const boardDataArr = (boardResp as { data?: Array<{ slug?: string }> }).data;
-            if (Array.isArray(boardDataArr) && boardDataArr.length > 0) {
-              return { ...notif, thread_slug: boardDataArr[0]?.slug } as NotifWithSlug;
-            }
-          }
-        } catch {
-          // Ignore individual lookup failures
+    const threadIds = [...new Set(
+      notifs.filter((n) => n.related_thread_id).map((n) => n.related_thread_id!)
+    )];
+    if (threadIds.length === 0) return notifs as NotifWithSlug[];
+
+    const threadMap = new Map<string, string>();
+    try {
+      const threadResp = await apiClient.request<{ data: Array<{ id: string; board_id?: string }> }>(
+        `/api/v1/threads?id=in.(${threadIds.join(',')})&select=id,board_id`
+      );
+      const threads = (threadResp as unknown as { data?: Array<{ id: string; board_id?: string }> }).data;
+      if (Array.isArray(threads)) {
+        for (const t of threads) {
+          if (t.board_id) threadMap.set(t.id, t.board_id);
         }
-        return notif as NotifWithSlug;
-      })
-    );
-    return withSlugs;
+      }
+    } catch {
+      // Individual fallback not needed — best effort
+    }
+
+    const boardIds = [...new Set(threadMap.values())];
+    const boardSlugMap = new Map<string, string>();
+    if (boardIds.length > 0) {
+      try {
+        const boardResp = await apiClient.request<{ data: Array<{ id: string; slug?: string }> }>(
+          `/api/v1/boards?id=in.(${boardIds.join(',')})&select=id,slug`
+        );
+        const boards = (boardResp as unknown as { data?: Array<{ id: string; slug?: string }> }).data;
+        if (Array.isArray(boards)) {
+          for (const b of boards) {
+            if (b.slug) boardSlugMap.set(b.id, b.slug);
+          }
+        }
+      } catch {
+        // Best effort
+      }
+    }
+
+    return notifs.map((notif): NotifWithSlug => {
+      if (!notif.related_thread_id) return notif as NotifWithSlug;
+      const boardId = threadMap.get(notif.related_thread_id);
+      const slug = boardId ? boardSlugMap.get(boardId) : undefined;
+      return { ...notif, thread_slug: slug } as NotifWithSlug;
+    });
   }, []);
 
   useEffect(() => {

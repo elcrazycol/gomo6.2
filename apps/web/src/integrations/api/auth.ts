@@ -1,6 +1,7 @@
 // Auth module — extracted from client_simple.ts
 // Provides api.auth compatibility layer backed by Go backend
 import { apiClient, getDeviceId } from './client';
+import { useNotificationStore } from '@/stores/notificationStore';
 
 export const apiAuth = {
   signUp: async ({ email, password, options }: { email: string; password: string; options?: { data?: { username?: string } } }) => {
@@ -33,6 +34,7 @@ export const apiAuth = {
     }
   },
   signOut: async () => {
+    useNotificationStore.getState().cleanup();
     apiClient.logout();
     return { error: null };
   },
