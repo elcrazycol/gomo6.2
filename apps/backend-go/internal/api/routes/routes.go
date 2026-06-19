@@ -19,7 +19,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub, botManager interface{}) {
+func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub) {
 	// Readiness check (registered after all initialization is complete)
 	// Docker healthcheck uses /health (registered in main.go BEFORE heavy init)
 	// This /ready endpoint confirms the full stack is operational
@@ -54,9 +54,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Initialize WebAuthn handler for passkey support (Redis-backed sessions)
 	webauthnHandler := handlers.NewWebAuthnHandler(db, redis, authService)
 
-	// Initialize BotEventPublisher
-	botEventPublisher := handlers.NewBotEventPublisher(redis)
-
 	// Initialize WebSocket handler if hub is provided
 	var wsHandler *websocket.Handler
 	if wsHub != nil {
@@ -87,18 +84,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	rpcHandler := handlers.NewRPCHandler(db)
 	rpcHandler.SetRedis(redis)
 	rpcHandler.SetWebSocketHub(wsHub)
-	rpcHandler.SetBotEventPublisher(botEventPublisher)
 	rpcHandler.SetAchievementChecker(achChecker)
 	universalHandler := handlers.NewUniversalHandler(db, wsHub)
-	universalHandler.SetBotEventPublisher(botEventPublisher)
 	universalHandler.SetRedis(redis)
 	universalHandler.SetAchievementChecker(achChecker)
 	searchHandler := handlers.NewSearchHandler(db)
 	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	audioHandler := handlers.NewAudioHandler()
-	botHandler := handlers.NewBotHandler(db)
-	botHandler.SetBotManager(botManager)
 	userStatusHandler := handlers.NewUserStatusHandler(db, wsHub)
 	giftsHandler := handlers.NewGiftsHandler(db)
 	giftsHandler.SetRedis(redis)
@@ -129,21 +122,6 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			claims := claimsInterface.(*auth.Claims)
 			c.JSON(200, gin.H{"user_id": claims.UserID, "message": "Auth works!"})
 		})
-
-		// Bot routes (protected)
-		bots := api.Group("/bots")
-		bots.Use(middleware.AuthMiddleware(authService))
-		{
-			bots.POST("", botHandler.CreateBot)
-			bots.GET("", botHandler.GetBots)
-			bots.GET("/:id", botHandler.GetBot)
-			bots.PUT("/:id", botHandler.UpdateBot)
-			bots.DELETE("/:id", botHandler.DeleteBot)
-			bots.POST("/:id/toggle", botHandler.ToggleBot)
-			bots.GET("/:id/logs", botHandler.GetBotLogs)
-			bots.GET("/:id/stats", botHandler.GetBotStats)
-			bots.DELETE("/:id/logs", botHandler.ClearBotLogs)
-		}
 
 		// Auth routes
 		authGroup := api.Group("/auth")

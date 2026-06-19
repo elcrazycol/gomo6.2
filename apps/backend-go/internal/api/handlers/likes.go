@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -120,19 +118,6 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 		middleware.InvalidateCacheForThreadLike(h.redis, threadID, "")
 	}
 
-	// Publish bot event
-	if h.redis != nil {
-		eventData, _ := json.Marshal(map[string]interface{}{
-			"type": "thread_like",
-			"data": map[string]interface{}{
-				"thread_id": threadID,
-				"user_id":   userClaims.UserID,
-				"like_id":   like.ID,
-			},
-		})
-		h.redis.Publish(context.Background(), "bot:events", eventData)
-	}
-
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
 }
 
@@ -176,18 +161,6 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	// Invalidate cache for thread and its posts
 	if h.redis != nil {
 		middleware.InvalidateCacheForThreadLike(h.redis, threadID, "")
-	}
-
-	// Publish bot event
-	if h.redis != nil {
-		eventData, _ := json.Marshal(map[string]interface{}{
-			"type": "thread_unlike",
-			"data": map[string]interface{}{
-				"thread_id": threadID,
-				"user_id":   userClaims.UserID,
-			},
-		})
-		h.redis.Publish(context.Background(), "bot:events", eventData)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
@@ -275,19 +248,6 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 		middleware.InvalidateCacheForPostLike(h.redis, postID, threadID)
 	}
 
-	// Publish bot event
-	if h.redis != nil {
-		eventData, _ := json.Marshal(map[string]interface{}{
-			"type": "post_like",
-			"data": map[string]interface{}{
-				"post_id": postID,
-				"user_id": userClaims.UserID,
-				"like_id": like.ID,
-			},
-		})
-		h.redis.Publish(context.Background(), "bot:events", eventData)
-	}
-
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
 }
 
@@ -331,18 +291,6 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 	// Invalidate cache for post and its thread
 	if h.redis != nil {
 		middleware.InvalidateCacheForPostLike(h.redis, postID, threadID)
-	}
-
-	// Publish bot event
-	if h.redis != nil {
-		eventData, _ := json.Marshal(map[string]interface{}{
-			"type": "post_unlike",
-			"data": map[string]interface{}{
-				"post_id": postID,
-				"user_id": userClaims.UserID,
-			},
-		})
-		h.redis.Publish(context.Background(), "bot:events", eventData)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))

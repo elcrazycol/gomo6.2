@@ -591,56 +591,6 @@ func TestPollRequest_AllOptions(t *testing.T) {
 }
 
 // =============================================================================
-// Bot model tests
-// =============================================================================
-
-func TestBot(t *testing.T) {
-	b := Bot{
-		ID:          "bot-1",
-		OwnerID:     "user-1",
-		Username:    "helper-bot",
-		DisplayName: "Helper Bot",
-		LuaCode:     "print('hello')",
-		Token:       "secret-token",
-		IsActive:    true,
-	}
-	if !b.IsActive {
-		t.Error("Expected IsActive=true")
-	}
-	if b.Username != "helper-bot" || b.DisplayName != "Helper Bot" {
-		t.Errorf("Bot fields mismatch: %+v", b)
-	}
-}
-
-func TestBotLog(t *testing.T) {
-	now := time.Now()
-	bl := BotLog{
-		ID:        "log-1",
-		BotID:     "bot-1",
-		Level:     "error",
-		Message:   "Something failed",
-		CreatedAt: now,
-	}
-	if bl.Level != "error" || bl.Message != "Something failed" {
-		t.Errorf("BotLog fields mismatch: %+v", bl)
-	}
-}
-
-func TestBotStats(t *testing.T) {
-	bs := BotStats{
-		ID:                "stats-1",
-		BotID:             "bot-1",
-		MessagesSent:      100,
-		MessagesReceived:  200,
-		CommandsProcessed: 50,
-		ErrorsCount:       5,
-	}
-	if bs.MessagesSent != 100 || bs.ErrorsCount != 5 {
-		t.Errorf("BotStats fields mismatch: %+v", bs)
-	}
-}
-
-// =============================================================================
 // Federation model tests
 // =============================================================================
 
@@ -692,56 +642,6 @@ func TestThreadWithBoards(t *testing.T) {
 }
 
 // =============================================================================
-// Bot request types tests
-// =============================================================================
-
-func TestCreateBotRequest(t *testing.T) {
-	desc := "A helpful bot"
-	req := CreateBotRequest{
-		Username:    "my-bot",
-		DisplayName: "My Bot",
-		Description: &desc,
-		LuaCode:     "print('hi')",
-	}
-	if req.Username != "my-bot" || req.DisplayName != "My Bot" {
-		t.Errorf("CreateBotRequest fields mismatch: %+v", req)
-	}
-	if req.Description == nil || *req.Description != "A helpful bot" {
-		t.Errorf("Description mismatch: %v", req.Description)
-	}
-}
-
-func TestUpdateBotRequest(t *testing.T) {
-	active := true
-	name := "Updated Bot"
-	req := UpdateBotRequest{
-		DisplayName: &name,
-		IsActive:    &active,
-	}
-	if req.DisplayName == nil || *req.DisplayName != "Updated Bot" {
-		t.Errorf("DisplayName mismatch")
-	}
-	if req.IsActive == nil || !*req.IsActive {
-		t.Errorf("IsActive mismatch")
-	}
-}
-
-func TestUpdateBotRequest_PartialUpdate(t *testing.T) {
-	req := UpdateBotRequest{
-		IsActive: boolPtr(false),
-	}
-	if req.DisplayName != nil {
-		t.Error("Expected DisplayName=nil for partial update")
-	}
-	if req.LuaCode != nil {
-		t.Error("Expected LuaCode=nil for partial update")
-	}
-	if req.IsActive == nil || *req.IsActive {
-		t.Error("Expected IsActive=false")
-	}
-}
-
-// =============================================================================
 // Register/Login request tests
 // =============================================================================
 
@@ -765,9 +665,4 @@ func TestLoginRequest(t *testing.T) {
 	if req.Email != "test@example.com" || req.Password != "secret" {
 		t.Errorf("LoginRequest fields mismatch")
 	}
-}
-
-// helpers
-func boolPtr(b bool) *bool {
-	return &b
 }

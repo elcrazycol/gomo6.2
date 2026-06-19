@@ -488,19 +488,6 @@ const Settings = () => {
                 <div className="bg-card p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">Основные настройки</h2>
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors">
-                      <div>
-                        <label className="text-sm font-medium">Боты</label>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Управление ботами на Lua
-                        </p>
-                      </div>
-                      <Link to="/bots">
-                        <Button variant="outline" size="sm">
-                          Открыть
-                        </Button>
-                      </Link>
-                    </div>
                     <div>
                       <label className="text-sm font-medium">Язык</label>
                       <p className="text-sm text-muted-foreground mt-1">

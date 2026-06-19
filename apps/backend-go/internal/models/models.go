@@ -342,57 +342,6 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// Bot models
-type Bot struct {
-	ID          string    `json:"id" db:"id"`
-	OwnerID     string    `json:"owner_id" db:"owner_id"`
-	Username    string    `json:"username" db:"username"`
-	DisplayName string    `json:"display_name" db:"display_name"`
-	AvatarURL   *string   `json:"avatar_url" db:"avatar_url"`
-	Description *string   `json:"description" db:"description"`
-	LuaCode     string    `json:"lua_code" db:"lua_code"`
-	Token       string    `json:"token" db:"token"`
-	IsActive    bool      `json:"is_active" db:"is_active"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
-}
-
-type BotLog struct {
-	ID        string          `json:"id" db:"id"`
-	BotID     string          `json:"bot_id" db:"bot_id"`
-	Level     string          `json:"level" db:"level"`
-	Message   string          `json:"message" db:"message"`
-	Context   json.RawMessage `json:"context" db:"context"`
-	CreatedAt time.Time       `json:"created_at" db:"created_at"`
-}
-
-type BotStats struct {
-	ID                string    `json:"id" db:"id"`
-	BotID             string    `json:"bot_id" db:"bot_id"`
-	MessagesSent      int       `json:"messages_sent" db:"messages_sent"`
-	MessagesReceived  int       `json:"messages_received" db:"messages_received"`
-	CommandsProcessed int       `json:"commands_processed" db:"commands_processed"`
-	ErrorsCount       int       `json:"errors_count" db:"errors_count"`
-	Date              time.Time `json:"date" db:"date"`
-}
-
-// Bot request types
-type CreateBotRequest struct {
-	Username    string  `json:"username" binding:"required,min=3,max=50"`
-	DisplayName string  `json:"display_name" binding:"required,min=1,max=100"`
-	AvatarURL   *string `json:"avatar_url"`
-	Description *string `json:"description"`
-	LuaCode     string  `json:"lua_code"`
-}
-
-type UpdateBotRequest struct {
-	DisplayName *string `json:"display_name"`
-	AvatarURL   *string `json:"avatar_url"`
-	Description *string `json:"description"`
-	LuaCode     *string `json:"lua_code"`
-	IsActive    *bool   `json:"is_active"`
-}
-
 // GomosubInvite — invite link for private gomosubs
 type GomosubInvite struct {
 	ID          string     `json:"id" db:"id"`
