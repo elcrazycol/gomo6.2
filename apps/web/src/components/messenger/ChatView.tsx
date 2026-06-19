@@ -61,10 +61,7 @@ export const ChatView = memo(function ChatView({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messageScrollRef]);
 
-  useLayoutEffect(() => {
-    if (shouldAutoScroll.current) pinToBottom();
-  });
-
+  // Auto-scroll only when conversation changes (initial load)
   useLayoutEffect(() => {
     shouldAutoScroll.current = true;
     pinToBottom();
@@ -74,17 +71,21 @@ export const ChatView = memo(function ChatView({
     const el = messageScrollRef.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    shouldAutoScroll.current = dist <= 64;
+    shouldAutoScroll.current = dist <= 32;
     if (dist > 128 && !isScrolledUp) setIsScrolledUp(true);
-    if (dist <= 64 && isScrolledUp) setIsScrolledUp(false);
+    if (dist <= 32 && isScrolledUp) setIsScrolledUp(false);
   }, [isScrolledUp, messageScrollRef]);
 
+  // Auto-scroll on new messages only if user is at bottom
   useEffect(() => {
+    if (messages.length > prevLength.current && shouldAutoScroll.current) {
+      pinToBottom();
+    }
     if (isScrolledUp && messages.length > prevLength.current) {
       setNewMessageCount((c) => c + (messages.length - prevLength.current));
     }
     prevLength.current = messages.length;
-  }, [messages.length, isScrolledUp]);
+  }, [messages.length, isScrolledUp, pinToBottom]);
 
   // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {
