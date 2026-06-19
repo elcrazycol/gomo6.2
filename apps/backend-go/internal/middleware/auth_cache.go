@@ -19,6 +19,12 @@ import (
 // This significantly reduces load on JWT validation and database queries.
 func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// If claims already set (e.g. by BotAuthMiddleware or OptionalAuthMiddleware), skip
+		if _, exists := c.Get("claims"); exists {
+			c.Next()
+			return
+		}
+
 		// Try Authorization header first
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
