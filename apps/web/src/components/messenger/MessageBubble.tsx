@@ -151,6 +151,7 @@ export const MessageBubble = memo(function MessageBubble({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
+        onContextMenu={(e) => { if (isTouchDevice.current) e.preventDefault(); }}
       >
         {!isTouchDevice.current && showDots && (
           <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}`} ref={menuRef}>
