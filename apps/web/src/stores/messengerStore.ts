@@ -96,7 +96,7 @@ type MessengerStore = {
   loadConversations: () => Promise<void>;
   ensureConversation: (conversationId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
-  sendMessage: (content: string, clientId: string) => Promise<string>;
+  sendMessage: (content: string, clientId: string, parentMessageId?: string) => Promise<string>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   markRead: (messageId: string) => Promise<void>;
@@ -180,7 +180,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   // ── Send message ──────────────────────────────────────────────────────
-  sendMessage: async (content: string, clientId: string) => {
+  sendMessage: async (content: string, clientId: string, parentMessageId?: string) => {
     const { selectedConversationId } = get();
     if (!selectedConversationId) return "";
 
@@ -190,7 +190,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       id: tempId,
       conversation_id: selectedConversationId,
       sender_user_id: get().me!.id,
-      parent_message_id: null,
+      parent_message_id: parentMessageId ?? null,
       content,
       is_edited: false,
       is_deleted: false,
@@ -202,7 +202,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set((s) => ({ messages: [...s.messages, optimistic], isSending: true }));
 
     try {
-      const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId);
+      const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId, parentMessageId);
       const sentAt = msg.sent_at;
       set((s) => {
         // Update message from optimistic to real

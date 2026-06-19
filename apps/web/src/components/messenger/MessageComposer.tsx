@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
-import { SendHorizontal, X, Pencil } from "lucide-react";
+import { SendHorizontal, X, Pencil, CornerDownRight } from "lucide-react";
+import type { MessageView } from "./types";
 
 const MAX_LENGTH = 4000;
 const TYPING_DEBOUNCE_MS = 500;
@@ -16,6 +17,9 @@ interface Props {
   editingContent?: string;
   onCancelEdit?: () => void;
   onSaveEdit?: (messageId: string, content: string) => void;
+  replyToMessage?: MessageView | null;
+  replySenderLabel?: string;
+  onCancelReply?: () => void;
 }
 
 export const MessageComposer = memo(function MessageComposer({
@@ -29,6 +33,9 @@ export const MessageComposer = memo(function MessageComposer({
   editingContent,
   onCancelEdit,
   onSaveEdit,
+  replyToMessage,
+  replySenderLabel,
+  onCancelReply,
 }: Props) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
@@ -131,6 +138,18 @@ export const MessageComposer = memo(function MessageComposer({
 
   return (
     <form className={`composer${isSending ? " is-sending" : ""}`} onSubmit={handleSubmit}>
+      {replyToMessage && (
+        <div className="composer-reply-banner">
+          <CornerDownRight size={14} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
+          <span className="reply-label">{replySenderLabel}</span>
+          <span className="reply-text">
+            {replyToMessage.is_deleted ? "Удалено" : replyToMessage.content.slice(0, 120)}
+          </span>
+          <button type="button" className="composer-reply-cancel" onClick={onCancelReply} aria-label="Отменить ответ">
+            <X size={14} />
+          </button>
+        </div>
+      )}
       {isEditing && (
         <div className="composer-edit-banner">
           <Pencil size={13} />

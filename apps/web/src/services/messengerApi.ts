@@ -82,10 +82,10 @@ export const messengerApi = {
     return req<MessageView[]>(`/conversations/${conversationId}/messages${params}`);
   },
 
-  async sendMessage(conversationId: string, content: string, clientId: string): Promise<MessageView> {
+  async sendMessage(conversationId: string, content: string, clientId: string, parentMessageId?: string): Promise<MessageView> {
     return req<MessageView>(`/conversations/${conversationId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content, client_id: clientId }),
+      body: JSON.stringify({ content, client_id: clientId, ...(parentMessageId ? { parent_message_id: parentMessageId } : {}) }),
     });
   },
 
