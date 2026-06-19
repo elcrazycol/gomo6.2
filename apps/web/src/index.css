@@ -1094,6 +1094,13 @@ html, body {
   user-select: none;
 }
 
+/* Restore text selection inside messages even when panel has user-select:none */
+.chat-panel.is-open .message-content p,
+.chat-panel.is-open .message-content span {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Extra guard during long-press */
 .bubble-row-inner.is-long-press,
 .bubble-row-inner.is-long-press * {
@@ -1738,6 +1745,10 @@ html, body {
     height: 100dvh;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    opacity: 0;
   }
 
   .messenger-shell.mobile-chat-open .sidebar-panel {
