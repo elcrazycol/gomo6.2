@@ -36,6 +36,7 @@ export const MessageBubble = memo(function MessageBubble({
   const [tapPos, setTapPos] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const isTouchDevice = useRef(false);
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   useEffect(() => {
     isTouchDevice.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -63,16 +64,28 @@ export const MessageBubble = memo(function MessageBubble({
     setTapPos(null);
   }, []);
 
-  const handleBubbleTap = useCallback((e: React.TouchEvent) => {
-    if (!isTouchDevice.current) return;
-    e.preventDefault();
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
     if (!touch) return;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isTouchDevice.current) return;
+    const start = touchStartRef.current;
+    if (!start) return;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const dx = Math.abs(touch.clientX - start.x);
+    const dy = Math.abs(touch.clientY - start.y);
+    const dt = Date.now() - start.time;
+    if (dx > 10 || dy > 10 || dt > 400) return;
+
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = touch.clientX - rect.left;
     const y = touch.clientY - rect.top;
     setTapPos({ x, y });
-    setMenuOpen((v) => !v);
+    setMenuOpen(true);
   }, []);
 
   const getStatusIcon = () => {
@@ -98,10 +111,9 @@ export const MessageBubble = memo(function MessageBubble({
       className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
       onMouseEnter={() => setShowDots(true)}
       onMouseLeave={() => { setShowDots(false); setMenuOpen(false); setTapPos(null); }}
-      onClick={() => { if (!isTouchDevice.current) return; }}
-      onTouchStart={handleBubbleTap}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
-      {/* Desktop: three-dot button */}
       {!isTouchDevice.current && showDots && (
         <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}`} ref={menuRef}>
           <button
@@ -133,19 +145,22 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       )}
 
-      {/* Mobile: floating context menu at tap position */}
       {isTouchDevice.current && menuOpen && tapPos && (
         <div
           ref={menuRef}
           className="msg-actions-float"
           style={{ left: tapPos.x, top: tapPos.y }}
         >
-          <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onEdit(message.id, message.content))}>
-            <Pencil size={14} /><span>Редактировать</span>
-          </button>
-          <button type="button" className="msg-actions-item msg-actions-item-danger" onClick={() => handleAction(() => onDelete(message.id))}>
-            <Trash2 size={14} /><span>Удалить</span>
-          </button>
+          {isMine && !message.is_deleted && (
+            <>
+              <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onEdit(message.id, message.content))}>
+                <Pencil size={14} /><span>Редактировать</span>
+              </button>
+              <button type="button" className="msg-actions-item msg-actions-item-danger" onClick={() => handleAction(() => onDelete(message.id))}>
+                <Trash2 size={14} /><span>Удалить</span>
+              </button>
+            </>
+          )}
           <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onTogglePin(message.id))}>
             {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
             <span>{isPinned ? "Открепить" : "Закрепить"}</span>
