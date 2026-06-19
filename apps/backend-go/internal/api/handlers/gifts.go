@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/google/uuid"
@@ -179,13 +180,19 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 	message := fmt.Sprintf("Вы получили подарок «%s» от %s", giftName, senderName)
 
 	var notificationID string
+	var createdAt time.Time
 	err := h.db.QueryRow(`
 		INSERT INTO notifications (user_id, type, title, message, is_read, created_at)
 		VALUES ($1, 'gift_received', $2, $3, false, $4)
-		RETURNING id
-	`, recipientID, title, message, time.Now()).Scan(&notificationID)
+		RETURNING id, created_at
+	`, recipientID, title, message, time.Now()).Scan(&notificationID, &createdAt)
 	if err != nil {
 		log.Printf("[Gifts] notification insert error: %v", err)
+		return
+	}
+
+	if h.redis != nil {
+		middleware.InvalidateCacheForNotification(h.redis, recipientID)
 	}
 
 	if h.hub != nil {
@@ -197,6 +204,7 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 			"message":         message,
 			"notification_id": notificationID,
 			"is_read":         false,
+			"created_at":      createdAt.Format(time.RFC3339Nano),
 		}); err != nil {
 			log.Printf("[Gifts] WS notification error: %v", err)
 		}

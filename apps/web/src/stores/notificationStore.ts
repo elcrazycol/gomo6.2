@@ -43,6 +43,7 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null;
 let wsUnsub: (() => void) | null = null;
 let wsConnectedUnsub: (() => void) | null = null;
 let initializedUserId: string | null = null;
+let lastReconnectFetch: number = 0;
 
 export const useNotificationStore = create<NotificationStore>((set, get) => ({
   notifications: [],
@@ -56,6 +57,13 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 
   init: (userId: string) => {
     if (initializedUserId === userId && get().initialized) return;
+
+    // Clean up previous handlers before re-initializing (prevents leaks on re-login)
+    if (initializedUserId !== null) {
+      if (wsUnsub) { wsUnsub(); wsUnsub = null; }
+      if (wsConnectedUnsub) { wsConnectedUnsub(); wsConnectedUnsub = null; }
+      if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+    }
     initializedUserId = userId;
 
     set({ isLoading: true, notifications: [], offset: 0, hasMore: true });
@@ -102,6 +110,11 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     wsConnectedUnsub = wsService.on("connected", () => {
       wsService.subscribeToNotifications(userId);
       get().fetchUnreadCount();
+      // Throttle re-fetch to prevent storm on flaky connections
+      if (!lastReconnectFetch || Date.now() - lastReconnectFetch > 2000) {
+        lastReconnectFetch = Date.now();
+        get().fetchInitial();
+      }
     });
 
     pollingInterval = setInterval(() => {
@@ -125,10 +138,19 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       const resp = await apiClient.getNotifications(params);
       const data = (resp.data as Notification[] | null) ?? [];
 
-      set({
-        notifications: data,
-        offset: data.length,
-        hasMore: resp.has_more ?? data.length >= PAGE_SIZE,
+      set((state) => {
+        // Preserve WS-pushed notifications that arrived during the fetch
+        const wsOnly = state.notifications.filter(
+          (wsNotif) => !data.some((n) => n.id === wsNotif.id)
+        );
+        const merged = [...wsOnly, ...data].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        return {
+          notifications: merged,
+          offset: data.length,
+          hasMore: resp.has_more ?? data.length >= PAGE_SIZE,
+        };
       });
     } catch {
       // Silent
@@ -178,6 +200,9 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   },
 
   markAsRead: (id: string) => {
+    const prevNotifications = get().notifications;
+    const prevCount = get().unreadCount;
+
     set((state) => {
       const target = state.notifications.find((n) => n.id === id && !n.is_read);
       if (!target) return {};
@@ -189,16 +214,23 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       };
     });
 
-    apiClient.markNotificationAsRead(id).catch(() => {});
+    apiClient.markNotificationAsRead(id).catch(() => {
+      set({ notifications: prevNotifications, unreadCount: prevCount });
+    });
   },
 
   markAllAsRead: () => {
+    const prevNotifications = get().notifications;
+    const prevCount = get().unreadCount;
+
     set((state) => ({
       notifications: state.notifications.map((n) => ({ ...n, is_read: true })),
       unreadCount: 0,
     }));
 
-    apiClient.markAllNotificationsAsRead().catch(() => {});
+    apiClient.markAllNotificationsAsRead().catch(() => {
+      set({ notifications: prevNotifications, unreadCount: prevCount });
+    });
   },
 
   clearAchievement: () => {

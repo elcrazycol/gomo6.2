@@ -409,7 +409,6 @@ class WebSocketService {
     }
     
     this.subscribedRooms.clear();
-    this.messageHandlers.clear();
     
     if (this.ws) {
       // Remove listeners before closing to prevent reconnection

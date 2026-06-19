@@ -84,7 +84,7 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
               </p>
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {notifications.slice(0, 5).map((notif) => {
+                {notifications.map((notif) => {
                   const link = notif.related_thread_id
                     ? `/notify?thread=${notif.related_thread_id}`
                     : '#';
