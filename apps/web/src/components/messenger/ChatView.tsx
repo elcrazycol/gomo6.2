@@ -20,15 +20,6 @@ interface Props {
   onTyping: (isTyping: boolean) => void;
 }
 
-interface Props {
-  onBack: () => void;
-  composerRef: React.RefObject<HTMLTextAreaElement | null>;
-  messageScrollRef: React.RefObject<HTMLDivElement | null>;
-  endRef: React.RefObject<HTMLDivElement | null>;
-  typingUsername?: string | null;
-  onTyping: (isTyping: boolean) => void;
-}
-
 export const ChatView = memo(function ChatView({
   onBack,
   composerRef,
@@ -59,6 +50,7 @@ export const ChatView = memo(function ChatView({
   const [editingContent, setEditingContent] = useState<string>("");
   const [showUserInfo, setShowUserInfo] = useState(false);
   const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
+  const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const shouldAutoScroll = useRef(true);
   const prevLength = useRef(0);
 
@@ -96,25 +88,6 @@ export const ChatView = memo(function ChatView({
     prevLength.current = messages.length;
   }, [messages.length, isScrolledUp, pinToBottom]);
 
-  // ── Custom touch scroll (touch-action:none on container, JS scroll) ──
-  const scrollTouchY = useRef(0);
-  const scrollTouchTop = useRef(0);
-
-  const onScrollTouchStart = useCallback((e: React.TouchEvent) => {
-    const el = messageScrollRef.current;
-    if (!el) return;
-    scrollTouchY.current = e.touches[0].clientY;
-    scrollTouchTop.current = el.scrollTop;
-  }, [messageScrollRef]);
-
-  const onScrollTouchMove = useCallback((e: React.TouchEvent) => {
-    const el = messageScrollRef.current;
-    if (!el) return;
-    const dy = scrollTouchY.current - e.touches[0].clientY;
-    el.scrollTop = scrollTouchTop.current + dy;
-    handleScroll();
-  }, [messageScrollRef, handleScroll]);
-
   // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {
     if (!me?.id || !conversation || messages.length === 0) return;
@@ -139,13 +112,34 @@ export const ChatView = memo(function ChatView({
     }
   }, [conversation?.pinned_message_id, messages]);
 
+  const handleReply = useCallback((msg: MessageView) => {
+    setReplyToMessage(msg);
+    setTimeout(() => composerRef.current?.focus(), 50);
+  }, [composerRef]);
+
+  const handleCopy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    });
+  }, []);
+
+  const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
+
   const handleSend = useCallback(() => {
     if (!draft.trim() || isSending) return;
     const clientId = `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    sendMessage(draft.trim(), clientId);
+    sendMessage(draft.trim(), clientId, replyToMessage?.id ?? undefined);
     setDraft("");
+    setReplyToMessage(null);
     setTimeout(pinToBottom, 50);
-  }, [draft, isSending, sendMessage, pinToBottom]);
+  }, [draft, isSending, sendMessage, pinToBottom, replyToMessage]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
     setEditingMessageId(msgId);
@@ -254,7 +248,7 @@ export const ChatView = memo(function ChatView({
       </div>
 
       {/* Messages */}
-      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll} onTouchStart={onScrollTouchStart} onTouchMove={onScrollTouchMove}>
+      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll}>
         {error && (
           <div className="error-banner chat-error-banner">
             <span>{error}</span>
@@ -323,6 +317,8 @@ export const ChatView = memo(function ChatView({
                     onDelete={deleteMessage}
                     onTogglePin={(id) => togglePin(id)}
                     onRetry={(m) => sendMessage(m.content, m.client_id)}
+                    onReply={handleReply}
+                    onCopy={handleCopy}
                     quotedMessage={quoted}
                     peerReadAt={peerReceipt?.read_at ?? null}
                     peerDeliveredAt={peerReceipt?.delivered_at ?? null}
@@ -356,6 +352,9 @@ export const ChatView = memo(function ChatView({
         editingContent={editingContent}
         onCancelEdit={handleCancelEdit}
         onSaveEdit={handleSaveEdit}
+        replyToMessage={replyToMessage}
+        replySenderLabel={replyToMessage ? (replyToMessage.sender_user_id === me?.id ? "Вы" : "Собеседник") : undefined}
+        onCancelReply={handleCancelReply}
       />
 
       {/* Scroll to bottom button */}

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { MessageBubble } from "./MessageBubble";
 import type { MessageView } from "./types";
@@ -21,20 +21,21 @@ function createMessage(overrides: Partial<MessageView> = {}): MessageView {
 
 const noop = vi.fn();
 
+const defaultProps = {
+  isMine: false,
+  isConsecutive: false,
+  isPinned: false,
+  onEdit: noop,
+  onDelete: noop,
+  onTogglePin: noop,
+  onRetry: noop,
+  onReply: noop,
+  onCopy: noop,
+};
+
 describe("MessageBubble", () => {
   it("renders message text", () => {
-    render(
-      <MessageBubble
-        message={createMessage()}
-        isMine={false}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
-      />,
-    );
+    render(<MessageBubble message={createMessage()} {...defaultProps} />);
     expect(screen.getByText("Hello, world!")).toBeInTheDocument();
   });
 
@@ -42,13 +43,7 @@ describe("MessageBubble", () => {
     render(
       <MessageBubble
         message={createMessage({ sent_at: "2025-06-01T14:30:00Z" })}
-        isMine={false}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
+        {...defaultProps}
       />,
     );
     expect(screen.getByText(/\d{2}:\d{2}/)).toBeInTheDocument();
@@ -58,13 +53,8 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage({ localStatus: "sending" })}
+        {...defaultProps}
         isMine={true}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
       />,
     );
     const dot = container.querySelector(".status-pending");
@@ -75,13 +65,8 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
+        {...defaultProps}
         isMine={true}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
         peerDeliveredAt="2025-06-01T12:01:00Z"
         peerReadAt={null}
       />,
@@ -94,13 +79,8 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
+        {...defaultProps}
         isMine={true}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
         peerDeliveredAt="2025-06-01T12:01:00Z"
         peerReadAt="2025-06-01T12:02:00Z"
       />,
@@ -114,13 +94,7 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
-        isMine={false}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
+        {...defaultProps}
         peerReadAt="2025-06-01T12:02:00Z"
       />,
     );
@@ -131,13 +105,8 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
+        {...defaultProps}
         isMine={true}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
       />,
     );
     const row = container.querySelector(".bubble-row");
@@ -148,13 +117,9 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
+        {...defaultProps}
         isMine={true}
         isConsecutive={true}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
       />,
     );
     const row = container.querySelector(".bubble-row");
@@ -165,13 +130,7 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage({ is_deleted: true, content: "" })}
-        isMine={false}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
+        {...defaultProps}
       />,
     );
     expect(container.querySelector(".deleted-bubble")).toBeInTheDocument();
@@ -182,13 +141,8 @@ describe("MessageBubble", () => {
     render(
       <MessageBubble
         message={createMessage({ is_edited: true })}
+        {...defaultProps}
         isMine={true}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
       />,
     );
     expect(screen.getByText("изм.")).toBeInTheDocument();
@@ -198,13 +152,8 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
-        isMine={false}
-        isConsecutive={false}
+        {...defaultProps}
         isPinned={true}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
       />,
     );
     expect(container.querySelector(".is-pinned")).toBeInTheDocument();
@@ -215,12 +164,8 @@ describe("MessageBubble", () => {
     render(
       <MessageBubble
         message={createMessage({ localStatus: "failed" })}
+        {...defaultProps}
         isMine={true}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
         onRetry={onRetry}
       />,
     );
@@ -245,16 +190,67 @@ describe("MessageBubble", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage()}
-        isMine={false}
-        isConsecutive={false}
-        isPinned={false}
-        onEdit={noop}
-        onDelete={noop}
-        onTogglePin={noop}
-        onRetry={noop}
+        {...defaultProps}
         quotedMessage={quoted}
       />,
     );
     expect(container.querySelector(".quoted-message")).toBeInTheDocument();
+  });
+
+  it("opens context menu on right-click and calls onReply", async () => {
+    const onReply = vi.fn();
+    render(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        onReply={onReply}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    const replyItem = await screen.findByText("Ответить");
+    fireEvent.click(replyItem);
+    expect(onReply).toHaveBeenCalled();
+  });
+
+  it("calls onCopy with message content", async () => {
+    const onCopy = vi.fn();
+    render(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        onCopy={onCopy}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    const copyItem = await screen.findByText("Копировать");
+    fireEvent.click(copyItem);
+    expect(onCopy).toHaveBeenCalledWith("Hello, world!");
+  });
+
+  it("shows Edit and Delete only for own messages in context menu", async () => {
+    render(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByText("Редактировать");
+    expect(screen.getByText("Удалить")).toBeInTheDocument();
+  });
+
+  it("hides Edit and Delete for other user's messages", async () => {
+    render(
+      <MessageBubble
+        message={createMessage()}
+        {...defaultProps}
+        isMine={false}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Hello, world!"));
+    await screen.findByText("Ответить");
+    expect(screen.queryByText("Редактировать")).not.toBeInTheDocument();
+    expect(screen.queryByText("Удалить")).not.toBeInTheDocument();
   });
 });

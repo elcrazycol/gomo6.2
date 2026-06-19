@@ -994,6 +994,73 @@ html, body {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* ── Context menu for messages ── */
+.msg-context-menu {
+  min-width: 180px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  z-index: 50;
+  animation: context-menu-in 0.12s ease;
+}
+
+@keyframes context-menu-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Long-press visual feedback */
+.bubble-row-inner .message-bubble {
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.bubble-row-inner.is-long-press .message-bubble {
+  transform: scale(0.97);
+  background: hsl(var(--primary) / 0.12);
+}
+
+.msg-context-item-danger { color: hsl(var(--destructive)) !important; }
+.msg-context-item-danger:hover,
+.msg-context-item-danger:focus {
+  background: hsl(var(--destructive) / 0.1) !important;
+  color: hsl(var(--destructive)) !important;
+}
+
+/* Prevent text selection on message bubbles — use "Копировать" menu item instead */
+.message-bubble {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Extra guard during long-press */
+.bubble-row-inner.is-long-press,
+.bubble-row-inner.is-long-press * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* ── Composer reply preview ── */
+.composer-reply-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: hsl(var(--primary) / 0.06);
+  border-left: 3px solid hsl(var(--primary));
+  border-radius: 8px;
+  margin: 0 8px 6px;
+  font-size: 13px;
+  animation: fade-in-scale 0.15s ease;
+}
+.composer-reply-banner .reply-label { font-weight: 600; color: hsl(var(--primary)); }
+.composer-reply-banner .reply-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: hsl(var(--foreground) / 0.7); }
+.composer-reply-cancel { background: none; border: none; cursor: pointer; color: hsl(var(--foreground) / 0.5); padding: 2px; border-radius: 4px; display: flex; align-items: center; }
+.composer-reply-cancel:hover { background: hsl(var(--foreground) / 0.1); color: hsl(var(--foreground)); }
+
 /* Pinned message highlight */
 .message-bubble.is-pinned {
   border-color: hsl(var(--primary) / 0.35);
