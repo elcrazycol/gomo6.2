@@ -39,7 +39,6 @@ const GomoSubJoin = lazy(() => import("./pages/GomoSubJoin"));
 const SearchResults = lazy(() => import("./pages/SearchResults"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Notify = lazy(() => import("./pages/Notify"));
-const Bots = lazy(() => import("./pages/Bots"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const Achievements = lazy(() => import("./pages/Achievements"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -154,7 +153,6 @@ const App = () => {
                     <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
                     <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
                     <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
-                    <Route path="bots" element={<AuthGuard><LazyPage component={Bots} /></AuthGuard>} />
                     <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />
                     <Route path="notify" element={<AuthGuard><LazyPage component={Notify} /></AuthGuard>} />
                     <Route path="search" element={<LazyPage component={SearchResults} />} />

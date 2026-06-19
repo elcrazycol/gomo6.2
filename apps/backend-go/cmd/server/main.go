@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/api/routes"
-	"github.com/gomo6/backend/internal/bots"
 	"github.com/gomo6/backend/internal/config"
 	"github.com/gomo6/backend/internal/database"
 	"github.com/gomo6/backend/internal/middleware"
@@ -107,15 +106,6 @@ func main() {
 	go wsHub.Run()
 	log.Printf("WebSocket Hub initialized with allowed origins: %v", cfg.AllowedOrigins)
 
-	// Initialize Bot Manager
-	botManager := bots.NewBotManager(db, redisClient, wsHub)
-	if err := botManager.Start(); err != nil {
-		log.Printf("Warning: Failed to start bot manager: %v", err)
-	} else {
-		log.Println("Bot manager started successfully")
-	}
-	defer botManager.Stop()
-
 	// ── Setup Gin router ────────────────────────────────────────────────
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -123,7 +113,7 @@ func main() {
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())
 
-	routes.SetupRoutes(router, db, redisClient, wsHub, botManager)
+	routes.SetupRoutes(router, db, redisClient, wsHub)
 
 	// pprof for memory profiling
 	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))

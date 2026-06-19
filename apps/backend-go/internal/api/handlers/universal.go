@@ -23,7 +23,6 @@ type UniversalHandler struct {
 	db                 *sql.DB
 	hub                *websocket.Hub
 	redis              *redis.Client
-	botEventPublisher  *BotEventPublisher
 	achievementChecker *AchievementChecker
 }
 
@@ -34,11 +33,6 @@ func NewUniversalHandler(db *sql.DB, hub *websocket.Hub) *UniversalHandler {
 // SetRedis sets the Redis client for cache invalidation
 func (h *UniversalHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
-}
-
-// SetBotEventPublisher sets the bot event publisher
-func (h *UniversalHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
-	h.botEventPublisher = publisher
 }
 
 // SetAchievementChecker sets the achievement checker for auto-unlock

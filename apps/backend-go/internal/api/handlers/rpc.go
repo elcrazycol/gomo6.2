@@ -35,7 +35,6 @@ type RPCHandler struct {
 	db                 *sql.DB
 	redis              *redis.Client
 	wsHub              interface{}
-	botEventPublisher  *BotEventPublisher
 	recomputeStatsFn   func(*sql.DB, string)
 	achievementChecker *AchievementChecker
 }
@@ -60,10 +59,6 @@ func (h *RPCHandler) SetRedis(redis *redis.Client) {
 
 func (h *RPCHandler) SetWebSocketHub(hub interface{}) {
 	h.wsHub = hub
-}
-
-func (h *RPCHandler) SetBotEventPublisher(publisher *BotEventPublisher) {
-	h.botEventPublisher = publisher
 }
 
 // canWriteChannel checks if a user can write to a channel (handles private channels).
@@ -323,16 +318,6 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		}
 	}
 
-	if h.botEventPublisher != nil {
-		h.botEventPublisher.PublishThreadPost(map[string]interface{}{
-			"id":         post.ID,
-			"thread_id":  post.ThreadID,
-			"user_id":    post.UserID,
-			"content":    post.Content,
-			"created_at": post.CreatedAt,
-		})
-	}
-
 	c.JSON(http.StatusCreated, models.SuccessResponse(post))
 }
 
@@ -514,18 +499,6 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 				fmt.Printf("[WebSocket] Error publishing new thread event: %v\n", err)
 			}
 		}
-	}
-
-	if h.botEventPublisher != nil {
-		h.botEventPublisher.PublishThread(map[string]interface{}{
-			"id":         thread.ID,
-			"board_id":   thread.BoardID,
-			"channel_id": thread.ChannelID,
-			"user_id":    thread.UserID,
-			"title":      thread.Title,
-			"content":    thread.Content,
-			"created_at": thread.CreatedAt,
-		})
 	}
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(thread))

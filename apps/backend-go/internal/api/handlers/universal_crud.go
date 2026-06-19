@@ -442,8 +442,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Also invalidate via the new cache system
 		h.invalidateCacheForTableResult(tableName, result)
 
-		// Build enriched payload with author data for WebSocket and bot events
-		if h.hub != nil || h.botEventPublisher != nil {
+		// Build enriched payload with author data for WebSocket
+		if h.hub != nil {
 			var wsPayload map[string]interface{}
 			if idStr := fmt.Sprint(result["id"]); idStr != "" {
 				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr); enrichErr == nil && enriched != nil {
@@ -462,10 +462,6 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 					fmt.Printf("[WebSocket] Published wall post event for post %s\n", result["id"])
 				}
 			}
-			// Publish event to bots
-			if h.botEventPublisher != nil {
-				h.botEventPublisher.PublishWallPost(wsPayload)
-			}
 		}
 	}
 
@@ -474,11 +470,6 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			commentID, _ := result["id"].(string)
 			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
-		}
-
-		// Publish event to bots
-		if h.botEventPublisher != nil {
-			h.botEventPublisher.PublishWallComment(result)
 		}
 	}
 
