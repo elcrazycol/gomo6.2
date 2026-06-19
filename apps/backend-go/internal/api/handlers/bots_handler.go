@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -116,10 +117,11 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 	var botUserID string
 	botEmail := req.Username + "@bot.gomo6"
 	err = tx.QueryRow(`
-		INSERT INTO users (id, username, email, password_hash, domain, is_active, is_anonymous)
-		VALUES (gen_random_uuid(), $1, $2, $3, 'bot.gomo6', true, false)
+		INSERT INTO users (id, username, email, password_hash, domain, is_anonymous)
+		VALUES (gen_random_uuid(), $1, $2, $3, 'bot.gomo6', false)
 		RETURNING id`, req.Username, botEmail, hex.EncodeToString([]byte(randHex(32)))).Scan(&botUserID)
 	if err != nil {
+		log.Printf("[CreateBot] INSERT users failed: %v", err)
 		if strings.Contains(err.Error(), "duplicate key") {
 			c.JSON(http.StatusConflict, models.ErrorResponse("Username already taken"))
 			return
