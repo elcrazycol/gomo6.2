@@ -446,6 +446,15 @@ html, body {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  cursor: pointer;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.chat-topbar-main:hover {
+  background: hsl(var(--thread-hover));
 }
 
 .chat-topbar-main > div:last-child {
@@ -456,23 +465,6 @@ html, body {
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-}
-
-button.chat-topbar-info {
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-  padding: 2px 6px;
-  margin: -2px -6px;
-  border-radius: 8px;
-  transition: background-color 0.15s ease;
-}
-
-button.chat-topbar-info:hover {
-  background: hsl(var(--thread-hover));
 }
 
 .chat-topbar-username {
@@ -933,9 +925,55 @@ button.chat-topbar-info:hover {
   animation: fade-in-scale 0.15s ease;
 }
 
-/* Always show dots on touch devices */
-.msg-actions-wrap.is-touch {
-  opacity: 0.85;
+.msg-actions-dots-icon {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+
+/* Floating context menu for touch devices — positioned at tap point */
+.msg-actions-float {
+  position: absolute;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  margin-bottom: 6px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  min-width: 170px;
+  animation: fade-in-scale 0.12s ease;
+}
+
+.msg-actions-float .msg-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+
+.msg-actions-float .msg-actions-item:hover {
+  background: hsl(var(--thread-hover));
+}
+
+.msg-actions-float .msg-actions-item-danger {
+  color: hsl(var(--destructive));
+}
+
+.msg-actions-float .msg-actions-item-danger:hover {
+  background: hsl(var(--destructive) / 0.1);
 }
 
 .msg-actions-wrap.is-mine {
@@ -966,24 +1004,6 @@ button.chat-topbar-info:hover {
   background: hsl(var(--thread-hover));
   color: hsl(var(--foreground));
   opacity: 1;
-}
-
-/* Touch-friendly: hide dots visually but keep menu functional via bubble tap */
-@media (max-width: 980px) {
-  .msg-actions-wrap.is-touch .msg-actions-dots {
-    opacity: 0;
-    pointer-events: none;
-    width: 0;
-    height: 0;
-    padding: 0;
-  }
-  .msg-actions-dropdown {
-    min-width: 180px;
-  }
-  .msg-actions-item {
-    padding: 10px 12px;
-    font-size: 14px;
-  }
 }
 
 /* Dropdown — Telegram-style floating menu */

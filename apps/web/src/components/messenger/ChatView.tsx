@@ -188,8 +188,8 @@ export const ChatView = memo(function ChatView({
       {/* Header group: topbar + pinned banner — one grid row */}
       <div className="chat-header-group">
         <div className="chat-topbar">
-          <div className="chat-topbar-main">
-            <button type="button" className="mobile-only messenger-back-button" onClick={onBack} aria-label="Назад">
+          <div className="chat-topbar-main" onClick={() => setShowUserInfo(true)}>
+            <button type="button" className="mobile-only messenger-back-button" onClick={(e) => { e.stopPropagation(); onBack(); }} aria-label="Назад">
               <ArrowLeft size={16} />
             </button>
             <div className="avatar small">
@@ -199,14 +199,14 @@ export const ChatView = memo(function ChatView({
                 <span>{getInitials(conversation.other_username)}</span>
               )}
             </div>
-            <button type="button" className="chat-topbar-info" onClick={() => setShowUserInfo(true)}>
+            <div className="chat-topbar-info">
               <div className="chat-topbar-username">
                 <UserBadge userId={conversation.other_user_id} username={conversation.other_username} displayName={conversation.other_display_name} showOutline={false} />
               </div>
               <p className="presence-copy">
                 {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
               </p>
-            </button>
+            </div>
           </div>
         </div>
 
@@ -353,6 +353,7 @@ export const ChatView = memo(function ChatView({
       {giftDetailId && (
         <GiftDetailDialog
           giftId={giftDetailId}
+          recipientId={conversation.other_user_id}
           open={true}
           onOpenChange={(v) => { if (!v) setGiftDetailId(null); }}
         />
