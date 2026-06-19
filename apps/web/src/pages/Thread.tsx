@@ -57,6 +57,7 @@ interface ThreadWithExtras extends ThreadModel {
   ephemeral_type?: string;
   ephemeral_value?: number;
   username?: string;
+  display_name?: string | null;
   avatar_url?: string;
   tags?: { content?: string; format?: string; atmosphere?: string; flag?: string };
 }
@@ -64,6 +65,7 @@ interface ThreadWithExtras extends ThreadModel {
 interface PostWithExtras extends PostModel {
   content_json?: unknown;
   username?: string;
+  display_name?: string | null;
   avatar_url?: string;
 }
 const Thread = () => {
@@ -778,6 +780,7 @@ const Thread = () => {
                 <UserBadge
                   userId={post.user_id}
                   username={post.username || "Аноним"}
+                  displayName={post.display_name}
                   isAnonymous={false}
                   showOutline={false}
                   isThreadOpener={post.user_id === thread?.user_id}
@@ -798,6 +801,7 @@ const Thread = () => {
               <UserBadge
                 userId={post.user_id}
                 username={post.username || "Аноним"}
+                displayName={post.display_name}
                 isAnonymous={false}
                 showOutline={false}
               />
@@ -1068,6 +1072,7 @@ const Thread = () => {
                     <UserBadge
                       userId={thread.user_id}
                     username={(thread as ThreadWithExtras).username || "Аноним"}
+                    displayName={(thread as ThreadWithExtras).display_name}
                     isAnonymous={false}
                     showOutline={false}
                     isThreadOpener={true}
@@ -1088,6 +1093,7 @@ const Thread = () => {
                   <UserBadge
                     userId={thread.user_id}
                     username={(thread as ThreadWithExtras).username || "Аноним"}
+                    displayName={(thread as ThreadWithExtras).display_name}
                     isAnonymous={false}
                     showOutline={false}
                   />

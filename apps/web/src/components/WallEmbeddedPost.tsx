@@ -47,6 +47,7 @@ export const EmbeddedWallPost = ({
         <UserBadge
           userId={post.author_id}
           username={post.author.username}
+          displayName={post.author.display_name}
           isAnonymous={post.author.is_anonymous}
           disableLink={false}
           stopPropagationOnClick

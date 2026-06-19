@@ -4,6 +4,7 @@ export type { AttachmentMeta };
 export interface UserProfileLite {
   id?: string | null;
   username: string;
+  display_name?: string | null;
   is_anonymous: boolean;
   avatar_url?: string | null;
 }

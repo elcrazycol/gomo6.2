@@ -169,7 +169,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1 flex-wrap">
                 <span className={usernameClassName} style={usernameStyle}>
-                  {p.username as string}
+                  {(p.display_name as string)?.trim() || (p.username as string)}
                 </span>
                 {customization?.username_icon_svg && (
                   <span
@@ -194,6 +194,9 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                   </span>
                 )}
                 <AdminBadge userId={userId} />
+              </div>
+              <div className="text-sm text-muted-foreground">
+                @{p.username as string}
               </div>
               <div className="text-sm text-muted-foreground">
                 ID: {p.id ? String(p.id).slice(0, 8) : 'N/A'} {p.account_number ? `(${p.account_number})` : ''}

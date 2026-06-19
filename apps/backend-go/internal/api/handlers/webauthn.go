@@ -332,9 +332,9 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 	// Get the user struct for the response.
 	var authedUser models.User
 	h.db.QueryRow(`
-		SELECT id, username, email, domain, created_at, is_remote
+		SELECT id, username, display_name, email, domain, created_at, is_remote
 		FROM users WHERE id = $1
-	`, authedUserID).Scan(&authedUser.ID, &authedUser.Username, &authedUser.Email,
+	`, authedUserID).Scan(&authedUser.ID, &authedUser.Username, &authedUser.DisplayName, &authedUser.Email,
 		&authedUser.Domain, &authedUser.CreatedAt, &authedUser.IsRemote)
 
 	domain := os.Getenv("SERVER_DOMAIN")

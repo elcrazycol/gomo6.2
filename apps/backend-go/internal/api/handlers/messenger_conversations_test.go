@@ -24,11 +24,11 @@ func TestListConversations_Success(t *testing.T) {
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
 		"unread_count", "unread",
-		"other_id", "other_username",
+		"other_id", "other_username", "other_display_name",
 		"avatar_url", "account_number", "is_online", "last_seen_at",
 	}).
-		AddRow("conv-1", now, "Hello!", "u2", nil, now, 3, 3, "u2", "alice", nil, 1001, true, nil).
-		AddRow("conv-2", now.Add(-time.Hour), "Hey there", "u3", nil, now, 0, 0, "u3", "bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
+		AddRow("conv-1", now, "Hello!", "u2", nil, now, 3, 3, "u2", "alice", "Alice", nil, 1001, true, nil).
+		AddRow("conv-2", now.Add(-time.Hour), "Hey there", "u3", nil, now, 0, 0, "u3", "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*INNER JOIN chat_conversations c.*INNER JOIN chat_members cm2.*INNER JOIN users u.*WHERE cm.user_id = \$1`).
 		WithArgs("u1").
@@ -60,7 +60,7 @@ func TestListConversations_Empty(t *testing.T) {
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
 		"unread_count", "unread",
-		"other_id", "other_username",
+		"other_id", "other_username", "other_display_name",
 		"avatar_url", "account_number", "is_online", "last_seen_at",
 	})
 

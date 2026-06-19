@@ -47,9 +47,9 @@ describe("ApiClient auth methods", () => {
       });
 
       const result = await apiClient.register(
-        "new@gomo6.local",
         "newuser",
         "secret123",
+        "New User",
       );
 
       expect(fetch).toHaveBeenCalledWith(
@@ -57,9 +57,9 @@ describe("ApiClient auth methods", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            email: "new@gomo6.local",
             username: "newuser",
             password: "secret123",
+            display_name: "New User",
           }),
         }),
       );
@@ -72,7 +72,7 @@ describe("ApiClient auth methods", () => {
       mockFetchError("Username already taken");
 
       await expect(
-        apiClient.register("test@gomo6.local", "existing", "password123"),
+        apiClient.register("existing", "password123"),
       ).rejects.toThrow("Username already taken");
     });
 
@@ -80,7 +80,7 @@ describe("ApiClient auth methods", () => {
       mockFetchNetworkError();
 
       await expect(
-        apiClient.register("test@gomo6.local", "newuser", "password123"),
+        apiClient.register("newuser", "password123"),
       ).rejects.toThrow("Network error");
     });
   });
@@ -97,14 +97,14 @@ describe("ApiClient auth methods", () => {
         },
       });
 
-      const result = await apiClient.login("test@gomo6.local", "secret123");
+      const result = await apiClient.login("testuser", "secret123");
 
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/auth/login"),
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            email: "test@gomo6.local",
+            username: "testuser",
             password: "secret123",
           }),
         }),
@@ -122,7 +122,7 @@ describe("ApiClient auth methods", () => {
         },
       });
 
-      await apiClient.login("test@gomo6.local", "pass", "device-abc");
+      await apiClient.login("testuser", "pass", "device-abc");
 
       const callBody = JSON.parse(
         (fetch as any).mock.calls[0][1].body,

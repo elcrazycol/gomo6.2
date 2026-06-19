@@ -15,6 +15,7 @@ import {
 interface UserBadgeProps {
   userId: string | null;
   username: string;
+  displayName?: string | null;
   isAnonymous?: boolean;
   showOutline?: boolean;
   disableLink?: boolean;
@@ -27,6 +28,7 @@ interface UserBadgeProps {
 export const UserBadge = ({
   userId,
   username,
+  displayName,
   isAnonymous,
   showOutline = true,
   disableLink = false,
@@ -77,7 +79,7 @@ export const UserBadge = ({
   const usernameContent = (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1 overflow-hidden">
       <span className={usernameClassName} style={usernameStyle}>
-        {username}
+        {displayName?.trim() || username}
       </span>
       {customization?.username_icon_svg && (
         <span

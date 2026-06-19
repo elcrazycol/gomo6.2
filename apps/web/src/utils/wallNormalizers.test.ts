@@ -40,27 +40,27 @@ function makePost(overrides: Partial<WallPost> = {}): WallPost {
 describe("normalizeWallPostAuthor", () => {
   it("extracts author from object", () => {
     const result = normalizeWallPostAuthor({ username: "alice", is_anonymous: false, avatar_url: "av.jpg" });
-    expect(result).toEqual({ username: "alice", is_anonymous: false, avatar_url: "av.jpg" });
+    expect(result).toEqual({ username: "alice", display_name: null, is_anonymous: false, avatar_url: "av.jpg" });
   });
 
   it("extracts author from array (takes first element)", () => {
     const result = normalizeWallPostAuthor([{ username: "bob", is_anonymous: true }]);
-    expect(result).toEqual({ username: "bob", is_anonymous: true, avatar_url: null });
+    expect(result).toEqual({ username: "bob", display_name: null, is_anonymous: true, avatar_url: null });
   });
 
   it("returns fallback when author is null", () => {
     const result = normalizeWallPostAuthor(null, "fallback_user");
-    expect(result).toEqual({ username: "fallback_user", is_anonymous: false, avatar_url: null });
+    expect(result).toEqual({ username: "fallback_user", display_name: null, is_anonymous: false, avatar_url: null });
   });
 
   it("returns 'user' when author is null and no fallback", () => {
     const result = normalizeWallPostAuthor(null);
-    expect(result).toEqual({ username: "user", is_anonymous: false, avatar_url: null });
+    expect(result).toEqual({ username: "user", display_name: null, is_anonymous: false, avatar_url: null });
   });
 
   it("returns fallback for non-object author", () => {
     const result = normalizeWallPostAuthor("string", "fallback");
-    expect(result).toEqual({ username: "fallback", is_anonymous: false, avatar_url: null });
+    expect(result).toEqual({ username: "fallback", display_name: null, is_anonymous: false, avatar_url: null });
   });
 
   it("returns null avatar_url when avatar_url is falsy", () => {

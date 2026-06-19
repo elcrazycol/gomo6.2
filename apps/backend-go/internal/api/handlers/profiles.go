@@ -36,7 +36,7 @@ func (h *ProfilesHandler) SetRedis(redis *redis.Client) {
 
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
-		SELECT id, username, email, domain, avatar_url, bio, bio_json, garma, post_count,
+		SELECT id, username, display_name, email, domain, avatar_url, bio, bio_json, garma, post_count,
 		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 	`
@@ -136,7 +136,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		var profile models.User
 		var bioJSON sql.NullString
 		err := rows.Scan(
-			&profile.ID, &profile.Username, &profile.Email, &profile.Domain,
+			&profile.ID, &profile.Username, &profile.DisplayName, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 			&profile.IsRemote, &profile.IsAnonymous,
@@ -162,7 +162,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	}
 
 	query := `
-		SELECT id, username, email, domain, avatar_url, bio, bio_json, garma, post_count,
+		SELECT id, username, display_name, email, domain, avatar_url, bio, bio_json, garma, post_count,
 		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 		WHERE id = $1
@@ -171,7 +171,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	var profile models.User
 	var bioJSON sql.NullString
 	err := h.db.QueryRow(query, id).Scan(
-		&profile.ID, &profile.Username, &profile.Email, &profile.Domain,
+		&profile.ID, &profile.Username, &profile.DisplayName, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 		&profile.IsRemote, &profile.IsAnonymous,
@@ -215,6 +215,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 		AvatarURL   *string          `json:"avatar_url"`
 		Bio         *string          `json:"bio"`
 		BioJSON     *json.RawMessage `json:"bio_json"`
+		DisplayName *string          `json:"display_name"`
 		Username    *string          `json:"username"`
 		IsAnonymous *bool            `json:"is_anonymous"`
 	}
@@ -250,6 +251,12 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 			args = append(args, raw)
 			argIndex++
 		}
+	}
+
+	if updates.DisplayName != nil {
+		query += ", display_name = $" + strconv.Itoa(argIndex)
+		args = append(args, *updates.DisplayName)
+		argIndex++
 	}
 
 	if updates.Username != nil {

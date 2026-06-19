@@ -46,6 +46,7 @@ interface Thread {
   user_id: string | null;
   profiles: {
     username: string;
+    display_name?: string | null;
     is_anonymous: boolean;
   } | null;
   latest_post?: {
@@ -55,6 +56,7 @@ interface Thread {
     user_id: string | null;
     profiles: {
       username: string;
+      display_name?: string | null;
       is_anonymous: boolean;
     } | null;
   };
@@ -214,13 +216,8 @@ const Board = () => {
     allLatestPosts.forEach((p: Record<string, unknown>) => { if (p.user_id) userIds.add(p.user_id as string); });
 
     // Batch fetch all profiles (for is_anonymous)
-    const profilesMap = new Map<string, { id: string; username: string; is_anonymous: boolean }>();
-    const userIdArray = [...userIds];
-    if (userIdArray.length > 0) {
-      const profilesResponse = await fetch(`/api/v1/profiles?id=in.(${userIdArray.join(',')})`);
-      const profilesResult = await profilesResponse.json();
-      (profilesResult.data || []).forEach((p: { id: string; username: string; is_anonymous: boolean }) => profilesMap.set(p.id, p));
-    }
+    const profilesMap = new Map<string, { id: string; username: string; display_name?: string | null; is_anonymous: boolean }>();
+
 
     // Build result with profiles and latest posts
     const postsByThread = new Map<string, Record<string, unknown>[]>();
@@ -238,13 +235,13 @@ const Board = () => {
 
       return {
         ...thread,
-        profiles: profile ? { username: profile.username, is_anonymous: profile.is_anonymous } : null,
+        profiles: profile ? { username: profile.username, display_name: profile.display_name, is_anonymous: profile.is_anonymous } : null,
         latest_post: post ? {
           content: post.content,
           created_at: post.created_at,
           is_private: post.is_private,
           user_id: post.user_id,
-          profiles: postProfile ? { username: postProfile.username, is_anonymous: postProfile.is_anonymous } : null,
+          profiles: postProfile ? { username: postProfile.username, display_name: postProfile.display_name, is_anonymous: postProfile.is_anonymous } : null,
         } : undefined,
       };
     });
@@ -512,6 +509,7 @@ const Board = () => {
                     <UserBadge
                       userId={thread.user_id}
                       username={thread.profiles?.username || "Аноним"}
+                      displayName={thread.profiles?.display_name}
                       isAnonymous={thread.profiles?.is_anonymous}
                       showOutline={false}
                       disableLink={true}
@@ -529,6 +527,7 @@ const Board = () => {
                           <UserBadge
                             userId={thread.latest_post.user_id}
                             username={thread.latest_post.profiles.username || "Аноним"}
+                            displayName={thread.latest_post.profiles.display_name}
                             isAnonymous={thread.latest_post.profiles.is_anonymous}
                             showOutline={false}
                           />

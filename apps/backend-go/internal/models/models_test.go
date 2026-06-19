@@ -260,10 +260,11 @@ func TestAPIResponse_JSONMarshal(t *testing.T) {
 // =============================================================================
 
 func TestUser_Defaults(t *testing.T) {
+	email := "test@example.com"
 	u := User{
 		ID:       "user-1",
 		Username: "testuser",
-		Email:    "test@example.com",
+		Email:    &email,
 	}
 	if u.ID != "user-1" {
 		t.Errorf("Expected ID 'user-1', got '%s'", u.ID)
@@ -745,12 +746,13 @@ func TestUpdateBotRequest_PartialUpdate(t *testing.T) {
 // =============================================================================
 
 func TestRegisterRequest(t *testing.T) {
+	email := "new@example.com"
 	req := RegisterRequest{
 		Username: "newuser",
-		Email:    "new@example.com",
+		Email:    &email,
 		Password: "secure-password",
 	}
-	if req.Username != "newuser" || req.Email != "new@example.com" {
+	if req.Username != "newuser" || *req.Email != "new@example.com" {
 		t.Errorf("RegisterRequest fields mismatch")
 	}
 }

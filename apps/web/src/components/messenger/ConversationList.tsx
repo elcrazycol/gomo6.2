@@ -51,6 +51,7 @@ const ConversationCard = memo(function ConversationCard({
             <UserBadge
               userId={conversation.other_user_id}
               username={conversation.other_username}
+              displayName={conversation.other_display_name}
               showOutline={false}
               disableLink
               disableHoverCard

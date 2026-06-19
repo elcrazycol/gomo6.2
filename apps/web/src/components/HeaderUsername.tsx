@@ -7,6 +7,7 @@ import { useProfileCache } from "@/contexts/ProfileCacheContext";
 
 interface CachedProfile {
   username: string;
+  display_name?: string | null;
   color?: string;
   customization?: {
     username_css?: string;
@@ -67,7 +68,7 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
         style={{ userSelect: 'none' }}
       >
         <span className={`${usernameClassName} relative inline-block transition-transform duration-200 group-hover:translate-x-0.5`} style={usernameStyle}>
-          {profileData.username || 'Профиль'}
+          {profileData.display_name?.trim() || profileData.username || 'Профиль'}
           <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
         </span>
         {profileData.customization?.username_icon_svg && (

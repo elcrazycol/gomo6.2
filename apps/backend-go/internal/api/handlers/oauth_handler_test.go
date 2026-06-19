@@ -1277,7 +1277,7 @@ func TestUserInfo_Success(t *testing.T) {
 	}
 
 	// SELECT username, email, avatar_url FROM users
-	mock.ExpectQuery(`(?s).*SELECT username, email, avatar_url FROM users WHERE id.*`).
+	mock.ExpectQuery(`(?s).*SELECT username, COALESCE\(email, ''\), avatar_url FROM users WHERE id.*`).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"username", "email", "avatar_url"}).
 			AddRow("testuser", "test@example.com", nil))
@@ -1317,7 +1317,7 @@ func TestUserInfo_DBError(t *testing.T) {
 		Scopes: []string{"openid"},
 	}
 
-	mock.ExpectQuery(`(?s).*SELECT username, email, avatar_url FROM users WHERE id.*`).
+	mock.ExpectQuery(`(?s).*SELECT username, COALESCE\(email, ''\), avatar_url FROM users WHERE id.*`).
 		WithArgs("user-1").
 		WillReturnError(fmt.Errorf("connection failed"))
 

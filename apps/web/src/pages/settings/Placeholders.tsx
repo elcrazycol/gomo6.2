@@ -40,6 +40,7 @@ const Placeholders = () => {
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState<{
     username?: string;
+    display_name?: string | null;
     bio?: string | null;
     created_at: string;
     post_count?: number;
@@ -89,7 +90,7 @@ const Placeholders = () => {
         .single();
 
       if (profileData) {
-        setProfile(profileData as { username?: string; bio?: string | null; created_at: string; post_count?: number; thread_count?: number; account_number?: number; id: string; avatar_url?: string | null });
+        setProfile(profileData as { username?: string; display_name?: string | null; bio?: string | null; created_at: string; post_count?: number; thread_count?: number; account_number?: number; id: string; avatar_url?: string | null });
       }
 
       // Load customization
@@ -285,6 +286,7 @@ const Placeholders = () => {
                     <UserBadge
                       userId={user.id}
                       username={profile.username ?? ''}
+                      displayName={profile.display_name}
                       isAnonymous={false}
                       showOutline={false}
                       disableLink={true}

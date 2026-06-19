@@ -40,7 +40,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 
 	// ── Users (profiles) ──────────────────────────────────────────────
 	result.Users = h.searchTable(
-		`SELECT id, username, avatar_url
+		`SELECT id, username, display_name, avatar_url
 		 FROM users
 		 WHERE is_remote = false AND search_vector @@ plainto_tsquery('russian', $1)
 		 ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $1)) DESC

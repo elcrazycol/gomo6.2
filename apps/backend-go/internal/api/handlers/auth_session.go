@@ -84,14 +84,14 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 
 	// Get user from database
 	query := `
-		SELECT id, username, email, domain, avatar_url, bio, garma, post_count, thread_count, created_at, is_remote
+		SELECT id, username, display_name, email, domain, avatar_url, bio, garma, post_count, thread_count, created_at, is_remote
 		FROM users
 		WHERE id = $1
 	`
 
 	var user models.User
 	err := h.db.QueryRow(query, userClaims.UserID).Scan(
-		&user.ID, &user.Username, &user.Email, &user.Domain,
+		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain,
 		&user.AvatarURL, &user.Bio, &user.Garma, &user.PostCount, &user.ThreadCount,
 		&user.CreatedAt, &user.IsRemote,
 	)
