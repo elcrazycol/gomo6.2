@@ -168,6 +168,18 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 
 // CreatePostRPC creates a new post.
 // POST /api/rpc/create_post — protected, requires auth.
+//
+// CreatePostRPC godoc
+// @Summary      Create post (RPC)
+// @Description  Create a new post in a thread
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body models.CreatePostRequest true "Post data"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/create_post [post]
+// @Security     BearerAuth
 func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -323,6 +335,18 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 // CreateThreadRPC creates a new thread with optional poll.
 // POST /api/rpc/create_thread — protected, requires auth.
+//
+// CreateThreadRPC godoc
+// @Summary      Create thread (RPC)
+// @Description  Create a new thread in a board
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body models.CreateThreadRequest true "Thread data"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/create_thread [post]
+// @Security     BearerAuth
 func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {

@@ -17,6 +17,16 @@ import (
 
 var validUsername = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
 
+// Register godoc
+// @Summary      Register a new user
+// @Description  Create a new account with username, password, and optional email
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body models.RegisterRequest true "Registration request"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -101,6 +111,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // Login checks password and returns either a full token (no 2FA) or
 // a partial token (needs 2FA verification).
 // If device_id is provided and is trusted, 2FA is skipped.
+// Login godoc
+// @Summary      Log in
+// @Description  Authenticate with username and password. Returns tokens or partial token if 2FA is enabled.
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "Login credentials"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
 		Username string `json:"username"`

@@ -27,6 +27,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		c.JSON(200, gin.H{"status": "ok", "websocket": wsHub != nil})
 	})
 
+	// Serve OpenAPI/Swagger JSON for API documentation
+	router.GET("/api/v1/docs/json", func(c *gin.Context) {
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.File("./docs/swagger.json")
+	})
+
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db)
 	// Initialize auth service

@@ -23,6 +23,16 @@ func NewDeveloperHandler(db *sql.DB, oauthSvc *oauth.OAuthService) *DeveloperHan
 }
 
 // GET /api/v1/developer/apps
+
+// ListApps godoc
+// @Summary      List developer apps
+// @Description  List all OAuth applications owned by the authenticated user
+// @Tags         Developer
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /developer/apps [get]
+// @Security     BearerAuth
 func (h *DeveloperHandler) ListApps(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 
@@ -40,6 +50,18 @@ func (h *DeveloperHandler) ListApps(c *gin.Context) {
 }
 
 // POST /api/v1/developer/apps
+
+// CreateApp godoc
+// @Summary      Create developer app
+// @Description  Create a new OAuth application
+// @Tags         Developer
+// @Accept       json
+// @Produce      json
+// @Param        request body oauth.CreateAppRequest true "App configuration"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /developer/apps [post]
+// @Security     BearerAuth
 func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 
@@ -100,6 +122,17 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 }
 
 // GET /api/v1/developer/apps/:id
+
+// GetApp godoc
+// @Summary      Get developer app
+// @Description  Get an OAuth application by ID
+// @Tags         Developer
+// @Produce      json
+// @Param        id path string true "App ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /developer/apps/{id} [get]
+// @Security     BearerAuth
 func (h *DeveloperHandler) GetApp(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	appID := c.Param("id")
@@ -119,6 +152,18 @@ func (h *DeveloperHandler) GetApp(c *gin.Context) {
 }
 
 // PUT /api/v1/developer/apps/:id
+
+// UpdateApp godoc
+// @Summary      Update developer app
+// @Description  Update an OAuth application
+// @Tags         Developer
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "App ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /developer/apps/{id} [put]
+// @Security     BearerAuth
 func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	appID := c.Param("id")
@@ -148,6 +193,17 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 }
 
 // DELETE /api/v1/developer/apps/:id
+
+// DeleteApp godoc
+// @Summary      Delete developer app
+// @Description  Delete an OAuth application
+// @Tags         Developer
+// @Produce      json
+// @Param        id path string true "App ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /developer/apps/{id} [delete]
+// @Security     BearerAuth
 func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	appID := c.Param("id")
@@ -166,6 +222,17 @@ func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 }
 
 // POST /api/v1/developer/apps/:id/regenerate-secret
+
+// RegenerateSecret godoc
+// @Summary      Regenerate client secret
+// @Description  Regenerate the client secret for an OAuth application
+// @Tags         Developer
+// @Produce      json
+// @Param        id path string true "App ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      500 {object} models.APIResponse
+// @Router       /developer/apps/{id}/regenerate-secret [post]
+// @Security     BearerAuth
 func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	appID := c.Param("id")

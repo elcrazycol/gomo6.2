@@ -17,6 +17,18 @@ import (
 // ─── Get Messages ───────────────────────────────────────────────────────────
 // GET /api/v1/messenger/conversations/:id/messages
 
+// GetMessages godoc
+// @Summary      Get messages
+// @Description  Get messages in a conversation (member only)
+// @Tags         Messenger
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        limit  query int    false "Max results (1-100)" default(50)
+// @Param        before query string false "Cursor: get messages before this message ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/messages [get]
+// @Security     BearerAuth
 func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -135,6 +147,18 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 // ─── Send Message ───────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/messages
 
+// SendMessage godoc
+// @Summary      Send message
+// @Description  Send a message to a conversation
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        request body SendMessageRequest true "Message content"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/messages [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -273,6 +297,19 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 // ─── Edit Message ───────────────────────────────────────────────────────────
 // PUT /api/v1/messenger/conversations/:convId/messages/:msgId
 
+// EditMessage godoc
+// @Summary      Edit message
+// @Description  Edit a message (sender only)
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        msgId path string true "Message ID"
+// @Param        request body EditMessageRequest true "New content"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/messages/{msgId} [put]
+// @Security     BearerAuth
 func (h *MessengerHandler) EditMessage(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -345,6 +382,17 @@ func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversatio
 // ─── Delete Message ─────────────────────────────────────────────────────────
 // DELETE /api/v1/messenger/conversations/:convId/messages/:msgId
 
+// DeleteMessage godoc
+// @Summary      Delete message
+// @Description  Soft-delete a message (sender only)
+// @Tags         Messenger
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        msgId path string true "Message ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/messages/{msgId} [delete]
+// @Security     BearerAuth
 func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {

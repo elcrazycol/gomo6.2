@@ -78,6 +78,16 @@ func (h *DropsHandler) loadKeys() {
 }
 
 // GetDropsBalance — GET /api/v1/user/drops (protected)
+//
+// GetDropsBalance godoc
+// @Summary      Get drops balance
+// @Description  Get the authenticated user's drops balance
+// @Tags         Drops
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /user/drops [get]
+// @Security     BearerAuth
 func (h *DropsHandler) GetDropsBalance(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	userID := claims.UserID
@@ -93,6 +103,14 @@ func (h *DropsHandler) GetDropsBalance(c *gin.Context) {
 }
 
 // GetDropsPackages — GET /api/v1/drops/packages (public)
+//
+// GetDropsPackages godoc
+// @Summary      Get drops packages
+// @Description  List available drops purchase packages
+// @Tags         Drops
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Router       /drops/packages [get]
 func (h *DropsHandler) GetDropsPackages(c *gin.Context) {
 	rows, err := h.db.Query(`
 		SELECT id, name, drops_amount, price_usd, is_active, sort_order

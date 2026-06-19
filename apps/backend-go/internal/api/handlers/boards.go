@@ -91,6 +91,18 @@ func generateInviteCode() string {
 	return hex.EncodeToString(b)
 }
 
+// GetBoards godoc
+// @Summary      List boards
+// @Description  Get a list of boards with optional filters
+// @Tags         Boards
+// @Produce      json
+// @Param        slug        query string false "Filter by slug"
+// @Param        is_gomosub  query string false "Filter gomosub boards"
+// @Param        visibility  query string false "Filter by visibility (public/private)"
+// @Param        limit       query int    false "Max results (1-100)" default(50)
+// @Param        offset      query int    false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Router       /boards [get]
 func (h *BoardsHandler) GetBoards(c *gin.Context) {
 	query := "SELECT id, slug, name, description, is_gomosub, is_rules_board, owner_id, visibility, gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown, rules_updated_at, created_at FROM boards"
 
@@ -195,6 +207,15 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: boards, Count: &boardCount})
 }
 
+// GetBoard godoc
+// @Summary      Get board by slug
+// @Description  Get a board by its slug
+// @Tags         Boards
+// @Produce      json
+// @Param        id path string true "Board slug"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /boards/{id} [get]
 func (h *BoardsHandler) GetBoard(c *gin.Context) {
 	slug := c.Param("id")
 
@@ -237,6 +258,17 @@ func (h *BoardsHandler) GetBoard(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(board))
 }
 
+// CreateBoard godoc
+// @Summary      Create a board
+// @Description  Create a new board
+// @Tags         Boards
+// @Accept       json
+// @Produce      json
+// @Param        request body models.Board true "Board data"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /boards [post]
+// @Security     BearerAuth
 func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 	var board models.Board
 	if err := c.ShouldBindJSON(&board); err != nil {
@@ -281,6 +313,17 @@ func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 	c.JSON(http.StatusCreated, models.SuccessResponse(board))
 }
 
+// UpdateBoard godoc
+// @Summary      Update board
+// @Description  Update board settings (owner only)
+// @Tags         Boards
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Board ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /boards/{id} [put]
+// @Security     BearerAuth
 func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 	id := c.Param("id")
 
@@ -425,6 +468,18 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 
 // CreateInvite — POST /api/v1/boards/:id/invites
 // Only the board owner can create invites. Only for PRIVATE gomosubs.
+//
+// CreateInvite godoc
+// @Summary      Create invite
+// @Description  Create an invite link for a private gomosub (owner only)
+// @Tags         Boards
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Board ID"
+// @Success      201 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /boards/{id}/invites [post]
+// @Security     BearerAuth
 func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 	boardID := c.Param("id")
 
@@ -502,6 +557,17 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 
 // GetInvites — GET /api/v1/boards/:id/invites
 // Returns all invites for a board (only the owner can see them).
+//
+// GetInvites godoc
+// @Summary      List board invites
+// @Description  Get all invites for a board (owner only)
+// @Tags         Boards
+// @Produce      json
+// @Param        id path string true "Board ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /boards/{id}/invites [get]
+// @Security     BearerAuth
 func (h *BoardsHandler) GetInvites(c *gin.Context) {
 	boardID := c.Param("id")
 
@@ -554,6 +620,18 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 }
 
 // DeleteInvite — DELETE /api/v1/boards/:boardId/invites/:inviteId
+//
+// DeleteInvite godoc
+// @Summary      Delete invite
+// @Description  Deactivate an invite link (owner only)
+// @Tags         Boards
+// @Produce      json
+// @Param        id path string true "Board ID"
+// @Param        inviteId path string true "Invite ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /boards/{id}/invites/{inviteId} [delete]
+// @Security     BearerAuth
 func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 	boardID := c.Param("id")
 	inviteID := c.Param("inviteId")
@@ -603,6 +681,17 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 
 // AcceptInvite — POST /api/v1/invites/:code/accept
 // Anyone authenticated can accept an invite. They get added as a member.
+//
+// AcceptInvite godoc
+// @Summary      Accept invite
+// @Description  Accept an invite and join the gomosub
+// @Tags         Boards
+// @Produce      json
+// @Param        code path string true "Invite code"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /invites/{code}/accept [post]
+// @Security     BearerAuth
 func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 	code := c.Param("code")
 
@@ -702,6 +791,16 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 
 // GetInviteInfo — GET /api/v1/invites/:code (public)
 // Returns info about an invite without accepting it.
+//
+// GetInviteInfo godoc
+// @Summary      Get invite info
+// @Description  Get information about an invite (public, no auth required)
+// @Tags         Boards
+// @Produce      json
+// @Param        code path string true "Invite code"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /invites/{code} [get]
 func (h *BoardsHandler) GetInviteInfo(c *gin.Context) {
 	code := c.Param("code")
 

@@ -15,6 +15,16 @@ import (
 // ─── Like-related RPC handlers ──────────────────────────────────────────────
 
 // GetPostLikesCount returns the number of likes for a post.
+//
+// GetPostLikesCount godoc
+// @Summary      Get post likes count
+// @Description  Get the number of likes for a post
+// @Tags         RPC
+// @Produce      json
+// @Param        post_uuid query string true "Post UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_post_likes_count [get]
 func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 	postID := c.Query("post_uuid")
 	if postID == "" {
@@ -39,6 +49,16 @@ func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 }
 
 // GetThreadLikesCount returns the number of likes for a thread.
+//
+// GetThreadLikesCount godoc
+// @Summary      Get thread likes count
+// @Description  Get the number of likes for a thread
+// @Tags         RPC
+// @Produce      json
+// @Param        thread_uuid query string true "Thread UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_thread_likes_count [get]
 func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
 	threadID := c.Query("thread_uuid")
 	if threadID == "" {

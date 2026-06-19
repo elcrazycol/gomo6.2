@@ -12,6 +12,18 @@ import (
 
 // Refresh exchanges a valid refresh token for a new token pair.
 // POST /api/v1/auth/refresh
+//
+// Refresh godoc
+// @Summary      Refresh access token
+// @Description  Exchange a valid refresh token for a new token pair
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "Refresh token request"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/refresh [post]
+// @Security     BearerAuth
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
@@ -50,6 +62,16 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 
 // Logout blacklists the access token and revokes all refresh tokens.
 // POST /api/v1/auth/logout
+//
+// Logout godoc
+// @Summary      Log out
+// @Description  Blacklist access token and revoke all refresh tokens
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/logout [post]
+// @Security     BearerAuth
 func (h *AuthHandler) Logout(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {
@@ -70,6 +92,16 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 // GetMe returns the authenticated user's profile.
+//
+// GetMe godoc
+// @Summary      Get current user
+// @Description  Returns the authenticated user's profile
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/me [get]
+// @Security     BearerAuth
 func (h *AuthHandler) GetMe(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

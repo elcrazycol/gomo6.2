@@ -13,6 +13,10 @@ COPY vendor/ ./vendor/
 # Copy source code
 COPY . .
 
+# Generate swagger docs
+RUN go install github.com/swaggo/swag/cmd/swag@latest && \
+    swag init -g cmd/server/main.go -o docs/ --parseInternal
+
 # Build using vendored dependencies (no network)
 # GOMEMLIMIT prevents OOM on low-RAM VPS during compilation
 ENV GOMEMLIMIT=256MiB
@@ -28,6 +32,7 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 COPY --from=builder /app/.env .env
+COPY --from=builder /app/docs ./docs
 COPY --from=builder /app/migrations ./migrations
 
 # Expose port
