@@ -66,9 +66,13 @@ fi
 if [ "$HAS_BACKEND" -eq 1 ]; then
   task "Backend (Go)"
 
-  # ── gofmt ──
-  if [ ${#STAGED_GO[@]} -gt 0 ]; then
-    UNFMT="$(gofmt -l "${STAGED_GO[@]}" 2>&1 || true)"
+  # ── gofmt (exclude vendor/) ──
+  STAGED_GO_NOVENDOR=()
+  for f in "${STAGED_GO[@]}"; do
+    [[ "$f" == vendor/* ]] || STAGED_GO_NOVENDOR+=("$f")
+  done
+  if [ ${#STAGED_GO_NOVENDOR[@]} -gt 0 ]; then
+    UNFMT="$(gofmt -l "${STAGED_GO_NOVENDOR[@]}" 2>&1 || true)"
     if [ -n "$UNFMT" ]; then
       fail "gofmt — неотформатированные файлы:"
       while IFS= read -r line; do echo "    $line"; done <<< "$UNFMT"
@@ -111,7 +115,7 @@ if [ "$HAS_BACKEND" -eq 1 ]; then
   # ── go test (только изменённые пакеты) ──
   if [ ${#STAGED_GO[@]} -gt 0 ]; then
     PKGS=()
-    for f in "${STAGED_GO[@]}"; do
+    for f in "${STAGED_GO_NOVENDOR[@]}"; do
       dir="$(dirname "$f")"
       rel="${dir#"$BACKEND_DIR/"}"
       if [ "$rel" = "$dir" ]; then

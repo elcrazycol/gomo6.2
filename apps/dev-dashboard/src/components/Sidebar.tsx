@@ -13,6 +13,7 @@ import {
   Shield,
   Menu,
   X,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logout } from "@/lib/oauth";
@@ -20,6 +21,7 @@ import { logout } from "@/lib/oauth";
 const navItems = [
   { label: "Обзор", path: "/", icon: LayoutDashboard },
   { label: "OAuth приложения", path: "/apps", icon: Shield },
+  { label: "Боты", path: "/bots", icon: Bot },
   { label: "Подарки", path: "/gifts", icon: Gift },
 ];
 
