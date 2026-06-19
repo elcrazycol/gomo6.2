@@ -62,6 +62,22 @@ export const MessengerView = () => {
     return () => { messengerWs.unsubscribe(room); };
   }, [selectedConversationId]);
 
+  // ── Prevent body scroll (robust for iOS/Android) ──────────────────────
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, []);
+
   // ── Hide AppLayout header on mobile when chat is open ─────────────────
   useEffect(() => {
     if (!isMobile) return;
@@ -87,6 +103,33 @@ export const MessengerView = () => {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  // ── iOS keyboard: dynamic viewport height ──────────────────────────
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const updateHeight = () => {
+      const panel = document.querySelector(".chat-panel.is-open") as HTMLElement | null;
+      if (panel) {
+        panel.style.height = `${vv.height}px`;
+      }
+      if (vv.offsetTop !== 0) {
+        window.scrollTo(0, window.scrollY + vv.offsetTop);
+      }
+    };
+
+    vv.addEventListener("resize", updateHeight);
+    vv.addEventListener("scroll", updateHeight);
+    updateHeight();
+
+    return () => {
+      vv.removeEventListener("resize", updateHeight);
+      vv.removeEventListener("scroll", updateHeight);
+      const panel = document.querySelector(".chat-panel.is-open") as HTMLElement | null;
+      if (panel) panel.style.height = "";
+    };
+  }, [showMobileChat]);
 
   // ── Composer auto-resize ──────────────────────────────────────────────
   // (moved from context; composer handles its own height via ChatView)

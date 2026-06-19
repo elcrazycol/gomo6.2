@@ -589,8 +589,6 @@ html, body {
 .message-scroll {
   overflow: auto;
   scroll-behavior: smooth;
-  overscroll-behavior: none;
-  touch-action: pan-y;
   padding: 12px 14px;
   display: grid;
   gap: 8px;
@@ -1735,10 +1733,11 @@ html, body {
   .chat-panel.is-open {
     display: grid;
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 30;
     height: 100dvh;
-    overflow: hidden;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
   }
