@@ -7,6 +7,7 @@ import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/m
 import { formatPresence, getInitials } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
+import { UserInfoPanel } from "./UserInfoPanel";
 import type { MessageView, ReceiptRow } from "./types";
 
 interface Props {
@@ -46,6 +47,7 @@ export const ChatView = memo(function ChatView({
   const [pinnedText, setPinnedText] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
+  const [showUserInfo, setShowUserInfo] = useState(false);
   const shouldAutoScroll = useRef(true);
   const prevLength = useRef(0);
 
@@ -195,14 +197,14 @@ export const ChatView = memo(function ChatView({
                 <span>{getInitials(conversation.other_username)}</span>
               )}
             </div>
-            <div className="chat-topbar-info">
+            <button type="button" className="chat-topbar-info" onClick={() => setShowUserInfo(true)}>
               <div className="chat-topbar-username">
                 <UserBadge userId={conversation.other_user_id} username={conversation.other_username} displayName={conversation.other_display_name} showOutline={false} />
               </div>
               <p className="presence-copy">
                 {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
               </p>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -302,6 +304,19 @@ export const ChatView = memo(function ChatView({
           <ChevronDown size={20} />
         </button>
       )}
+
+      {/* User info panel */}
+      <UserInfoPanel
+        open={showUserInfo}
+        onClose={() => setShowUserInfo(false)}
+        conversationId={conversation.id}
+        userId={conversation.other_user_id}
+        username={conversation.other_username}
+        displayName={conversation.other_display_name}
+        avatarUrl={conversation.other_avatar_url}
+        isOnline={conversation.other_is_online}
+        lastSeenAt={conversation.other_last_seen_at}
+      />
     </>
   );
 });

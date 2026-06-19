@@ -1,7 +1,8 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Users, MessageSquare, ArrowRight } from "lucide-react";
+import { Users, MessageSquare, ArrowRight, Gift } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
@@ -11,6 +12,63 @@ import { storageUrl } from "@/utils/storage";
 const PreviewSkeleton = () => (
   <div className="msg-link-skeleton" />
 );
+
+// ─── Gift message card ──────────────────────────────────────────────────────
+
+interface GiftMessageData {
+  giftId: string;
+  giftName: string;
+  imageUrl: string;
+}
+
+function parseGiftContent(content: string): GiftMessageData | null {
+  const match = content.match(/^__GIFT__:(.+?):(.+?):(.*)$/);
+  if (!match) return null;
+  return {
+    giftId: match[1],
+    giftName: match[2],
+    imageUrl: match[3],
+  };
+}
+
+function GiftMessageCard({ data }: { data: GiftMessageData }) {
+  const [showDetail, setShowDetail] = useState(false);
+  const imgSrc = data.imageUrl ? storageUrl("post-images", data.imageUrl) || data.imageUrl : null;
+
+  return (
+    <>
+      <div className="msg-gift-card" onClick={() => setShowDetail(true)}>
+        <div className="msg-gift-icon">
+          {imgSrc ? (
+            <img src={imgSrc} alt={data.giftName} />
+          ) : (
+            <Gift size={24} />
+          )}
+        </div>
+        <div className="msg-gift-info">
+          <span className="msg-gift-label">Подарок</span>
+          <span className="msg-gift-name">{data.giftName}</span>
+        </div>
+      </div>
+
+      <Dialog open={showDetail} onOpenChange={setShowDetail}>
+        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
+          <div className="w-full aspect-square bg-muted flex items-center justify-center">
+            {imgSrc ? (
+              <img src={imgSrc} alt={data.giftName} className="w-full h-full object-cover" />
+            ) : (
+              <Gift className="w-16 h-16 text-muted-foreground" />
+            )}
+          </div>
+          <div className="p-4 space-y-2">
+            <h3 className="font-semibold text-lg">{data.giftName}</h3>
+            <p className="text-sm text-muted-foreground">Подарок в чате</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
 
@@ -265,7 +323,13 @@ interface MessageContentProps {
 }
 
 export const MessageContent = memo(function MessageContent({ content }: MessageContentProps) {
+  const giftData = useMemo(() => parseGiftContent(content), [content]);
   const segments = useMemo(() => parseMessageLinks(content), [content]);
+
+  // Check for gift message
+  if (giftData) {
+    return <GiftMessageCard data={giftData} />;
+  }
 
   // Fast path: no links at all — render as plain text
   const hasLinks = segments.some((s) => s.type === "link");
