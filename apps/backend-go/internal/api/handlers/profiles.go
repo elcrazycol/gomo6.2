@@ -260,8 +260,28 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	if updates.Username != nil {
+		newUsername := *updates.Username
+		if len(newUsername) < 3 || len(newUsername) > 20 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм должен быть от 3 до 20 символов"))
+			return
+		}
+		if !validUsername.MatchString(newUsername) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)"))
+			return
+		}
+		// Check uniqueness
+		var exists bool
+		err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1 AND id != $2)", newUsername, id).Scan(&exists)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
+			return
+		}
+		if exists {
+			c.JSON(http.StatusConflict, models.ErrorResponse("Этот юзернейм уже занят"))
+			return
+		}
 		query += ", username = $" + strconv.Itoa(argIndex)
-		args = append(args, *updates.Username)
+		args = append(args, newUsername)
 		argIndex++
 	}
 

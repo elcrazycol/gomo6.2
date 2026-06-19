@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
+
+var validUsername = regexp.MustCompile(`^[a-zA-Z0-9]+$`)
 
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req models.RegisterRequest
@@ -35,6 +38,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// Validate password strength
 	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Validate username: a-z, A-Z, 0-9 only, 3-20 chars
+	if len(req.Username) < 3 || len(req.Username) > 20 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм должен быть от 3 до 20 символов"))
+		return
+	}
+	if !validUsername.MatchString(req.Username) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)"))
 		return
 	}
 

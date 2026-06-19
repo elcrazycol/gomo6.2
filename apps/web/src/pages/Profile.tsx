@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
@@ -788,13 +788,24 @@ const Profile = () => {
   };
 
   const handleUsernameChange = async () => {
-    if (newUsername !== confirmUsername) {
-      toast.error("Имена пользователя не совпадают");
+    if (!newUsername.trim()) {
+      toast.error("Введите юзернейм");
       return;
     }
-
-    if (newUsername.length < 3) {
-      toast.error("Имя пользователя должно быть не менее 3 символов");
+    if (!/^[a-zA-Z0-9]+$/.test(newUsername)) {
+      toast.error("Юзернейм может содержать только буквы латиницы и цифры (a-z, A-Z, 0-9)");
+      return;
+    }
+    if (newUsername.length < 3 || newUsername.length > 20) {
+      toast.error("Юзернейм должен быть от 3 до 20 символов");
+      return;
+    }
+    if (newUsername !== confirmUsername) {
+      toast.error("Юзернеймы не совпадают");
+      return;
+    }
+    if (newUsername === profile?.username) {
+      toast.error("Юзернейм не изменился");
       return;
     }
 
@@ -802,21 +813,26 @@ const Profile = () => {
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-      const res = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
+      const res = await fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({ username: newUsername }),
       });
-      if (!res.ok) throw new Error('Failed to save username');
 
-      toast.success("Имя пользователя изменено");
+      const result = await res.json();
+      if (!res.ok) {
+        toast.error(result.error || "Ошибка изменения юзернейма");
+        return;
+      }
+
+      toast.success("Юзернейм изменён");
       setProfile(prev => prev ? { ...prev, username: newUsername } : null);
       setUsername(newUsername);
       setShowUsernameDialog(false);
       setNewUsername("");
       setConfirmUsername("");
     } catch (error) {
-      toast.error("Ошибка изменения имени пользователя");
+      toast.error("Ошибка изменения юзернейма");
       console.error(error);
     }
   };
@@ -922,9 +938,14 @@ const Profile = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <p className="text-sm text-muted-foreground">
+                  <button
+                    type="button"
+                    className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''}`}
+                    onClick={isOwnProfile ? () => setShowUsernameDialog(true) : undefined}
+                    disabled={!isOwnProfile}
+                  >
                     @{profile.username}
-                  </p>
+                  </button>
                   <span className="text-muted-foreground">·</span>
                   <p className="text-sm text-muted-foreground">
                     ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
@@ -1270,6 +1291,57 @@ const Profile = () => {
 
         {/* Drops Shop */}
         <DropsShop open={showDropsShop} onOpenChange={setShowDropsShop} />
+
+        {/* Username Change Dialog */}
+        <Dialog open={showUsernameDialog} onOpenChange={setShowUsernameDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Изменить юзернейм</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Ваш юзернейм — это то, по чему вас ищут. Только латинские буквы и цифры (a-z, A-Z, 0-9). Чувствителен к регистру.
+            </p>
+            <div className="space-y-3 mt-2">
+              <div>
+                <Label htmlFor="new-username">Новый юзернейм</Label>
+                <Input
+                  id="new-username"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="newuser"
+                  maxLength={20}
+                />
+              </div>
+              <div>
+                <Label htmlFor="confirm-username">Повторите юзернейм</Label>
+                <Input
+                  id="confirm-username"
+                  value={confirmUsername}
+                  onChange={(e) => setConfirmUsername(e.target.value)}
+                  placeholder="newuser"
+                  maxLength={20}
+                />
+              </div>
+              {newUsername && !/^[a-zA-Z0-9]+$/.test(newUsername) && (
+                <p className="text-xs text-destructive">Только латинские буквы и цифры</p>
+              )}
+              {newUsername && newUsername === confirmUsername && newUsername !== profile?.username && (
+                <p className="text-xs text-green-500">Юзернеймы совпадают</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setShowUsernameDialog(false); setNewUsername(""); setConfirmUsername(""); }}>
+                Отмена
+              </Button>
+              <Button
+                onClick={handleUsernameChange}
+                disabled={!newUsername.trim() || newUsername !== confirmUsername || newUsername === profile?.username || !/^[a-zA-Z0-9]+$/.test(newUsername)}
+              >
+                Сохранить
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
   );
 };
