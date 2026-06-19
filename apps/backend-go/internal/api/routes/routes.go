@@ -182,9 +182,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
-		// Try bot auth first, then optional JWT auth
-		rest.Use(middleware.BotAuthMiddleware(db))
-		rest.Use(middleware.OptionalAuthMiddleware(authService))
+		// Populate claims if auth token is present (does not block anonymous requests)
+		rest.Use(middleware.OptionalAuthMiddlewareWithDB(authService, db))
 
 		// Search endpoint (full-text, public)
 		rest.GET("/search", searchHandler.Search)
@@ -389,7 +388,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Protected RPC functions
 		protected := rpc.Group("")
-		protected.Use(middleware.AuthMiddleware(authService))
+		protected.Use(middleware.AuthMiddlewareWithDB(authService, db))
 		{
 			protected.GET("/has_user_liked_post", rpcHandler.HasUserLikedPost)
 			protected.GET("/has_user_liked_thread", rpcHandler.HasUserLikedThread)
@@ -455,7 +454,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		}
 
 		storageProtected := storage.Group("")
-		storageProtected.Use(middleware.AuthMiddleware(authService))
+		storageProtected.Use(middleware.AuthMiddlewareWithDB(authService, db))
 		{
 			// Server-side upload: browser sends file to backend, backend uploads to Garage.
 			// Avoids CORS/S3-signature issues with direct browser-to-Garage upload.
