@@ -642,6 +642,8 @@ html, body {
   justify-content: inherit;
   align-items: inherit;
   gap: 4px;
+  width: 100%;
+  min-width: 0;
 }
 
 .message-bubble {
