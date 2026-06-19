@@ -1733,9 +1733,7 @@ html, body {
   .chat-panel.is-open {
     display: grid;
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
+    inset: 0;
     z-index: 30;
     height: 100dvh;
     background: hsl(var(--background));

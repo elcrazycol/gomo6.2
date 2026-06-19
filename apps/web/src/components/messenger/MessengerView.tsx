@@ -113,9 +113,7 @@ export const MessengerView = () => {
       const panel = document.querySelector(".chat-panel.is-open") as HTMLElement | null;
       if (panel) {
         panel.style.height = `${vv.height}px`;
-      }
-      if (vv.offsetTop !== 0) {
-        window.scrollTo(0, window.scrollY + vv.offsetTop);
+        panel.style.transform = `translateY(${vv.offsetTop}px)`;
       }
     };
 
@@ -127,7 +125,10 @@ export const MessengerView = () => {
       vv.removeEventListener("resize", updateHeight);
       vv.removeEventListener("scroll", updateHeight);
       const panel = document.querySelector(".chat-panel.is-open") as HTMLElement | null;
-      if (panel) panel.style.height = "";
+      if (panel) {
+        panel.style.height = "";
+        panel.style.transform = "";
+      }
     };
   }, [showMobileChat]);
 
