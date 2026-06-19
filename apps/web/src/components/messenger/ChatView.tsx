@@ -20,6 +20,15 @@ interface Props {
   onTyping: (isTyping: boolean) => void;
 }
 
+interface Props {
+  onBack: () => void;
+  composerRef: React.RefObject<HTMLTextAreaElement | null>;
+  messageScrollRef: React.RefObject<HTMLDivElement | null>;
+  endRef: React.RefObject<HTMLDivElement | null>;
+  typingUsername?: string | null;
+  onTyping: (isTyping: boolean) => void;
+}
+
 export const ChatView = memo(function ChatView({
   onBack,
   composerRef,
@@ -86,6 +95,25 @@ export const ChatView = memo(function ChatView({
     }
     prevLength.current = messages.length;
   }, [messages.length, isScrolledUp, pinToBottom]);
+
+  // ── Custom touch scroll (touch-action:none on container, JS scroll) ──
+  const scrollTouchY = useRef(0);
+  const scrollTouchTop = useRef(0);
+
+  const onScrollTouchStart = useCallback((e: React.TouchEvent) => {
+    const el = messageScrollRef.current;
+    if (!el) return;
+    scrollTouchY.current = e.touches[0].clientY;
+    scrollTouchTop.current = el.scrollTop;
+  }, [messageScrollRef]);
+
+  const onScrollTouchMove = useCallback((e: React.TouchEvent) => {
+    const el = messageScrollRef.current;
+    if (!el) return;
+    const dy = scrollTouchY.current - e.touches[0].clientY;
+    el.scrollTop = scrollTouchTop.current + dy;
+    handleScroll();
+  }, [messageScrollRef, handleScroll]);
 
   // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {
@@ -226,7 +254,7 @@ export const ChatView = memo(function ChatView({
       </div>
 
       {/* Messages */}
-      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll}>
+      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll} onTouchStart={onScrollTouchStart} onTouchMove={onScrollTouchMove}>
         {error && (
           <div className="error-banner chat-error-banner">
             <span>{error}</span>

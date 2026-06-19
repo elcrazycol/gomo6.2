@@ -20,7 +20,7 @@ interface Props {
 }
 
 const LONG_PRESS_MS = 500;
-const MOVE_CANCEL_PX = 10;
+const MOVE_CANCEL_PX = 12;
 
 export const MessageBubble = memo(function MessageBubble({
   message,
@@ -39,19 +39,14 @@ export const MessageBubble = memo(function MessageBubble({
   const [showDots, setShowDots] = useState(false);
   const [floatPos, setFloatPos] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const isTouchDevice = useRef(false);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const touchOrigin = useRef<{ x: number; y: number } | null>(null);
-  const didLongPress = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const originRef = useRef<{ x: number; y: number } | null>(null);
+  const isTouch = useRef(false);
 
-  useEffect(() => {
-    isTouchDevice.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  }, []);
-
-  const clearLongPress = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
   }, []);
 
@@ -63,40 +58,34 @@ export const MessageBubble = memo(function MessageBubble({
   // Close on outside tap
   useEffect(() => {
     if (!menuOpen) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
+    const handler = (e: PointerEvent | MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         closeMenu();
       }
     };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler, { passive: true });
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, [menuOpen, closeMenu]);
 
-  // Cleanup timer on unmount
-  useEffect(() => () => clearLongPress(), [clearLongPress]);
+  useEffect(() => () => clearTimer(), [clearTimer]);
 
   const handleAction = useCallback((fn: () => void) => {
     fn();
     closeMenu();
   }, [closeMenu]);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!isTouchDevice.current) return;
-    didLongPress.current = false;
-    const touch = e.touches[0];
-    if (!touch) return;
-    touchOrigin.current = { x: touch.clientX, y: touch.clientY };
+  // Pointer-based long-press (works on touch + mouse)
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    isTouch.current = e.pointerType === "touch";
+    if (!isTouch.current) return; // mouse uses hover dots
+    originRef.current = { x: e.clientX, y: e.clientY };
 
-    longPressTimer.current = setTimeout(() => {
-      didLongPress.current = true;
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
       const scrollEl = (e.currentTarget as HTMLElement).closest(".message-scroll");
       const scrollRect = scrollEl?.getBoundingClientRect();
-      let x = touch.clientX;
-      let y = touch.clientY;
+      let x = e.clientX;
+      let y = e.clientY;
       if (scrollRect) {
         x = Math.max(scrollRect.left + 8, Math.min(x, scrollRect.right - 8));
         y = Math.max(scrollRect.top + 8, Math.min(y, scrollRect.bottom - 8));
@@ -107,21 +96,20 @@ export const MessageBubble = memo(function MessageBubble({
     }, LONG_PRESS_MS);
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    const origin = touchOrigin.current;
-    if (!origin) return;
-    const touch = e.touches[0];
-    if (!touch) return;
-    const dx = Math.abs(touch.clientX - origin.x);
-    const dy = Math.abs(touch.clientY - origin.y);
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    const origin = originRef.current;
+    if (!origin || !timerRef.current) return;
+    const dx = Math.abs(e.clientX - origin.x);
+    const dy = Math.abs(e.clientY - origin.y);
     if (dx > MOVE_CANCEL_PX || dy > MOVE_CANCEL_PX) {
-      clearLongPress();
+      clearTimer();
     }
-  }, [clearLongPress]);
+  }, [clearTimer]);
 
-  const handleTouchEnd = useCallback(() => {
-    clearLongPress();
-  }, [clearLongPress]);
+  const onPointerUp = useCallback(() => {
+    clearTimer();
+    originRef.current = null;
+  }, [clearTimer]);
 
   const getStatusIcon = () => {
     if (message.localStatus === "sending") return <span className="status-dot status-pending" />;
@@ -146,14 +134,14 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
         onMouseEnter={() => setShowDots(true)}
-        onMouseLeave={() => { setShowDots(false); setMenuOpen(false); setFloatPos(null); }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
-        onContextMenu={(e) => { if (isTouchDevice.current) e.preventDefault(); }}
+        onMouseLeave={() => { setShowDots(false); }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onContextMenu={(e) => e.preventDefault()}
       >
-        {!isTouchDevice.current && showDots && (
+        {!isTouch.current && showDots && (
           <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}`} ref={menuRef}>
             <button
               type="button"
@@ -222,13 +210,13 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       </div>
 
-      {isTouchDevice.current && menuOpen && floatPos && createPortal(
-        <div className="msg-actions-float-backdrop" onTouchStart={closeMenu} onMouseDown={closeMenu}>
+      {menuOpen && floatPos && createPortal(
+        <div className="msg-actions-float-backdrop" onPointerDown={closeMenu}>
           <div
             ref={menuRef}
             className="msg-actions-float"
             style={{ left: floatPos.x, top: floatPos.y }}
-            onTouchStart={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
             {isMine && !message.is_deleted && (
               <>

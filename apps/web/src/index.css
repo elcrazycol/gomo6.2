@@ -596,6 +596,7 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  touch-action: none;
 }
 
 /* ── Date separator ── */
@@ -634,10 +635,6 @@ html, body {
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: pan-y;
 }
 
 .bubble-row.is-mine {
