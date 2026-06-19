@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, useRef, useEffect } from "react";
-import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, MoreHorizontal } from "lucide-react";
+import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight } from "lucide-react";
 import { formatTime } from "./utils";
 import { MessageContent } from "./MessageContent";
 import type { MessageView } from "./types";
@@ -33,45 +33,46 @@ export const MessageBubble = memo(function MessageBubble({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDots, setShowDots] = useState(false);
+  const [tapPos, setTapPos] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const isTouchDevice = useRef(false);
 
-  // Detect touch device on mount
   useEffect(() => {
     isTouchDevice.current = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   }, []);
 
-  // Close menu on outside click/tap
   useEffect(() => {
     if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
+    const handler = (e: MouseEvent | TouchEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
-      }
-    };
-    const handlerTouch = (e: TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
+        setTapPos(null);
       }
     };
     document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handlerTouch, { passive: true });
+    document.addEventListener("touchstart", handler, { passive: true });
     return () => {
       document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handlerTouch);
+      document.removeEventListener("touchstart", handler);
     };
   }, [menuOpen]);
 
   const handleAction = useCallback((fn: () => void) => {
     fn();
     setMenuOpen(false);
+    setTapPos(null);
   }, []);
 
-  // On mobile, tap the bubble to show menu
-  const handleBubbleTap = useCallback(() => {
-    if (isTouchDevice.current) {
-      setMenuOpen((v) => !v);
-    }
+  const handleBubbleTap = useCallback((e: React.TouchEvent) => {
+    if (!isTouchDevice.current) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    setTapPos({ x, y });
+    setMenuOpen((v) => !v);
   }, []);
 
   const getStatusIcon = () => {
@@ -96,47 +97,34 @@ export const MessageBubble = memo(function MessageBubble({
     <div
       className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
       onMouseEnter={() => setShowDots(true)}
-      onMouseLeave={() => { setShowDots(false); setMenuOpen(false); }}
-      onClick={handleBubbleTap}
+      onMouseLeave={() => { setShowDots(false); setMenuOpen(false); setTapPos(null); }}
+      onClick={() => { if (!isTouchDevice.current) return; }}
+      onTouchStart={handleBubbleTap}
     >
-      {/* Three-dot action button — left for own messages, right for others. Always visible on touch devices */}
-      {(showDots || isTouchDevice.current) && (
-        <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}${isTouchDevice.current ? " is-touch" : ""}`} ref={menuRef}>
+      {/* Desktop: three-dot button */}
+      {!isTouchDevice.current && showDots && (
+        <div className={`msg-actions-wrap ${isMine ? "is-mine" : "is-other"}`} ref={menuRef}>
           <button
             type="button"
             className="msg-actions-dots"
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
             aria-label="Действия"
           >
-            <MoreHorizontal size={16} />
+            <span className="msg-actions-dots-icon">···</span>
           </button>
           {menuOpen && (
             <div className="msg-actions-dropdown">
               {isMine && !message.is_deleted && (
                 <>
-                  <button
-                    type="button"
-                    className="msg-actions-item"
-                    onClick={() => handleAction(() => onEdit(message.id, message.content))}
-                  >
-                    <Pencil size={14} />
-                    <span>Редактировать</span>
+                  <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onEdit(message.id, message.content))}>
+                    <Pencil size={14} /><span>Редактировать</span>
                   </button>
-                  <button
-                    type="button"
-                    className="msg-actions-item msg-actions-item-danger"
-                    onClick={() => handleAction(() => onDelete(message.id))}
-                  >
-                    <Trash2 size={14} />
-                    <span>Удалить</span>
+                  <button type="button" className="msg-actions-item msg-actions-item-danger" onClick={() => handleAction(() => onDelete(message.id))}>
+                    <Trash2 size={14} /><span>Удалить</span>
                   </button>
                 </>
               )}
-              <button
-                type="button"
-                className="msg-actions-item"
-                onClick={() => handleAction(() => onTogglePin(message.id))}
-              >
+              <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onTogglePin(message.id))}>
                 {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
                 <span>{isPinned ? "Открепить" : "Закрепить"}</span>
               </button>
@@ -145,11 +133,30 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       )}
 
+      {/* Mobile: floating context menu at tap position */}
+      {isTouchDevice.current && menuOpen && tapPos && (
+        <div
+          ref={menuRef}
+          className="msg-actions-float"
+          style={{ left: tapPos.x, top: tapPos.y }}
+        >
+          <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onEdit(message.id, message.content))}>
+            <Pencil size={14} /><span>Редактировать</span>
+          </button>
+          <button type="button" className="msg-actions-item msg-actions-item-danger" onClick={() => handleAction(() => onDelete(message.id))}>
+            <Trash2 size={14} /><span>Удалить</span>
+          </button>
+          <button type="button" className="msg-actions-item" onClick={() => handleAction(() => onTogglePin(message.id))}>
+            {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            <span>{isPinned ? "Открепить" : "Закрепить"}</span>
+          </button>
+        </div>
+      )}
+
       <div
         className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}`}
         data-message-id={message.id}
       >
-        {/* Quoted message */}
         {quotedMessage && (
           <div className="quoted-message">
             <CornerDownRight size={12} />
@@ -162,7 +169,6 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {/* Failed message header */}
         {message.localStatus === "failed" && (
           <div className="message-error-header">
             <RefreshCw size={11} />
@@ -173,10 +179,8 @@ export const MessageBubble = memo(function MessageBubble({
           </div>
         )}
 
-        {/* Content */}
         <MessageContent content={message.content} />
 
-        {/* Meta: time + status */}
         <div className="message-meta">
           <span className="message-time">{formatTime(message.sent_at)}</span>
           {message.is_edited && <span className="edited-label">изм.</span>}

@@ -259,18 +259,19 @@ const giftImageUrl = (url?: string) => {
   return storageUrl("post-images", url) || url;
 };
 
-export function GiftDetailDialog({ giftId, open, onOpenChange }: { giftId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { giftId: string; recipientId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { data: gift } = useQuery({
-    queryKey: ["msg-gift-detail", giftId],
+    queryKey: ["msg-gift-detail", giftId, recipientId],
     queryFn: async (): Promise<GiftDetailItem | null> => {
-      const res = await fetch(`/api/v1/user_gifts?gift_id=eq.${giftId}&limit=1`);
+      const res = await fetch(`/api/v1/user_gifts?recipient_id=eq.${recipientId}&limit=50`);
       if (!res.ok) return null;
       const json = await res.json();
-      return json.data?.[0] ?? null;
+      const items = json.data || [];
+      return items.find((g: GiftDetailItem) => g.gift_id === giftId) ?? items[0] ?? null;
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
-    enabled: open,
+    enabled: open && !!recipientId,
   });
 
   return (
