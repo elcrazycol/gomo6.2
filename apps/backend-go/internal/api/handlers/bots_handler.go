@@ -114,10 +114,11 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 
 	// Create user account for bot
 	var botUserID string
+	botEmail := req.Username + "@bot.gomo6"
 	err = tx.QueryRow(`
-		INSERT INTO users (id, username, password_hash, is_active, is_anonymous)
-		VALUES (gen_random_uuid(), $1, $2, true, false)
-		RETURNING id`, req.Username, hex.EncodeToString([]byte(randHex(32)))).Scan(&botUserID)
+		INSERT INTO users (id, username, email, password_hash, domain, is_active, is_anonymous)
+		VALUES (gen_random_uuid(), $1, $2, $3, 'bot.gomo6', true, false)
+		RETURNING id`, req.Username, botEmail, hex.EncodeToString([]byte(randHex(32)))).Scan(&botUserID)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			c.JSON(http.StatusConflict, models.ErrorResponse("Username already taken"))
