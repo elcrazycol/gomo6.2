@@ -19,6 +19,7 @@ export interface WallPost {
   original_post?: WallPost | null;
   author: {
     username: string;
+    display_name?: string | null;
     is_anonymous: boolean;
     avatar_url?: string | null;
   };
@@ -35,6 +36,7 @@ export interface WallComment {
   updated_at: string;
   author: {
     username: string;
+    display_name?: string | null;
     is_anonymous: boolean;
     avatar_url?: string | null;
   };
@@ -44,9 +46,10 @@ export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: stri
   const authorSource = Array.isArray(author) ? author[0] : author;
 
   if (authorSource && typeof authorSource === 'object' && 'username' in (authorSource as Record<string, unknown>)) {
-    const a = authorSource as { username: string; is_anonymous?: boolean; avatar_url?: string | null };
+    const a = authorSource as { username: string; display_name?: string | null; is_anonymous?: boolean; avatar_url?: string | null };
     return {
       username: a.username,
+      display_name: a.display_name || null,
       is_anonymous: Boolean(a.is_anonymous),
       avatar_url: a.avatar_url || null,
     };
@@ -54,6 +57,7 @@ export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: stri
 
   return {
     username: fallbackUsername || "user",
+    display_name: null,
     is_anonymous: false,
     avatar_url: null,
   };

@@ -27,6 +27,7 @@ const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
@@ -73,11 +74,9 @@ const Auth = () => {
     setLoading(true);
 
     try {
-      const email = `${username}@gomo6.local`;
-
       if (isLogin) {
         const { data, error } = await api.auth.signInWithPassword({
-          email,
+          username,
           password,
         });
 
@@ -111,13 +110,13 @@ const Auth = () => {
         navigate(redirectTo, { replace: true });
       } else {
         const { error } = await api.auth.signUp({
-          email,
+          username,
           password,
           options: {
             data: {
-              username,
+              display_name: displayName.trim() || undefined,
             },
-          } as { data?: { username?: string } },
+          } as { data?: { display_name?: string } },
         });
 
         if (error) {
@@ -366,7 +365,22 @@ const Auth = () => {
                 required
                 disabled={loading}
               />
+              <p className="text-xs text-muted-foreground mt-1">Чувствителен к регистру: BigBoss ≠ bigboss</p>
             </div>
+
+            {!isLogin && (
+              <div>
+                <Label htmlFor="display-name">Имя отображения <span className="text-muted-foreground">(необязательно)</span></Label>
+                <Input
+                  id="display-name"
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Как вас называть?"
+                  disabled={loading}
+                />
+              </div>
+            )}
 
             <div>
               <Label htmlFor="password">Пароль</Label>

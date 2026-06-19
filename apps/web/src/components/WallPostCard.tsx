@@ -464,6 +464,7 @@ export const WallPostCard = ({
                 <UserBadge
                   userId={post.author_id}
                   username={post.author.username}
+                  displayName={post.author.display_name}
                   isAnonymous={post.author.is_anonymous}
                   disableLink={false}
                   stopPropagationOnClick
@@ -596,7 +597,7 @@ export const WallPostCard = ({
                   <div key={comment.id} className="border border-border/60 bg-background p-3">
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <UserBadge userId={comment.user_id} username={comment.author.username} isAnonymous={comment.author.is_anonymous} disableLink={false} />
+                        <UserBadge userId={comment.user_id} username={comment.author.username} displayName={comment.author.display_name} isAnonymous={comment.author.is_anonymous} disableLink={false} />
                         <span className="text-xs text-muted-foreground">
                           {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
                         </span>

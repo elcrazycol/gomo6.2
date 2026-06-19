@@ -215,7 +215,7 @@ describe("Auth Page", () => {
 
     await waitFor(() => {
       expect(mockSignIn).toHaveBeenCalledWith({
-        email: "testuser@gomo6.local",
+        username: "testuser",
         password: "secret123",
       });
       expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
@@ -308,10 +308,10 @@ describe("Auth Page", () => {
 
     await waitFor(() => {
       expect(mockSignUp).toHaveBeenCalledWith({
-        email: "newuser@gomo6.local",
+        username: "newuser",
         password: "secret123",
         options: {
-          data: { username: "newuser" },
+          data: { display_name: undefined },
         },
       });
     });

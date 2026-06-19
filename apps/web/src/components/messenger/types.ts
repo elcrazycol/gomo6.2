@@ -19,6 +19,7 @@ export type ConversationView = {
   unread_count: number;
   other_user_id: string;
   other_username: string;
+  other_display_name?: string | null;
   other_avatar_url: string | null;
   other_account_number: number | null;
   other_is_online: boolean | null;

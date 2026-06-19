@@ -33,7 +33,8 @@ func (j *JSONB) Scan(value interface{}) error {
 type User struct {
 	ID          string          `json:"id" db:"id"`
 	Username    string          `json:"username" db:"username"`
-	Email       string          `json:"email" db:"email"`
+	DisplayName *string         `json:"display_name" db:"display_name"`
+	Email       *string         `json:"email" db:"email"`
 	Domain      string          `json:"domain" db:"domain"`
 	AvatarURL   *string         `json:"avatar_url" db:"avatar_url"`
 	Bio         *string         `json:"bio" db:"bio"`
@@ -328,14 +329,16 @@ type CreatePostRequest struct {
 }
 
 type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Website  string `json:"website,omitempty"` // Honeypot field — must be empty
+	Username    string  `json:"username"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Email       *string `json:"email,omitempty"`
+	Password    string  `json:"password"`
+	Website     string  `json:"website,omitempty"` // Honeypot field — must be empty
 }
 
 type LoginRequest struct {
-	Email    string `json:"email"`
+	Username string `json:"username"`
+	Email    string `json:"email"` // backward compat: old frontend sends email
 	Password string `json:"password"`
 }
 

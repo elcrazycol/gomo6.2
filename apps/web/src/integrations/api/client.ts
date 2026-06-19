@@ -221,8 +221,11 @@ class ApiClient {
   }
 
   // Auth Methods
-  async register(email: string, username: string, password: string): Promise<AuthResponse> {
-    const body: Record<string, string> = { email, username, password };
+  async register(username: string, password: string, displayName?: string): Promise<AuthResponse> {
+    const body: Record<string, string> = { username, password };
+    if (displayName) {
+      body.display_name = displayName;
+    }
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/register', {
       method: 'POST',
@@ -238,11 +241,11 @@ class ApiClient {
   }
 
   async login(
-    email: string,
+    username: string,
     password: string,
     deviceId?: string
   ): Promise<AuthResponse & { needs_2fa?: boolean }> {
-    const body: Record<string, string | boolean> = { email, password };
+    const body: Record<string, string | boolean> = { username, password };
     if (deviceId) {
       body.device_id = deviceId;
     }

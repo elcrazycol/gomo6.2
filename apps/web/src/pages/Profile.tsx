@@ -39,6 +39,7 @@ import type { GiftCatalogItem } from "@/components/GiftCard";
 interface Profile {
   id: string;
   username: string;
+  display_name?: string | null;
   bio: string | null;
   bio_json?: unknown;
   is_anonymous: boolean;
@@ -123,6 +124,7 @@ const Profile = () => {
   const [bioEditorResetKey, setBioEditorResetKey] = useState(0);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [newUsername, setNewUsername] = useState("");
+  const [newDisplayName, setNewDisplayName] = useState("");
   const [confirmUsername, setConfirmUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isModerator, setIsModerator] = useState(false);
@@ -738,16 +740,16 @@ const Profile = () => {
         if (!bioRes.ok) throw new Error('Failed to save bio');
       }
 
-      // Save username changes
-      if (userId && profile && newUsername.trim() && newUsername !== profile.username) {
-        const usernameRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
+      // Save display_name changes
+      if (userId && profile && newDisplayName.trim() && newDisplayName !== (profile.display_name || profile.username)) {
+        const displayNameRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
           method: 'PUT',
           headers,
-          body: JSON.stringify({ username: newUsername.trim() }),
+          body: JSON.stringify({ display_name: newDisplayName.trim() }),
         });
-        if (!usernameRes.ok) throw new Error('Failed to save username');
+        if (!displayNameRes.ok) throw new Error('Failed to save display name');
 
-        setProfile(prev => prev ? { ...prev, username: newUsername.trim() } : null);
+        setProfile(prev => prev ? { ...prev, display_name: newDisplayName.trim() } : null);
       }
 
       // Save anonymity setting
@@ -761,6 +763,7 @@ const Profile = () => {
       }
 
       setIsEditing(false);
+      setNewDisplayName("");
       setNewUsername("");
       
       // Reload profile to show updated bio with processed tags
@@ -775,6 +778,7 @@ const Profile = () => {
 
   const startEditing = () => {
     if (!profile) return;
+    setNewDisplayName(profile.display_name || profile.username);
     setNewUsername(profile.username);
     setBio(profile.bio || "");
     setBioJson(profile.bio_json ?? null);
@@ -878,10 +882,10 @@ const Profile = () => {
                 <div className="flex items-center gap-2 mb-1">
                   {isEditing && isOwnProfile ? (
                     <Input
-                      value={newUsername || profile.username}
-                      onChange={(e) => setNewUsername(e.target.value)}
+                      value={newDisplayName || profile.display_name || profile.username}
+                      onChange={(e) => setNewDisplayName(e.target.value)}
                       className="text-2xl font-bold h-auto p-0 border-none bg-transparent"
-                      placeholder="Никнейм"
+                      placeholder="Имя отображения"
                     />
                   ) : (
                     <div className="flex items-center gap-2 flex-wrap">
@@ -889,7 +893,7 @@ const Profile = () => {
                         className="text-xl sm:text-2xl font-bold"
                         style={customization?.username_css ? parseCssToStyle(customization.username_css) : {}}
                       >
-                        {profile.username}
+                        {profile.display_name?.trim() || profile.username}
                       </h1>
                       {customization?.username_icon_svg && (
                         <span
@@ -918,6 +922,10 @@ const Profile = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    @{profile.username}
+                  </p>
+                  <span className="text-muted-foreground">·</span>
                   <p className="text-sm text-muted-foreground">
                     ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
                   </p>

@@ -52,6 +52,7 @@ interface FeedThread {
   tags?: Record<string, string>;
   profiles: {
     username: string;
+    display_name?: string | null;
     is_anonymous: boolean;
     avatar_url?: string | null;
   } | null;
@@ -72,6 +73,7 @@ interface SubscribedPostUpdate {
   board_slug: string;
   board_is_gomosub: boolean;
   author_username: string;
+  author_display_name?: string | null;
 }
 
 const Index = () => {
@@ -301,14 +303,14 @@ const Index = () => {
             authorIds.length
               ? api
                   .from("profiles")
-                  .select("id, username")
+                  .select("id, username, display_name")
                   .in("id", authorIds)
-              : Promise.resolve({ data: [] as { id: string; username: string }[] }),
+              : Promise.resolve({ data: [] as { id: string; username: string; display_name?: string | null }[] }),
           ]);
 
           const postUpdates: SubscribedPostUpdate[] = postsData.map((post: { id: string; content: string; created_at: string; thread_id: string; user_id: string | null }) => {
             const thread = ((postThreads as { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }[]) ?? []).find((t: { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }) => t.id === post.thread_id);
-            const author = (postAuthors ?? []).find((a: { id: string; username: string }) => a.id === post.user_id);
+            const author = (postAuthors ?? []).find((a: { id: string; username: string; display_name?: string | null }) => a.id === post.user_id);
             return {
               id: post.id,
               content: post.content,
@@ -319,6 +321,7 @@ const Index = () => {
               board_slug: thread?.boards?.slug || "b",
               board_is_gomosub: Boolean(thread?.boards?.is_gomosub),
               author_username: author?.username || "Аноним",
+              author_display_name: author?.display_name,
             };
           });
           setSubscribedPostUpdates(postUpdates);
@@ -437,7 +440,7 @@ const Index = () => {
                           className="block rounded-lg border border-border p-3 hover:bg-thread-hover transition-colors"
                         >
                           <div className="text-xs text-muted-foreground mb-1">
-                            @{item.author_username} - {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: ru })}
+                            @{item.author_display_name?.trim() || item.author_username} - {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: ru })}
                           </div>
                           <div className="font-medium text-sm">{item.thread_title}</div>
                           <div className="text-sm text-muted-foreground line-clamp-2 mt-1">{item.content}</div>

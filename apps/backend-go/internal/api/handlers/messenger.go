@@ -34,6 +34,7 @@ type ConversationResponse struct {
 	IsMuted             bool    `json:"is_muted"`
 	OtherUserID         string  `json:"other_user_id"`
 	OtherUsername       string  `json:"other_username"`
+	OtherDisplayName    *string `json:"other_display_name"`
 	OtherAvatarURL      *string `json:"other_avatar_url"`
 	OtherAccountNum     *int    `json:"other_account_number"`
 	OtherIsOnline       *bool   `json:"other_is_online"`

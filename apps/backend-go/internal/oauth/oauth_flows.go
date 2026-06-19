@@ -193,8 +193,8 @@ func (s *OAuthService) GenerateIDToken(clientID, userID, username, nonce string,
 	// Add email claims if scope includes email
 	if hasScope(scopes, ScopeEmail) {
 		var email string
-		err := s.db.QueryRow(`SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
-		if err == nil {
+		err := s.db.QueryRow(`SELECT COALESCE(email, '') FROM users WHERE id = $1`, userID).Scan(&email)
+		if err == nil && email != "" {
 			claims.Email = email
 			claims.EmailVerified = true
 		}
@@ -352,7 +352,7 @@ func (s *OAuthService) GetUserInfo(userID string, scopes []string) (*UserInfoRes
 	var username, email string
 	var avatarURL *string
 
-	err := s.db.QueryRow(`SELECT username, email, avatar_url FROM users WHERE id = $1`, userID).Scan(&username, &email, &avatarURL)
+	err := s.db.QueryRow(`SELECT username, COALESCE(email, ''), avatar_url FROM users WHERE id = $1`, userID).Scan(&username, &email, &avatarURL)
 	if err != nil {
 		return nil, err
 	}

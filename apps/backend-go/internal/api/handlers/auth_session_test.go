@@ -19,8 +19,8 @@ func TestGetMe_Success(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
 		WithArgs("u1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "domain", "avatar_url", "bio", "garma", "post_count", "thread_count", "created_at", "is_remote"}).
-			AddRow("u1", "testuser", "test@example.com", "localhost:8080", nil, nil, int64(0), int64(0), int64(0), time.Now(), false))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "garma", "post_count", "thread_count", "created_at", "is_remote"}).
+			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, int64(0), int64(0), int64(0), time.Now(), false))
 
 	c, w := newGETContextWithClaims("/auth/v1/me", nil, claims)
 	h.GetMe(c)
@@ -55,7 +55,7 @@ func TestGetMe_UserNotFound(t *testing.T) {
 
 	mock.ExpectQuery(`(?s).*SELECT.*FROM users.*WHERE id.*`).
 		WithArgs("u1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "email", "domain", "avatar_url", "bio", "garma", "post_count", "thread_count", "created_at", "is_remote"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "garma", "post_count", "thread_count", "created_at", "is_remote"}))
 
 	c, w := newGETContextWithClaims("/auth/v1/me", nil, claims)
 	h.GetMe(c)

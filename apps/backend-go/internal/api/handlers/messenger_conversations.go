@@ -25,7 +25,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			c.id, c.last_message_at, c.last_message_preview,
 			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
 			cm.unread_count, cm.unread_count AS unread,
-			u.id AS other_id, u.username AS other_username,
+			u.id AS other_id, u.username AS other_username, u.display_name AS other_display_name,
 			u.avatar_url, u.account_number, u.is_online, u.last_seen_at
 		FROM chat_members cm
 		INNER JOIN chat_conversations c ON c.id = cm.conversation_id
@@ -52,7 +52,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.ID, &lastMsgAt, &preview,
 			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
 			&conv.UnreadCount, &conv.UnreadCount,
-			&conv.OtherUserID, &conv.OtherUsername,
+			&conv.OtherUserID, &conv.OtherUsername, &conv.OtherDisplayName,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
 		); err != nil {
 			serverError(c, "scan conversation row", err)

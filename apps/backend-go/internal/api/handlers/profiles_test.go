@@ -21,14 +21,17 @@ func TestGetProfiles_Success_NoFilter(t *testing.T) {
 	c, w := newGETContext("/api/v1/profiles", nil)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 	}).AddRow(
-		"u1", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
 		100, 10, 2, true, time.Now(), time.Now(), false, false,
 	).AddRow(
-		"u2", "user2", "user2@example.com", "localhost:8080", nil, nil, nil,
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
+		100, 10, 2, true, time.Now(), time.Now(), false, false,
+	).AddRow(
+		"u2", "user2", "user2", "user2@example.com", "localhost:8080", nil, nil, nil,
 		50, 5, 1, false, nil, time.Now(), false, false,
 	)
 
@@ -58,11 +61,11 @@ func TestGetProfiles_Success_IDFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 	}).AddRow(
-		"550e8400-e29b-41d4-a716-446655440000", "testuser", "test@example.com",
+		"550e8400-e29b-41d4-a716-446655440000", "testuser", "testuser", "test@example.com",
 		"localhost:8080", nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -106,11 +109,11 @@ func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 	}).AddRow(
-		"u1", "testuser", "test@example.com", "localhost:8080",
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -153,11 +156,11 @@ func TestGetProfile_Success(t *testing.T) {
 	// Only the SELECT query is expected.
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 	}).AddRow(
-		"u1", "testuser", "test@example.com", "localhost:8080",
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -231,11 +234,11 @@ func TestUpdateProfile_Success_UpdateBio(t *testing.T) {
 
 	// GetProfile is called at the end — id "u1" is not a UUID, so RecomputeUserProfileStats won't fire
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 	}).AddRow(
-		"u1", "testuser", "test@example.com", "localhost:8080",
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
 		nil, "Updated bio!", nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -304,11 +307,11 @@ func TestUpdateProfile_Success_UpdateAvatar(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
 	}).AddRow(
-		"u1", "testuser", "test@example.com", "localhost:8080",
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
 		&avatarURL, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)

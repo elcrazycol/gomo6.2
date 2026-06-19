@@ -44,43 +44,43 @@ describe("apiAuth", () => {
   // ─── signUp ─────────────────────────────────────────────────────────────────
 
   describe("signUp", () => {
-    it("calls apiClient.register with email, username, password", async () => {
+    it("calls apiClient.register with username, password, displayName", async () => {
       mockRegister.mockResolvedValue({
         token: "token-1",
         user: { id: "user-1", username: "testuser" },
       });
 
       const result = await apiAuth.signUp({
-        email: "test@gomo6.local",
+        username: "testuser",
         password: "secret123",
-        options: { data: { username: "testuser" } },
+        options: { data: { display_name: "Test User" } },
       });
 
       expect(mockRegister).toHaveBeenCalledWith(
-        "test@gomo6.local",
         "testuser",
         "secret123",
+        "Test User",
       );
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.data?.session?.access_token).toBe("token-1");
       expect(result.error).toBeNull();
     });
 
-    it("falls back to email prefix for username when not provided", async () => {
+    it("calls register without displayName when not provided", async () => {
       mockRegister.mockResolvedValue({
         token: "token-1",
-        user: { id: "user-1", username: "test" },
+        user: { id: "user-1", username: "testuser" },
       });
 
       const result = await apiAuth.signUp({
-        email: "test@gomo6.local",
+        username: "testuser",
         password: "secret123",
       });
 
       expect(mockRegister).toHaveBeenCalledWith(
-        "test@gomo6.local",
-        "test",
+        "testuser",
         "secret123",
+        undefined,
       );
       expect(result.error).toBeNull();
     });
@@ -89,9 +89,9 @@ describe("apiAuth", () => {
       mockRegister.mockRejectedValue(new Error("Username already taken"));
 
       const result = await apiAuth.signUp({
-        email: "test@gomo6.local",
+        username: "testuser",
         password: "secret123",
-        options: { data: { username: "testuser" } },
+        options: { data: { display_name: "Test User" } },
       });
 
       expect(result.data).toBeNull();
@@ -102,19 +102,19 @@ describe("apiAuth", () => {
   // ─── signInWithPassword ─────────────────────────────────────────────────────
 
   describe("signInWithPassword", () => {
-    it("calls apiClient.login with email, password, deviceId", async () => {
+    it("calls apiClient.login with username, password, deviceId", async () => {
       mockLogin.mockResolvedValue({
         token: "token-1",
         user: { id: "user-1", username: "testuser" },
       });
 
       const result = await apiAuth.signInWithPassword({
-        email: "test@gomo6.local",
+        username: "testuser",
         password: "secret123",
       });
 
       expect(mockLogin).toHaveBeenCalledWith(
-        "test@gomo6.local",
+        "testuser",
         "secret123",
         "test-device-id",
       );
@@ -132,7 +132,7 @@ describe("apiAuth", () => {
       });
 
       const result = await apiAuth.signInWithPassword({
-        email: "test@gomo6.local",
+        username: "testuser",
         password: "secret123",
       });
 
@@ -145,7 +145,7 @@ describe("apiAuth", () => {
       mockLogin.mockRejectedValue(new Error("Invalid login credentials"));
 
       const result = await apiAuth.signInWithPassword({
-        email: "test@gomo6.local",
+        username: "testuser",
         password: "wrong",
       });
 

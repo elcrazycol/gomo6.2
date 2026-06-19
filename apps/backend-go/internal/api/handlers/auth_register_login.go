@@ -46,15 +46,24 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	// Insert user
+	displayName := req.Username
+	if req.DisplayName != nil && *req.DisplayName != "" {
+		displayName = *req.DisplayName
+	}
+
 	query := `
-		INSERT INTO users (username, email, password_hash, domain) 
-		VALUES ($1, $2, $3, 'localhost:8080')
-		RETURNING id, username, email, domain, created_at
+		INSERT INTO users (username, display_name, email, password_hash, domain) 
+		VALUES ($1, $2, $3, $4, 'localhost:8080')
+		RETURNING id, username, display_name, email, domain, created_at
 	`
 
 	var user models.User
-	err = h.db.QueryRow(query, req.Username, req.Email, string(hashedPassword)).Scan(
-		&user.ID, &user.Username, &user.Email, &user.Domain, &user.CreatedAt,
+	var emailVal *string
+	if req.Email != nil && *req.Email != "" {
+		emailVal = req.Email
+	}
+	err = h.db.QueryRow(query, req.Username, displayName, emailVal, string(hashedPassword)).Scan(
+		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain, &user.CreatedAt,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create user"))
@@ -81,7 +90,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // If device_id is provided and is trusted, 2FA is skipped.
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Email    string `json:"email"`
+		Username string `json:"username"`
+		Email    string `json:"email"` // backward compat: old frontend sends email
 		Password string `json:"password"`
 		DeviceID string `json:"device_id,omitempty"`
 		Website  string `json:"website,omitempty"` // Honeypot field — must be empty
@@ -89,6 +99,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	// Backward compat: old frontend sends email, new sends username
+	loginIdentifier := req.Username
+	if loginIdentifier == "" {
+		loginIdentifier = req.Email
 	}
 
 	// ── Honeypot check ──
@@ -102,7 +118,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Check account lockout
 	if h.redis != nil {
-		lockKey := fmt.Sprintf("lockout:%s", req.Email)
+		lockKey := fmt.Sprintf("lockout:%s", loginIdentifier)
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		attempts, err := h.redis.Get(ctx, lockKey).Int()
 		cancel()
@@ -114,9 +130,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Get user from database
 	query := `
-		SELECT id, username, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at
+		SELECT id, username, display_name, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at
 		FROM users
-		WHERE email = $1
+		WHERE username = $1
 	`
 
 	var user models.User
@@ -124,8 +140,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	var totpEnabled bool
 	var totpSecret *string
 	var trustedDevicesJSON *string
-	err := h.db.QueryRow(query, req.Email).Scan(
-		&user.ID, &user.Username, &user.Email, &user.Domain, &passwordHash,
+	err := h.db.QueryRow(query, loginIdentifier).Scan(
+		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain, &passwordHash,
 		&totpEnabled, &totpSecret, &trustedDevicesJSON, &user.CreatedAt,
 	)
 	if err != nil {
@@ -142,7 +158,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if err != nil {
 		// Record failed attempt
 		if h.redis != nil {
-			h.recordFailedAttempt(req.Email)
+			h.recordFailedAttempt(loginIdentifier)
 		}
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
 		return
@@ -151,7 +167,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Reset lockout counter on successful password verification
 	if h.redis != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		h.redis.Del(ctx, fmt.Sprintf("lockout:%s", req.Email))
+		h.redis.Del(ctx, fmt.Sprintf("lockout:%s", loginIdentifier))
 		cancel()
 	}
 
