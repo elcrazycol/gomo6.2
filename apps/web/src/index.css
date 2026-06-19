@@ -932,18 +932,25 @@ html, body {
   letter-spacing: 1px;
 }
 
-/* Floating context menu for touch devices — positioned at tap point */
+/* Floating context menu for touch devices — positioned at tap point, rendered in portal */
+
+.msg-actions-float-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+
 .msg-actions-float {
-  position: absolute;
-  z-index: 20;
+  position: fixed;
+  z-index: 51;
   transform: translate(-50%, -100%);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
   padding: 4px;
-  min-width: 170px;
+  min-width: 180px;
   animation: fade-in-scale 0.12s ease;
 }
 
@@ -952,9 +959,9 @@ html, body {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 11px 14px;
   border: none;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: hsl(var(--foreground));
   font-size: 14px;
