@@ -286,6 +286,8 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
 			h.BroadcastToRoom(chatRoom, messageBytes)
+			// Auto-subscribe bot members to this chat room
+			go h.autoSubscribeBotsToChat(conversationID, chatRoom)
 		}
 
 	case MessageTypeMessageEdited, MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping:
@@ -320,6 +322,45 @@ func extractRoomID(payload interface{}, key string) string {
 		}
 	}
 	return ""
+}
+
+// autoSubscribeBotsToChat finds bot users who are members of a conversation
+// and subscribes their connected clients to the chat room.
+func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
+	if h.db == nil {
+		return
+	}
+
+	rows, err := h.db.Query(`
+		SELECT cm.user_id
+		FROM chat_members cm
+		INNER JOIN bots b ON b.user_id = cm.user_id
+		WHERE cm.conversation_id = $1 AND b.is_active = true`, conversationID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	// Collect bot user IDs first, then subscribe outside the query loop
+	var botUserIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			continue
+		}
+		botUserIDs = append(botUserIDs, userID)
+	}
+
+	for _, userID := range botUserIDs {
+		h.mu.RLock()
+		client, ok := h.presence[userID]
+		needsSubscribe := ok && !client.Rooms[chatRoom]
+		h.mu.RUnlock()
+
+		if needsSubscribe {
+			h.SubscribeToRoom(client, chatRoom)
+		}
+	}
 }
 
 // SubscribeToRoom adds a client to a room
