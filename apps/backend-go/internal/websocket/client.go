@@ -1,10 +1,13 @@
 package websocket
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gomo6/backend/internal/auth"
@@ -210,6 +213,34 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	}
 	if err := json.Unmarshal(data, &authPayload); err != nil || authPayload.Token == "" {
 		return fmt.Errorf("invalid auth payload")
+	}
+
+	// Try bot token auth first
+	if strings.HasPrefix(authPayload.Token, "gomo6_bot_") && c.Hub.db != nil {
+		h := sha256.Sum256([]byte(authPayload.Token))
+		tokenHash := hex.EncodeToString(h[:])
+
+		var botID, ownerID, userID, username string
+		err := c.Hub.db.QueryRow(
+			`SELECT b.id, b.owner_id, b.user_id, u.username
+			 FROM bots b JOIN users u ON u.id = b.user_id
+			 WHERE b.token_hash = $1 AND b.is_active = true`, tokenHash,
+		).Scan(&botID, &ownerID, &userID, &username)
+		if err == nil {
+			c.UserID = userID
+			c.Username = username
+
+			c.Hub.mu.Lock()
+			c.Hub.presence[c.UserID] = c
+			c.Hub.mu.Unlock()
+
+			go c.Hub.updateUserOnlineStatus(c.UserID, true)
+			go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
+
+			log.Printf("[WebSocket] Authenticated bot: %s (%s)", c.Username, c.UserID)
+			return nil
+		}
+		// Bot token invalid — fall through to JWT
 	}
 
 	claims, err := c.authService.ValidateToken(authPayload.Token)

@@ -1,0 +1,26 @@
+{
+  "name": "@gomo6/bot",
+  "version": "0.1.0",
+  "description": "Bot SDK for gomo6 social network",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": ">=20.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

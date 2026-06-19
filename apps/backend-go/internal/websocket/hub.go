@@ -74,7 +74,7 @@ type Hub struct {
 	presence             map[string]*Client
 	mu                   sync.RWMutex
 	redis                *redis.Client
-	db                   interface{} // database connection for status updates
+	db                   *sql.DB
 	ctx                  context.Context
 	cancel               context.CancelFunc
 	allowedOrigins       []string
@@ -107,7 +107,7 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 }
 
 // SetDB sets the database connection for the Hub
-func (h *Hub) SetDB(db interface{}) {
+func (h *Hub) SetDB(db *sql.DB) {
 	h.db = db
 }
 
@@ -487,15 +487,8 @@ func (h *Hub) updateUserOnlineStatus(userID string, isOnline bool) {
 
 	// Create new debounced update
 	h.statusUpdateDebounce[userID] = time.AfterFunc(500*time.Millisecond, func() {
-		// Type assert to *sql.DB
-		db, ok := h.db.(*sql.DB)
-		if !ok {
-			log.Printf("[WebSocket] Database type assertion failed")
-			return
-		}
-
 		query := "UPDATE users SET is_online = $1, last_seen_at = NOW() WHERE id = $2"
-		_, err := db.Exec(query, isOnline, userID)
+		_, err := h.db.Exec(query, isOnline, userID)
 		if err != nil {
 			log.Printf("[WebSocket] Error updating user online status: %v", err)
 		}
