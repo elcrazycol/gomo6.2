@@ -62,6 +62,24 @@ export const MessengerView = () => {
     return () => { messengerWs.unsubscribe(room); };
   }, [selectedConversationId]);
 
+  // ── Mobile body scroll lock (iOS-compatible: position:fixed without overflow:hidden) ──
+  useEffect(() => {
+    if (!isMobile || !showMobileChat) return;
+
+    const body = document.body;
+    const scrollY = window.scrollY;
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      body.style.position = "";
+      body.style.top = "";
+      body.style.width = "";
+      window.scrollTo(0, scrollY);
+    };
+  }, [isMobile, showMobileChat]);
+
   // ── Hide AppLayout header on mobile when chat is open ─────────────────
   useEffect(() => {
     if (!isMobile) return;
