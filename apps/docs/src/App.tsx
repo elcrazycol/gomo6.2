@@ -1,11 +1,6 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { useState } from 'react'
-import { Introduction } from './pages/Introduction'
-import { GettingStarted } from './pages/GettingStarted'
-import { APIReference } from './pages/APIReference'
-import { Examples } from './pages/Examples'
-import { EventHandlers } from './pages/EventHandlers'
-import { BestPractices } from './pages/BestPractices'
+import { useState, lazy, Suspense } from 'react'
+import { Landing } from './pages/Landing'
 import { OAuthOverview } from './pages/OAuthOverview'
 import { OAuthAuthorization } from './pages/OAuthAuthorization'
 import { OAuthTokens } from './pages/OAuthTokens'
@@ -13,28 +8,17 @@ import { OAuthUserinfo } from './pages/OAuthUserinfo'
 import { OAuthClientLibrary } from './pages/OAuthClientLibrary'
 import { OAuthReference } from './pages/OAuthReference'
 import { ThemeProvider } from './contexts/ThemeContext'
-import { BookOpen, Bot, Key, ChevronRight, Menu, X, ExternalLink, Code2, Zap, Shield, FileText, GraduationCap, RefreshCw, User } from 'lucide-react'
+import { Key, ChevronRight, Menu, X, ExternalLink, Code2, BookOpen } from 'lucide-react'
 
-// Sidebar sections data
+const RestApiReference = lazy(() => import('./pages/RestApiReference'))
+
 const sidebarSections = [
   {
-    id: 'getting-started',
-    label: 'Начало работы',
-    icon: GraduationCap,
+    id: 'rest-api',
+    label: 'REST API',
+    icon: Code2,
     items: [
-      { path: '/', label: 'Введение', icon: BookOpen },
-      { path: '/getting-started', label: 'Быстрый старт', icon: Zap },
-    ],
-  },
-  {
-    id: 'bots',
-    label: 'Bot API',
-    icon: Bot,
-    items: [
-      { path: '/events', label: 'События', icon: Code2 },
-      { path: '/api', label: 'API Reference', icon: FileText },
-      { path: '/examples', label: 'Примеры', icon: Code2 },
-      { path: '/best-practices', label: 'Best Practices', icon: Shield },
+      { path: '/rest-api', label: 'API Reference', icon: Code2 },
     ],
   },
   {
@@ -44,10 +28,10 @@ const sidebarSections = [
     items: [
       { path: '/oauth', label: 'Обзор', icon: BookOpen },
       { path: '/oauth/authorization', label: 'Авторизация', icon: Key },
-      { path: '/oauth/tokens', label: 'Токены', icon: RefreshCw },
-      { path: '/oauth/userinfo', label: 'Данные пользователя', icon: User },
+      { path: '/oauth/tokens', label: 'Токены', icon: Key },
+      { path: '/oauth/userinfo', label: 'Данные пользователя', icon: Key },
       { path: '/oauth/client-library', label: 'TS клиент', icon: Code2, badge: 'NEW' },
-      { path: '/oauth/reference', label: 'Справочник', icon: FileText },
+      { path: '/oauth/reference', label: 'Справочник', icon: Key },
     ],
   },
 ]
@@ -55,7 +39,7 @@ const sidebarSections = [
 function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
   const location = useLocation()
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['getting-started', 'bots', 'oauth'])
+    new Set(['rest-api', 'oauth'])
   )
 
   const toggleSection = (id: string) => {
@@ -74,7 +58,6 @@ function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
 
   return (
     <aside className="w-64 border-r border-[var(--sidebar-border)] h-screen fixed top-0 left-0 overflow-y-auto bg-[var(--sidebar)] z-40 flex flex-col">
-      {/* Logo */}
       <div className="p-5 border-b border-[var(--sidebar-border)]">
         <Link to="/" className="flex items-center gap-3 group" onClick={onNavClick}>
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/10 group-hover:shadow-emerald-500/20 transition-shadow">
@@ -82,12 +65,11 @@ function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
           </div>
           <div>
             <h1 className="text-sm font-semibold text-foreground">Gomo6 Docs</h1>
-            <p className="text-[11px] text-muted-foreground">Bot API & OAuth 2.0</p>
+            <p className="text-[11px] text-muted-foreground">API Documentation</p>
           </div>
         </Link>
       </div>
 
-      {/* Navigation sections */}
       <nav className="flex-1 p-3 space-y-1">
         {sidebarSections.map((section) => {
           const SectionIcon = section.icon
@@ -148,16 +130,16 @@ function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="p-3 border-t border-[var(--sidebar-border)]">            <a
-              href={`//dev.${window.location.hostname.replace(/^(docs|dev|www)\./, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-[var(--sidebar-hover)] transition-all duration-150"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Dev Dashboard</span>
-            </a>
+      <div className="p-3 border-t border-[var(--sidebar-border)]">
+        <a
+          href={`//dev.${window.location.hostname.replace(/^(docs|dev|www)\./, '')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-[var(--sidebar-hover)] transition-all duration-150"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          <span>Dev Dashboard</span>
+        </a>
       </div>
     </aside>
   )
@@ -193,7 +175,6 @@ function PageContainer({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Mobile menu overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/60 z-30 lg:hidden"
@@ -201,7 +182,6 @@ function PageContainer({ children }: { children: React.ReactNode }) {
         />
       )}
 
-      {/* Mobile sidebar */}
       <div
         className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out lg:hidden ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -210,15 +190,12 @@ function PageContainer({ children }: { children: React.ReactNode }) {
         <Sidebar onNavClick={() => setSidebarOpen(false)} />
       </div>
 
-      {/* Desktop sidebar */}
       <div className="hidden lg:block">
         <Sidebar />
       </div>
 
-      {/* Top bar (mobile) */}
       <TopBar onMenuToggle={() => setSidebarOpen(!sidebarOpen)} />
 
-      {/* Main content */}
       <main className="lg:ml-64">
         <div className="max-w-4xl mx-auto px-6 sm:px-10 lg:px-16 py-8 lg:py-16">
           <div className="prose">
@@ -233,12 +210,12 @@ function PageContainer({ children }: { children: React.ReactNode }) {
 function AppContent() {
   return (
     <Routes>
-      <Route path="/" element={<PageContainer><Introduction /></PageContainer>} />
-      <Route path="/getting-started" element={<PageContainer><GettingStarted /></PageContainer>} />
-      <Route path="/events" element={<PageContainer><EventHandlers /></PageContainer>} />
-      <Route path="/api" element={<PageContainer><APIReference /></PageContainer>} />
-      <Route path="/examples" element={<PageContainer><Examples /></PageContainer>} />
-      <Route path="/best-practices" element={<PageContainer><BestPractices /></PageContainer>} />
+      <Route path="/" element={<Landing />} />
+      <Route path="/rest-api" element={
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#0f0f13]"><div className="text-white">Loading API Reference...</div></div>}>
+          <RestApiReference />
+        </Suspense>
+      } />
       <Route path="/oauth" element={<PageContainer><OAuthOverview /></PageContainer>} />
       <Route path="/oauth/authorization" element={<PageContainer><OAuthAuthorization /></PageContainer>} />
       <Route path="/oauth/tokens" element={<PageContainer><OAuthTokens /></PageContainer>} />

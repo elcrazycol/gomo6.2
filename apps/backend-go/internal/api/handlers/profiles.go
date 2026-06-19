@@ -34,6 +34,18 @@ func (h *ProfilesHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
+// GetProfiles godoc
+// @Summary      List profiles
+// @Description  Get user profiles with optional filters
+// @Tags         Profiles
+// @Produce      json
+// @Param        id       query string false "Filter by user ID (eq.uuid or in.(uuid,...))"
+// @Param        username query string false "Filter by username"
+// @Param        domain   query string false "Filter by domain"
+// @Param        limit    query int    false "Max results (1-100)" default(50)
+// @Param        offset   query int    false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Router       /profiles [get]
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
 		SELECT id, username, display_name, email, domain, avatar_url, bio, bio_json, garma, post_count,
@@ -155,6 +167,15 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: profiles, Count: &profileCount})
 }
 
+// GetProfile godoc
+// @Summary      Get profile
+// @Description  Get a user profile by ID
+// @Tags         Profiles
+// @Produce      json
+// @Param        id path string true "User ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /profiles/{id} [get]
 func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
 	if _, err := uuid.Parse(id); err == nil {
@@ -193,6 +214,17 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(profile))
 }
 
+// UpdateProfile godoc
+// @Summary      Update profile
+// @Description  Update user profile (own profile only)
+// @Tags         Profiles
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "User ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /profiles/{id} [put]
+// @Security     BearerAuth
 func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	id := c.Param("id")
 

@@ -150,6 +150,19 @@ func (h *ThreadsHandler) canAccessBoard(userID string, boardID string) (bool, er
 }
 
 // Migration 036 added tags JSONB column to threads table.
+//
+// GetThreads godoc
+// @Summary      List threads
+// @Description  Get threads with optional filters
+// @Tags         Threads
+// @Produce      json
+// @Param        board_id    query string false "Filter by board ID"
+// @Param        channel_id  query string false "Filter by channel ID"
+// @Param        user_id     query string false "Filter by user ID"
+// @Param        limit       query int    false "Max results (1-100)" default(50)
+// @Param        offset      query int    false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Router       /threads [get]
 func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
 		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
@@ -390,6 +403,15 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// GetThread godoc
+// @Summary      Get thread
+// @Description  Get a thread by its ID
+// @Tags         Threads
+// @Produce      json
+// @Param        id path string true "Thread ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /threads/{id} [get]
 func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	idStr := c.Param("id")
 
@@ -470,6 +492,16 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(thread))
 }
 
+// DeleteThread godoc
+// @Summary      Delete thread
+// @Description  Delete a thread (author only)
+// @Tags         Threads
+// @Produce      json
+// @Param        id query string true "Thread ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /threads [delete]
+// @Security     BearerAuth
 func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -514,6 +546,18 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 }
 
 // UpdateThread updates thread body (OP text); only the author may edit.
+//
+// UpdateThread godoc
+// @Summary      Update thread
+// @Description  Update thread content (author only)
+// @Tags         Threads
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Thread ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /threads/{id} [put]
+// @Security     BearerAuth
 func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {

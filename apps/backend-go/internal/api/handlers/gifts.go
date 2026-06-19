@@ -34,6 +34,18 @@ func (h *GiftsHandler) SetRedis(redis *redis.Client) { h.redis = redis }
 func (h *GiftsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
 
 // SendGift — POST /api/v1/gifts/send (protected)
+//
+// SendGift godoc
+// @Summary      Send a gift
+// @Description  Send a gift to another user (deducts drops)
+// @Tags         Gifts
+// @Accept       json
+// @Produce      json
+// @Param        request body models.SendGiftRequest true "Gift data"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /gifts/send [post]
+// @Security     BearerAuth
 func (h *GiftsHandler) SendGift(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	senderID := claims.UserID
@@ -289,6 +301,16 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 }
 
 // GetGiftCatalog — GET /api/v1/gift_catalog (public)
+//
+// GetGiftCatalog godoc
+// @Summary      Get gift catalog
+// @Description  List all available gifts in the catalog
+// @Tags         Gifts
+// @Produce      json
+// @Param        limit  query int false "Max results (1-200)" default(100)
+// @Param        offset query int false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Router       /gift_catalog [get]
 func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 	limit := 100
 	offset := 0

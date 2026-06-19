@@ -37,6 +37,16 @@ func (h *LikesHandler) SetAchievementChecker(ac *AchievementChecker) {
 	h.achievementChecker = ac
 }
 
+// LikeThread godoc
+// @Summary      Like a thread
+// @Description  Like a thread (one per user)
+// @Tags         Likes
+// @Produce      json
+// @Param        id path string true "Thread ID"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /threads/{id}/like [post]
+// @Security     BearerAuth
 func (h *LikesHandler) LikeThread(c *gin.Context) {
 	threadID := c.Param("id")
 
@@ -121,6 +131,16 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
 }
 
+// UnlikeThread godoc
+// @Summary      Unlike a thread
+// @Description  Remove like from a thread
+// @Tags         Likes
+// @Produce      json
+// @Param        id path string true "Thread ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /threads/{id}/like [delete]
+// @Security     BearerAuth
 func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	threadID := c.Param("id")
 
@@ -166,6 +186,16 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
+// LikePost godoc
+// @Summary      Like a post
+// @Description  Like a post (one per user)
+// @Tags         Likes
+// @Produce      json
+// @Param        id path string true "Post ID"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /posts/{id}/like [post]
+// @Security     BearerAuth
 func (h *LikesHandler) LikePost(c *gin.Context) {
 	postID := c.Param("id")
 
@@ -251,6 +281,16 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	c.JSON(http.StatusCreated, models.SuccessResponse(like))
 }
 
+// UnlikePost godoc
+// @Summary      Unlike a post
+// @Description  Remove like from a post
+// @Tags         Likes
+// @Produce      json
+// @Param        id path string true "Post ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /posts/{id}/like [delete]
+// @Security     BearerAuth
 func (h *LikesHandler) UnlikePost(c *gin.Context) {
 	postID := c.Param("id")
 

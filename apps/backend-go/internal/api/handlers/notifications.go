@@ -128,6 +128,18 @@ func nullableString(s *string) interface{} {
 
 // --- NotificationsHandler HTTP methods ---
 
+// GetNotifications godoc
+// @Summary      List notifications
+// @Description  Get notifications for the authenticated user
+// @Tags         Notifications
+// @Produce      json
+// @Param        is_read  query string false "Filter by read status (true/false)"
+// @Param        limit    query int    false "Max results (1-100)" default(50)
+// @Param        offset   query int    false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /notifications [get]
+// @Security     BearerAuth
 func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -216,6 +228,16 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	})
 }
 
+// MarkAsRead godoc
+// @Summary      Mark notification as read
+// @Description  Mark a single notification as read
+// @Tags         Notifications
+// @Produce      json
+// @Param        id path string true "Notification ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /notifications/{id}/read [put]
+// @Security     BearerAuth
 func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 	notificationID := c.Param("id")
 
@@ -282,6 +304,15 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
+// GetUnreadCount godoc
+// @Summary      Get unread notification count
+// @Description  Get the number of unread notifications
+// @Tags         Notifications
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /notifications/unread-count [get]
+// @Security     BearerAuth
 func (h *NotificationsHandler) GetUnreadCount(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

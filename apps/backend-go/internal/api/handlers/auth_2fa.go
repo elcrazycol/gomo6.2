@@ -18,6 +18,17 @@ import (
 // Verify2FA validates a TOTP code after password login.
 // Expects a partial token from step 1 and a TOTP code.
 // If device_id is provided, the device will be trusted for future logins.
+//
+// Verify2FA godoc
+// @Summary      Verify 2FA code
+// @Description  Validate a TOTP code during login (requires partial token)
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "2FA verification request"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/verify-2fa [post]
 func (h *AuthHandler) Verify2FA(c *gin.Context) {
 	var req struct {
 		Token       string `json:"token"`
@@ -75,6 +86,16 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 }
 
 // SetupTOTP generates a new TOTP secret for the authenticated user and returns the provisioning URI.
+//
+// SetupTOTP godoc
+// @Summary      Setup TOTP
+// @Description  Generate a new TOTP secret and provisioning URI for 2FA setup
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/2fa/setup [post]
+// @Security     BearerAuth
 func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -110,6 +131,18 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 }
 
 // VerifyAndEnableTOTP verifies the TOTP code and enables 2FA for the user.
+//
+// VerifyAndEnableTOTP godoc
+// @Summary      Verify and enable TOTP
+// @Description  Verify the TOTP code and enable 2FA for the authenticated user
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "TOTP verification code"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /auth/2fa/verify-and-enable [post]
+// @Security     BearerAuth
 func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -163,6 +196,16 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 }
 
 // DisableTOTP disables 2FA for the authenticated user.
+//
+// DisableTOTP godoc
+// @Summary      Disable TOTP
+// @Description  Disable 2FA for the authenticated user
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/2fa/disable [post]
+// @Security     BearerAuth
 func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -184,6 +227,16 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 }
 
 // Get2FAStatus returns the current 2FA status for the authenticated user.
+//
+// Get2FAStatus godoc
+// @Summary      Get 2FA status
+// @Description  Returns whether 2FA is enabled and if there is a pending setup
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/2fa/status [get]
+// @Security     BearerAuth
 func (h *AuthHandler) Get2FAStatus(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

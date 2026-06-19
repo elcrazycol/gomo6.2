@@ -20,6 +20,21 @@ import (
 // Until swapped, only /health returns 200; all other paths return 404.
 var primaryHandler atomic.Value // stores http.Handler (nil before init)
 
+// @title           gomo6 API
+// @version         1.0
+// @description     gomo6 — open social platform API. Create bots, integrations, and apps.
+// @termsOfService  https://gomo6.wtf/terms
+// @contact.name    gomo6 Team
+// @contact.url     https://gomo6.wtf
+// @license.name    MIT
+// @BasePath        /api/v1
+// @schemes         https http
+//
+// @securityDefinitions.apikey BearerAuth
+// @in                         header
+// @name                       Authorization
+// @description                Bearer token for API authentication
+
 func main() {
 	// Load environment variables
 	if err := godotenv.Load(); err != nil {

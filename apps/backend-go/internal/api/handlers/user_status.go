@@ -31,6 +31,14 @@ type UserStatusResponse struct {
 }
 
 // GetOnlineUsers returns a list of all online users
+//
+// GetOnlineUsers godoc
+// @Summary      Get online users
+// @Description  Get a list of all currently online users
+// @Tags         Users
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Router       /users/online [get]
 func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 	onlineUserIDs := h.hub.GetOnlineUsers()
 
@@ -39,6 +47,16 @@ func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 
 // GetUserStatus returns the online status of a specific user
 // Respects privacy settings - if user has hidden their status, returns offline
+//
+// GetUserStatus godoc
+// @Summary      Get user status
+// @Description  Get the online status of a specific user
+// @Tags         Users
+// @Produce      json
+// @Param        id path string true "User ID"
+// @Success      200 {object} UserStatusResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /users/{id}/status [get]
 func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 	userID := c.Param("id")
 

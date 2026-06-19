@@ -14,6 +14,15 @@ import (
 // ─── List Conversations ─────────────────────────────────────────────────────
 // GET /api/v1/messenger/conversations
 
+// ListConversations godoc
+// @Summary      List conversations
+// @Description  Get all conversations for the authenticated user
+// @Tags         Messenger
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /messenger/conversations [get]
+// @Security     BearerAuth
 func (h *MessengerHandler) ListConversations(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {

@@ -31,6 +31,18 @@ func (h *PostsHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
 }
 
+// GetPosts godoc
+// @Summary      List posts
+// @Description  Get posts with optional filters
+// @Tags         Posts
+// @Produce      json
+// @Param        thread_id  query string false "Filter by thread ID"
+// @Param        user_id    query string false "Filter by user ID"
+// @Param        latest     query string false "Return only latest post per thread (true/false)"
+// @Param        limit      query int    false "Max results" default(100)
+// @Param        offset     query int    false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Router       /posts [get]
 func (h *PostsHandler) GetPosts(c *gin.Context) {
 	// latest=true returns only the latest post per thread using DISTINCT ON.
 	// Requires thread_id=in.(...) filter. Used by Board.tsx for N+1-free batch loading.
@@ -290,6 +302,15 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// GetPost godoc
+// @Summary      Get post
+// @Description  Get a post by its ID
+// @Tags         Posts
+// @Produce      json
+// @Param        id path string true "Post ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /posts/{id} [get]
 func (h *PostsHandler) GetPost(c *gin.Context) {
 	id := c.Param("id")
 
@@ -339,6 +360,16 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(post))
 }
 
+// DeletePost godoc
+// @Summary      Delete post
+// @Description  Delete a post (author only)
+// @Tags         Posts
+// @Produce      json
+// @Param        id query string true "Post ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /posts [delete]
+// @Security     BearerAuth
 func (h *PostsHandler) DeletePost(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -389,6 +420,18 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 }
 
 // UpdatePost updates reply body; only the author may edit.
+//
+// UpdatePost godoc
+// @Summary      Update post
+// @Description  Update post content (author only)
+// @Tags         Posts
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Post ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /posts/{id} [put]
+// @Security     BearerAuth
 func (h *PostsHandler) UpdatePost(c *gin.Context) {
 	idStr := c.Param("id")
 	if idStr == "" {

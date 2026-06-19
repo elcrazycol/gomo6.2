@@ -29,6 +29,15 @@ type SearchResult struct {
 
 // Search performs a full-text search across all searchable entities.
 // GET /api/v1/search?q=...
+//
+// Search godoc
+// @Summary      Full-text search
+// @Description  Search across users, boards, threads, and posts
+// @Tags         Search
+// @Produce      json
+// @Param        q query string true "Search query (min 2 chars)"
+// @Success      200 {object} models.APIResponse
+// @Router       /search [get]
 func (h *SearchHandler) Search(c *gin.Context) {
 	q := c.Query("q")
 	if q == "" || len([]rune(q)) < 2 {
