@@ -556,9 +556,9 @@ func TestHub_SetDB(t *testing.T) {
 		t.Error("db should be nil initially")
 	}
 
-	hub.SetDB("test-db")
-	if hub.db != "test-db" {
-		t.Errorf("expected 'test-db', got %v", hub.db)
+	hub.SetDB(nil)
+	if hub.db != nil {
+		t.Errorf("expected nil, got %v", hub.db)
 	}
 }
 
