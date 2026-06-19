@@ -62,22 +62,6 @@ export const MessengerView = () => {
     return () => { messengerWs.unsubscribe(room); };
   }, [selectedConversationId]);
 
-  // ── Prevent body scroll (robust for iOS/Android) ──────────────────────
-  useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const prevHtmlOverflow = html.style.overflow;
-    const prevBodyOverflow = body.style.overflow;
-
-    html.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-
-    return () => {
-      html.style.overflow = prevHtmlOverflow;
-      body.style.overflow = prevBodyOverflow;
-    };
-  }, []);
-
   // ── Hide AppLayout header on mobile when chat is open ─────────────────
   useEffect(() => {
     if (!isMobile) return;
