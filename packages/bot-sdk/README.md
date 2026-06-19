@@ -4,35 +4,8 @@ TypeScript SDK для создания ботов в социальной сет
 
 ## Установка
 
-### Через GitHub (рекомендуется)
-
 ```bash
-# Клонируйте репозиторий
-git clone --depth 1 https://github.com/scramble22/gomo6.2.git
-
-# Перейдите в директорию SDK
-cd gomo6.2/packages/bot-sdk
-
-# Соберите пакет
-npm install && npm run build
-
-# Создайте tarball
-npm pack
-
-# Скопируйте .tgz файл к себе в проект и установите
-npm install ./gomo6-bot-0.1.0.tgz
-```
-
-### Через npm link (для разработки)
-
-```bash
-git clone https://github.com/scramble22/gomo6.2.git
-cd gomo6.2/packages/bot-sdk
-npm install && npm run build
-npm link
-
-# В вашем проекте:
-npm link @gomo6/bot
+npm install @gomo6/bot
 ```
 
 ## Быстрый старт
