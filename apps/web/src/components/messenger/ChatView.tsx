@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, MessageCircle, Pin } from "lucide-react";
+import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -8,6 +8,7 @@ import { formatPresence, getInitials } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
+import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
 import type { MessageView, ReceiptRow } from "./types";
 
 interface Props {
@@ -48,6 +49,7 @@ export const ChatView = memo(function ChatView({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
   const [showUserInfo, setShowUserInfo] = useState(false);
+  const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
   const shouldAutoScroll = useRef(true);
   const prevLength = useRef(0);
 
@@ -250,6 +252,35 @@ export const ChatView = memo(function ChatView({
               const dateLabel = getDateSeparator(prev, msg);
               const peerReceipt = getPeerReceipt(msg.id);
               const quoted = getQuotedMessage(msg.parent_message_id);
+              const giftData = parseGiftContent(msg.content);
+
+              if (giftData) {
+                const imgSrc = giftData.imageUrl ? storageUrl("post-images", giftData.imageUrl) || giftData.imageUrl : null;
+                return (
+                  <div key={msg.id}>
+                    {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
+                    <div className="msg-gift-standalone">
+                      <div className="msg-gift-standalone-card">
+                        <div className="msg-gift-standalone-img">
+                          {imgSrc ? (
+                            <img src={imgSrc} alt={giftData.giftName} />
+                          ) : (
+                            <Gift size={28} />
+                          )}
+                        </div>
+                        <div className="msg-gift-standalone-name">{giftData.giftName}</div>
+                        <button
+                          type="button"
+                          className="msg-gift-standalone-btn"
+                          onClick={() => setGiftDetailId(giftData.giftId)}
+                        >
+                          Подробнее
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
               return (
                 <div key={msg.id}>
@@ -317,6 +348,15 @@ export const ChatView = memo(function ChatView({
         isOnline={conversation.other_is_online}
         lastSeenAt={conversation.other_last_seen_at}
       />
+
+      {/* Gift detail dialog */}
+      {giftDetailId && (
+        <GiftDetailDialog
+          giftId={giftDetailId}
+          open={true}
+          onOpenChange={(v) => { if (!v) setGiftDetailId(null); }}
+        />
+      )}
     </>
   );
 });

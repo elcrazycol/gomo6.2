@@ -1,74 +1,14 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Users, MessageSquare, ArrowRight, Gift } from "lucide-react";
+import { Users, MessageSquare, ArrowRight, Gift, User } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
-
-// ─── Preview card skeleton ───────────────────────────────────────────────────
-
-const PreviewSkeleton = () => (
-  <div className="msg-link-skeleton" />
-);
-
-// ─── Gift message card ──────────────────────────────────────────────────────
-
-interface GiftMessageData {
-  giftId: string;
-  giftName: string;
-  imageUrl: string;
-}
-
-function parseGiftContent(content: string): GiftMessageData | null {
-  const match = content.match(/^__GIFT__:(.+?):(.+?):(.*)$/);
-  if (!match) return null;
-  return {
-    giftId: match[1],
-    giftName: match[2],
-    imageUrl: match[3],
-  };
-}
-
-function GiftMessageCard({ data }: { data: GiftMessageData }) {
-  const [showDetail, setShowDetail] = useState(false);
-  const imgSrc = data.imageUrl ? storageUrl("post-images", data.imageUrl) || data.imageUrl : null;
-
-  return (
-    <>
-      <div className="msg-gift-card" onClick={() => setShowDetail(true)}>
-        <div className="msg-gift-icon">
-          {imgSrc ? (
-            <img src={imgSrc} alt={data.giftName} />
-          ) : (
-            <Gift size={24} />
-          )}
-        </div>
-        <div className="msg-gift-info">
-          <span className="msg-gift-label">Подарок</span>
-          <span className="msg-gift-name">{data.giftName}</span>
-        </div>
-      </div>
-
-      <Dialog open={showDetail} onOpenChange={setShowDetail}>
-        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
-          <div className="w-full aspect-square bg-muted flex items-center justify-center">
-            {imgSrc ? (
-              <img src={imgSrc} alt={data.giftName} className="w-full h-full object-cover" />
-            ) : (
-              <Gift className="w-16 h-16 text-muted-foreground" />
-            )}
-          </div>
-          <div className="p-4 space-y-2">
-            <h3 className="font-semibold text-lg">{data.giftName}</h3>
-            <p className="text-sm text-muted-foreground">Подарок в чате</p>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
+import { formatDistanceToNow } from "date-fns";
+import { ru } from "date-fns/locale";
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
 
@@ -94,18 +34,18 @@ function InvitePreview({ slug, code }: { slug: string; code: string }) {
     retry: false,
   });
 
-  if (isLoading) return <PreviewSkeleton />;
+  if (isLoading) return <div className="msg-link-panel-loading" />;
   if (error || !data || data.expired || data.maxed_out) return null;
 
   return (
-    <div className="msg-link-preview">
-      <div className="flex items-center gap-2 mb-1">
-        <Users size={14} className="text-muted-foreground shrink-0" />
-        <span className="msg-link-preview-subtitle">Приглашение в G-саб</span>
+    <div className="msg-link-panel">
+      <div className="msg-link-panel-header">
+        <Users size={13} />
+        <span>Приглашение в G-саб</span>
       </div>
-      <div className="msg-link-preview-title">{data.board_name}</div>
-      <Link to={`/g/${slug}/join/${code}`} className="msg-link-preview-btn">
-        Вступить <ArrowRight size={14} />
+      <div className="msg-link-panel-title">{data.board_name}</div>
+      <Link to={`/g/${slug}/join/${code}`} className="msg-link-panel-action">
+        Вступить <ArrowRight size={13} />
       </Link>
     </div>
   );
@@ -137,7 +77,7 @@ function ThreadPreview({ slug, threadId }: { slug: string; threadId: string }) {
     retry: false,
   });
 
-  if (isLoading) return <PreviewSkeleton />;
+  if (isLoading) return <div className="msg-link-panel-loading" />;
   if (error || !data) return null;
 
   const board = data.boards;
@@ -147,19 +87,15 @@ function ThreadPreview({ slug, threadId }: { slug: string; threadId: string }) {
     : `/${board?.slug ?? slug}/thread/${threadId}`;
 
   return (
-    <div className="msg-link-preview">
-      <div className="flex items-center gap-2 mb-1">
-        <MessageSquare size={14} className="text-muted-foreground shrink-0" />
-        {board && (
-          <span className="msg-link-preview-subtitle">
-            {isGomo ? "g/" : "/"}{board.slug}
-          </span>
-        )}
+    <div className="msg-link-panel">
+      <div className="msg-link-panel-header">
+        <MessageSquare size={13} />
+        {board && <span>{isGomo ? "g/" : "/"}{board.slug}</span>}
       </div>
-      <Link to={threadPath} className="msg-link-preview-title block hover:underline">
+      <Link to={threadPath} className="msg-link-panel-title hover:underline">
         {data.title}
       </Link>
-      <div className="msg-link-preview-subtitle mt-1">
+      <div className="msg-link-panel-meta">
         {data.post_count} {data.post_count === 1 ? "сообщение" : data.post_count < 5 ? "сообщения" : "сообщений"}
       </div>
     </div>
@@ -191,25 +127,22 @@ function ProfilePreview({ userId }: { userId: string }) {
     retry: false,
   });
 
-  if (isLoading) return <PreviewSkeleton />;
+  if (isLoading) return <div className="msg-link-panel-loading" />;
   if (error || !data || data.is_anonymous) return null;
 
   const avatarSrc = storageUrl("post-images", data.avatar_url);
 
   return (
-    <div className="msg-link-preview">
-      <Link to={`/profile/${userId}`} className="flex items-center gap-3 hover:underline">
-        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0">
+    <div className="msg-link-panel">
+      <Link to={`/profile/${userId}`} className="msg-link-panel-profile hover:underline">
+        <div className="msg-link-panel-avatar">
           {avatarSrc ? (
-            <img src={avatarSrc} alt={data.username} className="w-full h-full object-cover" />
+            <img src={avatarSrc} alt={data.username} />
           ) : (
-            <span className="text-sm font-bold text-muted-foreground">{data.username[0]?.toUpperCase()}</span>
+            <span>{data.username[0]?.toUpperCase()}</span>
           )}
         </div>
-        <div>
-          <div className="msg-link-preview-title">@{data.username}</div>
-          <div className="msg-link-preview-subtitle">Профиль пользователя</div>
-        </div>
+        <div className="msg-link-panel-title">@{data.username}</div>
       </Link>
     </div>
   );
@@ -241,21 +174,18 @@ function BoardPreview({ slug }: { slug: string }) {
     retry: false,
   });
 
-  if (isLoading) return <PreviewSkeleton />;
+  if (isLoading) return <div className="msg-link-panel-loading" />;
   if (error || !data) return null;
 
   const link = data.is_gomosub ? `/g/${slug}` : `/${slug}`;
 
   return (
-    <div className="msg-link-preview">
-      <Link to={link} className="hover:underline">
-        <div className="msg-link-preview-title">{data.is_gomosub ? "g/" : "/"}{slug}</div>
+    <div className="msg-link-panel">
+      <Link to={link} className="msg-link-panel-title hover:underline">
+        {data.is_gomosub ? "g/" : "/"}{slug}
       </Link>
       {data.name !== slug && (
-        <div className="msg-link-preview-subtitle mt-0.5">{data.name}</div>
-      )}
-      {data.description && (
-        <div className="msg-link-preview-subtitle mt-1 line-clamp-2">{data.description}</div>
+        <div className="msg-link-panel-meta">{data.name}</div>
       )}
     </div>
   );
@@ -268,7 +198,6 @@ const LinkSegmentView = memo(function LinkSegmentView({ segment }: { segment: Li
 
   const { url, linkType, params } = segment;
 
-  // External links — plain <a> tag
   if (linkType === "external") {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
@@ -277,44 +206,143 @@ const LinkSegmentView = memo(function LinkSegmentView({ segment }: { segment: Li
     );
   }
 
-  // Internal link text (clickable) + optional preview card below
   return (
     <span className="flex flex-col w-full min-w-0">
-      {linkType === "invite" && (
-        <>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
-            Приглашение: /g/{params.slug}/join/{params.code}
-          </a>
-          <InvitePreview slug={params.slug} code={params.code} />
-        </>
-      )}
-      {linkType === "thread" && (
-        <>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
-            Тред: {params.slug}/thread/{params.threadId.slice(0, 8)}...
-          </a>
-          <ThreadPreview slug={params.slug} threadId={params.threadId} />
-        </>
-      )}
-      {linkType === "profile" && (
-        <>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
-            Профиль: {params.userId.slice(0, 8)}...
-          </a>
-          <ProfilePreview userId={params.userId} />
-        </>
-      )}
-      {linkType === "board" && (
-        <>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
-            /{params.slug}
-          </a>
-          <BoardPreview slug={params.slug} />
-        </>
-      )}
+      {linkType === "invite" && <InvitePreview slug={params.slug} code={params.code} />}
+      {linkType === "thread" && <ThreadPreview slug={params.slug} threadId={params.threadId} />}
+      {linkType === "profile" && <ProfilePreview userId={params.userId} />}
+      {linkType === "board" && <BoardPreview slug={params.slug} />}
     </span>
   );
 });
+
+// ─── Gift message (exported for ChatView) ────────────────────────────────────
+
+export interface GiftMessageData {
+  giftId: string;
+  giftName: string;
+  imageUrl: string;
+}
+
+export function parseGiftContent(content: string): GiftMessageData | null {
+  const match = content.match(/^__GIFT__:(.+?):(.+?):(.*)$/);
+  if (!match) return null;
+  return { giftId: match[1], giftName: match[2], imageUrl: match[3] };
+}
+
+interface GiftDetailItem {
+  id: string;
+  gift_id: string;
+  sender_id?: string;
+  recipient_id: string;
+  message?: string;
+  is_anonymous: boolean;
+  created_at: string;
+  gift_name?: string;
+  gift_image_url?: string;
+  gift_price?: number;
+  sender_username?: string;
+  sender_avatar_url?: string;
+}
+
+const formatDropsLabel = (value: number) => {
+  const abs = Math.abs(value);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 === 1 && mod100 !== 11) return "капля";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
+  return "капель";
+};
+
+const giftImageUrl = (url?: string) => {
+  if (!url) return null;
+  return storageUrl("post-images", url) || url;
+};
+
+export function GiftDetailDialog({ giftId, open, onOpenChange }: { giftId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { data: gift } = useQuery({
+    queryKey: ["msg-gift-detail", giftId],
+    queryFn: async (): Promise<GiftDetailItem | null> => {
+      const res = await fetch(`/api/v1/user_gifts?gift_id=eq.${giftId}&limit=1`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data?.[0] ?? null;
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    enabled: open,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
+        {gift && (
+          <>
+            <div className="w-full aspect-square bg-muted flex items-center justify-center">
+              {giftImageUrl(gift.gift_image_url) ? (
+                <img
+                  src={giftImageUrl(gift.gift_image_url)!}
+                  alt={gift.gift_name || "Подарок"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <Gift className="w-16 h-16 text-muted-foreground" />
+              )}
+            </div>
+            <div className="p-4 space-y-3">
+              {!gift.is_anonymous && gift.sender_id ? (
+                <ProfileHoverCard userId={gift.sender_id}>
+                  <a
+                    href={`/profile/${gift.sender_id}`}
+                    onClick={(e) => e.preventDefault()}
+                    className="flex items-center gap-2.5 group/sender"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex-shrink-0 border border-border">
+                      {giftImageUrl(gift.sender_avatar_url) ? (
+                        <img src={giftImageUrl(gift.sender_avatar_url)!} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <User className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-sm font-medium group-hover/sender:text-primary transition-colors">
+                      {gift.sender_username || "пользователь"}
+                    </span>
+                  </a>
+                </ProfileHoverCard>
+              ) : (
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex-shrink-0 border border-border flex items-center justify-center">
+                    <User className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <span className="text-sm text-muted-foreground">Аноним</span>
+                </div>
+              )}
+              {gift.gift_price != null && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Стоимость:</span>
+                  <span className="text-sm font-medium">
+                    {gift.gift_price} {formatDropsLabel(gift.gift_price)}
+                  </span>
+                </div>
+              )}
+              {gift.message && (
+                <div className="pt-2 border-t border-border">
+                  <p className="text-sm text-muted-foreground">Сообщение:</p>
+                  <p className="text-sm mt-1">{gift.message}</p>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground pt-1">
+                {formatDistanceToNow(new Date(gift.created_at), { addSuffix: true, locale: ru })}
+              </p>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
@@ -323,15 +351,8 @@ interface MessageContentProps {
 }
 
 export const MessageContent = memo(function MessageContent({ content }: MessageContentProps) {
-  const giftData = useMemo(() => parseGiftContent(content), [content]);
   const segments = useMemo(() => parseMessageLinks(content), [content]);
 
-  // Check for gift message
-  if (giftData) {
-    return <GiftMessageCard data={giftData} />;
-  }
-
-  // Fast path: no links at all — render as plain text
   const hasLinks = segments.some((s) => s.type === "link");
   if (!hasLinks) {
     return <p className="whitespace-pre-wrap break-words">{content}</p>;
