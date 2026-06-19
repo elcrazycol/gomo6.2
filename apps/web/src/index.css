@@ -637,6 +637,13 @@ html, body {
   justify-content: flex-end;
 }
 
+.bubble-row-inner {
+  display: flex;
+  justify-content: inherit;
+  align-items: inherit;
+  gap: 4px;
+}
+
 .message-bubble {
   max-width: min(70%, 640px);
   min-width: 0;
@@ -685,6 +692,56 @@ html, body {
   font-size: 14px;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+/* ── Quoted message (reply preview inside bubble) ── */
+.quoted-message {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-left: 3px solid hsl(var(--primary));
+  background: hsl(var(--primary) / 0.06);
+  border-radius: 0 6px 6px 0;
+  cursor: default;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.quoted-message svg {
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+}
+
+.quoted-author {
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--primary));
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.quoted-text {
+  font-size: 12px;
+  color: hsl(var(--foreground) / 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.message-bubble.is-mine .quoted-message {
+  background: hsl(var(--primary-foreground) / 0.06);
+  border-left-color: hsl(var(--primary-foreground) / 0.4);
+}
+
+.message-bubble.is-mine .quoted-author {
+  color: hsl(var(--primary-foreground));
+}
+
+.message-bubble.is-mine .quoted-text {
+  color: hsl(var(--primary-foreground) / 0.6);
 }
 
 /* ── Messenger link previews (simple panels) ── */
@@ -1045,14 +1102,15 @@ html, body {
 
 /* ── Composer reply preview ── */
 .composer-reply-banner {
+  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
+  margin-bottom: 8px;
   background: hsl(var(--primary) / 0.06);
   border-left: 3px solid hsl(var(--primary));
   border-radius: 8px;
-  margin: 0 8px 6px;
   font-size: 13px;
   animation: fade-in-scale 0.15s ease;
 }
