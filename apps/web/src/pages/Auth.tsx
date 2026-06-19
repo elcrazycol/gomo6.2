@@ -365,7 +365,7 @@ const Auth = () => {
                 required
                 disabled={loading}
               />
-              <p className="text-xs text-muted-foreground mt-1">Чувствителен к регистру: BigBoss ≠ bigboss</p>
+              <p className="text-xs text-muted-foreground mt-1">Чувствителен к регистру</p>
             </div>
 
             {!isLogin && (
