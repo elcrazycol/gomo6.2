@@ -104,8 +104,9 @@ export const MessengerView = () => {
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  // ── iOS keyboard: dynamic viewport height ──────────────────────────
+  // ── iOS keyboard: dynamic viewport height (mobile only) ────────────
   useEffect(() => {
+    if (!isMobile) return;
     const vv = window.visualViewport;
     if (!vv) return;
 
@@ -132,7 +133,7 @@ export const MessengerView = () => {
         panel.style.opacity = "";
       }
     };
-  }, [showMobileChat]);
+  }, [isMobile, showMobileChat]);
 
   // ── Composer auto-resize ──────────────────────────────────────────────
   // (moved from context; composer handles its own height via ChatView)
