@@ -114,6 +114,7 @@ export const MessengerView = () => {
       if (panel) {
         panel.style.height = `${vv.height}px`;
         panel.style.transform = `translateY(${vv.offsetTop}px)`;
+        panel.style.opacity = "1";
       }
     };
 
@@ -128,6 +129,7 @@ export const MessengerView = () => {
       if (panel) {
         panel.style.height = "";
         panel.style.transform = "";
+        panel.style.opacity = "";
       }
     };
   }, [showMobileChat]);
