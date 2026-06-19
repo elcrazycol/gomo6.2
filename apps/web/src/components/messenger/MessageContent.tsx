@@ -221,7 +221,7 @@ const LinkSegmentView = memo(function LinkSegmentView({ segment }: { segment: Li
 
   // Internal link text (clickable) + optional preview card below
   return (
-    <span className="inline-flex flex-col">
+    <span className="flex flex-col w-full min-w-0">
       {linkType === "invite" && (
         <>
           <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">

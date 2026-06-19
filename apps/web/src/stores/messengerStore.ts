@@ -94,6 +94,7 @@ type MessengerStore = {
   // ── Actions (API) ─────────────────────────────────────────────────────
   init: () => Promise<void>;
   loadConversations: () => Promise<void>;
+  ensureConversation: (conversationId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
   sendMessage: (content: string, clientId: string) => Promise<string>;
   editMessage: (messageId: string, content: string) => Promise<void>;
@@ -154,6 +155,15 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   // ── Load conversations ────────────────────────────────────────────────
   loadConversations: async () => {
+    const convs = await messengerApi.listConversations();
+    set({ conversations: convs });
+  },
+
+  // ── Ensure single conversation exists in list (for WS first-message case)
+  ensureConversation: async (conversationId: string) => {
+    const { conversations } = get();
+    if (conversations.some((c) => c.id === conversationId)) return;
+    // Not found — reload full list (server has correct unread_count)
     const convs = await messengerApi.listConversations();
     set({ conversations: convs });
   },
@@ -387,8 +397,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const s = get();
     const found = s.conversations.some((c) => c.id === convId);
     if (!found) {
-      // Conversation doesn't exist locally yet (e.g. first message from new user) — reload list
-      s.loadConversations();
+      // Conversation doesn't exist locally yet — fetch it
+      s.ensureConversation(convId);
       return;
     }
     set((s2) => ({

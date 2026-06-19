@@ -630,6 +630,7 @@ html, body {
 
 .message-bubble {
   max-width: min(70%, 640px);
+  min-width: 0;
   padding: 9px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: 14px;
@@ -1409,6 +1410,7 @@ html, body {
 
   .message-bubble {
     max-width: 88%;
+    min-width: 0;
     padding: 8px 10px;
   }
 
