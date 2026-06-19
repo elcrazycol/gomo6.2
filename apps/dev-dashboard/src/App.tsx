@@ -9,6 +9,9 @@ import AppDetail from "./pages/AppDetail";
 import GiftAdmin from "./pages/Gifts";
 import Login from "./pages/Login";
 import Callback from "./pages/Callback";
+import Bots from "./pages/Bots";
+import CreateBot from "./pages/CreateBot";
+import BotDetail from "./pages/BotDetail";
 import { checkAuth } from "@/lib/oauth";
 import { Sidebar } from "@/components/Sidebar";
 
@@ -124,6 +127,36 @@ const App = () => {
                 <AuthGuard>
                   <AppLayout>
                     <AppDetail />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/bots"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <Bots />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/bots/create"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <CreateBot />
+                  </AppLayout>
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/bots/:id"
+              element={
+                <AuthGuard>
+                  <AppLayout>
+                    <BotDetail />
                   </AppLayout>
                 </AuthGuard>
               }

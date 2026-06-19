@@ -10,6 +10,12 @@ import (
 
 func AuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// If BotAuthMiddleware already set claims, skip JWT validation
+		if _, exists := c.Get("claims"); exists {
+			c.Next()
+			return
+		}
+
 		// Get token from header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -50,6 +56,12 @@ func AuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
 // "claims" in context. Does NOT reject unauthenticated requests.
 func OptionalAuthMiddleware(authService *auth.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// If BotAuthMiddleware already set claims, skip JWT validation
+		if _, exists := c.Get("claims"); exists {
+			c.Next()
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.Next()

@@ -182,7 +182,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
-		// Populate claims if auth token is present (does not block anonymous requests)
+		// Try bot auth first, then optional JWT auth
+		rest.Use(middleware.BotAuthMiddleware(db))
 		rest.Use(middleware.OptionalAuthMiddleware(authService))
 
 		// Search endpoint (full-text, public)
@@ -539,6 +540,21 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		dev.POST("/apps/:id/regenerate-secret", devHandler.RegenerateSecret)
 		dev.GET("/apps/:id/tokens", devHandler.ListTokens)
 		dev.POST("/apps/:id/revoke-user-tokens", devHandler.RevokeUserTokens)
+	}
+
+	// Bot management
+	botsHandler := handlers.NewBotsHandler(db)
+
+	bots := api.Group("/bots")
+	bots.Use(middleware.AuthMiddleware(authService))
+	{
+		bots.GET("", botsHandler.ListBots)
+		bots.POST("", botsHandler.CreateBot)
+		bots.GET("/:id", botsHandler.GetBot)
+		bots.PUT("/:id", botsHandler.UpdateBot)
+		bots.DELETE("/:id", botsHandler.DeleteBot)
+		bots.POST("/:id/toggle", botsHandler.ToggleBot)
+		bots.POST("/:id/regenerate-token", botsHandler.RegenerateToken)
 	}
 
 	// WebSocket endpoint — auth via first message, not URL query string.

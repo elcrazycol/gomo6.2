@@ -422,3 +422,27 @@ type DropsTransaction struct {
 	TxHash        *string   `json:"tx_hash,omitempty" db:"tx_hash"`
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 }
+
+// Bot — service account with API token
+type Bot struct {
+	ID          string    `json:"id"`
+	OwnerID     string    `json:"owner_id"`
+	UserID      string    `json:"user_id"`
+	Username    string    `json:"username"`
+	DisplayName *string   `json:"display_name"`
+	Description *string   `json:"description"`
+	IsActive    bool      `json:"is_active"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type CreateBotRequest struct {
+	Username    string  `json:"username" binding:"required"`
+	DisplayName *string `json:"display_name"`
+	Description *string `json:"description"`
+}
+
+type BotWithToken struct {
+	Bot
+	Token string `json:"token"`
+}
