@@ -238,6 +238,10 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 			go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
 
 			log.Printf("[WebSocket] Authenticated bot: %s (%s)", c.Username, c.UserID)
+
+			// Auto-subscribe bot to all its chat rooms
+			go c.autoSubscribeBotsChats()
+
 			return nil
 		}
 		// Bot token invalid — fall through to JWT
@@ -265,6 +269,34 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 
 	log.Printf("[WebSocket] Authenticated user: %s (%s)", c.Username, c.UserID)
 	return nil
+}
+
+// autoSubscribeBotsChats fetches all conversations for the bot user
+// and subscribes to their chat rooms so the bot receives messages.
+func (c *Client) autoSubscribeBotsChats() {
+	if c.Hub.db == nil {
+		return
+	}
+
+	rows, err := c.Hub.db.Query(`
+		SELECT cm.conversation_id
+		FROM conversation_members cm
+		WHERE cm.user_id = $1`, c.UserID)
+	if err != nil {
+		log.Printf("[WebSocket] Failed to fetch bot conversations: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var convID string
+		if err := rows.Scan(&convID); err != nil {
+			continue
+		}
+		room := fmt.Sprintf("chat_%s", convID)
+		c.Hub.SubscribeToRoom(c, room)
+	}
+	log.Printf("[WebSocket] Bot %s auto-subscribed to chat rooms", c.Username)
 }
 
 // sendError sends an error message to the client and then closes the connection.
