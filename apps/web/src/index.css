@@ -593,10 +593,6 @@ html, body {
   display: grid;
   gap: 8px;
   align-content: start;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: none;
 }
 
 /* ── Date separator ── */
@@ -651,9 +647,6 @@ html, body {
   overflow-wrap: anywhere;
   position: relative;
   animation: bubble-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
 }
 
 @keyframes bubble-in {
@@ -921,7 +914,7 @@ html, body {
   color: hsl(var(--destructive));
 }
 
-/* ── Message actions (three-dot menu) — Telegram/Discord-style ── */
+/* ── Message actions (three-dot menu) — desktop only ── */
 
 .msg-actions-wrap {
   position: relative;
@@ -937,87 +930,6 @@ html, body {
   font-weight: 700;
   line-height: 1;
   letter-spacing: 1px;
-}
-
-/* Floating context menu for touch devices — positioned at tap point, rendered in portal */
-
-.msg-actions-float-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-}
-
-.msg-actions-float {
-  position: fixed;
-  z-index: 51;
-  transform: translate(-50%, -100%);
-  margin-bottom: 8px;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-  padding: 4px;
-  min-width: 180px;
-  animation: fade-in-scale 0.12s ease;
-}
-
-.msg-actions-float .msg-actions-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 14px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: hsl(var(--foreground));
-  font-size: 14px;
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.12s ease;
-}
-
-.msg-actions-float .msg-actions-item:hover {
-  background: hsl(var(--thread-hover));
-}
-
-.msg-actions-float .msg-actions-item-danger {
-  color: hsl(var(--destructive));
-}
-
-.msg-actions-float .msg-actions-item-danger:hover {
-  background: hsl(var(--destructive) / 0.1);
-}
-
-.msg-actions-wrap.is-mine {
-  order: -1; /* dots left of own bubble */
-}
-
-.msg-actions-wrap.is-other {
-  order: 1; /* dots right of other bubble */
-}
-
-.msg-actions-dots {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-  opacity: 0.7;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.msg-actions-dots:hover {
-  background: hsl(var(--thread-hover));
-  color: hsl(var(--foreground));
-  opacity: 1;
 }
 
 /* Dropdown — Telegram-style floating menu */
