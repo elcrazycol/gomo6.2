@@ -31,7 +31,11 @@ export class WsClient extends EventEmitter {
     this.ws.on("message", (data: Buffer | string) => this.onMessage(data));
     this.ws.on("close", () => this.onClose());
     this.ws.on("error", (err) => {
-      this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      if (this.options.reconnect) {
+        this.emit("reconnect_error", err instanceof Error ? err : new Error(String(err)));
+      } else {
+        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
@@ -94,7 +98,7 @@ export class WsClient extends EventEmitter {
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.options.maxReconnectAttempts) {
-      this.emit("error", new Error("Max reconnect attempts reached"));
+      this.emit("reconnect_failed", new Error("Max reconnect attempts reached"));
       return;
     }
     this.reconnectAttempts++;
