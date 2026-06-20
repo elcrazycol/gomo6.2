@@ -74,9 +74,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		displayName = *req.DisplayName
 	}
 
+	// Generate wallet address: GM6-XXXX-XXXX (2 bytes from crypto/rand → 4 hex chars each)
+	walletAddr := fmt.Sprintf("GM6-%s-%s", randomHex(4), randomHex(4))
+
 	query := `
-		INSERT INTO users (username, display_name, email, password_hash, domain) 
-		VALUES ($1, $2, $3, $4, 'localhost:8080')
+		INSERT INTO users (username, display_name, email, password_hash, domain, wallet_address) 
+		VALUES ($1, $2, $3, $4, 'localhost:8080', $5)
 		RETURNING id, username, display_name, email, domain, created_at
 	`
 
@@ -85,7 +88,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	if req.Email != nil && *req.Email != "" {
 		emailVal = req.Email
 	}
-	err = h.db.QueryRow(query, req.Username, displayName, emailVal, string(hashedPassword)).Scan(
+	err = h.db.QueryRow(query, req.Username, displayName, emailVal, string(hashedPassword), walletAddr).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.Domain, &user.CreatedAt,
 	)
 	if err != nil {

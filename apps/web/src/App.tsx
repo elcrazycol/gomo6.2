@@ -37,6 +37,7 @@ const GomoSubSettings = lazy(() => import("./pages/GomoSubSettings"));
 const GomoSubJoin = lazy(() => import("./pages/GomoSubJoin"));
 const SearchResults = lazy(() => import("./pages/SearchResults"));
 const Stats = lazy(() => import("./pages/Stats"));
+const Wallet = lazy(() => import("./pages/Wallet"));
 const Notify = lazy(() => import("./pages/Notify"));
 const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const Achievements = lazy(() => import("./pages/Achievements"));
@@ -152,6 +153,7 @@ const App = () => {
                     <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
                     <Route path="settings" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
                     <Route path="stats" element={<AuthGuard><LazyPage component={Stats} /></AuthGuard>} />
+                    <Route path="wallet" element={<AuthGuard><LazyPage component={Wallet} /></AuthGuard>} />
                     <Route path="notify" element={<AuthGuard><LazyPage component={Notify} /></AuthGuard>} />
                     <Route path="search" element={<LazyPage component={SearchResults} />} />
                   <Route path="gomosubs" element={<LazyPage component={GomoSubs} />} />

@@ -17,7 +17,7 @@ func TestRegister_Success(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
 	mock.ExpectQuery(`(?s).*INSERT INTO users.*RETURNING.*`).
-		WithArgs("testuser", "testuser", "test@example.com", sqlmock.AnyArg()).
+		WithArgs("testuser", "testuser", "test@example.com", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "display_name", "email", "domain", "created_at"}).
 			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", time.Now()))
 
@@ -57,7 +57,7 @@ func TestRegister_DBError(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 
 	mock.ExpectQuery(`(?s).*INSERT INTO users.*RETURNING.*`).
-		WithArgs("testuser", "testuser", "test@example.com", sqlmock.AnyArg()).
+		WithArgs("testuser", "testuser", "test@example.com", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	email := "test@example.com"

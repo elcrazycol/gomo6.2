@@ -428,14 +428,22 @@ func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
 		limit = 50
 	}
 
+	typeFilter := ""
+	queryArgs := []interface{}{userID, limit, offset}
+	if v := c.Query("type"); v != "" {
+		typeFilter = "AND type = ANY(string_to_array($" + fmt.Sprintf("%d", len(queryArgs)+1) + ", ','))"
+		queryArgs = append(queryArgs, v)
+	}
+
 	rows, err := h.db.Query(`
 		SELECT id, user_id, type, amount, balance_after, reference_id, reference_type,
 		       description, blockchain, tx_hash, created_at
 		FROM drops_transactions
 		WHERE user_id = $1
+		`+typeFilter+`
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
-	`, userID, limit, offset)
+	`, queryArgs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get history"))
 		return
@@ -526,4 +534,211 @@ func (h *DropsHandler) ManualVerify(c *gin.Context) {
 
 	log.Printf("[Drops] Manual verify OK: user=%s amount=%d tx=%s", userID, pendingAmount, req.TxHash)
 	c.JSON(http.StatusOK, gin.H{"status": "credited", "drops": pendingAmount})
+}
+
+// GetWalletInfo — GET /api/v1/drops/wallet (protected)
+func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
+	claims := c.MustGet("claims").(*auth.Claims)
+	userID := claims.UserID
+
+	var info models.WalletInfo
+	err := h.db.QueryRow(
+		"SELECT wallet_address, COALESCE(drops, 0) FROM users WHERE id = $1", userID,
+	).Scan(&info.Address, &info.Balance)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get wallet info"))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(info))
+}
+
+// TransferDrops — POST /api/v1/drops/transfer (protected)
+func (h *DropsHandler) TransferDrops(c *gin.Context) {
+	claims := c.MustGet("claims").(*auth.Claims)
+	senderID := claims.UserID
+
+	var req models.TransferDropsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Validate: exactly one recipient identifier
+	if (req.RecipientUsername == nil && req.RecipientAddress == nil) ||
+		(req.RecipientUsername != nil && req.RecipientAddress != nil) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Provide either recipient_username or recipient_address"))
+		return
+	}
+
+	// Resolve recipient
+	var recipientID, recipientUsername string
+	var recipientArg string
+	if req.RecipientUsername != nil {
+		recipientArg = *req.RecipientUsername
+	} else {
+		recipientArg = *req.RecipientAddress
+	}
+
+	err := h.db.QueryRow(
+		"SELECT id, username FROM users WHERE username = $1 OR wallet_address = $1",
+		recipientArg,
+	).Scan(&recipientID, &recipientUsername)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("User not found"))
+		return
+	}
+
+	// Self-transfer check
+	if recipientID == senderID {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot transfer to yourself"))
+		return
+	}
+
+	// Rate limit: max 10 transfers per hour
+	var transferCount int
+	_ = h.db.QueryRow(`
+		SELECT COUNT(*) FROM drops_transactions
+		WHERE user_id = $1 AND type = 'transfer_send'
+		  AND created_at > NOW() - INTERVAL '1 hour'
+	`, senderID).Scan(&transferCount)
+	if transferCount >= 10 {
+		c.JSON(http.StatusTooManyRequests, models.ErrorResponse("Transfer limit reached (10 per hour)"))
+		return
+	}
+
+	// Start transaction
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Transaction error"))
+		return
+	}
+	defer tx.Rollback()
+
+	// Deterministic lock ordering: smaller ID first → no deadlock
+	minID, maxID := senderID, recipientID
+	if minID > maxID {
+		minID, maxID = recipientID, senderID
+	}
+
+	// Lock both rows in deterministic order
+	var minDrops, maxDrops int
+	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", minID).Scan(&minDrops)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to lock rows"))
+		return
+	}
+	err = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1 FOR UPDATE", maxID).Scan(&maxDrops)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to lock rows"))
+		return
+	}
+
+	// Map drops to sender
+	var senderDrops int
+	if minID == senderID {
+		senderDrops = minDrops
+	} else {
+		senderDrops = maxDrops
+	}
+
+	// Check balance
+	if senderDrops < req.Amount {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Insufficient drops"))
+		return
+	}
+
+	// Atomic balance updates
+	_, err = tx.Exec("UPDATE users SET drops = drops - $1 WHERE id = $2", req.Amount, senderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to debit sender"))
+		return
+	}
+	_, err = tx.Exec("UPDATE users SET drops = drops + $1 WHERE id = $2", req.Amount, recipientID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to credit recipient"))
+		return
+	}
+
+	// Read final balances
+	var senderBalance, recipientBalance int
+	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", senderID).Scan(&senderBalance)
+	_ = tx.QueryRow("SELECT COALESCE(drops, 0) FROM users WHERE id = $1", recipientID).Scan(&recipientBalance)
+
+	// Ledger entries
+	description := ""
+	if req.Description != nil {
+		description = *req.Description
+	}
+
+	var senderTxID, recipientTxID string
+	err = tx.QueryRow(`
+		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
+		VALUES ($1, 'transfer_send', $2, $3, $4, 'user', $5)
+		RETURNING id
+	`, senderID, -req.Amount, senderBalance, recipientID, description).Scan(&senderTxID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record sender transaction"))
+		return
+	}
+
+	err = tx.QueryRow(`
+		INSERT INTO drops_transactions (user_id, type, amount, balance_after, reference_id, reference_type, description)
+		VALUES ($1, 'transfer_receive', $2, $3, $4, 'user', $5)
+		RETURNING id
+	`, recipientID, req.Amount, recipientBalance, senderID, description).Scan(&recipientTxID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to record recipient transaction"))
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[Drops] Transfer commit failed: %v", err)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Transfer failed"))
+		return
+	}
+
+	log.Printf("[Drops] Transfer: %s → %s amount=%d", senderID, recipientID, req.Amount)
+	c.JSON(http.StatusOK, models.SuccessResponse(models.TransferResult{
+		TransactionID: senderTxID,
+		Amount:        req.Amount,
+		Recipient:     recipientUsername,
+		BalanceAfter:  senderBalance,
+	}))
+}
+
+// SearchUsers — GET /api/v1/drops/users/search?q=... (protected)
+func (h *DropsHandler) SearchUsers(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if len(q) < 1 {
+		c.JSON(http.StatusOK, models.SuccessResponse([]models.UserSearchResult{}))
+		return
+	}
+
+	limit := 10
+	rows, err := h.db.Query(`
+		SELECT id, username, display_name, avatar_url, wallet_address
+		FROM users
+		WHERE username ILIKE '%' || $1 || '%' OR wallet_address ILIKE '%' || $1 || '%'
+		LIMIT $2
+	`, q, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Search failed"))
+		return
+	}
+	defer rows.Close()
+
+	var results []models.UserSearchResult
+	for rows.Next() {
+		var u models.UserSearchResult
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.AvatarURL, &u.WalletAddress); err != nil {
+			continue
+		}
+		results = append(results, u)
+	}
+
+	if results == nil {
+		results = []models.UserSearchResult{}
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
