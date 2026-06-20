@@ -88,6 +88,19 @@ export const ChatView = memo(function ChatView({
     prevLength.current = messages.length;
   }, [messages.length, isScrolledUp, pinToBottom]);
 
+  // Reset auto-scroll when viewport changes (keyboard open/close)
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      // Keyboard opened/closed — ensure next message auto-scrolls
+      shouldAutoScroll.current = true;
+      pinToBottom();
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, [pinToBottom]);
+
   // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {
     if (!me?.id || !conversation || messages.length === 0) return;
