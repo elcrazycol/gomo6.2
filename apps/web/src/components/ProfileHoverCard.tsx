@@ -262,7 +262,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                 <button
                   type="button"
                   onClick={() => {
-                    window.dispatchEvent(new CustomEvent('open-drops-shop'));
+                    window.dispatchEvent(new CustomEvent('navigate-to', { detail: '/wallet' }));
                   }}
                   className="flex items-center gap-1 mt-1 text-sm text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
                 >

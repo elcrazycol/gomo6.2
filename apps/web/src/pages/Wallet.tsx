@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { ArrowRight, Copy, Check, Plus } from "lucide-react";
+import { ArrowRight, Copy, Check, Plus, Droplets } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { TransferDialog } from "@/components/TransferDialog";
@@ -69,6 +69,7 @@ export default function Wallet() {
   }, [fetchWallet, fetchTransactions]);
 
   const handleCopy = async () => {
+    if (!address) return;
     await navigator.clipboard.writeText(address);
     setCopied(true);
     toast.success("Адрес скопирован");
@@ -91,55 +92,50 @@ export default function Wallet() {
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-6">
       {/* Balance Card */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-purple-600 to-blue-800 p-6 text-white">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImVub3Zsb3kiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTM2IDM0djItSDI0di0yaDEyem0wLTR2Mkg4VjI4aDI4em0wLTRWMmg4djJoMjh6Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-30" />
-        <div className="relative">
-          <p className="text-sm text-white/70 mb-1">Баланс</p>
-          <p className="text-4xl font-bold tracking-tight">
-            {balance.toLocaleString("ru-RU")} <span className="text-lg font-normal text-white/70">{formatDropsLabel(balance)}</span>
-          </p>
+      <div className="bg-card border border-border rounded-xl p-6">
+        <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
+          <Droplets className="w-4 h-4" />
+          Баланс
+        </div>
+        <p className="text-3xl font-bold tracking-tight">
+          {balance.toLocaleString("ru-RU")} <span className="text-base font-normal text-muted-foreground">{formatDropsLabel(balance)}</span>
+        </p>
 
-          {/* Wallet address */}
-          {address && (
-            <div className="mt-4 flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2">
-              <span className="text-sm font-mono text-white/80">{address}</span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="ml-auto p-1 rounded-md hover:bg-white/20 transition-colors"
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
-          )}
-
-          {/* Action buttons */}
-          <div className="flex gap-3 mt-5">
-            <Button
-              onClick={() => setTransferOpen(true)}
-              className="flex-1 bg-white/20 hover:bg-white/30 text-white border-0"
-              size="lg"
-            >
-              <ArrowRight className="w-4 h-4 mr-1" />
-              Отправить
-            </Button>
-            <Button
+        {/* Wallet address */}
+        {address && (
+          <div className="flex items-center gap-2 mt-3 text-sm">
+            <code className="font-mono text-muted-foreground bg-muted px-2 py-1 rounded">{address}</code>
+            <button
+              type="button"
               onClick={handleCopy}
-              className="flex-1 bg-white/20 hover:bg-white/30 text-white border-0"
-              size="lg"
+              className="p-1 rounded-md hover:bg-muted transition-colors"
+              title="Копировать адрес"
             >
-              <Copy className="w-4 h-4 mr-1" />
-              Получить
-            </Button>
-            <Button
-              onClick={() => setShopOpen(true)}
-              className="flex-1 bg-white/20 hover:bg-white/30 text-white border-0"
-              size="lg"
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Пополнить
-            </Button>
+              {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+            </button>
           </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <Button
+            onClick={() => setTransferOpen(true)}
+            variant="default"
+            size="lg"
+            className="flex items-center justify-center gap-2"
+          >
+            <ArrowRight className="w-4 h-4" />
+            Отправить
+          </Button>
+          <Button
+            onClick={() => setShopOpen(true)}
+            variant="secondary"
+            size="lg"
+            className="flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Пополнить
+          </Button>
         </div>
       </div>
 
