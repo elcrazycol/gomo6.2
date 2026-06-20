@@ -11,6 +11,7 @@ let flushTimer: ReturnType<typeof setInterval> | null = null;
 const pendingDelivered = new Map<string, string>(); // convId → latestMessageId
 const pendingRead = new Map<string, string>();       // convId → latestMessageId
 const lastFlushed = { delivered: new Map<string, string>(), read: new Map<string, string>() };
+const flushRetries = new Map<string, number>(); // "read:convId" → attempt count
 
 function startFlushTimer(): void {
   if (flushTimer) return;
@@ -27,27 +28,65 @@ function flushPending(): void {
   for (const [convId, msgId] of pendingDelivered) {
     if (lastFlushed.delivered.get(convId) !== msgId) {
       lastFlushed.delivered.set(convId, msgId);
-      messengerApi.markDelivered(convId, msgId).catch(() => {});
+      messengerApi.markDelivered(convId, msgId).catch(() => {
+        lastFlushed.delivered.delete(convId);
+      });
     }
   }
   pendingDelivered.clear();
 
-  // Flush read
+  // Flush read (with retry limit)
   for (const [convId, msgId] of pendingRead) {
     if (lastFlushed.read.get(convId) !== msgId) {
       lastFlushed.read.set(convId, msgId);
-      messengerApi.markRead(convId, msgId).catch(() => {});
+      messengerApi.markRead(convId, msgId).catch(() => {
+        const key = `read:${convId}`;
+        const attempts = (flushRetries.get(key) ?? 0) + 1;
+        flushRetries.set(key, attempts);
+        if (attempts < 3) {
+          lastFlushed.read.delete(convId);
+          pendingRead.set(convId, msgId);
+        } else {
+          pendingRead.delete(convId);
+          lastFlushed.read.delete(convId);
+          flushRetries.delete(key);
+        }
+      });
     }
   }
   pendingRead.clear();
 }
 
+// ─── Periodic conversation refresh (safety net for missed WS events) ───────
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+
+function startRefreshTimer(): void {
+  if (refreshTimer) return;
+  refreshTimer = setInterval(() => {
+    const { me, selectedConversationId } = useMessengerStore.getState();
+    if (!me) return;
+    messengerApi.listConversations().then((convs) => {
+      const updatedConvs = convs.map((c) => {
+        // If we locally marked this chat as read (pending flush or currently viewing),
+        // trust local state over stale server response
+        if (pendingRead.has(c.id) || selectedConversationId === c.id) {
+          return { ...c, unread_count: 0 };
+        }
+        return c;
+      });
+      useMessengerStore.setState({ conversations: updatedConvs });
+    }).catch(() => {});
+  }, 30000);
+}
+
 export function destroyMessenger(): void {
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   pendingDelivered.clear();
   pendingRead.clear();
   lastFlushed.delivered.clear();
   lastFlushed.read.clear();
+  flushRetries.clear();
   lastReceiptsLoad.clear();
 }
 
@@ -160,6 +199,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const profile = await messengerApi.getMyProfile();
       set({ me: { id: profile.id, username: profile.username } });
       await get().loadConversations();
+      startRefreshTimer();
     } catch (e) {
       set({ error: "Не удалось загрузить профиль", isInitialLoading: false });
       return;
@@ -255,6 +295,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
             last_message_at: sentAt,
             last_message_preview: content.slice(0, 80),
             last_message_sender_id: s.me!.id,
+            unread_count: 0,
           };
           conversations = [updated, ...s.conversations.filter((c) => c.id !== selectedConversationId)];
         }
@@ -378,6 +419,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   // ── Local actions ─────────────────────────────────────────────────────
   selectConversation: (id) => {
+    // Flush pending reads/delivered before switching so DB stays in sync
+    flushPending();
     set({ selectedConversationId: id, hasMoreMessages: true, isLoadingMore: false });
     if (id) {
       get().loadMessages(id);
@@ -444,6 +487,9 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         const updated = { ...c, ...updates };
         if (incrementUnread && s2.selectedConversationId !== convId) {
           updated.unread_count = (c.unread_count ?? 0) + 1;
+        } else if (s2.selectedConversationId === convId) {
+          // User is viewing this conversation — force unread to 0
+          updated.unread_count = 0;
         }
         return updated;
       }),
