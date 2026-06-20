@@ -139,8 +139,6 @@
 
 html, body {
   overscroll-behavior: contain;
-  height: 100%;
-  overflow: hidden;
 }
 
 @media (max-width: 640px) {
