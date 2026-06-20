@@ -26,7 +26,6 @@ interface GomoSubItem {
 export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState<string>("");
-  const [isAnonymous, setIsAnonymous] = useState<boolean>(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [joinedSubs, setJoinedSubs] = useState<GomoSubItem[]>([]);
   const [randomSubs, setRandomSubs] = useState<GomoSubItem[]>([]);
@@ -60,13 +59,12 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       const loadProfile = async () => {
         const { data } = await api
           .from("profiles")
-          .select("username, is_anonymous, avatar_url")
+          .select("username, avatar_url")
           .eq("id", user.id)
           .single();
         
         if (data) {
           setUsername(data.username as string);
-          setIsAnonymous(data.is_anonymous as boolean);
           setAvatarUrl(storageUrl("post-images", data.avatar_url as string | null));
         }
       };
@@ -157,13 +155,13 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     )}
                   </div>
 
-                  {/* User info with HeaderUsername */}
+                  {/* User info */}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate">
                       <HeaderUsername userId={user.id} className="text-base font-semibold" />
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                      {isAnonymous ? "Анонимный режим" : "Нажмите для просмотра профиля"}
+                    <div className="text-sm text-muted-foreground mt-0.5">
+                      @{username}
                     </div>
                   </div>
                 </div>
