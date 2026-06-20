@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, User, Settings, Hammer, LogOut, Grid3X3, Search, Users, Droplets } from "lucide-react";
+import { Menu, User, Settings, Hammer, LogOut, Users, Droplets } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
@@ -27,7 +27,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState<string>("");
   const [isAnonymous, setIsAnonymous] = useState<boolean>(false);
-  const [accountNumber, setAccountNumber] = useState<number | undefined>();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [joinedSubs, setJoinedSubs] = useState<GomoSubItem[]>([]);
   const [randomSubs, setRandomSubs] = useState<GomoSubItem[]>([]);
@@ -61,14 +60,13 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
       const loadProfile = async () => {
         const { data } = await api
           .from("profiles")
-          .select("username, is_anonymous, account_number, avatar_url")
+          .select("username, is_anonymous, avatar_url")
           .eq("id", user.id)
           .single();
         
         if (data) {
           setUsername(data.username as string);
           setIsAnonymous(data.is_anonymous as boolean);
-          setAccountNumber(data.account_number as number | undefined);
           setAvatarUrl(storageUrl("post-images", data.avatar_url as string | null));
         }
       };
@@ -164,24 +162,6 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     <div className="font-semibold truncate">
                       <HeaderUsername userId={user.id} className="text-base font-semibold" />
                     </div>
-                    <div className="text-sm text-muted-foreground mt-1">
-                      ID: {user.id.slice(0, 8)} {accountNumber && `(${accountNumber})`}
-                    </div>
-                    {dropsData && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setOpen(false);
-                          window.dispatchEvent(new CustomEvent('open-drops-shop'));
-                        }}
-                        className="flex items-center gap-1 mt-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-                      >
-                        <Droplets className="w-4 h-4" />
-                        <span>{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
-                      </button>
-                    )}
                     <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
                       {isAnonymous ? "Анонимный режим" : "Нажмите для просмотра профиля"}
                     </div>
@@ -191,19 +171,8 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
             </Link>
 
             {/* Compact nav row */}
-            <div className="-mx-1 overflow-x-auto pb-1">
-              <div className="flex min-w-max items-center gap-2 px-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    navigate("/boards");
-                    setOpen(false);
-                  }}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-xs shrink-0"
-                >
-                  <Grid3X3 className="w-3.5 h-3.5 mr-1.5" />
-                  Доски
-                </Button>
+            <div className="-mx-1 pb-1">
+              <div className="flex items-center gap-2 px-1">
                 <Button
                   variant="ghost"
                   onClick={() => {
@@ -215,30 +184,27 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   <Users className="w-3.5 h-3.5 mr-1.5" />
                   G-сабы
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigate("/search");
-                    setOpen(false);
-                  }}
-                  className="h-10 rounded-xl px-3 text-xs shrink-0"
-                >
-                  <Search className="w-3.5 h-3.5 mr-1.5" />
-                  Поиск
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigate("/settings/appearance");
-                    setOpen(false);
-                  }}
-                  className="h-10 rounded-xl px-3 text-xs shrink-0"
-                >
-                  <Settings className="w-3.5 h-3.5 mr-1.5" />
-                  Настройки
-                </Button>
               </div>
             </div>
+
+            {/* Drops */}
+            {dropsData && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  window.dispatchEvent(new CustomEvent('open-drops-shop'));
+                }}
+                className="block w-full"
+              >
+                <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
+                  <Droplets className="w-4 h-4 mr-2" />
+                  Дропсы
+                  <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
+                  <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
+                </Button>
+              </button>
+            )}
 
             {/* Settings link */}
             <Link

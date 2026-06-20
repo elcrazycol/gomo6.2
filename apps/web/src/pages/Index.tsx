@@ -11,7 +11,7 @@ import { ChatIcon } from "@/components/ChatIcon";
 import { MobileMenu } from "@/components/MobileMenu";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Grid3X3, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
@@ -482,16 +482,6 @@ const Index = () => {
             <div className="space-y-6">
               {/* Navigation */}
               <div className="bg-card border border-border rounded-lg p-4">
-                <Button
-                  onClick={() => navigate("/boards")}
-                  variant="outline"
-                  className="w-full mb-3 relative group hover:translate-x-0.5 transition-transform duration-200 hover:bg-primary/10 hover:text-primary hover:border-primary/50"
-                >
-                  <Grid3X3 className="h-4 w-4 mr-2" />
-                  Основные доски
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-            </Button>
-
                 <Button
                   onClick={() => navigate("/g")}
                   variant="outline"
