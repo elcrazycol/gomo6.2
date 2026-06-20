@@ -3,7 +3,7 @@ import { from, channel, removeChannel } from './query-builder';
 
 vi.mock('./client', () => ({
   apiClient: {
-    rawRequest: vi.fn().mockResolvedValue({ data: [], error: null }),
+    rawRequest: vi.fn().mockResolvedValue({ success: true, data: [], error: null }),
   },
 }));
 
@@ -28,7 +28,7 @@ describe('query-builder: channel', () => {
 
 describe('query-builder: from().select()', () => {
   it('builds basic select URL', async () => {
-    mockRawRequest.mockResolvedValue({ data: [{ id: 1 }], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
 
     const result = await from('posts').select('*');
     expect(mockRawRequest).toHaveBeenCalledTimes(1);
@@ -37,7 +37,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes eq filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').eq('thread_id', 't1');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -45,7 +45,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes neq filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').neq('user_id', 'u1');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -53,7 +53,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes is filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').is('deleted_at', null);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -61,7 +61,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes like filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').like('content', '%hello%');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -69,7 +69,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes gt/gte/lt/lte filters', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').gt('likes', 5).lt('likes', 100);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -78,7 +78,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes in filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').in('id', ['a', 'b', 'c']);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -87,7 +87,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('passes or filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').or('user_id.eq.u1,user_id.eq.u2');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -95,7 +95,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('sets order clause', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').order('created_at', { ascending: false });
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -103,7 +103,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('sets ascending order by default', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').order('name');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -111,7 +111,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('sets limit', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').limit(10);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -119,7 +119,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('sets range (offset + limit)', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').range(20, 29);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -128,7 +128,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('single() flattens array response', async () => {
-    mockRawRequest.mockResolvedValue({ data: [{ id: 1, name: 'test' }], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1, name: 'test' }], error: null });
 
     const result = await from('posts').select('*').single();
     expect(result.data).toEqual({ id: 1, name: 'test' });
@@ -136,28 +136,28 @@ describe('query-builder: from().select()', () => {
   });
 
   it('single() returns null data for empty array', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     const result = await from('posts').select('*').single();
     expect(result.data).toBeNull();
   });
 
   it('maybeSingle() returns first item', async () => {
-    mockRawRequest.mockResolvedValue({ data: [{ id: 1 }], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
 
     const result = await from('posts').select('*').maybeSingle();
     expect(result.data).toEqual({ id: 1 });
   });
 
   it('maybeSingle() returns null for empty array', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     const result = await from('posts').select('*').maybeSingle();
     expect(result.data).toBeNull();
   });
 
   it('custom select columns', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('id,content');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -167,7 +167,7 @@ describe('query-builder: from().select()', () => {
   });
 
   it('chained filters work together', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').eq('board_id', 'b1').eq('is_deleted', false).order('created_at', { ascending: false }).limit(20);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -178,14 +178,14 @@ describe('query-builder: from().select()', () => {
   });
 
   it('count option', async () => {
-    mockRawRequest.mockResolvedValue({ data: [{ id: 1 }, { id: 2 }], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }, { id: 2 }], error: null });
 
     const result = await from('posts').select('*', { count: 'exact' });
     expect(result.count).toBe(2);
   });
 
   it('count with head option returns null data', async () => {
-    mockRawRequest.mockResolvedValue({ data: [{ id: 1 }], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
 
     const result = await from('posts').select('*', { count: 'exact', head: true });
     expect(result.data).toBeNull();
@@ -195,7 +195,7 @@ describe('query-builder: from().select()', () => {
 
 describe('query-builder: from().insert()', () => {
   it('sends POST request', async () => {
-    mockRawRequest.mockResolvedValue({ data: { id: 'new-id' }, error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: { id: 'new-id' }, error: null });
 
     const result = await from('posts').insert({ content: 'hello' }).single();
     expect(mockRawRequest).toHaveBeenCalledTimes(1);
@@ -208,7 +208,7 @@ describe('query-builder: from().insert()', () => {
 
 describe('query-builder: from().update()', () => {
   it('sends PUT request with eq filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: { id: '1' }, error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: { id: '1' }, error: null });
 
     await from('posts').update({ content: 'edited' }).eq('id', '1');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -220,7 +220,7 @@ describe('query-builder: from().update()', () => {
 
 describe('query-builder: from().delete()', () => {
   it('sends DELETE request', async () => {
-    mockRawRequest.mockResolvedValue({ data: null, error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: null, error: null });
 
     await from('posts').delete().eq('id', '1');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -232,7 +232,7 @@ describe('query-builder: from().delete()', () => {
 
 describe('query-builder: not filter', () => {
   it('passes not filter', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').not('status', 'eq', 'deleted');
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -242,7 +242,7 @@ describe('query-builder: not filter', () => {
 
 describe('query-builder: boolean encoding', () => {
   it('encodes boolean true/false', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').eq('is_active', true).eq('is_deleted', false);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -251,7 +251,7 @@ describe('query-builder: boolean encoding', () => {
   });
 
   it('encodes null values', async () => {
-    mockRawRequest.mockResolvedValue({ data: [], error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 
     await from('posts').select('*').eq('deleted_at', null);
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -261,7 +261,7 @@ describe('query-builder: boolean encoding', () => {
 
 describe('query-builder: special table routing', () => {
   it('routes thread_likes POST to /like endpoint', async () => {
-    mockRawRequest.mockResolvedValue({ data: { liked: true }, error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: { liked: true }, error: null });
 
     await from('thread_likes').insert({ thread_id: 't1' });
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -269,7 +269,7 @@ describe('query-builder: special table routing', () => {
   });
 
   it('routes post_likes POST to /like endpoint', async () => {
-    mockRawRequest.mockResolvedValue({ data: { liked: true }, error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: { liked: true }, error: null });
 
     await from('post_likes').insert({ post_id: 'p1' });
     const url = mockRawRequest.mock.calls[0][0] as string;
@@ -277,7 +277,7 @@ describe('query-builder: special table routing', () => {
   });
 
   it('routes thread_likes DELETE to /like endpoint', async () => {
-    mockRawRequest.mockResolvedValue({ data: null, error: null });
+    mockRawRequest.mockResolvedValue({ success: true, data: null, error: null });
 
     await from('thread_likes').delete().eq('thread_id', 't1');
     const url = mockRawRequest.mock.calls[0][0] as string;
