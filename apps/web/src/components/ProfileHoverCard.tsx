@@ -1,7 +1,7 @@
 import { useState, cloneElement, useRef, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
-import { User } from "lucide-react";
+import { User, Droplets } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -11,11 +11,13 @@ import { processProfileBio } from "@/utils/profileBio";
 import { storageUrl } from "@/utils/storage";
 import { OnlineStatus } from "./OnlineStatus";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
+import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 interface ProfileHoverCardProps {
   userId: string;
   children: React.ReactNode;
   disabled?: boolean;
+  showDrops?: boolean;
 }
 
 const getColorClass = (color: string): string => {
@@ -78,11 +80,13 @@ const fetchProfileData = async (userId: string) => {
   };
 };
 
-export const ProfileHoverCard = ({ userId, children, disabled = false }: ProfileHoverCardProps) => {
+export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops = false }: ProfileHoverCardProps) => {
   const [showCard, setShowCard] = useState(false);
   const [flipLeft, setFlipLeft] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const openTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Use React Query for caching - only fetch when card is shown
   // 30s staleTime ensures avatar/profile changes appear quickly
@@ -90,12 +94,22 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
     queryKey: ['profile-hover', userId],
     queryFn: () => fetchProfileData(userId),
     enabled: showCard && !!userId,
-    staleTime: 30 * 1000, // Refetch after 30s to catch avatar/profile updates
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    staleTime: 30 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
+
+  // Fetch drops only when card is shown and showDrops is enabled
+  const { data: dropsData } = useQuery({
+    queryKey: ['user-drops', userId],
+    queryFn: async () => {
+      const res = await api.from('user_drops').select('drops').eq('user_id', userId).maybeSingle();
+      return res.data as { drops: number } | null;
+    },
+    enabled: showCard && showDrops && !!userId,
+    staleTime: 30 * 1000,
   });
 
   // Use shared hook for real-time status updates
-  // This hook manages WebSocket subscription and React Query cache updates
   useUserRealtimeStatus(userId);
 
   // Detect viewport overflow and flip card to left side if needed
@@ -103,7 +117,6 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
     if (!cardRef.current || !wrapperRef.current) return;
     const cardRect = cardRef.current.getBoundingClientRect();
     const wrapperRect = wrapperRef.current.getBoundingClientRect();
-    // Card is positioned at left-0 relative to wrapper, so right edge = wrapper.left + card.width
     const rightEdge = wrapperRect.left + cardRect.width;
     const overflow = rightEdge > window.innerWidth - 8;
     setFlipLeft(overflow);
@@ -111,14 +124,40 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
 
   useEffect(() => {
     if (showCard && data) {
-      // Wait for DOM paint then check overflow
       requestAnimationFrame(() => checkOverflow());
     }
   }, [showCard, data, checkOverflow]);
 
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      clearTimeout(openTimeoutRef.current);
+      clearTimeout(closeTimeoutRef.current);
+    };
+  }, []);
+
+  const handleTriggerMouseEnter = useCallback(() => {
+    clearTimeout(closeTimeoutRef.current);
+    openTimeoutRef.current = setTimeout(() => setShowCard(true), 200);
+  }, []);
+
+  const handleTriggerMouseLeave = useCallback(() => {
+    clearTimeout(openTimeoutRef.current);
+    closeTimeoutRef.current = setTimeout(() => setShowCard(false), 300);
+  }, []);
+
+  const handleCardMouseEnter = useCallback(() => {
+    clearTimeout(closeTimeoutRef.current);
+  }, []);
+
+  const handleCardMouseLeave = useCallback(() => {
+    clearTimeout(openTimeoutRef.current);
+    closeTimeoutRef.current = setTimeout(() => setShowCard(false), 300);
+  }, []);
+
   const childrenWithHover = cloneElement(children as React.ReactElement, disabled ? {} : {
-    onMouseEnter: () => setShowCard(true),
-    onMouseLeave: () => setShowCard(false),
+    onMouseEnter: handleTriggerMouseEnter,
+    onMouseLeave: handleTriggerMouseLeave,
   });
 
   if (disabled || !showCard || !data) {
@@ -149,7 +188,12 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
       {childrenWithHover}
 
       {/* Hover Card — flips to left side when near right viewport edge */}
-      <div ref={cardRef} className={`absolute top-full mt-1 z-50 ${flipLeft ? 'right-0' : 'left-0'}`}>
+      <div
+        ref={cardRef}
+        className={`absolute top-full mt-1 z-50 ${flipLeft ? 'right-0' : 'left-0'}`}
+        onMouseEnter={handleCardMouseEnter}
+        onMouseLeave={handleCardMouseLeave}
+      >
         <div className="bg-background/95 backdrop-blur-md border border-border rounded-lg shadow-lg p-4 min-w-[280px] max-w-[320px]">
           <div className="flex items-start gap-3">
             {/* Avatar */}
@@ -207,6 +251,18 @@ export const ProfileHoverCard = ({ userId, children, disabled = false }: Profile
                 lastSeen={p.last_seen as string | null}
                 className="mt-1"
               />
+              {showDrops && dropsData && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('open-drops-shop'));
+                  }}
+                  className="flex items-center gap-1 mt-1 text-sm text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+                >
+                  <Droplets className="w-4 h-4" />
+                  <span>{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
+                </button>
+              )}
               {(() => {
                 // Use custom placeholders if set, otherwise use default
                 if (placeholders?.use_custom && placeholders?.custom_placeholder) {

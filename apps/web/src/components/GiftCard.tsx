@@ -2,6 +2,7 @@ import { storageUrl } from "@/utils/storage";
 import { Gift } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 export interface GiftCatalogItem {
   id: string;
@@ -36,15 +37,6 @@ interface GiftCardProps {
   variant?: "catalog" | "received";
   onSend?: (gift: GiftCatalogItem) => void;
 }
-
-const formatDropsLabel = (value: number) => {
-  const abs = Math.abs(value);
-  const mod10 = abs % 10;
-  const mod100 = abs % 100;
-  if (mod10 === 1 && mod100 !== 11) return "капля";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
-  return "капель";
-};
 
 export function GiftCard({ gift, variant = "catalog", onSend }: GiftCardProps) {
   const isCatalog = variant === "catalog" && "price" in gift && !("gift_price" in gift);

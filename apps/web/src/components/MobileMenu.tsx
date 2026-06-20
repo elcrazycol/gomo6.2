@@ -3,10 +3,12 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Menu, User, Settings, Hammer, LogOut, Grid3X3, Search, Users } from "lucide-react";
+import { Menu, User, Settings, Hammer, LogOut, Grid3X3, Search, Users, Droplets } from "lucide-react";
 import { toast } from "sonner";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { storageUrl } from "@/utils/storage";
+import { useQuery } from "@tanstack/react-query";
+import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 import type { User as UserFromClient } from "@/integrations/api/client";
 
@@ -34,6 +36,17 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   
   // Check if we're on own profile page
   const isOwnProfile = location.pathname === `/profile/${user?.id}`;
+
+  // Fetch drops balance
+  const { data: dropsData } = useQuery({
+    queryKey: ['user-drops-mobile', user?.id],
+    queryFn: async () => {
+      const res = await api.from('user_drops').select('drops').eq('user_id', user!.id).maybeSingle();
+      return res.data as { drops: number } | null;
+    },
+    enabled: open && !!user?.id,
+    staleTime: 30 * 1000,
+  });
 
   useEffect(() => {
     // Always load own user profile
@@ -147,6 +160,21 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                     <div className="text-sm text-muted-foreground mt-1">
                       ID: {user.id.slice(0, 8)} {accountNumber && `(${accountNumber})`}
                     </div>
+                    {dropsData && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpen(false);
+                          window.dispatchEvent(new CustomEvent('open-drops-shop'));
+                        }}
+                        className="flex items-center gap-1 mt-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        <Droplets className="w-4 h-4" />
+                        <span>{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
+                      </button>
+                    )}
                     <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
                       {isAnonymous ? "Анонимный режим" : "Нажмите для просмотра профиля"}
                     </div>

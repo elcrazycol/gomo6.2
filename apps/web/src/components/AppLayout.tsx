@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
+import { DropsShop } from "@/components/DropsShop";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -81,6 +82,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const lastPlayEventRef = useRef<string | null>(null);
   const isBackgroundResumeRef = useRef(false);
   const { scrollY } = useScroll();
+  const [showDropsShop, setShowDropsShop] = useState(false);
+
+  // Global DropsShop listener
+  useEffect(() => {
+    const handler = () => setShowDropsShop(true);
+    window.addEventListener('open-drops-shop', handler);
+    return () => window.removeEventListener('open-drops-shop', handler);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1288,6 +1297,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         <CookieBanner />
       </div>
       ) : null}
+
+      <DropsShop open={showDropsShop} onOpenChange={setShowDropsShop} />
     </div>
   );
 };

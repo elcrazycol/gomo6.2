@@ -9,6 +9,7 @@ import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
+import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
 
@@ -244,15 +245,6 @@ interface GiftDetailItem {
   sender_username?: string;
   sender_avatar_url?: string;
 }
-
-const formatDropsLabel = (value: number) => {
-  const abs = Math.abs(value);
-  const mod10 = abs % 10;
-  const mod100 = abs % 100;
-  if (mod10 === 1 && mod100 !== 11) return "капля";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
-  return "капель";
-};
 
 const giftImageUrl = (url?: string) => {
   if (!url) return null;
