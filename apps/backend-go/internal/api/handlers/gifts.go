@@ -98,9 +98,10 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 		return
 	}
 
-	// Step 2: Get gift price and deduct drops atomically
+	// Step 2: Get gift details and deduct drops atomically
 	var price int
-	err = tx.QueryRow("SELECT price FROM gift_catalog WHERE id = $1", giftID).Scan(&price)
+	var giftName, giftImageURL string
+	err = tx.QueryRow("SELECT name, COALESCE(image_url, ''), price FROM gift_catalog WHERE id = $1", giftID).Scan(&giftName, &giftImageURL, &price)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to get gift price"))
 		return
@@ -159,6 +160,9 @@ func (h *GiftsHandler) SendGift(c *gin.Context) {
 
 	// Send notification to recipient
 	go h.sendGiftNotification(recipientID.String(), senderID, giftID.String(), giftRecordID, req.IsAnonymous)
+
+	// Send gift message in messenger (best-effort, after gift is committed)
+	go h.sendGiftMessengerMessage(senderID, recipientID.String(), giftID.String(), giftName, giftImageURL, giftRecordID)
 
 	// Invalidate cache
 	if h.redis != nil {
@@ -221,6 +225,109 @@ func (h *GiftsHandler) sendGiftNotification(recipientID, senderID, giftID, giftR
 			log.Printf("[Gifts] WS notification error: %v", err)
 		}
 	}
+}
+
+func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, giftID, giftName, giftImageURL, giftRecordID string) {
+	if h.hub == nil {
+		return
+	}
+
+	convID, err := h.findOrCreateConversation(senderID, recipientID)
+	if err != nil {
+		log.Printf("[Gifts] find/create conversation error: %v", err)
+		return
+	}
+
+	giftContent := fmt.Sprintf("__GIFT__:%s:%s:%s", giftID, giftName, giftImageURL)
+	clientID := fmt.Sprintf("gift_%s", giftRecordID)
+
+	encryptedContent, err := encryptContent(giftContent)
+	if err != nil {
+		log.Printf("[Gifts] encrypt gift message error: %v", err)
+		return
+	}
+
+	var msgID string
+	err = h.db.QueryRow(`
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, convID, senderID, encryptedContent, clientID).Scan(&msgID)
+	if err != nil {
+		log.Printf("[Gifts] insert gift message error: %v", err)
+		return
+	}
+
+	_, err = h.db.Exec(`
+		UPDATE chat_conversations
+		SET last_message_preview = '🎁 Подарок',
+		    last_message_sender_id = $1,
+		    last_message_id = $2,
+		    updated_at = NOW()
+		WHERE id = $3
+	`, senderID, msgID, convID)
+	if err != nil {
+		log.Printf("[Gifts] update conversation preview error: %v", err)
+	}
+
+	sentAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := h.hub.PublishNewChatMessage(gin.H{
+		"id":              msgID,
+		"conversation_id": convID,
+		"sender_user_id":  senderID,
+		"content":         giftContent,
+		"is_edited":       false,
+		"is_deleted":      false,
+		"edited_at":       nil,
+		"sent_at":         sentAt,
+		"client_id":       clientID,
+	}); err != nil {
+		log.Printf("[Gifts] WS gift message error: %v", err)
+	}
+
+	if h.redis != nil {
+		go invalidateMessengerCaches(h.redis, convID, senderID)
+	}
+}
+
+func (h *GiftsHandler) findOrCreateConversation(user1, user2 string) (string, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		var convID string
+		err := h.db.QueryRow(`
+			SELECT cm1.conversation_id
+			FROM chat_members cm1
+			INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
+			WHERE cm1.user_id = $1 AND cm2.user_id = $2
+			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
+			LIMIT 1
+		`, user1, user2).Scan(&convID)
+		if err == nil {
+			return convID, nil
+		}
+		if err != sql.ErrNoRows {
+			return "", err
+		}
+
+		tx, err := h.db.Begin()
+		if err != nil {
+			return "", err
+		}
+		err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
+		if err != nil {
+			tx.Rollback()
+			continue
+		}
+		_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`, convID, user1, user2)
+		if err != nil {
+			tx.Rollback()
+			continue
+		}
+		if err := tx.Commit(); err != nil {
+			continue
+		}
+		return convID, nil
+	}
+	return "", fmt.Errorf("failed to create conversation after retries")
 }
 
 // GetUserGifts — GET /api/v1/user_gifts (public)

@@ -166,6 +166,9 @@ func decryptMessageContent(msg *MessageResponse) {
 
 // truncatePreview truncates message content to 80 chars for conversation preview.
 func truncatePreview(s string) string {
+	if strings.HasPrefix(s, "__GIFT__") {
+		return "🎁 Подарок"
+	}
 	runes := []rune(s)
 	if len(runes) <= 80 {
 		return s

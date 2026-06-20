@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
 import { storageUrl } from "@/utils/storage";
-import { useMessengerStore } from "@/stores/messengerStore";
 import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
@@ -83,12 +82,6 @@ export function UserInfoPanel({
         toast.error(result.error || "Не удалось отправить подарок");
         return;
       }
-
-      // Send gift message in chat
-      const giftContent = `__GIFT__:${selectedGift.id}:${selectedGift.name}:${selectedGift.image_url || ""}`;
-      const clientId = `g${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const sendMessage = useMessengerStore.getState().sendMessage;
-      await sendMessage(giftContent, clientId);
 
       const { toast } = await import("sonner");
       toast.success(`Подарок «${selectedGift.name}» отправлен!`);
