@@ -11,8 +11,8 @@ UPDATE chat_conversations c
 SET user1_id = sub.u1, user2_id = sub.u2
 FROM (
     SELECT conversation_id,
-           MIN(user_id) AS u1,
-           MAX(user_id) AS u2
+           MIN(user_id::text)::uuid AS u1,
+           MAX(user_id::text)::uuid AS u2
     FROM chat_members
     GROUP BY conversation_id
     HAVING COUNT(*) = 2
