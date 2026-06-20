@@ -41,8 +41,15 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
   const { data: dropsData } = useQuery({
     queryKey: ['user-drops-mobile', user?.id],
     queryFn: async () => {
-      const res = await api.from('user_drops').select('drops').eq('user_id', user!.id).maybeSingle();
-      return res.data as { drops: number } | null;
+      const session = await api.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) return null;
+      const res = await fetch(`/api/v1/user/drops?user_id=${user!.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) return json.data as { drops: number };
+      return null;
     },
     enabled: open && !!user?.id,
     staleTime: 30 * 1000,

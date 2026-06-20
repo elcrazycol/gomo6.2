@@ -102,8 +102,15 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
   const { data: dropsData } = useQuery({
     queryKey: ['user-drops', userId],
     queryFn: async () => {
-      const res = await api.from('user_drops').select('drops').eq('user_id', userId).maybeSingle();
-      return res.data as { drops: number } | null;
+      const session = await api.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) return null;
+      const res = await fetch(`/api/v1/user/drops?user_id=${userId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) return json.data as { drops: number };
+      return null;
     },
     enabled: showCard && showDrops && !!userId,
     staleTime: 30 * 1000,
@@ -143,7 +150,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
 
   const handleTriggerMouseLeave = useCallback(() => {
     clearTimeout(openTimeoutRef.current);
-    closeTimeoutRef.current = setTimeout(() => setShowCard(false), 300);
+    closeTimeoutRef.current = setTimeout(() => setShowCard(false), 100);
   }, []);
 
   const handleCardMouseEnter = useCallback(() => {
@@ -152,7 +159,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
 
   const handleCardMouseLeave = useCallback(() => {
     clearTimeout(openTimeoutRef.current);
-    closeTimeoutRef.current = setTimeout(() => setShowCard(false), 300);
+    closeTimeoutRef.current = setTimeout(() => setShowCard(false), 100);
   }, []);
 
   const childrenWithHover = cloneElement(children as React.ReactElement, disabled ? {} : {
