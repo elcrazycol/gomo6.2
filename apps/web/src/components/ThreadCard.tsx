@@ -349,7 +349,7 @@ const ThreadCard = ({
                 {thread.image_urls.map((url, index) => (
                   <img
                     key={index}
-                    src={url}
+                    src={storageUrl("content", url) || url}
                     alt={`Изображение ${index + 1}`}
                     className={`w-full ${imagesExpanded ? 'h-auto max-h-96' : 'h-32'} object-cover object-top rounded border border-border`}
                     onLoad={(e) => {
