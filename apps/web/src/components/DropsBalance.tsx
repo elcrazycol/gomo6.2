@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Droplets } from "lucide-react";
 import { api } from "@/integrations/api/compat";
 
@@ -36,9 +37,12 @@ export function DropsBalance({ className = "" }: DropsBalanceProps) {
   if (drops === null) return null;
 
   return (
-    <div className={`flex items-center gap-1.5 ${className}`}>
+    <Link
+      to="/wallet"
+      className={`flex items-center gap-1.5 hover:opacity-80 transition-opacity ${className}`}
+    >
       <Droplets className="w-4 h-4 text-blue-400" />
       <span className="text-sm font-medium">{drops}</span>
-    </div>
+    </Link>
   );
 }

@@ -187,13 +187,10 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
 
             {/* Drops */}
             {dropsData && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  window.dispatchEvent(new CustomEvent('open-drops-shop'));
-                }}
-                className="block w-full"
+              <Link
+                to="/wallet"
+                onClick={() => setOpen(false)}
+                className="block"
               >
                 <Button variant="ghost" className="w-full justify-start relative group hover:translate-x-0.5 transition-transform duration-200 !hover:bg-primary/10 !hover:text-primary">
                   <Droplets className="w-4 h-4 mr-2" />
@@ -201,7 +198,7 @@ export const MobileMenu = ({ user, isModerator }: MobileMenuProps) => {
                   <span className="ml-auto text-sm text-muted-foreground">{dropsData.drops} {formatDropsLabel(dropsData.drops)}</span>
                   <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
                 </Button>
-              </button>
+              </Link>
             )}
 
             {/* Settings link */}
