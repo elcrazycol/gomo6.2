@@ -289,14 +289,57 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 	}
 }
 
-// findOrCreateConversation uses the atomic DB function for race-safe conversation creation.
+// findOrCreateConversation uses the atomic DB function when available, falls back to legacy.
 func (h *GiftsHandler) findOrCreateConversation(user1, user2 string) (string, error) {
 	var convID string
 	err := h.db.QueryRow("SELECT find_or_create_conversation($1, $2)", user1, user2).Scan(&convID)
-	if err != nil {
+	if err == nil {
+		return convID, nil
+	}
+	// Function not found — fall back to legacy approach
+	if !strings.Contains(err.Error(), "function") && !strings.Contains(err.Error(), "does not exist") {
 		return "", fmt.Errorf("find_or_create_conversation: %w", err)
 	}
-	return convID, nil
+	return h.findOrCreateConversationLegacy(user1, user2)
+}
+
+func (h *GiftsHandler) findOrCreateConversationLegacy(user1, user2 string) (string, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		var convID string
+		err := h.db.QueryRow(`
+			SELECT cm1.conversation_id
+			FROM chat_members cm1
+			INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
+			WHERE cm1.user_id = $1 AND cm2.user_id = $2
+			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
+			LIMIT 1
+		`, user1, user2).Scan(&convID)
+		if err == nil {
+			return convID, nil
+		}
+		if err != sql.ErrNoRows {
+			return "", err
+		}
+		tx, err := h.db.Begin()
+		if err != nil {
+			return "", err
+		}
+		err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
+		if err != nil {
+			tx.Rollback()
+			continue
+		}
+		_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`, convID, user1, user2)
+		if err != nil {
+			tx.Rollback()
+			continue
+		}
+		if err := tx.Commit(); err != nil {
+			continue
+		}
+		return convID, nil
+	}
+	return "", fmt.Errorf("failed to create conversation after retries")
 }
 
 // GetUserGifts — GET /api/v1/user_gifts (public)
