@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"database/sql"
-	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -70,7 +70,8 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		DO UPDATE SET read_at = NOW(), delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
 	`, conversationID, claims.UserID, sentAt)
 	if err != nil {
-		log.Printf("[Messenger] mark read receipts: %v", err)
+		serverError(c, "mark read receipts", err)
+		return
 	}
 
 	_, err = tx.Exec(`
@@ -79,7 +80,8 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		WHERE conversation_id = $1 AND user_id = $3
 	`, conversationID, req.MessageID, claims.UserID)
 	if err != nil {
-		log.Printf("[Messenger] mark read unread reset: %v", err)
+		serverError(c, "mark read unread reset", err)
+		return
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -157,7 +159,8 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 		DO UPDATE SET delivered_at = COALESCE(chat_receipts.delivered_at, NOW())
 	`, conversationID, claims.UserID, sentAt)
 	if err != nil {
-		log.Printf("[Messenger] mark delivered: %v", err)
+		serverError(c, "mark delivered", err)
+		return
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
@@ -207,12 +210,34 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`
+	// Pagination
+	limit := 500
+	before := c.Query("before")
+	if l := c.Query("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 2000 {
+			limit = n
+		}
+	}
+
+	query := `
 		SELECT r.message_id, r.user_id, r.delivered_at, r.read_at
 		FROM chat_receipts r
 		INNER JOIN chat_messages m ON m.id = r.message_id
 		WHERE m.conversation_id = $1
-	`, conversationID)
+	`
+	args := []interface{}{conversationID}
+
+	if before != "" {
+		query += ` AND r.message_id < $2`
+		args = append(args, before)
+		query += ` ORDER BY r.message_id DESC LIMIT $3`
+		args = append(args, limit)
+	} else {
+		query += ` ORDER BY r.message_id DESC LIMIT $2`
+		args = append(args, limit)
+	}
+
+	rows, err := h.db.Query(query, args...)
 	if err != nil {
 		serverError(c, "get receipts", err)
 		return

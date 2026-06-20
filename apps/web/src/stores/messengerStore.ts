@@ -42,6 +42,15 @@ function flushPending(): void {
   pendingRead.clear();
 }
 
+export function destroyMessenger(): void {
+  if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
+  pendingDelivered.clear();
+  pendingRead.clear();
+  lastFlushed.delivered.clear();
+  lastFlushed.read.clear();
+  lastReceiptsLoad.clear();
+}
+
 export function queueMarkDelivered(conversationId: string, messageId: string): void {
   // Only track the latest message per conversation — older ones are covered by backend
   const existing = pendingDelivered.get(conversationId);
@@ -84,6 +93,8 @@ type MessengerStore = {
   // ── UI state ──────────────────────────────────────────────────────────
   isInitialLoading: boolean;
   isMessagesLoading: boolean;
+  isLoadingMore: boolean;
+  hasMoreMessages: boolean;
   isSending: boolean;
   error: string | null;
 
@@ -96,6 +107,7 @@ type MessengerStore = {
   loadConversations: () => Promise<void>;
   ensureConversation: (conversationId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
+  loadMoreMessages: (conversationId: string) => Promise<void>;
   sendMessage: (content: string, clientId: string, parentMessageId?: string) => Promise<string>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
@@ -128,6 +140,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   onlineUsers: new Set(),
   isInitialLoading: true,
   isMessagesLoading: false,
+  isLoadingMore: false,
+  hasMoreMessages: true,
   isSending: false,
   error: null,
 
@@ -173,9 +187,32 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set({ isMessagesLoading: true, error: null });
     try {
       const msgs = await messengerApi.getMessages(conversationId);
-      set({ messages: msgs, isMessagesLoading: false });
+      set({ messages: msgs, isMessagesLoading: false, hasMoreMessages: msgs.length >= 50 });
     } catch (e) {
       set({ error: "Не удалось загрузить сообщения", isMessagesLoading: false });
+    }
+  },
+
+  // ── Load older messages (pagination) ──────────────────────────────────
+  loadMoreMessages: async (conversationId: string) => {
+    const { messages, isLoadingMore } = get();
+    if (isLoadingMore || messages.length === 0) return;
+
+    const oldest = messages[0];
+    set({ isLoadingMore: true });
+    try {
+      const older = await messengerApi.getMessages(conversationId, oldest.id);
+      if (older.length === 0) {
+        set({ hasMoreMessages: false, isLoadingMore: false });
+        return;
+      }
+      set((s) => ({
+        messages: [...older, ...s.messages],
+        hasMoreMessages: older.length >= 50,
+        isLoadingMore: false,
+      }));
+    } catch {
+      set({ isLoadingMore: false });
     }
   },
 
@@ -341,7 +378,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   // ── Local actions ─────────────────────────────────────────────────────
   selectConversation: (id) => {
-    set({ selectedConversationId: id });
+    set({ selectedConversationId: id, hasMoreMessages: true, isLoadingMore: false });
     if (id) {
       get().loadMessages(id);
       get().loadReceipts(id);

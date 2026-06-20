@@ -7,14 +7,15 @@ import { wsService, type WebSocketMessage } from "@/services/websocket";
 
 class MessengerWebSocket {
   private handlersUnsub: (() => void)[] = [];
-  private handlersRegistered = false;
+  private initialized = false;
 
   get connected(): boolean {
     return wsService.connected;
   }
 
   connect(): void {
-    // wsService is already connected by App.tsx — just ensure handlers are registered
+    if (this.initialized) return;
+    this.initialized = true;
     this.registerHandlers();
   }
 
@@ -45,8 +46,7 @@ class MessengerWebSocket {
   // ─── Handler registration ──────────────────────────────────────────────────
 
   private registerHandlers(): void {
-    if (this.handlersRegistered) return;
-    this.handlersRegistered = true;
+    if (this.handlersUnsub.length > 0) return;
 
     this.handlersUnsub.push(
       wsService.on("new_chat_message", (msg) => this.handleNewChatMessage(msg)),
@@ -62,7 +62,7 @@ class MessengerWebSocket {
   private unregisterHandlers(): void {
     for (const unsub of this.handlersUnsub) unsub();
     this.handlersUnsub = [];
-    this.handlersRegistered = false;
+    this.initialized = false;
   }
 
   // ─── Event handlers ────────────────────────────────────────────────────────
@@ -118,9 +118,11 @@ class MessengerWebSocket {
   }
 
   private handleReadReceipt(msg: WebSocketMessage): void {
-    const store = useMessengerStore.getState();
-    const convId = store.selectedConversationId;
-    if (convId) store.loadReceipts(convId);
+    const data = msg.data as Record<string, unknown>;
+    const convId = data.conversation_id as string;
+    if (convId) {
+      useMessengerStore.getState().loadReceipts(convId);
+    }
   }
 
   private handleTyping(msg: WebSocketMessage): void {

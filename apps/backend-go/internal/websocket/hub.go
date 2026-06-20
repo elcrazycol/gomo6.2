@@ -404,12 +404,18 @@ func (h *Hub) BroadcastToRoom(room string, message []byte) {
 		for client := range roomClients {
 			select {
 			case client.Send <- message:
+				client.failedSends = 0 // Reset on success
 			default:
-				// Client's send channel is full, will be cleaned up on next broadcast
-				log.Printf("[WebSocket] Client %s send buffer full", client.Username)
+				client.failedSends++
+				if client.failedSends > 10 {
+					log.Printf("[WebSocket] Client %s too many failed sends, disconnecting", client.Username)
+					close(client.Send)
+					delete(roomClients, client)
+				} else {
+					log.Printf("[WebSocket] Client %s send buffer full (%d/10)", client.Username, client.failedSends)
+				}
 			}
 		}
-		log.Printf("[WebSocket] Broadcasted to room %s (%d clients)", room, len(roomClients))
 	}
 }
 

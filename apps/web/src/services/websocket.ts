@@ -82,6 +82,11 @@ class WebSocketService {
     if (typeof window !== 'undefined') {
       window.addEventListener('auth:expired', this.disconnect);
     }
+
+    // Resubscribe to rooms after server confirms auth
+    this.on('connected', () => {
+      this.resubscribeRooms();
+    });
   }
 
   /**
@@ -142,17 +147,15 @@ class WebSocketService {
     this.reconnectAttempts = 0;
     this.reconnectDelay = 1000;
 
-    // Send auth token as first message (instead of URL query string)
+    // Start ping interval
+    this.startPing();
+
+    // Send auth token as first message
     const token = this.getToken();
     if (token) {
       this.send({ type: 'auth' as WebSocketMessageType, data: { token }, timestamp: Date.now() });
     }
-
-    // Start ping interval
-    this.startPing();
-
-    // Re-subscribe to all rooms (will be sent after auth is confirmed by server)
-    this.resubscribeRooms();
+    // DON'T resubscribe here — wait for 'connected' event from server
   }
 
   /**

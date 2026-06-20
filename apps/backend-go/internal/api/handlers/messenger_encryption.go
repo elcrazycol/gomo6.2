@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"os"
 )
 
@@ -24,12 +25,18 @@ func init() {
 	if key != "" {
 		k := []byte(key)
 		if len(k) < 32 {
+			log.Printf("[Messenger] WARNING: MESSENGER_ENCRYPTION_KEY is %d bytes, zero-padded to 32", len(k))
 			padded := make([]byte, 32)
 			copy(padded, k)
 			messengerEncryptionKey = padded
-		} else {
+		} else if len(k) > 32 {
+			log.Printf("[Messenger] WARNING: MESSENGER_ENCRYPTION_KEY is %d bytes, truncated to 32", len(k))
 			messengerEncryptionKey = k[:32]
+		} else {
+			messengerEncryptionKey = k
 		}
+	} else {
+		log.Printf("[Messenger] WARNING: No MESSENGER_ENCRYPTION_KEY set — messages stored as plaintext")
 	}
 }
 
@@ -89,7 +96,8 @@ func decryptContent(encoded string) (string, error) {
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return encoded, nil // decryption failed — return as-is (unencrypted data)
+		log.Printf("[Messenger] decrypt failed: %v", err)
+		return "", nil
 	}
 
 	return string(plaintext), nil

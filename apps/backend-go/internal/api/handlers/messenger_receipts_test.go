@@ -236,7 +236,7 @@ func TestGetReceipts_Success(t *testing.T) {
 
 	now := time.Now()
 	mock.ExpectQuery(`SELECT r.message_id, r.user_id, r.delivered_at, r.read_at.*FROM chat_receipts r.*INNER JOIN chat_messages m.*WHERE m.conversation_id = \$1`).
-		WithArgs("conv-1").
+		WithArgs("conv-1", 500).
 		WillReturnRows(sqlmock.NewRows([]string{"message_id", "user_id", "delivered_at", "read_at"}).
 			AddRow("msg-1", "u2", now, now.Add(time.Minute)))
 
