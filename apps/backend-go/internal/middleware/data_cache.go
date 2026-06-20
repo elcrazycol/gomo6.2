@@ -59,8 +59,12 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
-		// Skip caching for drops balance — must reflect immediate balance changes after payment
-		if strings.Contains(c.Request.URL.Path, "user/drops") {
+		// Skip caching for drops endpoints — must reflect immediate balance changes and be per-user
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/v1/drops/wallet") ||
+			strings.HasPrefix(path, "/api/v1/drops/history") ||
+			strings.HasPrefix(path, "/api/v1/drops/users/search") ||
+			strings.HasPrefix(path, "/api/v1/user/drops") {
 			c.Next()
 			return
 		}

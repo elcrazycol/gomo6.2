@@ -91,6 +91,16 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     return () => window.removeEventListener('open-drops-shop', handler);
   }, []);
 
+  // Global SPA navigation listener (used by ProfileHoverCard etc.)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) navigate(detail);
+    };
+    window.addEventListener('navigate-to', handler);
+    return () => window.removeEventListener('navigate-to', handler);
+  }, [navigate]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hidden = localStorage.getItem("nowPlayingHidden") === "true";
