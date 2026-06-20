@@ -352,6 +352,8 @@ describe("WebSocketService", () => {
       wsService.connect();
       const ws1 = MockWebSocket.instances[0]!;
       ws1.simulateOpen();
+      // Simulate server confirming auth (triggers 'connected' event)
+      ws1.simulateMessage({ type: "connected", data: "ok", timestamp: Date.now() });
 
       wsService.subscribe("room-1");
       wsService.subscribe("room-2");
@@ -362,6 +364,8 @@ describe("WebSocketService", () => {
 
       const ws2 = MockWebSocket.instances[1]!;
       ws2.simulateOpen();
+      // Simulate server confirming auth on reconnect (triggers resubscribeRooms)
+      ws2.simulateMessage({ type: "connected", data: "ok", timestamp: Date.now() });
 
       const messages = ws2.sentMessages.map((m) => JSON.parse(m));
       const subMsgs = messages.filter((m: { type: string }) => m.type === "subscribe");

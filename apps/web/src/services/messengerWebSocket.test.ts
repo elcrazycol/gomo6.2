@@ -152,7 +152,7 @@ describe("messengerWebSocket", () => {
     });
 
     it("handles read_receipt", () => {
-      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2" });
+      emitToHandlers("read_receipt", { message_id: "msg-1", user_id: "u2", conversation_id: "conv-1" });
       expect(storeMocks.loadReceipts).toHaveBeenCalledWith("conv-1");
     });
 

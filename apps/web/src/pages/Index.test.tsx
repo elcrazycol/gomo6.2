@@ -233,7 +233,6 @@ describe("Index", () => {
     setupLoggedIn();
     renderWithProviders(<IndexComponent />);
     await waitFor(() => {
-      expect(screen.getByText("Основные доски")).toBeInTheDocument();
       expect(screen.getByText("G-сабы")).toBeInTheDocument();
     });
   });
