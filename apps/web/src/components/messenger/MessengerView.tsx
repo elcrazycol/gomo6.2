@@ -71,6 +71,22 @@ export const MessengerView = () => {
     return () => mq.removeEventListener("change", update);
   }, []);
 
+  // ── Prevent body scroll while messenger is open ───────────────────────
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, []);
+
   // ── Hide AppLayout header on mobile when chat is open ─────────────────
   useEffect(() => {
     if (!isMobile) return;
