@@ -5,6 +5,7 @@ import { api } from "@/integrations/api/compat";
 import { TransferDialog } from "@/components/TransferDialog";
 import { DropsShop } from "@/components/DropsShop";
 import { TransactionItem, TransactionItemData } from "@/components/TransactionItem";
+import { TransactionDetail } from "@/components/TransactionDetail";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import { Button } from "@/components/ui/button";
 
@@ -24,6 +25,8 @@ export default function Wallet() {
   const [copied, setCopied] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [shopOpen, setShopOpen] = useState(false);
+  const [selectedTx, setSelectedTx] = useState<TransactionItemData | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [transactions, setTransactions] = useState<TransactionItemData[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [loading, setLoading] = useState(true);
@@ -171,7 +174,11 @@ export default function Wallet() {
         ) : (
           <div className="divide-y divide-border">
             {transactions.map((tx) => (
-              <TransactionItem key={tx.id} transaction={tx} />
+              <TransactionItem
+                key={tx.id}
+                transaction={tx}
+                onSelect={(t) => { setSelectedTx(t); setDetailOpen(true); }}
+              />
             ))}
           </div>
         )}
@@ -185,6 +192,11 @@ export default function Wallet() {
         onSuccess={handleTransferSuccess}
       />
       <DropsShop open={shopOpen} onOpenChange={handleShopClose} />
+      <TransactionDetail
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        transaction={selectedTx}
+      />
     </div>
   );
 }

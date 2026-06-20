@@ -9,11 +9,14 @@ export interface TransactionItemData {
   description?: string;
   reference_id?: string;
   reference_type?: string;
+  blockchain?: string;
+  tx_hash?: string;
   created_at: string;
 }
 
 interface TransactionItemProps {
   transaction: TransactionItemData;
+  onSelect?: (tx: TransactionItemData) => void;
 }
 
 const TYPE_CONFIG: Record<string, { icon: typeof ArrowUpRight; color: string; label: string }> = {
@@ -39,13 +42,17 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 }
 
-export function TransactionItem({ transaction }: TransactionItemProps) {
+export function TransactionItem({ transaction, onSelect }: TransactionItemProps) {
   const config = TYPE_CONFIG[transaction.type] || { icon: Droplets, color: "text-muted-foreground", label: transaction.type };
   const Icon = config.icon;
   const isPositive = transaction.amount > 0;
 
   return (
-    <div className="flex items-center gap-3 py-3 px-1">
+    <button
+      type="button"
+      onClick={() => onSelect?.(transaction)}
+      className="w-full flex items-center gap-3 py-3 px-1 text-left hover:bg-muted/50 transition-colors rounded-md cursor-pointer"
+    >
       <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
         isPositive ? "bg-green-500/10" : "bg-red-500/10"
       }`}>
@@ -63,6 +70,6 @@ export function TransactionItem({ transaction }: TransactionItemProps) {
         </div>
         <div className="text-xs text-muted-foreground">{formatRelativeTime(transaction.created_at)}</div>
       </div>
-    </div>
+    </button>
   );
 }
