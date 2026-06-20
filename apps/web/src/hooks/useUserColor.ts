@@ -8,7 +8,7 @@ interface AchievementColor {
 
 const PRIORITY = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'] as const;
 
-function extractColor(data: AchievementColor[]): string {
+export function extractColor(data: AchievementColor[]): string {
   for (const p of PRIORITY) {
     if (data.some(a => a.reward_type === 'username_color' && a.reward_value === p)) {
       return p;
