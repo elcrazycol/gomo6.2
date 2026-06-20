@@ -1,8 +1,17 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll } from "vitest";
 import { MessageComposer } from "./MessageComposer";
 import type { RefObject } from "react";
+
+// Mock CSS.supports which is not available in jsdom
+beforeAll(() => {
+  if (typeof CSS === "undefined") {
+    (globalThis as any).CSS = { supports: vi.fn().mockReturnValue(false) };
+  } else if (!CSS.supports) {
+    CSS.supports = vi.fn().mockReturnValue(false) as any;
+  }
+});
 
 describe("MessageComposer", () => {
   function setup(overrides: {
