@@ -6,7 +6,6 @@ import (
 )
 
 func initEncryptionKey() {
-	// Re-run the init logic to pick up env changes for testing
 	key := os.Getenv("MESSENGER_ENCRYPTION_KEY")
 	if key == "" {
 		key = os.Getenv("ENCRYPTION_KEY")
@@ -33,6 +32,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
 
 	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "Hello, World! Привет мир! 🎉"
 	encrypted, err := encryptContent(plaintext)
@@ -55,7 +55,6 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 func TestEncryptWithoutKey(t *testing.T) {
 	os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
 	os.Unsetenv("ENCRYPTION_KEY")
-
 	initEncryptionKey()
 
 	plaintext := "plaintext message"
@@ -71,7 +70,6 @@ func TestEncryptWithoutKey(t *testing.T) {
 func TestDecryptWithoutKey(t *testing.T) {
 	os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
 	os.Unsetenv("ENCRYPTION_KEY")
-
 	initEncryptionKey()
 
 	result, err := decryptContent("some data")
@@ -86,7 +84,6 @@ func TestDecryptWithoutKey(t *testing.T) {
 func TestDecryptEmptyString(t *testing.T) {
 	os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
 	os.Unsetenv("ENCRYPTION_KEY")
-
 	initEncryptionKey()
 
 	result, err := decryptContent("")
@@ -104,6 +101,7 @@ func TestDecryptNonEncryptedData(t *testing.T) {
 	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
 
 	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
 
 	result, err := decryptContent("short")
 	if err != nil {
@@ -120,6 +118,7 @@ func TestEncryptWithFallbackKey(t *testing.T) {
 	defer os.Unsetenv("ENCRYPTION_KEY")
 
 	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "fallback key test"
 	encrypted, err := encryptContent(plaintext)
@@ -136,6 +135,7 @@ func TestEncryptKeyPadding(t *testing.T) {
 	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
 
 	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "pad test"
 	encrypted, err := encryptContent(plaintext)
@@ -149,5 +149,53 @@ func TestEncryptKeyPadding(t *testing.T) {
 	}
 	if decrypted != plaintext {
 		t.Errorf("decrypted %q, want %q", decrypted, plaintext)
+	}
+}
+
+func TestEncryptDecryptMultipleMessages(t *testing.T) {
+	key := "0123456789abcdef0123456789abcdef"
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", key)
+	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+
+	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
+
+	messages := []string{
+		"",
+		"a",
+		"Hello!",
+		string(make([]byte, 4096)),
+		"Unicode: привет мир 🎉",
+	}
+	for i, msg := range messages {
+		enc, err := encryptContent(msg)
+		if err != nil {
+			t.Fatalf("encrypt[%d] failed: %v", i, err)
+		}
+		if msg != "" && enc == msg {
+			t.Errorf("encrypt[%d]: encrypted same as plaintext", i)
+		}
+		dec, err := decryptContent(enc)
+		if err != nil {
+			t.Fatalf("decrypt[%d] failed: %v", i, err)
+		}
+		if dec != msg {
+			t.Errorf("decrypt[%d]: got %q, want %q", i, dec, msg)
+		}
+	}
+}
+
+func TestEncryptDifferentNonces(t *testing.T) {
+	key := "0123456789abcdef0123456789abcdef"
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", key)
+	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+
+	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
+
+	enc1, _ := encryptContent("same message")
+	enc2, _ := encryptContent("same message")
+	if enc1 == enc2 {
+		t.Error("two encryptions of same text should produce different ciphertexts (random nonce)")
 	}
 }
