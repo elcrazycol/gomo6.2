@@ -47,7 +47,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
 
   const handlePurchase = async () => {
     if (dropsAmount < 1 || dropsAmount > 100000) {
-      toast.error("Количество капель должно быть от 1 до 100000");
+      toast.error("Количество дропсов должно быть от 1 до 100000");
       return;
     }
 
@@ -85,19 +85,19 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Droplets className="w-5 h-5 text-blue-400" />
-            Купить капли
+            Купить дропсы
           </DialogTitle>
         </DialogHeader>
 
         {drops !== null && (
           <div className="text-center py-2 text-sm text-muted-foreground">
-            Баланс: <span className="font-medium text-foreground">{drops} капель</span>
+            Баланс: <span className="font-medium text-foreground">{drops} дропсов</span>
           </div>
         )}
 
         <div className="space-y-4">
           <div>
-            <Label htmlFor="drops-amount">Количество капель</Label>
+            <Label htmlFor="drops-amount">Количество дропсов</Label>
             <div className="flex items-center gap-2 mt-2">
               <Button
                 variant="outline"
@@ -147,7 +147,7 @@ export function DropsShop({ open, onOpenChange }: DropsShopProps) {
           <div className="text-center py-2">
             <p className="text-2xl font-bold">${priceUSD}</p>
             <p className="text-xs text-muted-foreground">
-              {dropsAmount} капель × ${PRICE_PER_DROP} за каплю
+              {dropsAmount} дропсов × ${PRICE_PER_DROP} за дропс
             </p>
           </div>
 

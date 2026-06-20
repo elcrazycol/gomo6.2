@@ -10,6 +10,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
+import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 interface UserGiftItem {
   id: string;
@@ -33,15 +34,6 @@ interface GiftsTabProps {
   recipientUsername: string;
   onGiftSent?: () => void;
 }
-
-const formatDropsLabel = (value: number) => {
-  const abs = Math.abs(value);
-  const mod10 = abs % 10;
-  const mod100 = abs % 100;
-  if (mod10 === 1 && mod100 !== 11) return "капля";
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "капли";
-  return "капель";
-};
 
 export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername, onGiftSent }: GiftsTabProps) {
   const [gifts, setGifts] = useState<UserGiftItem[]>([]);

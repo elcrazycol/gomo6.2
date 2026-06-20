@@ -61,7 +61,7 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
     : `text-sm sm:text-base drop-shadow-[0_0_1px_rgba(255,255,255,0.8)] ${profileData.color ? colorClasses[profileData.color] : 'text-quote'}`;
 
   return (
-    <ProfileHoverCard userId={userId}>
+    <ProfileHoverCard userId={userId} showDrops>
       <span
         className={`inline-flex items-center gap-1 cursor-pointer group ${className}`}
         onClick={() => navigate(`/profile/${userId}`)}
