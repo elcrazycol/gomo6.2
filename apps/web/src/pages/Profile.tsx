@@ -16,7 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -934,7 +934,7 @@ const Profile = () => {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 gap-y-0.5 flex-wrap">
                   <button
                     type="button"
                     className={`text-sm text-muted-foreground ${isOwnProfile ? 'hover:text-primary cursor-pointer transition-colors' : ''}`}
@@ -943,16 +943,15 @@ const Profile = () => {
                   >
                     @{profile.username}
                   </button>
-                  <span className="text-muted-foreground">·</span>
-                  <p className="text-sm text-muted-foreground">
-                    ID: {profile.id.slice(0, 8)} {profile.account_number && `(${profile.account_number})`}
-                  </p>
                   {showOnlineStatus && (
-                    <OnlineStatus
-                      userId={profile.id}
-                      isOnline={profile.is_online}
-                      lastSeen={profile.last_seen}
-                    />
+                    <>
+                      <span className="text-muted-foreground">·</span>
+                      <OnlineStatus
+                        userId={profile.id}
+                        isOnline={profile.is_online}
+                        lastSeen={profile.last_seen}
+                      />
+                    </>
                   )}
                 </div>
               </div>
@@ -980,9 +979,10 @@ const Profile = () => {
                 variant="default"
                 size="sm"
                 onClick={() => navigate(`/messages?user=${userId}`)}
-                className="text-xs sm:text-sm"
+                className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
               >
-                Написать
+                <MessageSquare className="w-4 h-4" />
+                <span className="hidden sm:inline">Написать</span>
               </Button>
             )}
           </div>
