@@ -26,7 +26,7 @@ const TYPE_CONFIG: Record<string, { icon: typeof ArrowUpRight; color: string; la
   gift_send: { icon: Gift, color: "text-purple-400", label: "Подарок" },
 };
 
-function formatRelativeTime(dateStr: string): string {
+export function formatRelativeTime(dateStr: string): string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
