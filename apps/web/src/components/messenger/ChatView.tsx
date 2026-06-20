@@ -31,6 +31,8 @@ export const ChatView = memo(function ChatView({
   const conversation = useMessengerStore((s) => s.selectedConversation());
   const messages = useMessengerStore((s) => s.messages);
   const isLoading = useMessengerStore((s) => s.isMessagesLoading);
+  const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
+  const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
   const isSending = useMessengerStore((s) => s.isSending);
   const me = useMessengerStore((s) => s.me);
   const receipts = useMessengerStore((s) => s.receipts);
@@ -41,6 +43,7 @@ export const ChatView = memo(function ChatView({
   const editMessage = useMessengerStore((s) => s.editMessage);
   const deleteMessage = useMessengerStore((s) => s.deleteMessage);
   const togglePin = useMessengerStore((s) => s.togglePin);
+  const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
 
   const [draft, setDraft] = useState("");
   const [isScrolledUp, setIsScrolledUp] = useState(false);
@@ -53,6 +56,7 @@ export const ChatView = memo(function ChatView({
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const shouldAutoScroll = useRef(true);
   const prevLength = useRef(0);
+  const isScrolledUpRef = useRef(false);
 
   const convReceipts = receipts.get(conversation?.id ?? "") ?? [];
 
@@ -68,14 +72,28 @@ export const ChatView = memo(function ChatView({
     pinToBottom();
   }, [conversation?.id]);
 
+  // Sync ref with state for stable callback
+  useEffect(() => { isScrolledUpRef.current = isScrolledUp; }, [isScrolledUp]);
+
   const handleScroll = useCallback(() => {
     const el = messageScrollRef.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     shouldAutoScroll.current = dist <= 32;
-    if (dist > 128 && !isScrolledUp) setIsScrolledUp(true);
-    if (dist <= 32 && isScrolledUp) setIsScrolledUp(false);
-  }, [isScrolledUp, messageScrollRef]);
+    const nowScrolledUp = dist > 128;
+    if (nowScrolledUp !== isScrolledUpRef.current) {
+      setIsScrolledUp(nowScrolledUp);
+    }
+    // Load more when scrolled near top
+    if (el.scrollTop < 50 && hasMoreMessages && !isLoadingMore && conversation?.id) {
+      const prevHeight = el.scrollHeight;
+      loadMoreMessages(conversation.id).then(() => {
+        requestAnimationFrame(() => {
+          if (el) el.scrollTop = el.scrollHeight - prevHeight;
+        });
+      });
+    }
+  }, [messageScrollRef, hasMoreMessages, isLoadingMore, conversation?.id, loadMoreMessages]);
 
   // Auto-scroll on new messages only if user is at bottom
   useEffect(() => {

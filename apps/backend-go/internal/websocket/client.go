@@ -44,6 +44,7 @@ type Client struct {
 	Rooms         map[string]bool
 	authenticated bool
 	authService   *auth.AuthService
+	failedSends   int
 }
 
 // readPump pumps messages from the WebSocket connection to the hub
@@ -166,22 +167,19 @@ func (c *Client) readPump() {
 					isTyping = typingPayload.IsTyping
 				}
 
-				typingMsg := Message{
-					Type: MessageTypeChatTyping,
-					Room: message.Room,
-					Data: mustMarshalJSON(map[string]interface{}{
-						"user_id":   c.UserID,
-						"username":  c.Username,
-						"is_typing": isTyping,
-					}),
-					UserID:    c.UserID,
-					Username:  c.Username,
-					Timestamp: time.Now().Unix(),
-				}
+				// Extract conversation_id from room name (chat_{convID})
+				convID := strings.TrimPrefix(message.Room, "chat_")
 
-				if msgBytes, err := json.Marshal(typingMsg); err == nil {
-					c.Hub.BroadcastToRoom(message.Room, msgBytes)
-				}
+				// Publish via Redis for multi-server support
+				c.Hub.PublishToRedis(RedisChannelChat, RealtimeEvent{
+					Type: MessageTypeChatTyping,
+					Payload: map[string]interface{}{
+						"conversation_id": convID,
+						"user_id":         c.UserID,
+						"username":        c.Username,
+						"is_typing":       isTyping,
+					},
+				})
 			}
 
 		case MessageTypePing:

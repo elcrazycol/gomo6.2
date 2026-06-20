@@ -252,11 +252,16 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 
 	// Update conversation preview fields (trigger handles last_message_at, but not preview)
 	go func() {
+		encryptedPreview, encErr := encryptContent(truncatePreview(cleanContent))
+		if encErr != nil {
+			log.Printf("[Messenger] encrypt preview: %v", encErr)
+			encryptedPreview = truncatePreview(cleanContent)
+		}
 		_, err := h.db.Exec(`
 			UPDATE chat_conversations
 			SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
 			WHERE id = $3
-		`, truncatePreview(cleanContent), claims.UserID, conversationID)
+		`, encryptedPreview, claims.UserID, conversationID)
 		if err != nil {
 			log.Printf("[Messenger] update conversation preview: %v", err)
 		}

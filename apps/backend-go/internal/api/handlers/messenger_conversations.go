@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"database/sql"
-	"log"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
@@ -112,8 +110,8 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 // ─── Get or Create Conversation ─────────────────────────────────────────────
 // POST /api/v1/messenger/conversations
 //
-// Race-condition safe: uses a retry loop. If two concurrent requests create
-// the same conversation, the retry will find the existing one.
+// Race-condition safe: uses the atomic find_or_create_conversation DB function
+// which handles concurrent creates via ON CONFLICT on the unique pair index.
 
 func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	claims := ensureAuth(c)
@@ -146,83 +144,10 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 		return
 	}
 
-	// Retry loop — up to 3 attempts to handle race conditions
-	for attempt := 0; attempt < 3; attempt++ {
-		// 1. Find existing 1:1 conversation (exactly 2 members: me + other)
-		var convID string
-		err := h.db.QueryRow(`
-			SELECT cm1.conversation_id
-			FROM chat_members cm1
-			INNER JOIN chat_members cm2
-				ON cm1.conversation_id = cm2.conversation_id
-			WHERE cm1.user_id = $1
-			  AND cm2.user_id = $2
-			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
-			LIMIT 1
-		`, claims.UserID, req.UserID).Scan(&convID)
-
-		if err == nil {
-			c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
-			return
-		}
-
-		if err != sql.ErrNoRows {
-			serverError(c, "find existing conversation", err)
-			return
-		}
-
-		// 2. No existing conversation — create one
-		tx, err := h.db.Begin()
-		if err != nil {
-			serverError(c, "begin tx", err)
-			return
-		}
-
-		err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
-		if err != nil {
-			tx.Rollback()
-			serverError(c, "insert conversation", err)
-			return
-		}
-
-		_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`,
-			convID, claims.UserID, req.UserID)
-		if err != nil {
-			tx.Rollback()
-			// Race condition: another request created the same pair.
-			// The unique constraint on (conversation_id, user_id) prevents duplicates,
-			// but the race is on creating a SECOND conversation for the same pair.
-			// Retry — the next SELECT will find the first one.
-			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
-				log.Printf("[Messenger] Race detected on conversation create, retrying (attempt %d)", attempt+1)
-				continue
-			}
-			serverError(c, "insert members", err)
-			return
-		}
-
-		if err := tx.Commit(); err != nil {
-			serverError(c, "commit tx", err)
-			return
-		}
-
-		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
-		return
-	}
-
-	// Exhausted retries — find the existing one (created by race winner)
-	var convID string
-	err = h.db.QueryRow(`
-		SELECT cm1.conversation_id
-		FROM chat_members cm1
-		INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
-		WHERE cm1.user_id = $1 AND cm2.user_id = $2
-		  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
-		LIMIT 1
-	`, claims.UserID, req.UserID).Scan(&convID)
-
+	// Atomic find-or-create via DB function (race-safe via ON CONFLICT)
+	convID, err := h.FindOrCreateConversation(claims.UserID, req.UserID)
 	if err != nil {
-		serverError(c, "find after retries exhausted", err)
+		serverError(c, "find or create conversation", err)
 		return
 	}
 

@@ -88,6 +88,8 @@ export const ConversationList = memo(function ConversationList({
   const initLoading = useMessengerStore((s) => s.isInitialLoading);
   const totalUnread = useMessengerStore((s) => s.totalUnread);
 
+  const unread = totalUnread();
+
   const handleStartChat = useCallback(() => {
     if (onStartChat && targetUserId) onStartChat(targetUserId);
   }, [onStartChat, targetUserId]);
@@ -104,12 +106,12 @@ export const ConversationList = memo(function ConversationList({
     <>
       <div className="sidebar-top">
         <div className="sidebar-top-row">
-          <h1>Сообщения</h1>
-          {totalUnread() > 0 && (
-            <span className="header-unread-badge" title={`${totalUnread()} непрочитанных`}>
-              {totalUnread() > 99 ? "99+" : totalUnread()}
-            </span>
-          )}
+        <h1>Сообщения</h1>
+        {unread > 0 && (
+          <span className="header-unread-badge" title={`${unread} непрочитанных`}>
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
         </div>
       </div>
 

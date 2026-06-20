@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"net/http"
 	"testing"
 	"time"
@@ -126,10 +125,10 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	// Find existing — returns one
-	mock.ExpectQuery(`SELECT cm1.conversation_id.*FROM chat_members cm1.*INNER JOIN chat_members cm2`).
+	// Atomic find-or-create via DB function
+	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
 		WithArgs("u1", "u2").
-		WillReturnRows(sqlmock.NewRows([]string{"conversation_id"}).AddRow("conv-existing"))
+		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow("conv-existing"))
 
 	handler.GetOrCreateConversation(c)
 
@@ -158,25 +157,10 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	// Find existing — no rows
-	mock.ExpectQuery(`SELECT cm1.conversation_id.*FROM chat_members cm1`).
+	// Atomic find-or-create via DB function — returns new conversation
+	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
 		WithArgs("u1", "u2").
-		WillReturnError(sql.ErrNoRows)
-
-	// Transaction: begin
-	mock.ExpectBegin()
-
-	// Insert conversation
-	mock.ExpectQuery(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("conv-new"))
-
-	// Insert members
-	mock.ExpectExec(`INSERT INTO chat_members`).
-		WithArgs("conv-new", "u1", "u2").
-		WillReturnResult(sqlmock.NewResult(1, 2))
-
-	// Commit
-	mock.ExpectCommit()
+		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow("conv-new"))
 
 	handler.GetOrCreateConversation(c)
 

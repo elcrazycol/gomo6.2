@@ -164,6 +164,17 @@ func decryptMessageContent(msg *MessageResponse) {
 	}
 }
 
+// FindOrCreateConversation atomically finds or creates a 1:1 conversation between two users.
+// Uses the DB function find_or_create_conversation which handles race conditions via ON CONFLICT.
+func (h *MessengerHandler) FindOrCreateConversation(user1, user2 string) (string, error) {
+	var convID string
+	err := h.db.QueryRow("SELECT find_or_create_conversation($1, $2)", user1, user2).Scan(&convID)
+	if err != nil {
+		return "", fmt.Errorf("find_or_create_conversation: %w", err)
+	}
+	return convID, nil
+}
+
 // truncatePreview truncates message content to 80 chars for conversation preview.
 func truncatePreview(s string) string {
 	if strings.HasPrefix(s, "__GIFT__") {

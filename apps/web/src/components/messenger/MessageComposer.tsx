@@ -53,6 +53,13 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, [isEditing, composerRef]);
 
+  // Cleanup typing timer on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimer.current) clearTimeout(typingTimer.current);
+    };
+  }, []);
+
   const stopTyping = useCallback(() => {
     if (isTypingRef.current) {
       isTypingRef.current = false;
