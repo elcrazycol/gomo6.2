@@ -62,20 +62,13 @@ export const MessengerView = () => {
     return () => { messengerWs.unsubscribe(room); };
   }, [selectedConversationId]);
 
-  // ── Prevent body scroll (robust for iOS/Android) ──────────────────────
+  // ── Mobile detection ──────────────────────────────────────────────────
   useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const prevHtmlOverflow = html.style.overflow;
-    const prevBodyOverflow = body.style.overflow;
-
-    html.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-
-    return () => {
-      html.style.overflow = prevHtmlOverflow;
-      body.style.overflow = prevBodyOverflow;
-    };
+    const mq = window.matchMedia("(max-width: 980px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
   }, []);
 
   // ── Hide AppLayout header on mobile when chat is open ─────────────────
@@ -94,49 +87,6 @@ export const MessengerView = () => {
       }
     };
   }, [isMobile, showMobileChat]);
-
-  // ── Mobile detection ──────────────────────────────────────────────────
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 980px)");
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-
-  // ── iOS keyboard: dynamic viewport height (mobile only) ────────────
-  useEffect(() => {
-    if (!isMobile) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    const updateHeight = () => {
-      const panel = document.querySelector(".chat-panel.is-open") as HTMLElement | null;
-      if (panel) {
-        panel.style.height = `${vv.height}px`;
-        panel.style.transform = `translateY(${vv.offsetTop}px)`;
-        panel.style.opacity = "1";
-      }
-    };
-
-    vv.addEventListener("resize", updateHeight);
-    vv.addEventListener("scroll", updateHeight);
-    updateHeight();
-
-    return () => {
-      vv.removeEventListener("resize", updateHeight);
-      vv.removeEventListener("scroll", updateHeight);
-      const panel = document.querySelector(".chat-panel.is-open") as HTMLElement | null;
-      if (panel) {
-        panel.style.height = "";
-        panel.style.transform = "";
-        panel.style.opacity = "";
-      }
-    };
-  }, [isMobile, showMobileChat]);
-
-  // ── Composer auto-resize ──────────────────────────────────────────────
-  // (moved from context; composer handles its own height via ChatView)
 
   // ── Handlers ──────────────────────────────────────────────────────────
   const handleStartChat = useCallback(async (userId: string) => {
