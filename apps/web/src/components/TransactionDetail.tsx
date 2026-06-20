@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowUpRight, ArrowDownLeft, ShoppingCart, Gift, Droplets, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
@@ -87,22 +87,22 @@ export function TransactionDetail({ open, onOpenChange, transaction }: Transacti
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-2xl max-h-[80vh] overflow-y-auto">
-        <SheetHeader className="mb-4">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
           <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${config.bg}`}>
-              <Icon className={`w-6 h-6 ${config.color}`} />
+            <div className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+              <Icon className={`w-5 h-5 ${config.color}`} />
             </div>
             <div>
-              <SheetTitle className="text-base">{config.label}</SheetTitle>
+              <DialogTitle className="text-base">{config.label}</DialogTitle>
               <p className="text-xs text-muted-foreground">{formatFullDate(transaction.created_at)}</p>
             </div>
           </div>
-        </SheetHeader>
+        </DialogHeader>
 
         {/* Amount */}
-        <div className="text-center py-4">
+        <div className="text-center py-3">
           <p className={`text-3xl font-bold ${isPositive ? "text-green-400" : "text-red-400"}`}>
             {isPositive ? "+" : ""}{transaction.amount}
           </p>
@@ -144,7 +144,7 @@ export function TransactionDetail({ open, onOpenChange, transaction }: Transacti
 
           <DetailRow label="ID операции" value={transaction.id.slice(0, 8)} mono />
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
