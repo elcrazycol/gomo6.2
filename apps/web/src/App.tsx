@@ -14,7 +14,6 @@ import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
 
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
-const BoardsView = lazy(() => import("./pages/BoardsView"));
 const CreateThread = lazy(() => import("./pages/CreateThread"));
 const CreateGomoThread = lazy(() => import("./pages/CreateGomoThread"));
 const Auth = lazy(() => import("./pages/Auth"));
@@ -138,7 +137,6 @@ const App = () => {
                   {/* Pages with layout */}
                   <Route path="/" element={<AppLayout><Outlet /></AppLayout>}>
                     <Route index element={<LazyPage component={Index} />} />
-                    <Route path="boards" element={<LazyPage component={BoardsView} />} />
                     <Route path="messages" element={<AuthGuard><LazyPage component={Messages} /></AuthGuard>} />
                     <Route path="achievements/:userId" element={<LazyPage component={Achievements} />} />
                     <Route path="profile/:userId/wall/:postId" element={<LazyPage component={WallPost} />} />

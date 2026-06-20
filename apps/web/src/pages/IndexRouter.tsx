@@ -22,13 +22,6 @@ interface LocalUser {
   id: string;
 }
 
-interface Board {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-}
-
 interface RandomThread {
   id: string;
   title: string;
@@ -50,12 +43,10 @@ interface PopularThread {
 }
 
 const Index = () => {
-  const [boards, setBoards] = useState<Board[]>([]);
   const [user, setUser] = useState<any>(null);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");
   const [currentUserColor, setCurrentUserColor] = useState("");
-  const [randomBoards, setRandomBoards] = useState<Board[]>([]);
   const [randomThread, setRandomThread] = useState<RandomThread | null>(null);
   const [popularThreads, setPopularThreads] = useState<PopularThread[]>([]);
   const [showTerms, setShowTerms] = useState(false);
@@ -142,25 +133,6 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    const loadBoards = async () => {
-      const { data } = await api
-        .from("boards")
-        .select("*")
-        .eq("is_rules_board", false)
-        .eq("is_gomosub", false)
-        .order("created_at", { ascending: true });
-
-      if (data) {
-        // Filter out /faq/ and /bugs/ boards from the main list
-        const filteredBoards = data.filter((board: { slug: string }) => board.slug !== 'faq' && board.slug !== 'bugs');
-        setBoards(filteredBoards as unknown as Board[]);
-
-        // Get 2 random boards from filtered list
-        const shuffled = [...filteredBoards].sort(() => 0.5 - Math.random());
-        setRandomBoards(shuffled.slice(0, 2));
-      }
-    };
-
     const loadRandomThread = async () => {
       const { data } = await api
         .from("threads")
@@ -201,7 +173,6 @@ const Index = () => {
     const loadAll = async () => {
       setLoading(true);
       await Promise.all([
-        loadBoards(),
         loadRandomThread(),
         loadPopularThreads(),
       ]);
@@ -309,37 +280,6 @@ const Index = () => {
         </div>
 
         <div className="bg-card border border-border p-6 mb-6">
-          <h3 className="text-xl font-bold mb-4">Доски</h3>
-          <div className="space-y-3">
-            {boards.map((board) => (
-              <>
-                <Link
-                  key={board.id}
-                  to={`/${board.slug}`}
-                  className="block p-4 border border-border hover:bg-thread-hover transition-colors group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="relative flex-1">
-                      <h4 className="text-lg font-bold text-primary relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                        /{board.slug}/
-                        <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                      </h4>
-                      <p className="text-base font-semibold transition-transform duration-200 group-hover:translate-x-0.5">{board.name}</p>
-                      <p className="text-sm text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5">{board.description}</p>
-                    </div>
-                    <div className="text-primary transition-transform duration-200 group-hover:translate-x-0.5">→</div>
-                  </div>
-                </Link>
-                {board.slug === 'b' && (
-                  <div className="mt-6 pt-4 border-t-2 border-primary">
-                  </div>
-                )}
-              </>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-card border border-border p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">Популярные треды</h3>
           <div className="space-y-2">
             {popularThreads.map((thread) => (
@@ -370,24 +310,6 @@ const Index = () => {
         <div className="bg-card border border-border p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">Случайность</h3>
           <div className="space-y-4">
-            <div>
-              <h4 className="font-semibold mb-2">Случайные доски:</h4>
-              <div className="space-y-2">
-                {randomBoards.map((board) => (
-                  <Link
-                    key={board.id}
-                    to={`/${board.slug}`}
-                    className="block p-3 border border-border hover:bg-thread-hover transition-all duration-200 group relative"
-                  >
-                    <div className="font-bold text-primary relative inline-block transition-transform duration-200 group-hover:translate-x-0.5">
-                      /{board.slug}/ - {board.name}
-                      <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-            
             {randomThread && (
               <div>
                 <h4 className="font-semibold mb-2">Случайный тред:</h4>
