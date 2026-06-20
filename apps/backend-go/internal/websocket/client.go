@@ -280,7 +280,7 @@ func (c *Client) autoSubscribeBotsChats() {
 
 	rows, err := c.Hub.db.Query(`
 		SELECT cm.conversation_id
-		FROM conversation_members cm
+		FROM chat_members cm
 		WHERE cm.user_id = $1`, c.UserID)
 	if err != nil {
 		log.Printf("[WebSocket] Failed to fetch bot conversations: %v", err)

@@ -43,13 +43,28 @@
 	@docs host docs.{$DOMAIN:localhost}
 	handle @docs {
 		handle /api/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /oauth/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /.well-known/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle {
 			reverse_proxy docs:80
@@ -60,10 +75,20 @@
 	@dev host dev.{$DOMAIN:localhost}
 	handle @dev {
 		handle /api/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /oauth/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle {
 			reverse_proxy dev-dashboard:80
@@ -74,29 +99,64 @@
 	@main host {$DOMAIN:localhost}
 	handle @main {
 		handle /api/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		# /oauth/consent is a frontend SPA route, not a backend API
 		handle /oauth/consent* {
 			reverse_proxy web:80
 		}
 		handle /oauth/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /rest/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /rpc/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /.well-known/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /federation/* {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		handle /ws {
-			reverse_proxy backend:8080
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
 		}
 		# ── Storage: reads → Garage (direct), writes → backend ────────────────
 		# path_regexp captures bucket (group 1) and key (group 2) from the URL.

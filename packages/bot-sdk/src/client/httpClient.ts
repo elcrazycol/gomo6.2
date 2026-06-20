@@ -1,4 +1,5 @@
-import axios, { type AxiosInstance, type AxiosError } from "axios";
+import axios, { type AxiosInstance, type AxiosError, isAxiosError } from "axios";
+import axiosRetry, { isNetworkOrIdempotentRequestError, isRetryableError } from "axios-retry";
 import type {
   ApiResponse,
   Thread,
@@ -22,6 +23,23 @@ export class HttpClient {
         "Content-Type": "application/json",
       },
       timeout: 15000,
+    });
+
+    axiosRetry(this.axios, {
+      retries: 3,
+      retryDelay: axiosRetry.exponentialDelay,
+      retryCondition: (error) => {
+        if (isNetworkOrIdempotentRequestError(error)) return true;
+        if (isRetryableError(error)) return true;
+        if (!error.response && error.code) {
+          const retryableCodes = ["ECONNRESET", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN"];
+          return retryableCodes.includes(error.code);
+        }
+        return false;
+      },
+      onRetry: (retryCount, error, requestConfig) => {
+        console.warn(`[HttpClient] Retry #${retryCount} for ${requestConfig.method?.toUpperCase()} ${requestConfig.url}: ${error.message}`);
+      },
     });
   }
 
