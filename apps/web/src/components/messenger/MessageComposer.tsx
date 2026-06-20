@@ -69,6 +69,18 @@ export const MessageComposer = memo(function MessageComposer({
       const value = e.target.value;
       if (value.length <= MAX_LENGTH) setDraft(value);
 
+      // JS fallback for auto-resize if field-sizing: content not supported
+      if (!CSS.supports('field-sizing', 'content')) {
+        const ta = e.target;
+        ta.style.height = 'auto';
+        ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
+      }
+
+      // Reset inline height when cleared (e.g. after send)
+      if (!value) {
+        e.target.style.height = '';
+      }
+
       // Typing indicator — instant start via ref, debounced stop
       if (onTyping && value.length > 0) {
         if (!isTypingRef.current) {
