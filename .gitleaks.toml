@@ -1,0 +1,8 @@
+# .gitleaks.toml — Allowlist known test keys
+
+[[allowlist]]
+  description = "Test encryption keys in test files"
+  regexes = [
+    "0123456789abcdef0123456789abcdef",
+    "test-key-exactly-32-bytes-here!!",
+  ]
