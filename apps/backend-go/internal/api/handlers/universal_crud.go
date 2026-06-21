@@ -64,9 +64,8 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 		fmt.Printf("[CacheInvalidator] Invalidating thread cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
 		cache.InvalidateForThread(h.redis, values["id"], values["board_id"])
 	case "profile_wall_posts":
-		// Note: profile_wall_posts uses author_id, not user_id
-		if authorID, ok := result["author_id"].(string); ok && authorID != "" {
-			values["user_id"] = authorID
+		if wallOwnerID, ok := result["user_id"].(string); ok && wallOwnerID != "" {
+			values["user_id"] = wallOwnerID
 		}
 		fmt.Printf("[CacheInvalidator] Invalidating wall post cache: id=%s, user_id=%s\n", values["id"], values["user_id"])
 		cache.InvalidateForWallPost(h.redis, values["id"], values["user_id"])
@@ -435,8 +434,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	if tableName == "profile_wall_posts" {
 		// Invalidate cache for this user's wall (author_id is the wall owner)
-		if authorID, ok := result["author_id"].(string); ok && h.redis != nil {
-			middleware.InvalidateCacheForProfileWall(h.redis, authorID)
+		if wallOwnerID, ok := result["user_id"].(string); ok && h.redis != nil {
+			middleware.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
 		}
 
 		// Also invalidate via the new cache system
