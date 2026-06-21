@@ -53,6 +53,7 @@ export const ChatView = memo(function ChatView({
   const [editingContent, setEditingContent] = useState<string>("");
   const [showUserInfo, setShowUserInfo] = useState(false);
   const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
+  const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const shouldAutoScroll = useRef(true);
   const prevLength = useRef(0);
@@ -326,7 +327,12 @@ export const ChatView = memo(function ChatView({
                         <button
                           type="button"
                           className="msg-gift-standalone-btn"
-                          onClick={() => setGiftDetailId(giftData.giftId)}
+                          onClick={() => {
+                            setGiftDetailId(giftData.giftId);
+                            setGiftDetailRecipientId(
+                              msg.sender_user_id === me.id ? conversation.other_user_id : me.id
+                            );
+                          }}
                         >
                           Подробнее
                         </button>
@@ -412,9 +418,9 @@ export const ChatView = memo(function ChatView({
       {giftDetailId && (
         <GiftDetailDialog
           giftId={giftDetailId}
-          recipientId={conversation.other_user_id}
+          recipientId={giftDetailRecipientId ?? me.id}
           open={true}
-          onOpenChange={(v) => { if (!v) setGiftDetailId(null); }}
+          onOpenChange={(v) => { if (!v) { setGiftDetailId(null); setGiftDetailRecipientId(null); } }}
         />
       )}
     </>
