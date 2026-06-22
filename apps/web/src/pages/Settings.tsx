@@ -168,11 +168,12 @@ const Settings = () => {
       const data = result.data?.[0];
 
       if (data) {
+        const saved = localStorage.getItem(`privacy_settings_${user.id}`);
+        const localOverrides = saved ? JSON.parse(saved) : {};
         const merged = {
           ...defaultPrivacySettings,
-          show_profile_stats: data.show_profile_stats ?? false,
-          show_detailed_stats: data.show_detailed_stats ?? false,
           ...data,
+          ...localOverrides,
         };
         setPrivacySettings(merged);
         localStorage.setItem(`privacy_settings_${user.id}`, JSON.stringify(merged));
@@ -875,27 +876,8 @@ const Settings = () => {
                             disabled={privacyLoading}
                           />
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Wall */}
-                    <div className="bg-card p-4 sm:p-6 border border-border">
-                      <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Стена профиля</h2>
-                      </div>
-                      <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span>Показывать стену</span>
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Если отключено, никто не увидит стену на вашем профиле</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
+                          <span>Показывать стену профиля</span>
                           <Switch
                             checked={privacySettings.show_profile_wall ?? true}
                             onCheckedChange={(value) => updatePrivacySetting('show_profile_wall', value)}
