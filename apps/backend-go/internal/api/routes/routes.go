@@ -104,6 +104,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	giftsHandler.SetWebSocketHub(wsHub)
 	giftAdminHandler := handlers.NewGiftAdminHandler(db)
 	dropsHandler := handlers.NewDropsHandler(db)
+	friendsHandler := handlers.NewFriendsHandler(db)
+	friendsHandler.SetRedis(redis)
+	friendsHandler.SetWebSocketHub(wsHub)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -375,6 +378,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerWrite.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)
 				messengerWrite.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
 				messengerWrite.DELETE("/messenger/conversations/:id/leave", messengerHandler.LeaveConversation)
+
+				// Friends
+				protected.POST("/friends/request", friendsHandler.SendRequest)
+				protected.PUT("/friends/request/:id/accept", friendsHandler.AcceptRequest)
+				protected.PUT("/friends/request/:id/reject", friendsHandler.RejectRequest)
+				protected.DELETE("/friends/:userId", friendsHandler.RemoveFriend)
+				protected.GET("/friends", friendsHandler.GetFriends)
+				protected.GET("/friends/requests", friendsHandler.GetRequests)
+				protected.GET("/friends/status/:userId", friendsHandler.GetFriendStatus)
 			}
 		}
 	}

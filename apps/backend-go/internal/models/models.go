@@ -478,3 +478,48 @@ type UserSearchResult struct {
 	AvatarURL     *string `json:"avatar_url"`
 	WalletAddress string  `json:"wallet_address"`
 }
+
+// FriendRequest — a friend request from one user to another
+type FriendRequest struct {
+	ID         string    `json:"id" db:"id"`
+	SenderID   string    `json:"sender_id" db:"sender_id"`
+	ReceiverID string    `json:"receiver_id" db:"receiver_id"`
+	Status     string    `json:"status" db:"status"` // pending, accepted, rejected
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// Friendship — a confirmed friendship between two users
+type Friendship struct {
+	ID        string    `json:"id" db:"id"`
+	User1ID   string    `json:"user1_id" db:"user1_id"`
+	User2ID   string    `json:"user2_id" db:"user2_id"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// FriendRequestResponse — friend request with sender info
+type FriendRequestResponse struct {
+	ID                string  `json:"id"`
+	Status            string  `json:"status"`
+	CreatedAt         string  `json:"created_at"`
+	SenderID          string  `json:"sender_id"`
+	SenderUsername    string  `json:"sender_username"`
+	SenderAvatarURL   *string `json:"sender_avatar_url"`
+	SenderDisplayName *string `json:"sender_display_name"`
+	ReceiverID        string  `json:"receiver_id"`
+}
+
+// FriendResponse — a friend with user info
+type FriendResponse struct {
+	FriendshipID string  `json:"friendship_id"`
+	UserID       string  `json:"user_id"`
+	Username     string  `json:"username"`
+	DisplayName  *string `json:"display_name"`
+	AvatarURL    *string `json:"avatar_url"`
+	IsOnline     bool    `json:"is_online"`
+}
+
+// SendFriendRequest — request body for sending a friend request
+type SendFriendRequest struct {
+	ReceiverID string `json:"receiver_id" binding:"required"`
+}

@@ -124,6 +124,9 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 		}
 		fmt.Printf("[CacheInvalidator] Invalidating gomosub_memberships cache: board_id=%s\n", values["board_id"])
 		cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_memberships*board_id=eq.%s*", values["board_id"]))
+	case "friend_requests", "friendships":
+		fmt.Printf("[CacheInvalidator] Invalidating friends cache: %s\n", tableName)
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/friends*")
 	default:
 		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 		cache.InvalidateForTable(h.redis, tableName, values)
