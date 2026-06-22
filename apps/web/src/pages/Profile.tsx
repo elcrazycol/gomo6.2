@@ -32,7 +32,12 @@ import { OnlineStatus } from "@/components/OnlineStatus";
 import { AvatarGallery } from "@/components/AvatarGallery";
 import { AchievementCard, type AchievementData, type AchievementLevel } from "@/components/AchievementCard";
 import { GiftsTab } from "@/components/GiftsTab";
+import { FriendButton } from "@/components/FriendButton";
+import { FriendsList } from "@/components/FriendsList";
+import { FriendRequestsList } from "@/components/FriendRequestsList";
+import { useFriendsStore } from "@/stores/friendsStore";
 import type { GiftCatalogItem } from "@/components/GiftCard";
+import { Users } from "lucide-react";
 
 interface Profile {
   id: string;
@@ -106,6 +111,39 @@ const formatGarmaLabel = (value: number) => {
   return "gарм";
 };
 
+// Friends tab button with count
+const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
+  const { friends, fetchFriends } = useFriendsStore();
+  const [friendCount, setFriendCount] = useState(0);
+
+  useEffect(() => {
+    fetchFriends().then(() => {
+      setFriendCount(useFriendsStore.getState().friends.length);
+    });
+  }, [fetchFriends, userId]);
+
+  // Update count when friends list changes
+  useEffect(() => {
+    setFriendCount(friends.length);
+  }, [friends]);
+
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
+        activeTab === 'friends'
+          ? 'text-primary border-b-2 border-primary'
+          : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      <span className="flex items-center gap-1">
+        <Users className="w-3.5 h-3.5" />
+        Друзья ({friendCount})
+      </span>
+    </button>
+  );
+};
+
 const Profile = () => {
   const { userId } = useParams();
   const navigate = useNavigate();
@@ -139,7 +177,7 @@ const Profile = () => {
   const [showProfileWall, setShowProfileWall] = useState(true);
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
   const [newPassword, setNewPassword] = useState("");
-  const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts'>('achievements');
+  const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts' | 'friends'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [showProfileStats, setShowProfileStats] = useState(false);
   const [showDetailedStats, setShowDetailedStats] = useState(false);
@@ -973,17 +1011,20 @@ const Profile = () => {
               </Button>
             )}
 
-            {/* Write Button for other users */}
+            {/* Write Button and Friend Button for other users */}
             {!isOwnProfile && currentUser && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => navigate(`/messages?user=${userId}`)}
-                className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span className="hidden sm:inline">Написать</span>
-              </Button>
+              <div className="flex gap-2">
+                <FriendButton userId={userId!} isOwnProfile={isOwnProfile} />
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => navigate(`/messages?user=${userId}`)}
+                  className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="hidden sm:inline">Написать</span>
+                </Button>
+              </div>
             )}
           </div>
 
@@ -1128,6 +1169,11 @@ const Profile = () => {
                       Подарки ({giftCount})
                     </span>
                   </button>
+                  <FriendsTabButton
+                    activeTab={activeTab}
+                    onClick={() => setActiveTab('friends')}
+                    userId={userId!}
+                  />
                 </div>
               </div>
 
@@ -1256,6 +1302,13 @@ const Profile = () => {
                   loadProfile();
                 }}
               />
+            </div>
+          )}
+
+          {activeTab === 'friends' && (
+            <div>
+              {isOwnProfile && <FriendRequestsList />}
+              <FriendsList userId={userId} />
             </div>
           )}
         </div>
