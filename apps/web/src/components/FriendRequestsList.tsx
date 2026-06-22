@@ -48,7 +48,7 @@ const RequestItem = ({ request }: { request: FriendRequest }) => {
   const handleAccept = async () => {
     setLoading(true);
     try {
-      await acceptRequest(request.id);
+      await acceptRequest(request.id, request.sender_id);
       toast.success("Заявка принята");
     } catch {
       toast.error("Ошибка принятия заявки");

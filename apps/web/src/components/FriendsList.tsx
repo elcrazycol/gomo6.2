@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useFriendsStore, type Friend } from "@/stores/friendsStore";
 import { storageUrl } from "@/utils/storage";
@@ -54,7 +55,13 @@ const FriendItem = ({ friend }: { friend: Friend }) => {
 };
 
 export const FriendsList = ({ userId }: FriendsListProps) => {
-  const { friends, isLoading } = useFriendsStore();
+  const { profileFriends, fetchProfileFriends, isLoading } = useFriendsStore();
+
+  useEffect(() => {
+    if (userId) {
+      fetchProfileFriends(userId);
+    }
+  }, [userId, fetchProfileFriends]);
 
   if (isLoading) {
     return (
@@ -64,7 +71,7 @@ export const FriendsList = ({ userId }: FriendsListProps) => {
     );
   }
 
-  if (friends.length === 0) {
+  if (profileFriends.length === 0) {
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">Пока нет друзей</p>
@@ -74,7 +81,7 @@ export const FriendsList = ({ userId }: FriendsListProps) => {
 
   return (
     <div className="space-y-1">
-      {friends.map((friend) => (
+      {profileFriends.map((friend) => (
         <FriendItem key={friend.user_id} friend={friend} />
       ))}
     </div>

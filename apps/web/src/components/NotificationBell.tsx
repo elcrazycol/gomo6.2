@@ -85,7 +85,10 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
             ) : (
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {notifications.map((notif) => {
-                  const link = notif.related_thread_id
+                  const isFriendEvent = notif.type === "friend_request" || notif.type === "friend_accepted";
+                  const link = isFriendEvent && notif.related_post_id
+                    ? `/profile/${notif.related_post_id}`
+                    : notif.related_thread_id
                     ? `/notify?thread=${notif.related_thread_id}`
                     : '#';
 

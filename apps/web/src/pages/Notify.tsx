@@ -203,7 +203,10 @@ const Notify = () => {
         ) : (
           <div className="space-y-2">
             {displayNotifications.map((notif) => {
-              const link = notif.related_thread_id && notif.thread_slug
+              const isFriendEvent = notif.type === "friend_request" || notif.type === "friend_accepted";
+              const link = isFriendEvent && notif.related_post_id
+                ? `/profile/${notif.related_post_id}`
+                : notif.related_thread_id && notif.thread_slug
                 ? `/${notif.thread_slug}/thread/${notif.related_thread_id}`
                 : notif.related_thread_id
                   ? `/notify?thread=${notif.related_thread_id}`
