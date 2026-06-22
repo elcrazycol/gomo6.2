@@ -205,6 +205,7 @@ const Profile = () => {
   const [privateHideGifts, setPrivateHideGifts] = useState(true);
   const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
   const [isMutualFriend, setIsMutualFriend] = useState(false);
+  const [privacyChecked, setPrivacyChecked] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -400,6 +401,7 @@ const Profile = () => {
           setIsMutualFriend(friendResult.data?.status === 'friends');
         } catch { /* not friends */ }
       }
+      setPrivacyChecked(true);
 
       // Load customization
       const custom = await getProfileCustomization(userId!);
@@ -918,7 +920,7 @@ const Profile = () => {
         )}
         {!pageLoading && (
           <div className="space-y-6">
-          {/* Private profile banner */}
+          {/* Private profile banner — always visible when locked */}
           {isLocked && (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-primary">
@@ -932,7 +934,9 @@ const Profile = () => {
               )}
             </div>
           )}
-          {/* Profile Header */}
+
+          {/* Everything below — hidden when locked */}
+          {!isLocked && (<>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               {/* Avatar */}
@@ -1359,6 +1363,7 @@ const Profile = () => {
               <FriendsList userId={userId} />
             </div>
           )}
+          </>)}
         </div>
         )}
 
