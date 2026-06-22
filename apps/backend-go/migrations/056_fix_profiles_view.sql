@@ -1,4 +1,6 @@
--- Fix profiles view to include display_name (added in 051 but view was never updated)
+-- Fix profiles view to include display_name, drops, wallet_address
+-- These columns were added to users but the view was never updated.
+-- Uses CREATE OR REPLACE (no DROP) to preserve existing GRANTs.
 CREATE OR REPLACE VIEW profiles AS
 SELECT
     id, username, display_name, email, password_hash, domain,
@@ -8,5 +10,3 @@ SELECT
     search_vector,
     created_at, updated_at
 FROM users;
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON profiles TO gomo6;
