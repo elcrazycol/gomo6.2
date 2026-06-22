@@ -153,7 +153,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 		}
 		// Notify the reverse request sender that their request was accepted
 		h.createFriendNotification(receiverID, "friend_accepted",
-			"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", getUsernameFromDB(h.db, senderID)))
+			"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", getUsernameFromDB(h.db, senderID)), senderID)
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 			"status":  "friends",
 			"message": "Friend request accepted automatically",
@@ -205,7 +205,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 	// Notify the receiver
 	senderUsername := getUsernameFromDB(h.db, senderID)
 	h.createFriendNotification(receiverID, "friend_request",
-		"Новая заявка в друзья", fmt.Sprintf("@%s хочет добавить вас в друзья", senderUsername))
+		"Новая заявка в друзья", fmt.Sprintf("@%s хочет добавить вас в друзья", senderUsername), senderID)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"status":  "pending",
@@ -272,7 +272,7 @@ func (h *FriendsHandler) AcceptRequest(c *gin.Context) {
 	// Notify the sender
 	receiverUsername := getUsernameFromDB(h.db, claims.UserID)
 	h.createFriendNotification(request.SenderID, "friend_accepted",
-		"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", receiverUsername))
+		"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", receiverUsername), claims.UserID)
 
 	// Invalidate caches for both users
 	invalidateFriendCaches(h.redis, request.SenderID, request.ReceiverID)
@@ -525,6 +525,15 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 		return
 	}
 
+	// Support viewing another user's friends via ?user_id=X
+	targetUserID := c.Query("user_id")
+	if targetUserID == "" {
+		targetUserID = claims.UserID
+	} else if _, err := uuid.Parse(targetUserID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user_id"))
+		return
+	}
+
 	rows, err := h.db.Query(`
 		SELECT 
 			f.id AS friendship_id,
@@ -537,7 +546,7 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 		JOIN profiles p ON p.id = CASE WHEN f.user1_id = $1 THEN f.user2_id ELSE f.user1_id END
 		WHERE f.user1_id = $1 OR f.user2_id = $1
 		ORDER BY p.username ASC
-	`, claims.UserID)
+	`, targetUserID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
@@ -705,11 +714,16 @@ func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
 }
 
 // createFriendNotification sends a WebSocket notification for friend events.
-func (h *FriendsHandler) createFriendNotification(userID, notifType, title, message string) {
+// relatedUserID is stored in related_post_id for click-through to profile.
+func (h *FriendsHandler) createFriendNotification(userID, notifType, title, message, relatedUserID string) {
 	if h.hub == nil {
 		return
 	}
-	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, title, message, nil, nil)
+	var relatedPostID *string
+	if relatedUserID != "" {
+		relatedPostID = &relatedUserID
+	}
+	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, title, message, nil, relatedPostID)
 	if err != nil {
 		log.Printf("[Friends] Failed to create notification: %v", err)
 	}

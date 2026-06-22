@@ -113,19 +113,16 @@ const formatGarmaLabel = (value: number) => {
 
 // Friends tab button with count
 const FriendsTabButton = ({ activeTab, onClick, userId }: { activeTab: string; onClick: () => void; userId: string }) => {
-  const { friends, fetchFriends } = useFriendsStore();
+  const { profileFriends, fetchProfileFriends } = useFriendsStore();
   const [friendCount, setFriendCount] = useState(0);
 
   useEffect(() => {
-    fetchFriends().then(() => {
-      setFriendCount(useFriendsStore.getState().friends.length);
-    });
-  }, [fetchFriends, userId]);
+    fetchProfileFriends(userId);
+  }, [fetchProfileFriends, userId]);
 
-  // Update count when friends list changes
   useEffect(() => {
-    setFriendCount(friends.length);
-  }, [friends]);
+    setFriendCount(profileFriends.length);
+  }, [profileFriends]);
 
   return (
     <button

@@ -25,14 +25,16 @@ export interface FriendRequest {
 
 interface FriendsStore {
   friends: Friend[];
+  profileFriends: Friend[];
   incomingRequests: FriendRequest[];
   friendStatusMap: Record<string, { status: FriendStatus; requestId?: string }>;
   isLoading: boolean;
 
   fetchFriends: () => Promise<void>;
+  fetchProfileFriends: (userId: string) => Promise<void>;
   fetchRequests: () => Promise<void>;
   sendRequest: (userId: string) => Promise<void>;
-  acceptRequest: (requestId: string) => Promise<void>;
+  acceptRequest: (requestId: string, userId: string) => Promise<void>;
   rejectRequest: (requestId: string) => Promise<void>;
   cancelRequest: (requestId: string) => Promise<void>;
   removeFriend: (userId: string) => Promise<void>;
@@ -54,6 +56,7 @@ async function apiRequest(url: string, options?: RequestInit) {
 
 export const useFriendsStore = create<FriendsStore>((set, get) => ({
   friends: [],
+  profileFriends: [],
   incomingRequests: [],
   friendStatusMap: {},
   isLoading: false,
@@ -64,6 +67,20 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       const resp = await apiRequest("/api/v1/friends");
       if (resp.success) {
         set({ friends: resp.data || [] });
+      }
+    } catch {
+      // Silent
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  fetchProfileFriends: async (userId: string) => {
+    set({ isLoading: true });
+    try {
+      const resp = await apiRequest(`/api/v1/friends?user_id=${userId}`);
+      if (resp.success) {
+        set({ profileFriends: resp.data || [] });
       }
     } catch {
       // Silent
@@ -137,19 +154,15 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
     }
   },
 
-  acceptRequest: async (requestId: string) => {
+  acceptRequest: async (requestId: string, userId: string) => {
     const prevRequests = get().incomingRequests;
-    const request = prevRequests.find((r) => r.id === requestId);
-    const senderId = request?.sender_id;
 
     set((state) => ({
       incomingRequests: state.incomingRequests.filter((r) => r.id !== requestId),
-      ...(senderId ? {
-        friendStatusMap: {
-          ...state.friendStatusMap,
-          [senderId]: { status: "friends" as FriendStatus },
-        },
-      } : {}),
+      friendStatusMap: {
+        ...state.friendStatusMap,
+        [userId]: { status: "friends" as FriendStatus },
+      },
     }));
 
     try {
@@ -159,21 +172,15 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
 
       if (!resp.success) {
         set({ incomingRequests: prevRequests });
-        if (senderId) {
-          get().checkStatus(senderId);
-        }
+        get().checkStatus(userId);
         throw new Error(resp.error || "Failed");
       }
 
       await get().fetchFriends();
-      if (senderId) {
-        get().checkStatus(senderId);
-      }
+      get().checkStatus(userId);
     } catch (e) {
       set({ incomingRequests: prevRequests });
-      if (senderId) {
-        get().checkStatus(senderId);
-      }
+      get().checkStatus(userId);
       throw e;
     }
   },

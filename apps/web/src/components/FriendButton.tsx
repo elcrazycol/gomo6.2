@@ -48,7 +48,7 @@ export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
     if (!requestId) return;
     setLoading(true);
     try {
-      await acceptRequest(requestId);
+      await acceptRequest(requestId, userId);
       toast.success("Заявка принята");
     } catch {
       toast.error("Ошибка принятия заявки");
