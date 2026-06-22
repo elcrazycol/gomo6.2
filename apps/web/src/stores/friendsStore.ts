@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { api } from "@/integrations/api/compat";
 
 export type FriendStatus = "none" | "pending_sent" | "pending_received" | "friends";
 
@@ -40,7 +41,8 @@ interface FriendsStore {
 }
 
 async function apiRequest(url: string, options?: RequestInit) {
-  const token = localStorage.getItem("access_token");
+  const { data: { session } } = await api.auth.getSession();
+  const token = session?.access_token;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
