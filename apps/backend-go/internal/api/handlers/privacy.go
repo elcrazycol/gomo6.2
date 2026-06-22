@@ -6,12 +6,14 @@ import (
 
 // PrivacySettings holds the private profile fields from privacy_settings table.
 type PrivacySettings struct {
-	PrivateProfile     bool
-	PrivateHideAvatar  bool
-	PrivateHideWall    bool
-	PrivateHideThreads bool
-	PrivateHideStats   bool
-	PrivateHideFriends bool
+	PrivateProfile          bool
+	PrivateHideAvatar       bool
+	PrivateHideWall         bool
+	PrivateHideThreads      bool
+	PrivateHideStats        bool
+	PrivateHideFriends      bool
+	PrivateHideGifts        bool
+	PrivateHideAchievements bool
 }
 
 // GetPrivacySettings loads private profile settings for a user.
@@ -23,11 +25,14 @@ func GetPrivacySettings(db *sql.DB, userID string) (*PrivacySettings, error) {
 		       COALESCE(private_hide_wall, true),
 		       COALESCE(private_hide_threads, true),
 		       COALESCE(private_hide_stats, true),
-		       COALESCE(private_hide_friends, true)
+		       COALESCE(private_hide_friends, true),
+		       COALESCE(private_hide_gifts, true),
+		       COALESCE(private_hide_achievements, true)
 		FROM privacy_settings WHERE user_id = $1
 	`, userID).Scan(
 		&ps.PrivateProfile, &ps.PrivateHideAvatar, &ps.PrivateHideWall,
 		&ps.PrivateHideThreads, &ps.PrivateHideStats, &ps.PrivateHideFriends,
+		&ps.PrivateHideGifts, &ps.PrivateHideAchievements,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

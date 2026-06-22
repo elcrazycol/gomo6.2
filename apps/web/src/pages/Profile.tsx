@@ -202,6 +202,8 @@ const Profile = () => {
   const [privateHideThreads, setPrivateHideThreads] = useState(true);
   const [privateHideStats, setPrivateHideStats] = useState(true);
   const [privateHideFriends, setPrivateHideFriends] = useState(true);
+  const [privateHideGifts, setPrivateHideGifts] = useState(true);
+  const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
   const [isMutualFriend, setIsMutualFriend] = useState(false);
 
   useEffect(() => {
@@ -386,6 +388,8 @@ const Profile = () => {
         setPrivateHideThreads(privacyData.private_hide_threads ?? true);
         setPrivateHideStats(privacyData.private_hide_stats ?? true);
         setPrivateHideFriends(privacyData.private_hide_friends ?? true);
+        setPrivateHideGifts(privacyData.private_hide_gifts ?? true);
+        setPrivateHideAchievements(privacyData.private_hide_achievements ?? true);
       }
 
       // Check friendship status for private profile
@@ -414,12 +418,14 @@ const Profile = () => {
 
   // Set default tab based on wall visibility
   useEffect(() => {
-    if (showProfileWall) {
+    const locked = privateProfile && currentUser?.id !== userId && !isMutualFriend;
+    const wallVisible = showProfileWall && (!locked || !privateHideWall);
+    if (wallVisible) {
       setActiveTab('wall');
     } else {
       setActiveTab('achievements');
     }
-  }, [showProfileWall]);
+  }, [showProfileWall, privateProfile, currentUser?.id, userId, isMutualFriend, privateHideWall]);
 
   const loadAvatarHistory = async () => {
     if (!userId) return [];
@@ -1170,6 +1176,7 @@ const Profile = () => {
                       Стена
                     </button>
                   )}
+                  {(!isLocked || !privateHideAchievements) && (
                   <button
                     onClick={() => setActiveTab('achievements')}
                     className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1180,6 +1187,7 @@ const Profile = () => {
                     >
                       Достижения ({achievements.length})
                     </button>
+                  )}
                     {showThreadsTab && (!isLocked || !privateHideThreads) && (
                     <button
                       onClick={() => setActiveTab('threads')}
@@ -1192,6 +1200,7 @@ const Profile = () => {
                       Треды
                     </button>
                   )}
+                  {(!isLocked || !privateHideGifts) && (
                   <button
                     onClick={() => setActiveTab('gifts')}
                     className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1205,6 +1214,7 @@ const Profile = () => {
                       Подарки ({giftCount})
                     </span>
                   </button>
+                  )}
                   {(!isLocked || !privateHideFriends) && (
                   <FriendsTabButton
                     activeTab={activeTab}
