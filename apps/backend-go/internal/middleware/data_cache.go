@@ -226,7 +226,6 @@ func InvalidateCacheForNotification(redisClient *redis.Client, userID string) {
 	// Use wildcard to invalidate ALL notification queries for this user
 	patterns := []string{
 		fmt.Sprintf("data:/api/v1/notifications*user_id=eq.%s*", userID),
-		"data:/api/v1/notifications*",
 	}
 	for _, pattern := range patterns {
 		cache.InvalidateByPattern(redisClient, pattern)

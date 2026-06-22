@@ -71,6 +71,7 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
     const handleWsNotification = (message: WebSocketMessage) => {
       const notif = message.data as Notification & { achievement?: AchievementData };
       if (!notif || !notif.id) return;
+      if (notif.user_id && notif.user_id !== initializedUserId) return;
 
       set((state) => {
         const exists = state.notifications.some((n) => n.id === notif.id);
