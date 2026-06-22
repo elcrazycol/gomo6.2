@@ -909,7 +909,7 @@ const Profile = () => {
   }
 
   const isOwnProfile = currentUser?.id === userId;
-  const isLocked = privateProfile && !isOwnProfile && !isMutualFriend;
+  const isLocked = privacyChecked && privateProfile && !isOwnProfile && !isMutualFriend;
 
   return (
     <main className="max-w-2xl mx-auto p-4">
