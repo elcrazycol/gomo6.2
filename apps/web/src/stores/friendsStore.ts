@@ -26,7 +26,6 @@ export interface FriendRequest {
 interface FriendsStore {
   friends: Friend[];
   incomingRequests: FriendRequest[];
-  outgoingRequests: FriendRequest[];
   friendStatusMap: Record<string, { status: FriendStatus; requestId?: string }>;
   isLoading: boolean;
 
@@ -35,6 +34,7 @@ interface FriendsStore {
   sendRequest: (userId: string) => Promise<void>;
   acceptRequest: (requestId: string) => Promise<void>;
   rejectRequest: (requestId: string) => Promise<void>;
+  cancelRequest: (requestId: string) => Promise<void>;
   removeFriend: (userId: string) => Promise<void>;
   checkStatus: (userId: string) => Promise<FriendStatus>;
   setStatus: (userId: string, status: FriendStatus, requestId?: string) => void;
@@ -55,7 +55,6 @@ async function apiRequest(url: string, options?: RequestInit) {
 export const useFriendsStore = create<FriendsStore>((set, get) => ({
   friends: [],
   incomingRequests: [],
-  outgoingRequests: [],
   friendStatusMap: {},
   isLoading: false,
 
@@ -87,7 +86,6 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
   sendRequest: async (userId: string) => {
     const prev = get().friendStatusMap[userId];
 
-    // Optimistic update
     set((state) => ({
       friendStatusMap: {
         ...state.friendStatusMap,
@@ -102,7 +100,6 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       });
 
       if (!resp.success) {
-        // Revert on error
         if (prev) {
           set((state) => ({
             friendStatusMap: { ...state.friendStatusMap, [userId]: prev },
@@ -113,10 +110,9 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
             return { friendStatusMap: rest };
           });
         }
-        return;
+        throw new Error(resp.error || "Failed");
       }
 
-      // Update status based on response
       if (resp.data?.status === "friends") {
         set((state) => ({
           friendStatusMap: {
@@ -126,8 +122,7 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
         }));
         get().fetchFriends();
       }
-    } catch {
-      // Revert on error
+    } catch (e) {
       if (prev) {
         set((state) => ({
           friendStatusMap: { ...state.friendStatusMap, [userId]: prev },
@@ -138,21 +133,23 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
           return { friendStatusMap: rest };
         });
       }
+      throw e;
     }
   },
 
   acceptRequest: async (requestId: string) => {
-    const prev = get().incomingRequests;
-    const request = prev.find((r) => r.id === requestId);
-    if (!request) return;
+    const prevRequests = get().incomingRequests;
+    const request = prevRequests.find((r) => r.id === requestId);
+    const senderId = request?.sender_id;
 
-    // Optimistic update
     set((state) => ({
       incomingRequests: state.incomingRequests.filter((r) => r.id !== requestId),
-      friendStatusMap: {
-        ...state.friendStatusMap,
-        [request.sender_id]: { status: "friends" },
-      },
+      ...(senderId ? {
+        friendStatusMap: {
+          ...state.friendStatusMap,
+          [senderId]: { status: "friends" as FriendStatus },
+        },
+      } : {}),
     }));
 
     try {
@@ -161,20 +158,29 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       });
 
       if (!resp.success) {
-        set({ incomingRequests: prev });
-        return;
+        set({ incomingRequests: prevRequests });
+        if (senderId) {
+          get().checkStatus(senderId);
+        }
+        throw new Error(resp.error || "Failed");
       }
 
-      get().fetchFriends();
-    } catch {
-      set({ incomingRequests: prev });
+      await get().fetchFriends();
+      if (senderId) {
+        get().checkStatus(senderId);
+      }
+    } catch (e) {
+      set({ incomingRequests: prevRequests });
+      if (senderId) {
+        get().checkStatus(senderId);
+      }
+      throw e;
     }
   },
 
   rejectRequest: async (requestId: string) => {
-    const prev = get().incomingRequests;
+    const prevRequests = get().incomingRequests;
 
-    // Optimistic update
     set((state) => ({
       incomingRequests: state.incomingRequests.filter((r) => r.id !== requestId),
     }));
@@ -185,10 +191,22 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       });
 
       if (!resp.success) {
-        set({ incomingRequests: prev });
+        set({ incomingRequests: prevRequests });
+        throw new Error(resp.error || "Failed");
       }
-    } catch {
-      set({ incomingRequests: prev });
+    } catch (e) {
+      set({ incomingRequests: prevRequests });
+      throw e;
+    }
+  },
+
+  cancelRequest: async (requestId: string) => {
+    const resp = await apiRequest(`/api/v1/friends/request/${requestId}`, {
+      method: "DELETE",
+    });
+
+    if (!resp.success) {
+      throw new Error(resp.error || "Failed");
     }
   },
 
@@ -196,7 +214,6 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
     const prevFriends = get().friends;
     const prevStatus = get().friendStatusMap[userId];
 
-    // Optimistic update
     set((state) => ({
       friends: state.friends.filter((f) => f.user_id !== userId),
       friendStatusMap: {
@@ -217,14 +234,16 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
             friendStatusMap: { ...state.friendStatusMap, [userId]: prevStatus },
           }));
         }
+        throw new Error(resp.error || "Failed");
       }
-    } catch {
+    } catch (e) {
       set({ friends: prevFriends });
       if (prevStatus) {
         set((state) => ({
           friendStatusMap: { ...state.friendStatusMap, [userId]: prevStatus },
         }));
       }
+      throw e;
     }
   },
 

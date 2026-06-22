@@ -383,6 +383,72 @@ func (h *FriendsHandler) RejectRequest(c *gin.Context) {
 	}))
 }
 
+// CancelRequest godoc
+// @Summary      Cancel outgoing friend request
+// @Description  Cancel a friend request you sent
+// @Tags         Friends
+// @Produce      json
+// @Param        id path string true "Friend request ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /friends/request/{id} [delete]
+// @Security     BearerAuth
+func (h *FriendsHandler) CancelRequest(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	requestID := c.Param("id")
+	if _, err := uuid.Parse(requestID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request ID"))
+		return
+	}
+
+	// Get the request
+	var senderID, status string
+	err := h.db.QueryRow(`
+		SELECT sender_id, status FROM friend_requests WHERE id = $1
+	`, requestID).Scan(&senderID, &status)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Friend request not found"))
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+
+	// Only the sender can cancel
+	if senderID != claims.UserID {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("You can only cancel requests you sent"))
+		return
+	}
+
+	// Must be pending
+	if status != "pending" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Request is not pending"))
+		return
+	}
+
+	_, err = h.db.Exec(`
+		UPDATE friend_requests SET status = 'cancelled', updated_at = NOW() WHERE id = $1
+	`, requestID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+		return
+	}
+
+	invalidateFriendCaches(h.redis, claims.UserID, "")
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"status":  "cancelled",
+		"message": "Friend request cancelled",
+	}))
+}
+
 // RemoveFriend godoc
 // @Summary      Remove friend
 // @Description  Remove a user from your friends

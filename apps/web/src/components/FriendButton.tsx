@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useFriendsStore, type FriendStatus } from "@/stores/friendsStore";
-import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,7 +16,7 @@ interface FriendButtonProps {
 }
 
 export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
-  const { friendStatusMap, sendRequest, acceptRequest, rejectRequest, removeFriend, checkStatus } =
+  const { friendStatusMap, sendRequest, acceptRequest, rejectRequest, cancelRequest, removeFriend, checkStatus } =
     useFriendsStore();
   const [loading, setLoading] = useState(false);
 
@@ -84,17 +83,10 @@ export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
   };
 
   const handleCancelRequest = async () => {
+    if (!requestId) return;
     setLoading(true);
     try {
-      const { data: { session } } = await api.auth.getSession();
-      const token = session?.access_token;
-      await fetch(`/api/v1/friends/${userId}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
+      await cancelRequest(requestId);
       useFriendsStore.getState().setStatus(userId, "none");
       toast.success("Заявка отменена");
     } catch {
@@ -104,17 +96,11 @@ export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
     }
   };
 
-  // Friends - show dropdown with option to remove
   if (status === "friends") {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5"
-            disabled={loading}
-          >
+          <Button variant="outline" size="sm" className="h-8 gap-1.5" disabled={loading}>
             <UserCheck className="w-4 h-4" />
             <span className="hidden sm:inline">Друзья</span>
             <ChevronDown className="w-3 h-3" />
@@ -129,58 +115,31 @@ export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
     );
   }
 
-  // Pending sent - show cancel button
   if (status === "pending_sent") {
     return (
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-8 gap-1.5"
-        onClick={handleCancelRequest}
-        disabled={loading}
-      >
+      <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handleCancelRequest} disabled={loading}>
         <Clock className="w-4 h-4" />
         <span className="hidden sm:inline">Заявка отправлена</span>
       </Button>
     );
   }
 
-  // Pending received - show accept/reject buttons
   if (status === "pending_received") {
     return (
       <div className="flex gap-1">
-        <Button
-          variant="default"
-          size="sm"
-          className="h-8 gap-1.5"
-          onClick={handleAccept}
-          disabled={loading}
-        >
+        <Button variant="default" size="sm" className="h-8 gap-1.5" onClick={handleAccept} disabled={loading}>
           <Check className="w-4 h-4" />
           <span className="hidden sm:inline">Принять</span>
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5"
-          onClick={handleReject}
-          disabled={loading}
-        >
+        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handleReject} disabled={loading}>
           <X className="w-4 h-4" />
         </Button>
       </div>
     );
   }
 
-  // No relationship - show add friend button
   return (
-    <Button
-      variant="default"
-      size="sm"
-      className="h-8 gap-1.5"
-      onClick={handleSendRequest}
-      disabled={loading}
-    >
+    <Button variant="default" size="sm" className="h-8 gap-1.5" onClick={handleSendRequest} disabled={loading}>
       <UserPlus className="w-4 h-4" />
       <span className="hidden sm:inline">Добавить в друзья</span>
     </Button>
