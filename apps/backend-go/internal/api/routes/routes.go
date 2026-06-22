@@ -383,6 +383,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				protected.POST("/friends/request", friendsHandler.SendRequest)
 				protected.PUT("/friends/request/:id/accept", friendsHandler.AcceptRequest)
 				protected.PUT("/friends/request/:id/reject", friendsHandler.RejectRequest)
+				protected.DELETE("/friends/request/:id", friendsHandler.CancelRequest)
 				protected.DELETE("/friends/:userId", friendsHandler.RemoveFriend)
 				protected.GET("/friends", friendsHandler.GetFriends)
 				protected.GET("/friends/requests", friendsHandler.GetRequests)
