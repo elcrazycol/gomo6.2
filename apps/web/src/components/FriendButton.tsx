@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useFriendsStore, type FriendStatus } from "@/stores/friendsStore";
+import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -85,9 +86,8 @@ export const FriendButton = ({ userId, isOwnProfile }: FriendButtonProps) => {
   const handleCancelRequest = async () => {
     setLoading(true);
     try {
-      // Use reject endpoint to cancel outgoing request (sender can also cancel)
-      // Or we can just remove it optimistically and let the backend handle it
-      const token = localStorage.getItem("access_token");
+      const { data: { session } } = await api.auth.getSession();
+      const token = session?.access_token;
       await fetch(`/api/v1/friends/${userId}`, {
         method: "DELETE",
         headers: {
