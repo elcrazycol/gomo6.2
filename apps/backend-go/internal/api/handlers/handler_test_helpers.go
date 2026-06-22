@@ -151,6 +151,22 @@ func newGETContext(url string, queryParams map[string]string) (*gin.Context, *ht
 	return c, w
 }
 
+func newGETContextWithParams(url string, queryParams map[string]string, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	q := req.URL.Query()
+	for k, v := range queryParams {
+		q.Set(k, v)
+	}
+	req.URL.RawQuery = q.Encode()
+	c.Request = req
+	for k, v := range pathParams {
+		c.Params = append(c.Params, gin.Param{Key: k, Value: v})
+	}
+	return c, w
+}
+
 // newPOSTContext creates a gin test context for a POST request with JSON body and auth claims.
 // Returns (context, *httptest.ResponseRecorder).
 func newPOSTContext(url string, body interface{}, claims *auth.Claims, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {

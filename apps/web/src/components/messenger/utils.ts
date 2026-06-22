@@ -36,7 +36,3 @@ export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | nu
 };
 
 export const getInitials = (username: string): string => username.slice(0, 2).toUpperCase();
-
-export const generateClientId = (): string => {
-  return `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-};

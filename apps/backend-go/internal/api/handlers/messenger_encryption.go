@@ -24,17 +24,10 @@ func init() {
 	}
 	if key != "" {
 		k := []byte(key)
-		if len(k) < 32 {
-			log.Printf("[Messenger] WARNING: MESSENGER_ENCRYPTION_KEY is %d bytes, zero-padded to 32", len(k))
-			padded := make([]byte, 32)
-			copy(padded, k)
-			messengerEncryptionKey = padded
-		} else if len(k) > 32 {
-			log.Printf("[Messenger] WARNING: MESSENGER_ENCRYPTION_KEY is %d bytes, truncated to 32", len(k))
-			messengerEncryptionKey = k[:32]
-		} else {
-			messengerEncryptionKey = k
+		if len(k) != 32 {
+			log.Fatalf("[Messenger] FATAL: MESSENGER_ENCRYPTION_KEY must be exactly 32 bytes, got %d. Generate with: openssl rand -hex 32", len(k))
 		}
+		messengerEncryptionKey = k
 	} else {
 		log.Printf("[Messenger] WARNING: No MESSENGER_ENCRYPTION_KEY set — messages stored as plaintext")
 	}

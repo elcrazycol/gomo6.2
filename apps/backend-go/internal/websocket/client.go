@@ -127,6 +127,13 @@ func (c *Client) readPump() {
 		switch message.Type {
 		case MessageTypeSubscribe:
 			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
+				if strings.HasPrefix(room, "chat_") {
+					convID := strings.TrimPrefix(room, "chat_")
+					if !c.Hub.isMemberOfConversation(c.UserID, convID) {
+						c.sendError("Not a member of this conversation")
+						continue
+					}
+				}
 				c.Hub.SubscribeToRoom(c, room)
 				c.sendConfirmation(MessageTypeSubscribe, room)
 			}

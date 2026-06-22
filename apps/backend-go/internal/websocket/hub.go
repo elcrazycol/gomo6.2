@@ -363,6 +363,24 @@ func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
 	}
 }
 
+// isMemberOfConversation checks if a user is a member of a chat conversation.
+// Returns false if DB is unavailable (fail-closed).
+func (h *Hub) isMemberOfConversation(userID, conversationID string) bool {
+	if h.db == nil {
+		return false
+	}
+	var ok bool
+	err := h.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
+		conversationID, userID,
+	).Scan(&ok)
+	if err != nil {
+		log.Printf("[WebSocket] membership check error: %v", err)
+		return false
+	}
+	return ok
+}
+
 // SubscribeToRoom adds a client to a room
 func (h *Hub) SubscribeToRoom(client *Client, room string) {
 	h.mu.Lock()

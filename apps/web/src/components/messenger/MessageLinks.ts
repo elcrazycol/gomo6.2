@@ -72,7 +72,7 @@ export function parseMessageLinks(content: string): LinkSegment[] {
     }
 
     if (!matched) {
-      // External link — only if starts with http(s)
+      // External link — only if starts with http(s), never javascript: or data:
       if (/^https?:\/\//.test(url)) {
         segments.push({ type: "link", url, linkType: "external", params: {} });
       } else {

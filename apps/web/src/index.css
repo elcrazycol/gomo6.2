@@ -1746,6 +1746,7 @@ html, body {
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .messenger-shell.mobile-chat-open .sidebar-panel {
@@ -1803,6 +1804,7 @@ html, body {
 
   .message-scroll {
     padding: 8px 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .message-bubble {
