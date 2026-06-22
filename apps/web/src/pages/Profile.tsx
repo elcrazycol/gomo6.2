@@ -196,6 +196,13 @@ const Profile = () => {
   const [avatarGalleryIndex, setAvatarGalleryIndex] = useState(0);
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
   const [giftCount, setGiftCount] = useState(0);
+  const [privateProfile, setPrivateProfile] = useState(false);
+  const [privateHideAvatar, setPrivateHideAvatar] = useState(true);
+  const [privateHideWall, setPrivateHideWall] = useState(true);
+  const [privateHideThreads, setPrivateHideThreads] = useState(true);
+  const [privateHideStats, setPrivateHideStats] = useState(true);
+  const [privateHideFriends, setPrivateHideFriends] = useState(true);
+  const [isMutualFriend, setIsMutualFriend] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -373,6 +380,21 @@ const Profile = () => {
           time: false,
           ...(privacyData.stats_visibility || {}),
         });
+        setPrivateProfile(privacyData.private_profile ?? false);
+        setPrivateHideAvatar(privacyData.private_hide_avatar ?? true);
+        setPrivateHideWall(privacyData.private_hide_wall ?? true);
+        setPrivateHideThreads(privacyData.private_hide_threads ?? true);
+        setPrivateHideStats(privacyData.private_hide_stats ?? true);
+        setPrivateHideFriends(privacyData.private_hide_friends ?? true);
+      }
+
+      // Check friendship status for private profile
+      if (currentUser?.id && currentUser.id !== userId) {
+        try {
+          const friendRes = await fetch(`/api/v1/friends/status/${userId}`, { headers });
+          const friendResult = await friendRes.json();
+          setIsMutualFriend(friendResult.data?.status === 'friends');
+        } catch { /* not friends */ }
       }
 
       // Load customization
@@ -879,6 +901,7 @@ const Profile = () => {
   }
 
   const isOwnProfile = currentUser?.id === userId;
+  const isLocked = privateProfile && !isOwnProfile && !isMutualFriend;
 
   return (
     <main className="max-w-2xl mx-auto p-4">
@@ -887,7 +910,35 @@ const Profile = () => {
             <PentagramLoader size="lg" />
           </div>
         )}
-        {!pageLoading && (
+        {!pageLoading && isLocked && (
+          <div className="space-y-6">
+            <div className="bg-card border border-border rounded-lg p-6 text-center space-y-4">
+              {!privateHideAvatar && (
+                <div className="flex justify-center">
+                  <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <User className="w-12 h-12 text-muted-foreground" />
+                    )}
+                  </div>
+                </div>
+              )}
+              <div>
+                <h1 className="text-xl font-bold">{profile.display_name || profile.username}</h1>
+                <p className="text-sm text-muted-foreground">@{profile.username}</p>
+              </div>
+              <div className="bg-muted/50 border border-border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Это приватный профиль</p>
+                <p className="text-xs text-muted-foreground mt-1">Владелец скрыл контент от не-друзей</p>
+              </div>
+              {!isOwnProfile && currentUser && (
+                <FriendButton userId={userId!} isOwnProfile={false} />
+              )}
+            </div>
+          </div>
+        )}
+        {!pageLoading && !isLocked && (
           <div className="space-y-6">
           {/* Profile Header */}
           <div className="flex items-center justify-between">

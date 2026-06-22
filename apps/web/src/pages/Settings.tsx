@@ -4,11 +4,6 @@ import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ChatIcon } from "@/components/ChatIcon";
-import { MobileMenu } from "@/components/MobileMenu";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
-import { HeaderUsername } from "@/components/HeaderUsername";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,28 +12,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, AlertTriangle, Type, Palette } from "lucide-react";
+import { ChevronDown, HelpCircle, Type, Palette } from "lucide-react";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 const defaultPrivacySettings = {
-  visibility_profile: true,
-  hide_messages_from_unregistered: false,
-  hide_threads_from_unregistered: false,
-  block_profile_visits_from_unregistered: false,
-  allow_search_by_username: true,
-  allow_search_by_id: true,
-  allow_search_by_secondary_id: true,
-  allow_private_messages: true,
-  anonymous_mode: false,
-  remove_image_metadata: true,
-  show_last_seen: true,
   show_online_status: true,
   show_profile_wall: true,
   allow_wall_posts_from_others: true,
   show_profile_stats: false,
   show_detailed_stats: false,
+  remove_image_metadata: true,
   stats_visibility: {
     garma: false,
     posts: false,
@@ -48,6 +33,12 @@ const defaultPrivacySettings = {
     replies: false,
     time: false,
   },
+  private_profile: false,
+  private_hide_avatar: true,
+  private_hide_wall: true,
+  private_hide_threads: true,
+  private_hide_stats: true,
+  private_hide_friends: true,
 };
 
 const themeOptions: Array<{
@@ -81,26 +72,21 @@ const Settings = () => {
   const [privacySettings, setPrivacySettings] = useState<PrivacySettingsData>(defaultPrivacySettings);
 
   interface PrivacySettingsData {
-    visibility_profile: boolean;
-    hide_messages_from_unregistered: boolean;
-    hide_threads_from_unregistered: boolean;
-    block_profile_visits_from_unregistered: boolean;
-    allow_search_by_username: boolean;
-    allow_search_by_id: boolean;
-    allow_search_by_secondary_id: boolean;
-    allow_private_messages: boolean;
-    anonymous_mode: boolean;
-    remove_image_metadata: boolean;
-    show_last_seen: boolean;
     show_online_status: boolean;
     show_profile_wall: boolean;
     allow_wall_posts_from_others: boolean;
     show_profile_stats: boolean;
     show_detailed_stats: boolean;
+    remove_image_metadata: boolean;
     stats_visibility: Record<string, boolean>;
+    private_profile: boolean;
+    private_hide_avatar: boolean;
+    private_hide_wall: boolean;
+    private_hide_threads: boolean;
+    private_hide_stats: boolean;
+    private_hide_friends: boolean;
   }
   const [privacyLoading, setPrivacyLoading] = useState(false);
-  const [showAnonymousConfirm, setShowAnonymousConfirm] = useState(false);
   const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
   const [customFont, setCustomFont] = useState(() => {
     return localStorage.getItem('custom_font') || '';
@@ -122,7 +108,7 @@ const Settings = () => {
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as 'classic' | 'modern' | null) || 'classic';
   });
-  const settingsTabs = useMemo(() => ["general", "appearance", "profile", "account", "privacy"] as const, []);
+  const settingsTabs = useMemo(() => ["appearance", "profile", "account", "privacy"] as const, []);
   const currentTab = useMemo(() => {
     const pathPart = location.pathname.split("/")[2] || "appearance";
     return settingsTabs.includes(pathPart as (typeof settingsTabs)[number]) ? pathPart : "appearance";
@@ -249,24 +235,20 @@ const Settings = () => {
       const updatedSettings = { ...privacySettings, [key]: value };
       setPrivacySettings(updatedSettings);
 
-      // Prepare data for database (exclude user_id and any extra fields)
+      // Prepare data for database
       const dbData = {
-        visibility_profile: updatedSettings.visibility_profile,
-        hide_messages_from_unregistered: updatedSettings.hide_messages_from_unregistered,
-        hide_threads_from_unregistered: updatedSettings.hide_threads_from_unregistered,
-        block_profile_visits_from_unregistered: updatedSettings.block_profile_visits_from_unregistered,
-        allow_search_by_username: updatedSettings.allow_search_by_username,
-        allow_search_by_id: updatedSettings.allow_search_by_id,
-        allow_search_by_secondary_id: updatedSettings.allow_search_by_secondary_id,
-        allow_private_messages: updatedSettings.allow_private_messages,
-        anonymous_mode: updatedSettings.anonymous_mode,
-        remove_image_metadata: updatedSettings.remove_image_metadata,
-        show_last_seen: updatedSettings.show_last_seen,
         show_online_status: updatedSettings.show_online_status,
         show_profile_wall: updatedSettings.show_profile_wall,
         allow_wall_posts_from_others: updatedSettings.allow_wall_posts_from_others,
         show_profile_stats: updatedSettings.show_profile_stats ?? false,
         show_detailed_stats: updatedSettings.show_detailed_stats ?? false,
+        remove_image_metadata: updatedSettings.remove_image_metadata,
+        private_profile: updatedSettings.private_profile,
+        private_hide_avatar: updatedSettings.private_hide_avatar,
+        private_hide_wall: updatedSettings.private_hide_wall,
+        private_hide_threads: updatedSettings.private_hide_threads,
+        private_hide_stats: updatedSettings.private_hide_stats,
+        private_hide_friends: updatedSettings.private_hide_friends,
       };
 
       // Try to save to database
@@ -308,19 +290,6 @@ const Settings = () => {
     } finally {
       setPrivacyLoading(false);
     }
-  };
-
-  const handleAnonymousToggle = async (value: boolean) => {
-    if (value && !privacySettings?.anonymous_mode) {
-      setShowAnonymousConfirm(true);
-    } else {
-      await updatePrivacySetting('anonymous_mode', value);
-    }
-  };
-
-  const confirmAnonymousMode = async () => {
-    await updatePrivacySetting('anonymous_mode', true);
-    setShowAnonymousConfirm(false);
   };
 
   const loadGoogleFont = (fontName: string) => {
@@ -476,33 +445,12 @@ const Settings = () => {
             </div>
 
             <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-5 h-auto p-1">
-                <TabsTrigger value="general" className="text-xs sm:text-sm px-2 py-2">Основные</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto p-1">
                 <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">Внешний вид</TabsTrigger>
                 <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">Профиль</TabsTrigger>
                 <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">Аккаунт</TabsTrigger>
                 <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">Приватность</TabsTrigger>
               </TabsList>
-
-              <TabsContent value="general" className="space-y-4">
-                <div className="bg-card p-4 sm:p-6 border border-border">
-                  <h2 className="text-lg font-semibold mb-4">Основные настройки</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium">Язык</label>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Настройки языка находятся в разработке
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">Часовой пояс</label>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Автоматическое определение часового пояса
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
 
               <TabsContent value="appearance" className="space-y-4">
                 <div className="bg-card p-4 sm:p-6 border border-border space-y-6">
@@ -638,57 +586,6 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="profile" className="space-y-4">
-                {/* Profile Wall Settings */}
-                <div className="bg-card p-4 sm:p-6 border border-border">
-                  <div className="flex items-center gap-2 mb-4">
-                    <h2 className="text-lg font-semibold">Стена профиля</h2>
-                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span>Показывать стену профиля</span>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Если отключено, никто не увидит стену на вашем профиле</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                      <Switch
-                        checked={privacySettings.show_profile_wall ?? true}
-                        onCheckedChange={(value) => updatePrivacySetting('show_profile_wall', value)}
-                        disabled={privacyLoading}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                        <span>Разрешить писать на стене другим пользователям</span>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Если отключено, только вы сможете оставлять посты на своей стене</p>
-                          </TooltipContent>
-                        </Tooltip>
-                            </div>
-                      <Switch
-                        checked={privacySettings.allow_wall_posts_from_others ?? true}
-                        onCheckedChange={(value) => updatePrivacySetting('allow_wall_posts_from_others', value)}
-                        disabled={privacyLoading}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      На стене профиля пользователи могут оставлять посты с текстом, изображениями и заголовками.
-                    </p>
-                  </div>
-                </div>
-
                 {/* Profile Customization */}
                 <div className="bg-card p-4 sm:p-6 border border-border">
                   <h2 className="text-lg font-semibold mb-4">Кастомизация профиля</h2>
@@ -867,124 +764,101 @@ const Settings = () => {
               </TabsContent>
 
               <TabsContent value="privacy" className="space-y-4">
-                  <>
-                    {/* Profile Visibility Section */}
+                    {/* Private Profile */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Видимость профиля</h2>
-                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                        </div>
+                        <h2 className="text-lg font-semibold">Приватный профиль</h2>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Скрывает контент профиля от пользователей, которые не являются вашими друзьями</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
 
                       <div className="space-y-4">
-                          <div>
-                          <h3 className="text-base font-medium mb-3">Общая видимость</h3>
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span>Не показывать сообщения <u>НП</u></span>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>НП - незарегистрированный пользователь</p>
-                            </TooltipContent>
-                          </Tooltip>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">Приватный режим</span>
+                          </div>
+                          <Switch
+                            checked={privacySettings.private_profile}
+                            onCheckedChange={(value) => updatePrivacySetting('private_profile', value)}
+                            disabled={privacyLoading}
+                          />
                         </div>
-                                <Switch
-                                  checked={privacySettings.hide_messages_from_unregistered}
-                                  onCheckedChange={(value) => updatePrivacySetting('hide_messages_from_unregistered', value)}
-                                  disabled={privacyLoading}
-                                />
-                              </div>
 
-                              <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span>Не показывать мои треды <u>НП</u></span>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>НП - незарегистрированный пользователь</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                                <Switch
-                                  checked={privacySettings.hide_threads_from_unregistered}
-                                  onCheckedChange={(value) => updatePrivacySetting('hide_threads_from_unregistered', value)}
-                                  disabled={privacyLoading}
-                                />
-                              </div>
-
-                              <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span>Запретить посещать мой профиль <u>НП</u></span>
-                          <Tooltip>
-                            <TooltipTrigger>
-                              <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>НП - незарегистрированный пользователь</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                                <Switch
-                                  checked={privacySettings.block_profile_visits_from_unregistered}
-                                  onCheckedChange={(value) => updatePrivacySetting('block_profile_visits_from_unregistered', value)}
-                                  disabled={privacyLoading}
-                                />
-                              </div>
-
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span>Показывать последнее время захода</span>
-                                  <Tooltip>
-                                    <TooltipTrigger>
-                                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Показывать когда вы последний раз были на сайте</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
-                                <Switch
-                                  checked={privacySettings.show_last_seen ?? true}
-                                  onCheckedChange={(value) => updatePrivacySetting('show_last_seen', value)}
-                                  disabled={privacyLoading}
-                                />
-                              </div>
-
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span>Показывать в сети</span>
-                                  <Tooltip>
-                                    <TooltipTrigger>
-                                      <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Показывать статус "В сети" когда вы активны</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
-                                <Switch
-                                  checked={privacySettings.show_online_status ?? true}
-                                  onCheckedChange={(value) => updatePrivacySetting('show_online_status', value)}
-                                  disabled={privacyLoading}
-                                />
-                              </div>
-                            </div>
+                        <div className={`space-y-3 pl-4 border-l-2 ${privacySettings.private_profile ? 'border-primary/30' : 'border-border opacity-50'}`}>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать аватар</span>
+                            <Switch
+                              checked={privacySettings.private_hide_avatar}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_avatar', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать стену</span>
+                            <Switch
+                              checked={privacySettings.private_hide_wall}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_wall', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать треды</span>
+                            <Switch
+                              checked={privacySettings.private_hide_threads}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_threads', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать статистику</span>
+                            <Switch
+                              checked={privacySettings.private_hide_stats}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_stats', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать список друзей</span>
+                            <Switch
+                              checked={privacySettings.private_hide_friends}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_friends', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
                           </div>
                         </div>
+                      </div>
                     </div>
 
-                    {/* Stats Privacy */}
+                    {/* Visibility */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Статистика</h2>
-                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-lg font-semibold">Видимость</h2>
                       </div>
-                      <div className="space-y-4">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span>Показывать статус "В сети"</span>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Показывать статус "В сети" когда вы активны</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                          <Switch
+                            checked={privacySettings.show_online_status ?? true}
+                            onCheckedChange={(value) => updatePrivacySetting('show_online_status', value)}
+                            disabled={privacyLoading}
+                          />
+                        </div>
                         <div className="flex items-center justify-between">
                           <span>Показывать статистику в профиле</span>
                           <Switch
@@ -1004,60 +878,46 @@ const Settings = () => {
                       </div>
                     </div>
 
-                    {/* Private Chat Section */}
+                    {/* Wall */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Личный чат</h2>
-                        <AlertTriangle className="h-4 w-4 text-orange-500 cursor-help" />
-                        <span className="text-xs text-muted-foreground">(экспериментальная функция)</span>
+                        <h2 className="text-lg font-semibold">Стена профиля</h2>
                       </div>
-
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <span>Поиск меня по username</span>
+                          <div className="flex items-center gap-2">
+                            <span>Показывать стену</span>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Если отключено, никто не увидит стену на вашем профиле</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
                           <Switch
-                            checked={privacySettings.allow_search_by_username}
-                            onCheckedChange={(value) => updatePrivacySetting('allow_search_by_username', value)}
+                            checked={privacySettings.show_profile_wall ?? true}
+                            onCheckedChange={(value) => updatePrivacySetting('show_profile_wall', value)}
                             disabled={privacyLoading}
                           />
                         </div>
-
                         <div className="flex items-center justify-between">
-                          <span>Поиск меня по ID</span>
+                          <span>Разрешить посты от других</span>
                           <Switch
-                            checked={privacySettings.allow_search_by_id}
-                            onCheckedChange={(value) => updatePrivacySetting('allow_search_by_id', value)}
-                            disabled={privacyLoading}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <span>Поиск меня по 2nd ID</span>
-                          <Switch
-                            checked={privacySettings.allow_search_by_secondary_id}
-                            onCheckedChange={(value) => updatePrivacySetting('allow_search_by_secondary_id', value)}
-                            disabled={privacyLoading}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <span>Разрешить писать мне сообщения</span>
-                          <Switch
-                            checked={privacySettings.allow_private_messages}
-                            onCheckedChange={(value) => updatePrivacySetting('allow_private_messages', value)}
+                            checked={privacySettings.allow_wall_posts_from_others ?? true}
+                            onCheckedChange={(value) => updatePrivacySetting('allow_wall_posts_from_others', value)}
                             disabled={privacyLoading}
                           />
                         </div>
                       </div>
                     </div>
 
-                    {/* Image Security Section */}
+                    {/* Security */}
                     <div className="bg-card p-4 sm:p-6 border border-border">
                       <div className="flex items-center gap-2 mb-4">
-                        <h2 className="text-lg font-semibold">Безопасность изображений</h2>
-                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        <h2 className="text-lg font-semibold">Безопасность</h2>
                       </div>
-
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -1067,7 +927,7 @@ const Settings = () => {
                                 <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>Удаляет EXIF данные (геолокация, время съемки и др.) для защиты приватности</p>
+                                <p>Удаляет EXIF данные (геолокация, время съемки) для защиты приватности</p>
                               </TooltipContent>
                             </Tooltip>
                           </div>
@@ -1077,62 +937,13 @@ const Settings = () => {
                             disabled={privacyLoading}
                           />
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          Рекомендуется оставить включенным для защиты вашей приватности.
-                          Метаданные могут содержать информацию о местоположении и времени съемки.
-                        </p>
                       </div>
                     </div>
-
-                    {/* Anonymous Mode */}
-                    <div className="bg-card p-4 sm:p-6 border border-border border-red-200">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h2 className="text-lg font-semibold text-red-600">Режим анонимности</h2>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Не рекомендуется включать
-                          </p>
-                        </div>
-                        <Switch
-                          checked={privacySettings.anonymous_mode}
-                          onCheckedChange={handleAnonymousToggle}
-                          disabled={privacyLoading}
-                          className="data-[state=checked]:bg-red-500"
-                        />
-                      </div>
-                    </div>
-                  </>
               </TabsContent>
             </Tabs>
           </div>
         </main>
 
-      {/* Anonymous Mode Confirmation Dialog */}
-      <Dialog open={showAnonymousConfirm} onOpenChange={setShowAnonymousConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Включить режим анонимности?</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm">
-              Вы уверены, что хотите включить режим анонимности?
-            </p>
-            <ul className="text-sm text-muted-foreground space-y-1 ml-4">
-              <li>• Информация о вашей активности не будет собираться</li>
-              <li>• Достижения не будут получены</li>
-              <li>• Вам никто не сможет написать лично при надобности</li>
-            </ul>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowAnonymousConfirm(false)}>
-                Отмена
-              </Button>
-              <Button variant="destructive" onClick={confirmAnonymousMode}>
-                Включить
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </TooltipProvider>
   );
 };
