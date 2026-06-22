@@ -14,7 +14,7 @@ import (
 func TestListConversations_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	c, w := newGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
@@ -26,11 +26,11 @@ func TestListConversations_Success(t *testing.T) {
 		"other_id", "other_username", "other_display_name",
 		"avatar_url", "account_number", "is_online", "last_seen_at",
 	}).
-		AddRow("conv-1", now, "Hello!", "u2", nil, now, 3, 3, "u2", "alice", "Alice", nil, 1001, true, nil).
-		AddRow("conv-2", now.Add(-time.Hour), "Hey there", "u3", nil, now, 0, 0, "u3", "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
+		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, 3, testUser2, "alice", "Alice", nil, 1001, true, nil).
+		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, 0, testUser3, "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*INNER JOIN chat_conversations c.*INNER JOIN chat_members cm2.*INNER JOIN users u.*WHERE cm.user_id = \$1`).
-		WithArgs("u1").
+		WithArgs(testUser1).
 		WillReturnRows(rows)
 
 	handler.ListConversations(c)
@@ -51,7 +51,7 @@ func TestListConversations_Success(t *testing.T) {
 func TestListConversations_Empty(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	c, w := newGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
@@ -64,7 +64,7 @@ func TestListConversations_Empty(t *testing.T) {
 	})
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
-		WithArgs("u1").
+		WithArgs(testUser1).
 		WillReturnRows(rows)
 
 	handler.ListConversations(c)
@@ -96,12 +96,12 @@ func TestListConversations_Unauthenticated(t *testing.T) {
 func TestListConversations_DBError(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	c, w := newGETContext("/api/v1/messenger/conversations", nil)
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
-		WithArgs("u1").
+		WithArgs(testUser1).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.ListConversations(c)
@@ -116,19 +116,19 @@ func TestListConversations_DBError(t *testing.T) {
 func TestGetOrCreateConversation_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	body := map[string]string{"user_id": "u2"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := map[string]string{"user_id": testUser2}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
-		WithArgs("u2").
+		WithArgs(testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Atomic find-or-create via DB function
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
-		WithArgs("u1", "u2").
-		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow("conv-existing"))
+		WithArgs(testUser1, testUser2).
+		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow(testConv1))
 
 	handler.GetOrCreateConversation(c)
 
@@ -140,7 +140,7 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
-	if data["conversation_id"] != "conv-existing" {
+	if data["conversation_id"] != testConv1 {
 		t.Fatalf("expected conv-existing, got %v", data["conversation_id"])
 	}
 }
@@ -148,19 +148,19 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	body := map[string]string{"user_id": "u2"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := map[string]string{"user_id": testUser2}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
-		WithArgs("u2").
+		WithArgs(testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Atomic find-or-create via DB function — returns new conversation
 	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
-		WithArgs("u1", "u2").
-		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow("conv-new"))
+		WithArgs(testUser1, testUser2).
+		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow(testConv1))
 
 	handler.GetOrCreateConversation(c)
 
@@ -172,7 +172,7 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
-	if data["conversation_id"] != "conv-new" {
+	if data["conversation_id"] != testConv1 {
 		t.Fatalf("expected conv-new, got %v", data["conversation_id"])
 	}
 }
@@ -180,13 +180,13 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 func TestGetOrCreateConversation_UserNotFound(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	body := map[string]string{"user_id": "u999"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := map[string]string{"user_id": testUser999}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	// Check user exists — nope
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE id = \$1\)`).
-		WithArgs("u999").
+		WithArgs(testUser999).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	handler.GetOrCreateConversation(c)
@@ -199,8 +199,8 @@ func TestGetOrCreateConversation_UserNotFound(t *testing.T) {
 func TestGetOrCreateConversation_SelfChat(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	body := map[string]string{"user_id": "u1"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := map[string]string{"user_id": testUser1}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
 	handler.GetOrCreateConversation(c)
@@ -213,7 +213,7 @@ func TestGetOrCreateConversation_SelfChat(t *testing.T) {
 func TestGetOrCreateConversation_MissingUserID(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := map[string]string{}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, claims, nil)
 
@@ -226,7 +226,7 @@ func TestGetOrCreateConversation_MissingUserID(t *testing.T) {
 
 func TestGetOrCreateConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	body := map[string]string{"user_id": "u2"}
+	body := map[string]string{"user_id": testUser2}
 	c, w := newPOSTContext("/api/v1/messenger/conversations", body, nil, nil)
 
 	handler.GetOrCreateConversation(c)
@@ -241,18 +241,18 @@ func TestGetOrCreateConversation_Unauthenticated(t *testing.T) {
 func TestLeaveConversation_Success(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/leave", nil, map[string]string{"id": "conv-1"})
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	// Membership check
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs("conv-1", "u1").
+		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Delete membership
 	mock.ExpectExec(`DELETE FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2`).
-		WithArgs("conv-1", "u1").
+		WithArgs(testConv1, testUser1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.LeaveConversation(c)
@@ -265,12 +265,12 @@ func TestLeaveConversation_Success(t *testing.T) {
 func TestLeaveConversation_NotMember(t *testing.T) {
 	handler, mock := setupMessengerHandler(t)
 
-	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/leave", nil, map[string]string{"id": "conv-1"})
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 	c.Set("claims", claims)
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
-		WithArgs("conv-1", "u1").
+		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	handler.LeaveConversation(c)
@@ -282,7 +282,7 @@ func TestLeaveConversation_NotMember(t *testing.T) {
 
 func TestLeaveConversation_Unauthenticated(t *testing.T) {
 	handler, _ := setupMessengerHandler(t)
-	c, w := newDELETEPContext("/api/v1/messenger/conversations/conv-1/leave", nil, map[string]string{"id": "conv-1"})
+	c, w := newDELETEPContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/leave", nil, map[string]string{"id": testConv1})
 
 	handler.LeaveConversation(c)
 

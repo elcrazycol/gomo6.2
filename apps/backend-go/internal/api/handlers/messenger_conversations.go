@@ -164,8 +164,8 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
-	if conversationID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("conversation_id required"))
+	if !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
 		return
 	}
 

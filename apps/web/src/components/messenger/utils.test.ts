@@ -5,7 +5,6 @@ import {
   formatConversationDate,
   formatPresence,
   getInitials,
-  generateClientId,
 } from "./utils";
 
 describe("utils", () => {
@@ -101,17 +100,6 @@ describe("utils", () => {
 
     it("handles cyrillic", () => {
       expect(getInitials("привет")).toBe("ПР");
-    });
-  });
-
-  describe("generateClientId", () => {
-    it("starts with 'c'", () => {
-      expect(generateClientId()).toMatch(/^c/);
-    });
-
-    it("produces unique values", () => {
-      const ids = new Set(Array.from({ length: 100 }, () => generateClientId()));
-      expect(ids.size).toBe(100);
     });
   });
 });

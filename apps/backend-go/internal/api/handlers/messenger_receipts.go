@@ -23,6 +23,10 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
+	if !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
+		return
+	}
 
 	var req MarkReadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -117,6 +121,10 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
+	if !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
+		return
+	}
 
 	var req struct {
 		MessageID string `json:"message_id" binding:"required"`
@@ -199,6 +207,10 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
+	if !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
+		return
+	}
 
 	member, err := h.isMember(conversationID, claims.UserID)
 	if err != nil {
@@ -286,6 +298,10 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
+	if !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
+		return
+	}
 
 	var req struct {
 		MessageID string `json:"message_id" binding:"required"`

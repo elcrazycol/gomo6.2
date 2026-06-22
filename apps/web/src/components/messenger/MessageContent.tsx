@@ -200,8 +200,9 @@ const LinkSegmentView = memo(function LinkSegmentView({ segment }: { segment: Li
   const { url, linkType, params } = segment;
 
   if (linkType === "external") {
+    const safeUrl = /^https?:\/\//i.test(url) ? url : "#";
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="msg-link">
+      <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="msg-link">
         {url.length > 60 ? url.slice(0, 57) + "..." : url}
       </a>
     );

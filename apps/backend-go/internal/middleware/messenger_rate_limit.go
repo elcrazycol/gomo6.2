@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 )
 
 // MessengerRateLimiter implements per-user rate limiting for messenger endpoints.
@@ -92,10 +93,8 @@ func MessengerRateLimitMiddleware(limiter *MessengerRateLimiter) gin.HandlerFunc
 		}
 
 		var userID string
-		// Directly type-assert to *auth.Claims — the only type stored in context.
-		// Fall back to IP if claims type is unexpected.
-		if claims, ok := claimsInterface.(interface{ GetUserID() string }); ok {
-			userID = claims.GetUserID()
+		if claims, ok := claimsInterface.(*auth.Claims); ok && claims.UserID != "" {
+			userID = claims.UserID
 		} else {
 			userID = c.ClientIP()
 		}

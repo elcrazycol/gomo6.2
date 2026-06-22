@@ -36,8 +36,8 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
-	if conversationID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("conversation_id required"))
+	if conversationID == "" || !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
 		return
 	}
 
@@ -166,6 +166,10 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 
 	conversationID := c.Param("id")
+	if !isUUID(conversationID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
+		return
+	}
 
 	var req SendMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -323,6 +327,10 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	conversationID := c.Param("id")
 	messageID := c.Param("msgId")
+	if !isUUID(conversationID) || !isUUID(messageID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id or message_id"))
+		return
+	}
 
 	var req EditMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -406,6 +414,10 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 
 	messageID := c.Param("msgId")
 	conversationID := c.Param("id")
+	if !isUUID(conversationID) || !isUUID(messageID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id or message_id"))
+		return
+	}
 
 	// Verify user is a conversation member AND message sender
 	// This prevents users from deleting messages in conversations they're not part of

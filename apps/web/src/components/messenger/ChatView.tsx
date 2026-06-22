@@ -85,6 +85,10 @@ export const ChatView = memo(function ChatView({
     if (nowScrolledUp !== isScrolledUpRef.current) {
       setIsScrolledUp(nowScrolledUp);
     }
+    // Reset new message count when scrolled back to bottom
+    if (dist <= 32) {
+      setNewMessageCount(0);
+    }
     // Load more when scrolled near top
     if (el.scrollTop < 50 && hasMoreMessages && !isLoadingMore && conversation?.id) {
       const prevHeight = el.scrollHeight;
@@ -119,6 +123,17 @@ export const ChatView = memo(function ChatView({
     vv.addEventListener("resize", onResize);
     return () => vv.removeEventListener("resize", onResize);
   }, [pinToBottom]);
+
+  // Escape key to go back to conversation list
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !editingMessageId) {
+        onBack();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onBack, editingMessageId]);
 
   // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {

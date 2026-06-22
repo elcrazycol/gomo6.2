@@ -88,6 +88,9 @@ export function destroyMessenger(): void {
   lastFlushed.read.clear();
   flushRetries.clear();
   lastReceiptsLoad.clear();
+  // Clear all typing timers
+  for (const timer of typingTimers.values()) clearTimeout(timer);
+  typingTimers.clear();
 }
 
 export function queueMarkDelivered(conversationId: string, messageId: string): void {
@@ -113,7 +116,9 @@ export function queueMarkRead(conversationId: string, messageId: string): void {
   startFlushTimer();
 }
 
-// ─── Receipts debounce ──────────────────────────────────────────────────────
+// ─── Typing indicator auto-clear ────────────────────────────────────────────
+const TYPING_TIMEOUT_MS = 5000;
+const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastReceiptsLoad = new Map<string, number>(); // convId → timestamp
 const RECEIPTS_COOLDOWN_MS = 3000;
 
@@ -318,13 +323,26 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   editMessage: async (messageId: string, content: string) => {
     const { selectedConversationId } = get();
     if (!selectedConversationId) return;
+
+    // Save original content for rollback
+    const original = get().messages.find((m) => m.id === messageId);
+    const originalContent = original?.content ?? content;
+
+    // Optimistic update
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === messageId ? { ...m, content, is_edited: true, edited_at: new Date().toISOString() } : m)),
+    }));
+
     try {
       await messengerApi.editMessage(selectedConversationId, messageId, content);
-      set((s) => ({
-        messages: s.messages.map((m) => (m.id === messageId ? { ...m, content, is_edited: true, edited_at: new Date().toISOString() } : m)),
-      }));
     } catch {
-      set({ error: "Не удалось отредактировать сообщение" });
+      // Revert to original content on failure
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id === messageId ? { ...m, content: originalContent, is_edited: original?.is_edited ?? false, edited_at: original?.edited_at ?? null } : m,
+        ),
+        error: "Не удалось отредактировать сообщение",
+      }));
     }
   },
 
@@ -457,11 +475,31 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   setTyping: (userId, username, isTyping) => {
-    set((s) => ({
-      typingUsers: isTyping
-        ? { ...s.typingUsers, [userId]: { user_id: userId, username, is_typing: true, timestamp: Date.now() } }
-        : Object.fromEntries(Object.entries(s.typingUsers).filter(([id]) => id !== userId)),
-    }));
+    if (isTyping) {
+      // Clear any existing timer for this user
+      const existing = typingTimers.get(userId);
+      if (existing) clearTimeout(existing);
+
+      // Set new auto-clear timer
+      const timer = setTimeout(() => {
+        typingTimers.delete(userId);
+        useMessengerStore.getState().setTyping(userId, username, false);
+      }, TYPING_TIMEOUT_MS);
+      typingTimers.set(userId, timer);
+
+      set((s) => ({
+        typingUsers: { ...s.typingUsers, [userId]: { user_id: userId, username, is_typing: true, timestamp: Date.now() } },
+      }));
+    } else {
+      // Clear timer and remove typing state
+      const existing = typingTimers.get(userId);
+      if (existing) clearTimeout(existing);
+      typingTimers.delete(userId);
+
+      set((s) => ({
+        typingUsers: Object.fromEntries(Object.entries(s.typingUsers).filter(([id]) => id !== userId)),
+      }));
+    }
   },
 
   setUserOnline: (userId, online) => {
@@ -481,8 +519,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       s.ensureConversation(convId);
       return;
     }
-    set((s2) => ({
-      conversations: s2.conversations.map((c) => {
+    set((s2) => {
+      const updatedConversations = s2.conversations.map((c) => {
         if (c.id !== convId) return c;
         const updated = { ...c, ...updates };
         if (incrementUnread && s2.selectedConversationId !== convId) {
@@ -492,7 +530,14 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           updated.unread_count = 0;
         }
         return updated;
-      }),
-    }));
+      });
+      // Re-sort by last_message_at descending so conversations with new messages move to top
+      updatedConversations.sort((a, b) => {
+        const ta = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+        const tb = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+        return tb - ta;
+      });
+      return { conversations: updatedConversations };
+    });
   },
 }));

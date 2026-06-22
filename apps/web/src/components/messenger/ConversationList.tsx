@@ -1,4 +1,4 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useState, useMemo } from "react";
 import { MessageCircle, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -89,6 +89,17 @@ export const ConversationList = memo(function ConversationList({
   const totalUnread = useMessengerStore((s) => s.totalUnread);
 
   const unread = totalUnread();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const q = searchQuery.toLowerCase();
+    return conversations.filter(
+      (c) =>
+        c.other_username.toLowerCase().includes(q) ||
+        (c.other_display_name?.toLowerCase().includes(q) ?? false),
+    );
+  }, [conversations, searchQuery]);
 
   const handleStartChat = useCallback(() => {
     if (onStartChat && targetUserId) onStartChat(targetUserId);
@@ -125,6 +136,28 @@ export const ConversationList = memo(function ConversationList({
       )}
 
       <div className="conversation-list">
+        {conversations.length > 3 && (
+          <div style={{ padding: "0 0 4px" }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Поиск..."
+              style={{
+                width: "100%",
+                padding: "7px 10px",
+                borderRadius: "8px",
+                border: "1px solid hsl(var(--input))",
+                background: "hsl(var(--background))",
+                color: "hsl(var(--foreground))",
+                fontSize: "13px",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+        )}
+
         {initLoading && conversations.length === 0 && (
           <div className="panel-loader-overlay sidebar-loader">
             <PentagramLoader size="md" />
@@ -152,7 +185,7 @@ export const ConversationList = memo(function ConversationList({
           </div>
         )}
 
-        {conversations.map((conv) => (
+        {filteredConversations.map((conv) => (
           <ConversationCard
             key={conv.id}
             conversation={conv}
