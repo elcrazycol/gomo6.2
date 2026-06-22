@@ -534,6 +534,13 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 		return
 	}
 
+	// Private profile: block friends list from non-friends
+	shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, claims.UserID, targetUserID)
+	if err == nil && shouldFilter && ps.PrivateHideFriends {
+		c.JSON(http.StatusOK, models.SuccessResponse([]models.FriendResponse{}))
+		return
+	}
+
 	rows, err := h.db.Query(`
 		SELECT 
 			f.id AS friendship_id,

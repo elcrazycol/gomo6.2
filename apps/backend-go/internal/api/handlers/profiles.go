@@ -163,6 +163,24 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		profiles = append(profiles, profile)
 	}
 
+	// Private profile: strip sensitive fields for non-friends
+	var viewerID string
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok {
+			viewerID = uc.UserID
+		}
+	}
+	for i := range profiles {
+		shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
+		if err == nil && shouldFilter {
+			if ps.PrivateHideAvatar {
+				profiles[i].AvatarURL = nil
+			}
+			profiles[i].Bio = nil
+			profiles[i].BioJSON = nil
+		}
+	}
+
 	profileCount := len(profiles)
 	c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: profiles, Count: &profileCount})
 }
@@ -209,6 +227,22 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 
 	if bioJSON.Valid && len(bioJSON.String) > 0 {
 		profile.BioJSON = json.RawMessage([]byte(bioJSON.String))
+	}
+
+	// Private profile: strip sensitive fields for non-friends
+	var viewerID string
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok {
+			viewerID = uc.UserID
+		}
+	}
+	shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, id)
+	if err == nil && shouldFilter {
+		if ps.PrivateHideAvatar {
+			profile.AvatarURL = nil
+		}
+		profile.Bio = nil
+		profile.BioJSON = nil
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(profile))

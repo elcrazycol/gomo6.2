@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -23,6 +24,21 @@ const profileWallAuthorJSON = `COALESCE(
 
 // handleProfileWallPostsGet — GET /profile_wall_posts with nested author (users join).
 func (h *UniversalHandler) handleProfileWallPostsGet(c *gin.Context) {
+	// Private profile: block wall posts from non-friends
+	if targetUserID := c.Query("user_id"); targetUserID != "" {
+		var viewerID string
+		if claims, exists := c.Get("claims"); exists {
+			if uc, ok := claims.(*auth.Claims); ok {
+				viewerID = uc.UserID
+			}
+		}
+		shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, targetUserID)
+		if err == nil && shouldFilter && ps.PrivateHideWall {
+			c.JSON(http.StatusOK, models.SuccessResponse([]interface{}{}))
+			return
+		}
+	}
+
 	query := `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
