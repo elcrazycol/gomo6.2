@@ -39,6 +39,8 @@ const defaultPrivacySettings = {
   private_hide_threads: true,
   private_hide_stats: true,
   private_hide_friends: true,
+  private_hide_gifts: true,
+  private_hide_achievements: true,
 };
 
 const themeOptions: Array<{
@@ -85,6 +87,8 @@ const Settings = () => {
     private_hide_threads: boolean;
     private_hide_stats: boolean;
     private_hide_friends: boolean;
+    private_hide_gifts: boolean;
+    private_hide_achievements: boolean;
   }
   const [privacyLoading, setPrivacyLoading] = useState(false);
   const [fontSettingsExpanded, setFontSettingsExpanded] = useState(false);
@@ -250,6 +254,8 @@ const Settings = () => {
         private_hide_threads: updatedSettings.private_hide_threads,
         private_hide_stats: updatedSettings.private_hide_stats,
         private_hide_friends: updatedSettings.private_hide_friends,
+        private_hide_gifts: updatedSettings.private_hide_gifts,
+        private_hide_achievements: updatedSettings.private_hide_achievements,
       };
 
       // Try to save to database
@@ -829,6 +835,22 @@ const Settings = () => {
                             <Switch
                               checked={privacySettings.private_hide_friends}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_friends', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать подарки</span>
+                            <Switch
+                              checked={privacySettings.private_hide_gifts}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_gifts', value)}
+                              disabled={privacyLoading || !privacySettings.private_profile}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span>Скрывать достижения</span>
+                            <Switch
+                              checked={privacySettings.private_hide_achievements}
+                              onCheckedChange={(value) => updatePrivacySetting('private_hide_achievements', value)}
                               disabled={privacyLoading || !privacySettings.private_profile}
                             />
                           </div>
