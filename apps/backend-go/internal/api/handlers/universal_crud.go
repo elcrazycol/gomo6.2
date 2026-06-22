@@ -127,6 +127,14 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 	case "friend_requests", "friendships":
 		fmt.Printf("[CacheInvalidator] Invalidating friends cache: %s\n", tableName)
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/friends*")
+	case "privacy_settings":
+		if userID, ok := result["user_id"].(string); ok && userID != "" {
+			fmt.Printf("[CacheInvalidator] Invalidating privacy_settings + profile cache: user_id=%s\n", userID)
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/privacy_settings*user_id=eq.%s*", userID))
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/friends*user_id=%s*", userID))
+		}
 	default:
 		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 		cache.InvalidateForTable(h.redis, tableName, values)
