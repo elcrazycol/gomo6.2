@@ -910,40 +910,27 @@ const Profile = () => {
             <PentagramLoader size="lg" />
           </div>
         )}
-        {!pageLoading && isLocked && (
+        {!pageLoading && (
           <div className="space-y-6">
-            <div className="bg-card border border-border rounded-lg p-6 text-center space-y-4">
-              {!privateHideAvatar && (
-                <div className="flex justify-center">
-                  <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center overflow-hidden">
-                    {avatarUrl ? (
-                      <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <User className="w-12 h-12 text-muted-foreground" />
-                    )}
-                  </div>
-                </div>
-              )}
-              <div>
-                <h1 className="text-xl font-bold">{profile.display_name || profile.username}</h1>
-                <p className="text-sm text-muted-foreground">@{profile.username}</p>
-              </div>
-              <div className="bg-muted/50 border border-border rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">Это приватный профиль</p>
-                <p className="text-xs text-muted-foreground mt-1">Владелец скрыл контент от не-друзей</p>
+          {/* Private profile banner */}
+          {isLocked && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-primary">
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+                <span>Приватный профиль — контент скрыт от не-друзей</span>
               </div>
               {!isOwnProfile && currentUser && (
                 <FriendButton userId={userId!} isOwnProfile={false} />
               )}
             </div>
-          </div>
-        )}
-        {!pageLoading && !isLocked && (
-          <div className="space-y-6">
+          )}
           {/* Profile Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               {/* Avatar */}
+              {(!isLocked || !privateHideAvatar) && (
               <div className="relative">
                 <div
                   className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
@@ -975,6 +962,7 @@ const Profile = () => {
                   </label>
                 )}
               </div>
+              )}
 
               {/* User Info */}
               <div className="flex-1">
@@ -1121,7 +1109,7 @@ const Profile = () => {
               {/** stats visibility logic */}
               {(() => {
                 const isOwn = currentUser?.id === userId;
-                const summaryAllowed = isOwn || showProfileStats;
+                const summaryAllowed = isOwn || (showProfileStats && (!isLocked || !privateHideStats));
                 if (!summaryAllowed) return null;
                 return (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
@@ -1161,7 +1149,7 @@ const Profile = () => {
                 );
               })()}
 
-              {profile.bio && (
+              {profile.bio && !isLocked && (
                 <div className="text-sm">
                   <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
                 </div>
@@ -1170,7 +1158,7 @@ const Profile = () => {
               {/* Profile Tabs */}
               <div className="border-b border-border overflow-x-auto">
                 <div className="flex gap-0 min-w-max">
-                  {showProfileWall && (
+                  {showProfileWall && (!isLocked || !privateHideWall) && (
                     <button
                       onClick={() => setActiveTab('wall')}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1192,7 +1180,7 @@ const Profile = () => {
                     >
                       Достижения ({achievements.length})
                     </button>
-                    {showThreadsTab && (
+                    {showThreadsTab && (!isLocked || !privateHideThreads) && (
                     <button
                       onClick={() => setActiveTab('threads')}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1217,11 +1205,13 @@ const Profile = () => {
                       Подарки ({giftCount})
                     </span>
                   </button>
+                  {(!isLocked || !privateHideFriends) && (
                   <FriendsTabButton
                     activeTab={activeTab}
                     onClick={() => setActiveTab('friends')}
                     userId={userId!}
                   />
+                  )}
                 </div>
               </div>
 
