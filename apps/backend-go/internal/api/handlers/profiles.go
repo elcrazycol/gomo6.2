@@ -178,6 +178,12 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			}
 			profiles[i].Bio = nil
 			profiles[i].BioJSON = nil
+			profiles[i].Email = nil
+			profiles[i].Garma = nil
+			profiles[i].PostCount = nil
+			profiles[i].ThreadCount = nil
+			profiles[i].IsOnline = false
+			profiles[i].LastSeen = nil
 		}
 	}
 
@@ -243,6 +249,12 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		}
 		profile.Bio = nil
 		profile.BioJSON = nil
+		profile.Email = nil
+		profile.Garma = nil
+		profile.PostCount = nil
+		profile.ThreadCount = nil
+		profile.IsOnline = false
+		profile.LastSeen = nil
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(profile))

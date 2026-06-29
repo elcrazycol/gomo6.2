@@ -351,6 +351,23 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	}
 	recipientID = strings.TrimPrefix(recipientID, "eq.")
 
+	// Private profile: hide gifts from non-friends
+	var viewerID string
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok {
+			viewerID = uc.UserID
+		}
+	}
+	canView, err := CanViewUserContent(h.db, viewerID, recipientID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+	if !canView {
+		c.JSON(http.StatusOK, models.SuccessResponseWithCount([]models.UserGift{}, 0))
+		return
+	}
+
 	limit := 50
 	offset := 0
 	if l := c.Query("limit"); l != "" {

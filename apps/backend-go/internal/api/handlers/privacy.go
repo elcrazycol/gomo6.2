@@ -78,3 +78,13 @@ func ShouldFilterPrivateProfile(db *sql.DB, viewerID, targetID string) (bool, *P
 	}
 	return true, ps, nil
 }
+
+// CanViewUserContent returns true if the viewer can see the target user's content.
+// Returns true if: profile is not private, viewer is empty/owner, or viewer is mutual friend.
+func CanViewUserContent(db *sql.DB, viewerID, targetUserID string) (bool, error) {
+	shouldFilter, _, err := ShouldFilterPrivateProfile(db, viewerID, targetUserID)
+	if err != nil {
+		return false, err
+	}
+	return !shouldFilter, nil
+}

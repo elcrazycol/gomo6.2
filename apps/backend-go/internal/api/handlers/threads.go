@@ -225,10 +225,27 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	}
 
 	// Handle user_id filter (eq.uuid)
+	var threadOwnerID string
 	if userID := c.Query("user_id"); userID != "" {
 		uid := strings.TrimPrefix(userID, "eq.")
+		threadOwnerID = uid
 		conditions = append(conditions, "t.user_id = $"+strconv.Itoa(len(args)+1))
 		args = append(args, uid)
+	}
+
+	// Private profile: hide threads from non-friends
+	if threadOwnerID != "" {
+		viewerID := h.getUserIDFromRequest(c)
+		canView, err := CanViewUserContent(h.db, viewerID, threadOwnerID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			return
+		}
+		if !canView {
+			emptyCount := 0
+			c.JSON(http.StatusOK, models.APIResponse{Success: true, Data: []models.ThreadWithBoards{}, Count: &emptyCount})
+			return
+		}
 	}
 
 	// Handle channel_id filter (eq.uuid, is.null)
