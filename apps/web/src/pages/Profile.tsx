@@ -204,7 +204,7 @@ const Profile = () => {
   const [privateHideFriends, setPrivateHideFriends] = useState(true);
   const [privateHideGifts, setPrivateHideGifts] = useState(true);
   const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
-  const [isMutualFriend, setIsMutualFriend] = useState(false);
+  const [isMutualFriend, setIsMutualFriend] = useState<boolean | null>(null);
   const [privacyChecked, setPrivacyChecked] = useState(false);
 
   useEffect(() => {
@@ -399,7 +399,11 @@ const Profile = () => {
           const friendRes = await fetch(`/api/v1/friends/status/${userId}`, { headers });
           const friendResult = await friendRes.json();
           setIsMutualFriend(friendResult.data?.status === 'friends');
-        } catch { /* not friends */ }
+        } catch {
+          setIsMutualFriend(false);
+        }
+      } else {
+        setIsMutualFriend(currentUser?.id === userId ? true : false);
       }
       setPrivacyChecked(true);
 
@@ -420,14 +424,14 @@ const Profile = () => {
 
   // Set default tab based on wall visibility
   useEffect(() => {
-    const locked = privateProfile && currentUser?.id !== userId && !isMutualFriend;
-    const wallVisible = showProfileWall && (!locked || !privateHideWall);
+    const isNonFriendOnPriv = privateProfile && privacyChecked && currentUser?.id !== userId && isMutualFriend === false;
+    const wallVisible = showProfileWall && (!isNonFriendOnPriv || !privateHideWall);
     if (wallVisible) {
       setActiveTab('wall');
     } else {
       setActiveTab('achievements');
     }
-  }, [showProfileWall, privateProfile, currentUser?.id, userId, isMutualFriend, privateHideWall]);
+  }, [showProfileWall, privateProfile, privacyChecked, currentUser?.id, userId, isMutualFriend, privateHideWall]);
 
   const loadAvatarHistory = async () => {
     if (!userId) return [];
@@ -909,7 +913,15 @@ const Profile = () => {
   }
 
   const isOwnProfile = currentUser?.id === userId;
-  const isLocked = privacyChecked && privateProfile && !isOwnProfile && !isMutualFriend;
+  const isPrivate = privateProfile && privacyChecked;
+  const friendshipLoaded = isMutualFriend !== null;
+  const isNonFriendOnPrivate = isPrivate && !isOwnProfile && isMutualFriend === false;
+  const showPrivateBanner = isNonFriendOnPrivate;
+
+  const canViewSection = (hidden: boolean) => {
+    if (!isNonFriendOnPrivate) return true;
+    return !hidden;
+  };
 
   return (
     <main className="max-w-2xl mx-auto p-4">
@@ -920,8 +932,8 @@ const Profile = () => {
         )}
         {!pageLoading && (
           <div className="space-y-6">
-          {/* Private profile banner — always visible when locked */}
-          {isLocked && (
+          {/* Private profile banner */}
+          {showPrivateBanner && (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-primary">
                 <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -935,12 +947,19 @@ const Profile = () => {
             </div>
           )}
 
-          {/* Everything below — hidden when locked */}
-          {!isLocked && (<>
+          {/* Loading state while friendship check is in progress */}
+          {privacyChecked && !friendshipLoaded && (
+            <div className="flex items-center justify-center py-8">
+              <PentagramLoader size="lg" />
+            </div>
+          )}
+
+          {/* Profile content */}
+          {friendshipLoaded && (<>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 sm:gap-4">
               {/* Avatar */}
-              {(!isLocked || !privateHideAvatar) && (
+              {canViewSection(privateHideAvatar) && (
               <div className="relative">
                 <div
                   className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
@@ -1119,7 +1138,7 @@ const Profile = () => {
               {/** stats visibility logic */}
               {(() => {
                 const isOwn = currentUser?.id === userId;
-                const summaryAllowed = isOwn || (showProfileStats && (!isLocked || !privateHideStats));
+                const summaryAllowed = isOwn || (showProfileStats && canViewSection(privateHideStats));
                 if (!summaryAllowed) return null;
                 return (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-3 sm:p-4 bg-post-header border border-border">
@@ -1159,7 +1178,7 @@ const Profile = () => {
                 );
               })()}
 
-              {profile.bio && !isLocked && (
+              {profile.bio && !isNonFriendOnPrivate && (
                 <div className="text-sm">
                   <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
                 </div>
@@ -1168,7 +1187,7 @@ const Profile = () => {
               {/* Profile Tabs */}
               <div className="border-b border-border overflow-x-auto">
                 <div className="flex gap-0 min-w-max">
-                  {showProfileWall && (!isLocked || !privateHideWall) && (
+                  {showProfileWall && canViewSection(privateHideWall) && (
                     <button
                       onClick={() => setActiveTab('wall')}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1180,7 +1199,7 @@ const Profile = () => {
                       Стена
                     </button>
                   )}
-                  {(!isLocked || !privateHideAchievements) && (
+                  {canViewSection(privateHideAchievements) && (
                   <button
                     onClick={() => setActiveTab('achievements')}
                     className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1192,7 +1211,7 @@ const Profile = () => {
                       Достижения ({achievements.length})
                     </button>
                   )}
-                    {showThreadsTab && (!isLocked || !privateHideThreads) && (
+                    {showThreadsTab && canViewSection(privateHideThreads) && (
                     <button
                       onClick={() => setActiveTab('threads')}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1204,7 +1223,7 @@ const Profile = () => {
                       Треды
                     </button>
                   )}
-                  {(!isLocked || !privateHideGifts) && (
+                  {canViewSection(privateHideGifts) && (
                   <button
                     onClick={() => setActiveTab('gifts')}
                     className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1219,7 +1238,7 @@ const Profile = () => {
                     </span>
                   </button>
                   )}
-                  {(!isLocked || !privateHideFriends) && (
+                  {canViewSection(privateHideFriends) && (
                   <FriendsTabButton
                     activeTab={activeTab}
                     onClick={() => setActiveTab('friends')}

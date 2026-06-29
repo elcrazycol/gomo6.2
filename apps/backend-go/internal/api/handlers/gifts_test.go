@@ -67,6 +67,13 @@ func TestGetUserGifts_MissingRecipientID(t *testing.T) {
 func TestGetUserGifts_Success(t *testing.T) {
 	handler, mock := setupGiftsHandler(t)
 
+	// CanViewUserContent → GetPrivacySettings
+	mock.ExpectQuery("SELECT (.+) FROM privacy_settings").WillReturnRows(sqlmock.NewRows([]string{
+		"private_profile", "private_hide_avatar", "private_hide_wall",
+		"private_hide_threads", "private_hide_stats", "private_hide_friends",
+		"private_hide_gifts", "private_hide_achievements",
+	}).AddRow(false, true, true, true, true, true, true, true))
+
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	rows := sqlmock.NewRows([]string{"id", "gift_id", "sender_id", "recipient_id", "message",
@@ -85,6 +92,13 @@ func TestGetUserGifts_Success(t *testing.T) {
 
 func TestGetUserGifts_LimitZero(t *testing.T) {
 	handler, mock := setupGiftsHandler(t)
+
+	// CanViewUserContent → GetPrivacySettings
+	mock.ExpectQuery("SELECT (.+) FROM privacy_settings").WillReturnRows(sqlmock.NewRows([]string{
+		"private_profile", "private_hide_avatar", "private_hide_wall",
+		"private_hide_threads", "private_hide_stats", "private_hide_friends",
+		"private_hide_gifts", "private_hide_achievements",
+	}).AddRow(false, true, true, true, true, true, true, true))
 
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 

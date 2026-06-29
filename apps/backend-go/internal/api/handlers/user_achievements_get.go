@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -77,6 +78,26 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	}
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+
+	// Private profile: hide achievements from non-friends
+	if userID := c.Query("user_id"); userID != "" {
+		uid := strings.TrimPrefix(userID, "eq.")
+		var viewerID string
+		if claims, exists := c.Get("claims"); exists {
+			if uc, ok := claims.(*auth.Claims); ok {
+				viewerID = uc.UserID
+			}
+		}
+		canView, err := CanViewUserContent(h.db, viewerID, uid)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			return
+		}
+		if !canView {
+			c.JSON(http.StatusOK, models.SuccessResponse([]map[string]interface{}{}))
+			return
+		}
 	}
 	if orders := c.QueryArray("order"); len(orders) > 0 {
 		joined := ""
