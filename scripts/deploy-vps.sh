@@ -57,6 +57,7 @@ pull_and_check ghcr.io/scramble22/gomo6-dev-dashboard
 
 # ── Restart containers (--no-build prevents falling back to local build) ────
 echo "[3/3] Restarting containers..."
+docker compose down --remove-orphans --timeout 30 || true
 docker compose up -d --remove-orphans --no-build
 
 # Clean old images
