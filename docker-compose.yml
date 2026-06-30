@@ -156,6 +156,7 @@ services:
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-dev-auto-generated-each-restart}
       SERVER_DOMAIN: ${DOMAIN:-localhost}
+      DOMAIN: ${DOMAIN:-localhost}
       FEDERATION_KEY: ${FEDERATION_KEY:-your-federation-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
