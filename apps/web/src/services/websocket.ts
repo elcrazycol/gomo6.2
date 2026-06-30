@@ -40,7 +40,8 @@ export type WebSocketMessageType =
   | 'message_edited'
   | 'message_deleted'
   | 'read_receipt'
-  | 'chat_typing';
+  | 'chat_typing'
+  | 'now_playing';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;

@@ -32,6 +32,7 @@ const (
 	MessageTypeUserOnline      = "user_online"
 	MessageTypeUserOffline     = "user_offline"
 	MessageTypeNewNotification = "new_notification"
+	MessageTypeNowPlaying      = "now_playing"
 	// Messenger-specific events
 	MessageTypeMessageEdited  = "message_edited"
 	MessageTypeMessageDeleted = "message_deleted"
@@ -307,6 +308,13 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 	case MessageTypeUserOnline, MessageTypeUserOffline:
 		// Broadcast user status to all connected clients
 		h.broadcast <- messageBytes
+
+	case "now_playing":
+		// Broadcast to the user's profile room so visitors see live updates
+		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
+			room := fmt.Sprintf("profile_now_playing_%s", userID)
+			h.BroadcastToRoom(room, messageBytes)
+		}
 
 	default:
 		// Broadcast to all clients for unknown types
