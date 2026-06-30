@@ -20,6 +20,17 @@ func NewAudioHandler() *AudioHandler {
 }
 
 // ExtractAudioMetadata extracts metadata from uploaded audio file
+//
+// ExtractAudioMetadata godoc
+// @Summary      Extract audio metadata
+// @Description  Extract metadata (title, artist, album) from an uploaded audio file
+// @Tags         Audio
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        audio formData file true "Audio file"
+// @Success      200 {object} object
+// @Failure      400 {object} models.APIResponse
+// @Router       /audio/metadata [post]
 func (h *AudioHandler) ExtractAudioMetadata(c *gin.Context) {
 	file, header, err := c.Request.FormFile("audio")
 	if err != nil {

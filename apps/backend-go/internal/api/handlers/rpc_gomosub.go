@@ -32,6 +32,20 @@ var gomosubSlugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,24}$`)
 
 // CreateGomoSub creates a new gomosub (board with is_gomosub=true).
 // POST /api/rpc/create_gomosub — protected, requires auth.
+//
+// CreateGomoSub godoc
+// @Summary      Create gomosub
+// @Description  Create a new gomosub (community board)
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "GomoSub data"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      409 {object} models.APIResponse
+// @Router       /rpc/create_gomosub [post]
+// @Security     BearerAuth
 func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {

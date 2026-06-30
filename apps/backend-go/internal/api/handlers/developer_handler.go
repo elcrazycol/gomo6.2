@@ -259,6 +259,17 @@ func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 }
 
 // GET /api/v1/developer/apps/:id/tokens
+//
+// ListTokens godoc
+// @Summary      List app tokens
+// @Description  List all access tokens for an OAuth application
+// @Tags         Developer
+// @Produce      json
+// @Param        id path string true "App ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /developer/apps/{id}/tokens [get]
+// @Security     BearerAuth
 func (h *DeveloperHandler) ListTokens(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	appID := c.Param("id")
@@ -277,6 +288,20 @@ func (h *DeveloperHandler) ListTokens(c *gin.Context) {
 }
 
 // POST /api/v1/developer/apps/:id/revoke-user-tokens
+//
+// RevokeUserTokens godoc
+// @Summary      Revoke user tokens
+// @Description  Revoke all tokens for a specific user on an OAuth application
+// @Tags         Developer
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "App ID"
+// @Param        request body object true "Target user"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /developer/apps/{id}/revoke-user-tokens [post]
+// @Security     BearerAuth
 func (h *DeveloperHandler) RevokeUserTokens(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	appID := c.Param("id")

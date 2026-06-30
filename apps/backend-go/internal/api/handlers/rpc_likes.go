@@ -83,6 +83,18 @@ func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
 }
 
 // HasUserLikedPost checks if a user liked a specific post.
+//
+// HasUserLikedPost godoc
+// @Summary      Check if user liked post
+// @Description  Check if a specific user has liked a specific post
+// @Tags         RPC
+// @Produce      json
+// @Param        post_uuid query string true "Post UUID"
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/has_user_liked_post [get]
+// @Security     BearerAuth
 func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 	postID := c.Query("post_uuid")
 	userID := c.Query("user_uuid")
@@ -116,6 +128,18 @@ func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 }
 
 // HasUserLikedThread checks if a user liked a specific thread.
+//
+// HasUserLikedThread godoc
+// @Summary      Check if user liked thread
+// @Description  Check if a specific user has liked a specific thread
+// @Tags         RPC
+// @Produce      json
+// @Param        thread_uuid query string true "Thread UUID"
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/has_user_liked_thread [get]
+// @Security     BearerAuth
 func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 	threadID := c.Query("thread_uuid")
 	userID := c.Query("user_uuid")
@@ -149,6 +173,17 @@ func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 }
 
 // GetUserLikesGivenCount returns total likes given by a user.
+//
+// GetUserLikesGivenCount godoc
+// @Summary      Get user likes given count
+// @Description  Get total number of post likes given by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_likes_given_count [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserLikesGivenCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
@@ -173,6 +208,17 @@ func (h *RPCHandler) GetUserLikesGivenCount(c *gin.Context) {
 }
 
 // GetUserLikesReceivedCount returns total likes received by a user (on their posts).
+//
+// GetUserLikesReceivedCount godoc
+// @Summary      Get user likes received count
+// @Description  Get total number of post likes received by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_likes_received_count [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
@@ -201,6 +247,17 @@ func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 }
 
 // GetUserThreadLikesGivenCount returns total thread likes given by a user.
+//
+// GetUserThreadLikesGivenCount godoc
+// @Summary      Get user thread likes given count
+// @Description  Get total number of thread likes given by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_thread_likes_given_count [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserThreadLikesGivenCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
@@ -225,6 +282,17 @@ func (h *RPCHandler) GetUserThreadLikesGivenCount(c *gin.Context) {
 }
 
 // GetUserThreadLikesReceivedCount returns total thread likes received by a user.
+//
+// GetUserThreadLikesReceivedCount godoc
+// @Summary      Get user thread likes received count
+// @Description  Get total number of thread likes received by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_thread_likes_received_count [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
@@ -253,6 +321,17 @@ func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 }
 
 // GetRecentPostLikers returns recent users who liked a post.
+//
+// GetRecentPostLikers godoc
+// @Summary      Get recent post likers
+// @Description  Get recent users who liked a specific post
+// @Tags         RPC
+// @Produce      json
+// @Param        post_uuid query string true "Post UUID"
+// @Param        limit_count query int false "Max results (1-50)" default(10)
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_recent_post_likers [get]
 func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	postID := c.Query("post_uuid")
 	limit := 10
@@ -323,6 +402,17 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 }
 
 // GetRecentThreadLikers returns recent users who liked a thread.
+//
+// GetRecentThreadLikers godoc
+// @Summary      Get recent thread likers
+// @Description  Get recent users who liked a specific thread
+// @Tags         RPC
+// @Produce      json
+// @Param        thread_uuid query string true "Thread UUID"
+// @Param        limit_count query int false "Max results (1-50)" default(10)
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_recent_thread_likers [get]
 func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	threadID := c.Query("thread_uuid")
 	limit := 10
@@ -393,6 +483,17 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 }
 
 // GetUserPostLikesReceivedTimestamps returns created_at for each like on posts authored by user_uuid.
+//
+// GetUserPostLikesReceivedTimestamps godoc
+// @Summary      Get post likes received timestamps
+// @Description  Get timestamps of all post likes received by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_post_likes_received_timestamps [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
@@ -444,6 +545,17 @@ type ThreadLikeBatchItem struct {
 
 // GetThreadLikesBatch returns like counts and user-like status for multiple threads in one query.
 // GET /api/rpc/get_thread_likes_batch?thread_ids=uuid1,uuid2,...&user_uuid=uuid
+//
+// GetThreadLikesBatch godoc
+// @Summary      Get thread likes batch
+// @Description  Get like counts and user-like status for multiple threads
+// @Tags         RPC
+// @Produce      json
+// @Param        thread_ids query string true "Comma-separated thread UUIDs"
+// @Param        user_uuid  query string false "User UUID for is_liked check"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_thread_likes_batch [get]
 func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
 	idsRaw := c.Query("thread_ids")
 	if idsRaw == "" {
@@ -542,6 +654,17 @@ func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
 }
 
 // GetUserThreadLikesReceivedTimestamps returns created_at for each like on threads authored by user_uuid.
+//
+// GetUserThreadLikesReceivedTimestamps godoc
+// @Summary      Get thread likes received timestamps
+// @Description  Get timestamps of all thread likes received by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_thread_likes_received_timestamps [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {
@@ -584,6 +707,17 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 }
 
 // GetUserThreadReplyTimestamps returns created_at for posts on threads owned by user_uuid written by others.
+//
+// GetUserThreadReplyTimestamps godoc
+// @Summary      Get thread reply timestamps
+// @Description  Get timestamps of replies on threads owned by a user
+// @Tags         RPC
+// @Produce      json
+// @Param        user_uuid query string true "User UUID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_user_thread_reply_timestamps [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 	userID := c.Query("user_uuid")
 	if userID == "" {

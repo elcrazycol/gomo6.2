@@ -113,6 +113,21 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 // Race-condition safe: uses the atomic find_or_create_conversation DB function
 // which handles concurrent creates via ON CONFLICT on the unique pair index.
 
+// GetOrCreateConversation creates or finds a 1:1 conversation.
+// POST /api/v1/messenger/conversations
+//
+// GetOrCreateConversation godoc
+// @Summary      Get or create conversation
+// @Description  Find or create a 1:1 conversation with another user
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "Target user"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /messenger/conversations [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -157,6 +172,20 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 // ─── Leave Conversation ──────────────────────────────────────────────────────
 // DELETE /api/v1/messenger/conversations/:id/leave
 
+// LeaveConversation removes the user from a conversation.
+// DELETE /api/v1/messenger/conversations/:id/leave
+//
+// LeaveConversation godoc
+// @Summary      Leave conversation
+// @Description  Remove yourself from a conversation
+// @Tags         Messenger
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/leave [delete]
+// @Security     BearerAuth
 func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {

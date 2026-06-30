@@ -343,6 +343,18 @@ func (h *GiftsHandler) findOrCreateConversationLegacy(user1, user2 string) (stri
 }
 
 // GetUserGifts — GET /api/v1/user_gifts (public)
+//
+// GetUserGifts godoc
+// @Summary      Get user gifts
+// @Description  Get gifts received by a user
+// @Tags         Gifts
+// @Produce      json
+// @Param        recipient_id query string true "Recipient user ID"
+// @Param        limit  query int false "Max results (1-100)" default(50)
+// @Param        offset query int false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /user_gifts [get]
 func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	recipientID := c.Query("recipient_id")
 	if recipientID == "" {

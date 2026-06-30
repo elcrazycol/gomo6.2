@@ -12,6 +12,19 @@ import (
 )
 
 // UpdatePassword sets a new password for the authenticated user (auth.updateUser compatibility).
+//
+// UpdatePassword godoc
+// @Summary      Update password
+// @Description  Set a new password for the authenticated user
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "New password"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/password [post]
+// @Security     BearerAuth
 func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

@@ -101,6 +101,17 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 }
 
 // GetBulkUserStatus returns status for multiple users at once
+//
+// GetBulkUserStatus godoc
+// @Summary      Get bulk user status
+// @Description  Get online status for multiple users at once (max 100)
+// @Tags         Users
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "User IDs"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /users/status/bulk [post]
 func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 	var request struct {
 		UserIDs []string `json:"user_ids" binding:"required"`
