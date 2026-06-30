@@ -118,6 +118,7 @@ jobs:
             done
             wait
             echo "All images pulled. Restarting..."
+            docker compose down --remove-orphans --timeout 30 || true
             docker compose up -d --remove-orphans --no-build
             docker image prune -f
             echo "=== Deploy done ==="
