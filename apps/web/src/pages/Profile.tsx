@@ -1187,7 +1187,8 @@ const Profile = () => {
                 </div>
               )}
 
-              {/* Profile Tabs */}
+              {/* Profile Tabs — hidden entirely for non-friends on private profiles */}
+              {!showPrivateBanner && (
               <div className="border-b border-border overflow-x-auto">
                 <div className="flex gap-0 min-w-max">
                   {showProfileWall && canViewSection(privateHideWall) && (
@@ -1250,11 +1251,13 @@ const Profile = () => {
                   )}
                 </div>
               </div>
+              )}
 
             </div>
           )}
 
-          {/* Tab Content */}
+          {/* Tab Content — hidden entirely for non-friends on private profiles */}
+          {!showPrivateBanner && (<>
           {activeTab === 'wall' && (
           <div>
               <ProfileWall
@@ -1385,6 +1388,7 @@ const Profile = () => {
               <FriendsList userId={userId} />
             </div>
           )}
+          </>)}
           </>)}
         </div>
         )}
