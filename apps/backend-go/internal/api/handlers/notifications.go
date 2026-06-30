@@ -280,6 +280,17 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
+// MarkAllAsRead marks all notifications as read.
+//
+// MarkAllAsRead godoc
+// @Summary      Mark all notifications as read
+// @Description  Mark all unread notifications as read
+// @Tags         Notifications
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /notifications/read-all [put]
+// @Security     BearerAuth
 func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

@@ -336,6 +336,19 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
+// GetThreadLikes returns the list of users who liked a thread.
+//
+// GetThreadLikes godoc
+// @Summary      Get thread likes
+// @Description  Get list of users who liked a specific thread
+// @Tags         Likes
+// @Produce      json
+// @Param        id path string true "Thread ID"
+// @Param        limit  query int false "Max results (1-50)" default(10)
+// @Param        offset query int false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /threads/{id}/likes [get]
 func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 	threadID := c.Param("id")
 

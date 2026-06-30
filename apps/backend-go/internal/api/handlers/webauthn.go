@@ -149,6 +149,16 @@ func (h *WebAuthnHandler) loadCredentials(userID string) ([]webauthn.Credential,
 
 // BeginRegistration starts passkey creation. Requires auth.
 // POST /api/v1/auth/webauthn/register/begin
+//
+// BeginRegistration godoc
+// @Summary      Begin passkey registration
+// @Description  Start passkey creation flow for the authenticated user
+// @Tags         WebAuthn
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/webauthn/register/begin [post]
+// @Security     BearerAuth
 func (h *WebAuthnHandler) BeginRegistration(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {
@@ -178,6 +188,18 @@ func (h *WebAuthnHandler) BeginRegistration(c *gin.Context) {
 
 // FinishRegistration completes passkey creation.
 // POST /api/v1/auth/webauthn/register/finish
+//
+// FinishRegistration godoc
+// @Summary      Finish passkey registration
+// @Description  Complete passkey creation flow
+// @Tags         WebAuthn
+// @Produce      json
+// @Param        name query string false "Passkey name"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/webauthn/register/finish [post]
+// @Security     BearerAuth
 func (h *WebAuthnHandler) FinishRegistration(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {
@@ -240,6 +262,15 @@ func (h *WebAuthnHandler) FinishRegistration(c *gin.Context) {
 
 // BeginLogin starts passkey authentication (discoverable — no username required).
 // GET /api/v1/auth/webauthn/login/begin
+//
+// BeginLogin godoc
+// @Summary      Begin passkey login
+// @Description  Start discoverable passkey authentication
+// @Tags         WebAuthn
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      500 {object} models.APIResponse
+// @Router       /auth/webauthn/login/begin [get]
 func (h *WebAuthnHandler) BeginLogin(c *gin.Context) {
 	assertion, session, err := h.wa.BeginDiscoverableLogin()
 	if err != nil {
@@ -262,6 +293,17 @@ func (h *WebAuthnHandler) BeginLogin(c *gin.Context) {
 
 // FinishLogin completes passkey authentication and returns JWT tokens.
 // POST /api/v1/auth/webauthn/login/finish?session_token=<hex>
+//
+// FinishLogin godoc
+// @Summary      Finish passkey login
+// @Description  Complete passkey authentication and receive JWT tokens
+// @Tags         WebAuthn
+// @Produce      json
+// @Param        session_token query string true "Session token from BeginLogin"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/webauthn/login/finish [post]
 func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 	sessionToken := c.Query("session_token")
 	if sessionToken == "" {
@@ -360,6 +402,16 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 
 // ListCredentials returns all passkeys for the authenticated user.
 // GET /api/v1/auth/webauthn/credentials
+//
+// ListCredentials godoc
+// @Summary      List passkeys
+// @Description  Get all registered passkeys for the authenticated user
+// @Tags         WebAuthn
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/webauthn/credentials [get]
+// @Security     BearerAuth
 func (h *WebAuthnHandler) ListCredentials(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {
@@ -414,6 +466,18 @@ func (h *WebAuthnHandler) ListCredentials(c *gin.Context) {
 
 // DeleteCredential removes a passkey for the authenticated user.
 // DELETE /api/v1/auth/webauthn/credentials/:credentialId
+//
+// DeleteCredential godoc
+// @Summary      Delete passkey
+// @Description  Remove a registered passkey
+// @Tags         WebAuthn
+// @Produce      json
+// @Param        credentialId path string true "Credential ID (base64url)"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/webauthn/credentials/{credentialId} [delete]
+// @Security     BearerAuth
 func (h *WebAuthnHandler) DeleteCredential(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {

@@ -37,6 +37,16 @@ func generateBotToken() (rawToken string, hash string, err error) {
 }
 
 // GET /api/v1/bots
+//
+// ListBots godoc
+// @Summary      List bots
+// @Description  List all bots owned by the authenticated user
+// @Tags         Bots
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /bots [get]
+// @Security     BearerAuth
 func (h *BotsHandler) ListBots(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 
@@ -63,6 +73,19 @@ func (h *BotsHandler) ListBots(c *gin.Context) {
 }
 
 // POST /api/v1/bots
+//
+// CreateBot godoc
+// @Summary      Create bot
+// @Description  Create a new bot (max 5 per account)
+// @Tags         Bots
+// @Accept       json
+// @Produce      json
+// @Param        request body models.CreateBotRequest true "Bot configuration"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      409 {object} models.APIResponse
+// @Router       /bots [post]
+// @Security     BearerAuth
 func (h *BotsHandler) CreateBot(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 
@@ -161,6 +184,17 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 }
 
 // GET /api/v1/bots/:id
+//
+// GetBot godoc
+// @Summary      Get bot
+// @Description  Get a bot by ID
+// @Tags         Bots
+// @Produce      json
+// @Param        id path string true "Bot ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /bots/{id} [get]
+// @Security     BearerAuth
 func (h *BotsHandler) GetBot(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	botID := c.Param("id")
@@ -183,6 +217,20 @@ func (h *BotsHandler) GetBot(c *gin.Context) {
 }
 
 // PUT /api/v1/bots/:id
+//
+// UpdateBot godoc
+// @Summary      Update bot
+// @Description  Update bot display name and description
+// @Tags         Bots
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Bot ID"
+// @Param        request body object true "Fields to update"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /bots/{id} [put]
+// @Security     BearerAuth
 func (h *BotsHandler) UpdateBot(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	botID := c.Param("id")
@@ -214,6 +262,17 @@ func (h *BotsHandler) UpdateBot(c *gin.Context) {
 }
 
 // DELETE /api/v1/bots/:id
+//
+// DeleteBot godoc
+// @Summary      Delete bot
+// @Description  Delete a bot and its associated user account
+// @Tags         Bots
+// @Produce      json
+// @Param        id path string true "Bot ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /bots/{id} [delete]
+// @Security     BearerAuth
 func (h *BotsHandler) DeleteBot(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	botID := c.Param("id")
@@ -258,6 +317,17 @@ func (h *BotsHandler) DeleteBot(c *gin.Context) {
 }
 
 // POST /api/v1/bots/:id/toggle
+//
+// ToggleBot godoc
+// @Summary      Toggle bot active status
+// @Description  Enable or disable a bot
+// @Tags         Bots
+// @Produce      json
+// @Param        id path string true "Bot ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /bots/{id}/toggle [post]
+// @Security     BearerAuth
 func (h *BotsHandler) ToggleBot(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	botID := c.Param("id")
@@ -280,6 +350,17 @@ func (h *BotsHandler) ToggleBot(c *gin.Context) {
 }
 
 // POST /api/v1/bots/:id/regenerate-token
+//
+// RegenerateToken godoc
+// @Summary      Regenerate bot token
+// @Description  Generate a new token for a bot (old token is invalidated)
+// @Tags         Bots
+// @Produce      json
+// @Param        id path string true "Bot ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /bots/{id}/regenerate-token [post]
+// @Security     BearerAuth
 func (h *BotsHandler) RegenerateToken(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	botID := c.Param("id")

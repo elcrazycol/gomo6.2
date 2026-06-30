@@ -25,6 +25,19 @@ func (h *GiftAdminHandler) isAdmin(userID string) bool {
 }
 
 // ListGifts — GET /api/v1/admin/gifts (admin only, includes inactive)
+//
+// ListGifts godoc
+// @Summary      List all gifts (admin)
+// @Description  List all gifts including inactive ones (admin only)
+// @Tags         Admin
+// @Produce      json
+// @Param        limit  query int false "Max results" default(100)
+// @Param        offset query int false "Offset for pagination"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /admin/gifts [get]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	if !h.isAdmin(claims.UserID) {
@@ -82,6 +95,20 @@ func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
 }
 
 // CreateGift — POST /api/v1/admin/gifts (admin only)
+//
+// CreateGift godoc
+// @Summary      Create gift (admin)
+// @Description  Create a new gift in the catalog (admin only)
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "Gift data"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /admin/gifts [post]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	if !h.isAdmin(claims.UserID) {
@@ -141,6 +168,21 @@ func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
 }
 
 // UpdateGift — PUT /api/v1/admin/gifts/:id (admin only)
+//
+// UpdateGift godoc
+// @Summary      Update gift (admin)
+// @Description  Update a gift in the catalog (admin only)
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Gift ID"
+// @Param        request body object true "Fields to update"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /admin/gifts/{id} [put]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	if !h.isAdmin(claims.UserID) {
@@ -246,6 +288,18 @@ func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
 }
 
 // DeleteGift — DELETE /api/v1/admin/gifts/:id (admin only, soft delete)
+//
+// DeleteGift godoc
+// @Summary      Delete gift (admin)
+// @Description  Soft-delete a gift by setting is_active=false (admin only)
+// @Tags         Admin
+// @Produce      json
+// @Param        id path string true "Gift ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /admin/gifts/{id} [delete]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	if !h.isAdmin(claims.UserID) {

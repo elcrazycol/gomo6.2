@@ -99,6 +99,18 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 // ─── Wall Post RPC ──────────────────────────────────────────────────────────
 
 // ToggleWallPostPin toggles the pin status of a wall post.
+//
+// ToggleWallPostPin godoc
+// @Summary      Toggle wall post pin
+// @Description  Pin or unpin a wall post
+// @Tags         RPC
+// @Produce      json
+// @Param        _post_id  query string true "Post ID"
+// @Param        _user_id  query string true "User ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/toggle_wall_post_pin [get]
+// @Security     BearerAuth
 func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	postID := c.Query("_post_id")
 	userID := c.Query("_user_id")
@@ -531,6 +543,18 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 // ─── Achievement RPCs ───────────────────────────────────────────────────────
 
 // ToggleAchievementPin toggles the pin status of an achievement.
+//
+// ToggleAchievementPin godoc
+// @Summary      Toggle achievement pin
+// @Description  Pin or unpin an achievement on profile
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "User and achievement IDs"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/toggle_achievement_pin [post]
+// @Security     BearerAuth
 func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 	var req struct {
 		UserID        string `json:"_user_id"`
@@ -627,6 +651,19 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 
 // AwardAchievement awards an achievement to a user (idempotent).
 // POST /api/rpc/award_achievement — protected, requires auth.
+//
+// AwardAchievement godoc
+// @Summary      Award achievement
+// @Description  Award an achievement to a user (idempotent)
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "User and achievement IDs"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /rpc/award_achievement [post]
+// @Security     BearerAuth
 func (h *RPCHandler) AwardAchievement(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -681,6 +718,18 @@ func (h *RPCHandler) AwardAchievement(c *gin.Context) {
 
 // GetBoardUserPermissions returns the user's effective permissions for a gomosub board.
 // Owner always gets all permissions. Non-owner gets permissions from their assigned role.
+//
+// GetBoardUserPermissions godoc
+// @Summary      Get board user permissions
+// @Description  Get the effective permissions for the authenticated user on a gomosub board
+// @Tags         RPC
+// @Produce      json
+// @Param        _board_id query string true "Board ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /rpc/get_board_user_permissions [get]
+// @Security     BearerAuth
 func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {

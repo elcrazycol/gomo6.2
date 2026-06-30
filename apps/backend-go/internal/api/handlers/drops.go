@@ -146,6 +146,17 @@ type DropsConfigRequest struct {
 const pricePerDropUSD = 0.02
 
 // DropsConfig — POST /api/v1/drops/config (public, dynamic config for DePay Widget)
+//
+// DropsConfig godoc
+// @Summary      Get drops payment config
+// @Description  Dynamic payment configuration for DePay Widget integration
+// @Tags         Drops
+// @Accept       json
+// @Produce      json
+// @Param        request body DropsConfigRequest true "Payment request"
+// @Success      200 {object} object
+// @Failure      400 {object} models.APIResponse
+// @Router       /drops/config [post]
 func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	rawBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -280,6 +291,18 @@ type DePayCallbackRequest struct {
 }
 
 // DropsCallback — POST /api/v1/drops/callback (public, DePay webhook)
+//
+// DropsCallback godoc
+// @Summary      DePay payment callback
+// @Description  Webhook callback from DePay after successful payment
+// @Tags         Drops
+// @Accept       json
+// @Produce      json
+// @Param        request body DePayCallbackRequest true "Payment callback"
+// @Success      200 {object} object
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /drops/callback [post]
 func (h *DropsHandler) DropsCallback(c *gin.Context) {
 	log.Printf("[Drops] Callback received from %s", c.ClientIP())
 
@@ -412,6 +435,19 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 }
 
 // GetDropsHistory — GET /api/v1/drops/history (protected)
+//
+// GetDropsHistory godoc
+// @Summary      Get drops transaction history
+// @Description  Get drops transaction history for the authenticated user
+// @Tags         Drops
+// @Produce      json
+// @Param        offset query int    false "Offset for pagination"
+// @Param        limit  query int    false "Max results (1-50)" default(20)
+// @Param        type   query string false "Filter by transaction type"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /drops/history [get]
+// @Security     BearerAuth
 func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	userID := claims.UserID
@@ -470,6 +506,19 @@ type ManualVerifyRequest struct {
 }
 
 // ManualVerify — POST /api/v1/drops/manual-verify (protected)
+//
+// ManualVerify godoc
+// @Summary      Manually verify drops payment
+// @Description  Manually verify a drops payment by transaction hash
+// @Tags         Drops
+// @Accept       json
+// @Produce      json
+// @Param        request body ManualVerifyRequest true "Transaction details"
+// @Success      200 {object} object
+// @Failure      400 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /drops/manual-verify [post]
+// @Security     BearerAuth
 func (h *DropsHandler) ManualVerify(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	userID := claims.UserID
@@ -537,6 +586,16 @@ func (h *DropsHandler) ManualVerify(c *gin.Context) {
 }
 
 // GetWalletInfo — GET /api/v1/drops/wallet (protected)
+//
+// GetWalletInfo godoc
+// @Summary      Get wallet info
+// @Description  Get wallet address and drops balance for the authenticated user
+// @Tags         Drops
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /drops/wallet [get]
+// @Security     BearerAuth
 func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	userID := claims.UserID
@@ -554,6 +613,19 @@ func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
 }
 
 // TransferDrops — POST /api/v1/drops/transfer (protected)
+//
+// TransferDrops godoc
+// @Summary      Transfer drops
+// @Description  Transfer drops to another user
+// @Tags         Drops
+// @Accept       json
+// @Produce      json
+// @Param        request body models.TransferDropsRequest true "Transfer details"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /drops/transfer [post]
+// @Security     BearerAuth
 func (h *DropsHandler) TransferDrops(c *gin.Context) {
 	claims := c.MustGet("claims").(*auth.Claims)
 	senderID := claims.UserID
@@ -708,6 +780,17 @@ func (h *DropsHandler) TransferDrops(c *gin.Context) {
 }
 
 // SearchUsers — GET /api/v1/drops/users/search?q=... (protected)
+//
+// SearchUsers godoc
+// @Summary      Search users for drops transfer
+// @Description  Search users by username or wallet address
+// @Tags         Drops
+// @Produce      json
+// @Param        q query string true "Search query"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /drops/users/search [get]
+// @Security     BearerAuth
 func (h *DropsHandler) SearchUsers(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if len(q) < 1 {

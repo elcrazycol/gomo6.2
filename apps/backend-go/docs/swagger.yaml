@@ -1,5 +1,14 @@
 basePath: /api/v1
 definitions:
+  handlers.DePayCallbackRequest:
+    type: object
+  handlers.DropsConfigRequest:
+    properties:
+      drops_amount:
+        type: integer
+      user_id:
+        type: string
+    type: object
   handlers.EditMessageRequest:
     properties:
       content:
@@ -7,6 +16,23 @@ definitions:
         type: string
     required:
     - content
+    type: object
+  handlers.ManualVerifyRequest:
+    properties:
+      blockchain:
+        type: string
+      tx_hash:
+        type: string
+    required:
+    - blockchain
+    - tx_hash
+    type: object
+  handlers.MarkReadRequest:
+    properties:
+      message_id:
+        type: string
+    required:
+    - message_id
     type: object
   handlers.SendMessageRequest:
     properties:
@@ -76,6 +102,17 @@ definitions:
       visibility:
         type: string
     type: object
+  models.CreateBotRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      username:
+        type: string
+    required:
+    - username
+    type: object
   models.CreatePostRequest:
     type: object
   models.CreateThreadRequest:
@@ -94,6 +131,13 @@ definitions:
         description: Honeypot field — must be empty
         type: string
     type: object
+  models.SendFriendRequest:
+    properties:
+      receiver_id:
+        type: string
+    required:
+    - receiver_id
+    type: object
   models.SendGiftRequest:
     properties:
       gift_id:
@@ -107,6 +151,20 @@ definitions:
     required:
     - gift_id
     - recipient_id
+    type: object
+  models.TransferDropsRequest:
+    properties:
+      amount:
+        minimum: 1
+        type: integer
+      description:
+        type: string
+      recipient_address:
+        type: string
+      recipient_username:
+        type: string
+    required:
+    - amount
     type: object
   oauth.CreateAppRequest:
     properties:
@@ -140,6 +198,169 @@ info:
   title: gomo6 API
   version: "1.0"
 paths:
+  /admin/gifts:
+    get:
+      description: List all gifts including inactive ones (admin only)
+      parameters:
+      - default: 100
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List all gifts (admin)
+      tags:
+      - Admin
+    post:
+      consumes:
+      - application/json
+      description: Create a new gift in the catalog (admin only)
+      parameters:
+      - description: Gift data
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create gift (admin)
+      tags:
+      - Admin
+  /admin/gifts/{id}:
+    delete:
+      description: Soft-delete a gift by setting is_active=false (admin only)
+      parameters:
+      - description: Gift ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete gift (admin)
+      tags:
+      - Admin
+    put:
+      consumes:
+      - application/json
+      description: Update a gift in the catalog (admin only)
+      parameters:
+      - description: Gift ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update gift (admin)
+      tags:
+      - Admin
+  /audio/metadata:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Extract metadata (title, artist, album) from an uploaded audio
+        file
+      parameters:
+      - description: Audio file
+        in: formData
+        name: audio
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Extract audio metadata
+      tags:
+      - Audio
   /auth/2fa/disable:
     post:
       description: Disable 2FA for the authenticated user
@@ -290,6 +511,38 @@ paths:
       summary: Get current user
       tags:
       - Auth
+  /auth/password:
+    post:
+      consumes:
+      - application/json
+      description: Set a new password for the authenticated user
+      parameters:
+      - description: New password
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update password
+      tags:
+      - Auth
   /auth/refresh:
     post:
       consumes:
@@ -370,6 +623,145 @@ paths:
       summary: Verify 2FA code
       tags:
       - Auth
+  /auth/webauthn/credentials:
+    get:
+      description: Get all registered passkeys for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List passkeys
+      tags:
+      - WebAuthn
+  /auth/webauthn/credentials/{credentialId}:
+    delete:
+      description: Remove a registered passkey
+      parameters:
+      - description: Credential ID (base64url)
+        in: path
+        name: credentialId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete passkey
+      tags:
+      - WebAuthn
+  /auth/webauthn/login/begin:
+    get:
+      description: Start discoverable passkey authentication
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Begin passkey login
+      tags:
+      - WebAuthn
+  /auth/webauthn/login/finish:
+    post:
+      description: Complete passkey authentication and receive JWT tokens
+      parameters:
+      - description: Session token from BeginLogin
+        in: query
+        name: session_token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Finish passkey login
+      tags:
+      - WebAuthn
+  /auth/webauthn/register/begin:
+    post:
+      description: Start passkey creation flow for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Begin passkey registration
+      tags:
+      - WebAuthn
+  /auth/webauthn/register/finish:
+    post:
+      description: Complete passkey creation flow
+      parameters:
+      - description: Passkey name
+        in: query
+        name: name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Finish passkey registration
+      tags:
+      - WebAuthn
   /boards:
     get:
       description: Get a list of boards with optional filters
@@ -562,6 +954,191 @@ paths:
       summary: Delete invite
       tags:
       - Boards
+  /bots:
+    get:
+      description: List all bots owned by the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List bots
+      tags:
+      - Bots
+    post:
+      consumes:
+      - application/json
+      description: Create a new bot (max 5 per account)
+      parameters:
+      - description: Bot configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateBotRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create bot
+      tags:
+      - Bots
+  /bots/{id}:
+    delete:
+      description: Delete a bot and its associated user account
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete bot
+      tags:
+      - Bots
+    get:
+      description: Get a bot by ID
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get bot
+      tags:
+      - Bots
+    put:
+      consumes:
+      - application/json
+      description: Update bot display name and description
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Update bot
+      tags:
+      - Bots
+  /bots/{id}/regenerate-token:
+    post:
+      description: Generate a new token for a bot (old token is invalidated)
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Regenerate bot token
+      tags:
+      - Bots
+  /bots/{id}/toggle:
+    post:
+      description: Enable or disable a bot
+      parameters:
+      - description: Bot ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Toggle bot active status
+      tags:
+      - Bots
   /developer/apps:
     get:
       description: List all OAuth applications owned by the authenticated user
@@ -708,6 +1285,189 @@ paths:
       summary: Regenerate client secret
       tags:
       - Developer
+  /developer/apps/{id}/revoke-user-tokens:
+    post:
+      consumes:
+      - application/json
+      description: Revoke all tokens for a specific user on an OAuth application
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Target user
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke user tokens
+      tags:
+      - Developer
+  /developer/apps/{id}/tokens:
+    get:
+      description: List all access tokens for an OAuth application
+      parameters:
+      - description: App ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: List app tokens
+      tags:
+      - Developer
+  /drops/callback:
+    post:
+      consumes:
+      - application/json
+      description: Webhook callback from DePay after successful payment
+      parameters:
+      - description: Payment callback
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.DePayCallbackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: DePay payment callback
+      tags:
+      - Drops
+  /drops/config:
+    post:
+      consumes:
+      - application/json
+      description: Dynamic payment configuration for DePay Widget integration
+      parameters:
+      - description: Payment request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.DropsConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get drops payment config
+      tags:
+      - Drops
+  /drops/history:
+    get:
+      description: Get drops transaction history for the authenticated user
+      parameters:
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - default: 20
+        description: Max results (1-50)
+        in: query
+        name: limit
+        type: integer
+      - description: Filter by transaction type
+        in: query
+        name: type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get drops transaction history
+      tags:
+      - Drops
+  /drops/manual-verify:
+    post:
+      consumes:
+      - application/json
+      description: Manually verify a drops payment by transaction hash
+      parameters:
+      - description: Transaction details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ManualVerifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Manually verify drops payment
+      tags:
+      - Drops
   /drops/packages:
     get:
       description: List available drops purchase packages
@@ -721,6 +1481,307 @@ paths:
       summary: Get drops packages
       tags:
       - Drops
+  /drops/transfer:
+    post:
+      consumes:
+      - application/json
+      description: Transfer drops to another user
+      parameters:
+      - description: Transfer details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.TransferDropsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Transfer drops
+      tags:
+      - Drops
+  /drops/users/search:
+    get:
+      description: Search users by username or wallet address
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Search users for drops transfer
+      tags:
+      - Drops
+  /drops/wallet:
+    get:
+      description: Get wallet address and drops balance for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get wallet info
+      tags:
+      - Drops
+  /friends:
+    get:
+      description: Get list of friends for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get friends list
+      tags:
+      - Friends
+  /friends/{userId}:
+    delete:
+      description: Remove a user from your friends
+      parameters:
+      - description: User ID to remove
+        in: path
+        name: userId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove friend
+      tags:
+      - Friends
+  /friends/request:
+    post:
+      description: Send a friend request to another user
+      parameters:
+      - description: Friend request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/models.SendFriendRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Send friend request
+      tags:
+      - Friends
+  /friends/request/{id}:
+    delete:
+      description: Cancel a friend request you sent
+      parameters:
+      - description: Friend request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel outgoing friend request
+      tags:
+      - Friends
+  /friends/request/{id}/accept:
+    put:
+      description: Accept an incoming friend request
+      parameters:
+      - description: Friend request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Accept friend request
+      tags:
+      - Friends
+  /friends/request/{id}/reject:
+    put:
+      description: Reject an incoming friend request
+      parameters:
+      - description: Friend request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Reject friend request
+      tags:
+      - Friends
+  /friends/requests:
+    get:
+      description: Get pending friend requests sent to the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get incoming friend requests
+      tags:
+      - Friends
+  /friends/status/{userId}:
+    get:
+      description: Get the friendship status with another user
+      parameters:
+      - description: User ID
+        in: path
+        name: userId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get friend status
+      tags:
+      - Friends
   /gift_catalog:
     get:
       description: List all available gifts in the catalog
@@ -837,6 +1898,103 @@ paths:
       security:
       - BearerAuth: []
       summary: List conversations
+      tags:
+      - Messenger
+    post:
+      consumes:
+      - application/json
+      description: Find or create a 1:1 conversation with another user
+      parameters:
+      - description: Target user
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get or create conversation
+      tags:
+      - Messenger
+  /messenger/conversations/{id}/delivered:
+    post:
+      consumes:
+      - application/json
+      description: Mark all messages up to a given message as delivered
+      parameters:
+      - description: Conversation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Last delivered message
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark messages as delivered
+      tags:
+      - Messenger
+  /messenger/conversations/{id}/leave:
+    delete:
+      description: Remove yourself from a conversation
+      parameters:
+      - description: Conversation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Leave conversation
       tags:
       - Messenger
   /messenger/conversations/{id}/messages:
@@ -972,6 +2130,133 @@ paths:
       summary: Edit message
       tags:
       - Messenger
+  /messenger/conversations/{id}/pin:
+    post:
+      consumes:
+      - application/json
+      description: Pin or unpin a message in a conversation
+      parameters:
+      - description: Conversation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Message to pin
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Toggle pin message
+      tags:
+      - Messenger
+  /messenger/conversations/{id}/read:
+    post:
+      consumes:
+      - application/json
+      description: Mark all messages up to a given message as read
+      parameters:
+      - description: Conversation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Last read message
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.MarkReadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark messages as read
+      tags:
+      - Messenger
+  /messenger/conversations/{id}/receipts:
+    get:
+      description: Get read and delivered receipts for messages in a conversation
+      parameters:
+      - description: Conversation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 500
+        description: Max results
+        in: query
+        name: limit
+        type: integer
+      - description: 'Cursor: get receipts before this message ID'
+        in: query
+        name: before
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get message receipts
+      tags:
+      - Messenger
+  /messenger/unread-count:
+    get:
+      description: Get total unread message count across all conversations
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get unread message count
+      tags:
+      - Messenger
   /notifications:
     get:
       description: Get notifications for the authenticated user
@@ -1028,6 +2313,25 @@ paths:
       security:
       - BearerAuth: []
       summary: Mark notification as read
+      tags:
+      - Notifications
+  /notifications/read-all:
+    put:
+      description: Mark all unread notifications as read
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark all notifications as read
       tags:
       - Notifications
   /notifications/unread-count:
@@ -1290,6 +2594,74 @@ paths:
       summary: Update profile
       tags:
       - Profiles
+  /rpc/award_achievement:
+    post:
+      consumes:
+      - application/json
+      description: Award an achievement to a user (idempotent)
+      parameters:
+      - description: User and achievement IDs
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Award achievement
+      tags:
+      - RPC
+  /rpc/create_gomosub:
+    post:
+      consumes:
+      - application/json
+      description: Create a new gomosub (community board)
+      parameters:
+      - description: GomoSub data
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Create gomosub
+      tags:
+      - RPC
   /rpc/create_post:
     post:
       consumes:
@@ -1346,6 +2718,36 @@ paths:
       summary: Create thread (RPC)
       tags:
       - RPC
+  /rpc/get_board_user_permissions:
+    get:
+      description: Get the effective permissions for the authenticated user on a gomosub
+        board
+      parameters:
+      - description: Board ID
+        in: query
+        name: _board_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get board user permissions
+      tags:
+      - RPC
   /rpc/get_post_likes_count:
     get:
       description: Get the number of likes for a post
@@ -1369,6 +2771,89 @@ paths:
       summary: Get post likes count
       tags:
       - RPC
+  /rpc/get_recent_post_likers:
+    get:
+      description: Get recent users who liked a specific post
+      parameters:
+      - description: Post UUID
+        in: query
+        name: post_uuid
+        required: true
+        type: string
+      - default: 10
+        description: Max results (1-50)
+        in: query
+        name: limit_count
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get recent post likers
+      tags:
+      - RPC
+  /rpc/get_recent_thread_likers:
+    get:
+      description: Get recent users who liked a specific thread
+      parameters:
+      - description: Thread UUID
+        in: query
+        name: thread_uuid
+        required: true
+        type: string
+      - default: 10
+        description: Max results (1-50)
+        in: query
+        name: limit_count
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get recent thread likers
+      tags:
+      - RPC
+  /rpc/get_thread_likes_batch:
+    get:
+      description: Get like counts and user-like status for multiple threads
+      parameters:
+      - description: Comma-separated thread UUIDs
+        in: query
+        name: thread_ids
+        required: true
+        type: string
+      - description: User UUID for is_liked check
+        in: query
+        name: user_uuid
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get thread likes batch
+      tags:
+      - RPC
   /rpc/get_thread_likes_count:
     get:
       description: Get the number of likes for a thread
@@ -1390,6 +2875,299 @@ paths:
           schema:
             $ref: '#/definitions/models.APIResponse'
       summary: Get thread likes count
+      tags:
+      - RPC
+  /rpc/get_user_likes_given_count:
+    get:
+      description: Get total number of post likes given by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user likes given count
+      tags:
+      - RPC
+  /rpc/get_user_likes_received_count:
+    get:
+      description: Get total number of post likes received by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user likes received count
+      tags:
+      - RPC
+  /rpc/get_user_post_likes_received_timestamps:
+    get:
+      description: Get timestamps of all post likes received by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get post likes received timestamps
+      tags:
+      - RPC
+  /rpc/get_user_thread_likes_given_count:
+    get:
+      description: Get total number of thread likes given by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user thread likes given count
+      tags:
+      - RPC
+  /rpc/get_user_thread_likes_received_count:
+    get:
+      description: Get total number of thread likes received by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user thread likes received count
+      tags:
+      - RPC
+  /rpc/get_user_thread_likes_received_timestamps:
+    get:
+      description: Get timestamps of all thread likes received by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get thread likes received timestamps
+      tags:
+      - RPC
+  /rpc/get_user_thread_reply_timestamps:
+    get:
+      description: Get timestamps of replies on threads owned by a user
+      parameters:
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Get thread reply timestamps
+      tags:
+      - RPC
+  /rpc/has_user_liked_post:
+    get:
+      description: Check if a specific user has liked a specific post
+      parameters:
+      - description: Post UUID
+        in: query
+        name: post_uuid
+        required: true
+        type: string
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Check if user liked post
+      tags:
+      - RPC
+  /rpc/has_user_liked_thread:
+    get:
+      description: Check if a specific user has liked a specific thread
+      parameters:
+      - description: Thread UUID
+        in: query
+        name: thread_uuid
+        required: true
+        type: string
+      - description: User UUID
+        in: query
+        name: user_uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Check if user liked thread
+      tags:
+      - RPC
+  /rpc/toggle_achievement_pin:
+    post:
+      consumes:
+      - application/json
+      description: Pin or unpin an achievement on profile
+      parameters:
+      - description: User and achievement IDs
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Toggle achievement pin
+      tags:
+      - RPC
+  /rpc/toggle_wall_post_pin:
+    get:
+      description: Pin or unpin a wall post
+      parameters:
+      - description: Post ID
+        in: query
+        name: _post_id
+        required: true
+        type: string
+      - description: User ID
+        in: query
+        name: _user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      security:
+      - BearerAuth: []
+      summary: Toggle wall post pin
       tags:
       - RPC
   /search:
@@ -1568,6 +3346,38 @@ paths:
       summary: Like a thread
       tags:
       - Likes
+  /threads/{id}/likes:
+    get:
+      description: Get list of users who liked a specific thread
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 10
+        description: Max results (1-50)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get thread likes
+      tags:
+      - Likes
   /user/drops:
     get:
       description: Get the authenticated user's drops balance
@@ -1587,6 +3397,38 @@ paths:
       summary: Get drops balance
       tags:
       - Drops
+  /user_gifts:
+    get:
+      description: Get gifts received by a user
+      parameters:
+      - description: Recipient user ID
+        in: query
+        name: recipient_id
+        required: true
+        type: string
+      - default: 50
+        description: Max results (1-100)
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get user gifts
+      tags:
+      - Gifts
   /users/{id}/status:
     get:
       description: Get the online status of a specific user
@@ -1621,6 +3463,32 @@ paths:
           schema:
             $ref: '#/definitions/models.APIResponse'
       summary: Get online users
+      tags:
+      - Users
+  /users/status/bulk:
+    post:
+      consumes:
+      - application/json
+      description: Get online status for multiple users at once (max 100)
+      parameters:
+      - description: User IDs
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.APIResponse'
+      summary: Get bulk user status
       tags:
       - Users
 schemes:

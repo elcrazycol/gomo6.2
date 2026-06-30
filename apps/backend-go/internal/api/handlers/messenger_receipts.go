@@ -16,6 +16,22 @@ import (
 //
 // Uses a single transaction for consistency.
 
+// MarkRead marks messages as read up to a given message.
+// POST /api/v1/messenger/conversations/:id/read
+//
+// MarkRead godoc
+// @Summary      Mark messages as read
+// @Description  Mark all messages up to a given message as read
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        request body MarkReadRequest true "Last read message"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/read [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -114,6 +130,22 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 // ─── Mark Delivered ─────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/delivered
 
+// MarkDelivered marks messages as delivered.
+// POST /api/v1/messenger/conversations/:id/delivered
+//
+// MarkDelivered godoc
+// @Summary      Mark messages as delivered
+// @Description  Mark all messages up to a given message as delivered
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        request body object true "Last delivered message"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/delivered [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -177,6 +209,18 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 // ─── Get Unread Count ───────────────────────────────────────────────────────
 // GET /api/v1/messenger/unread-count
 
+// GetUnreadCount returns total unread message count across all conversations.
+// GET /api/v1/messenger/unread-count
+//
+// GetUnreadCount godoc
+// @Summary      Get unread message count
+// @Description  Get total unread message count across all conversations
+// @Tags         Messenger
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /messenger/unread-count [get]
+// @Security     BearerAuth
 func (h *MessengerHandler) GetUnreadCount(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -200,6 +244,21 @@ func (h *MessengerHandler) GetUnreadCount(c *gin.Context) {
 // ─── Get Receipts ───────────────────────────────────────────────────────────
 // GET /api/v1/messenger/conversations/:id/receipts
 
+// GetReceipts returns read/delivered receipts for messages in a conversation.
+// GET /api/v1/messenger/conversations/:id/receipts
+//
+// GetReceipts godoc
+// @Summary      Get message receipts
+// @Description  Get read and delivered receipts for messages in a conversation
+// @Tags         Messenger
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        limit  query int    false "Max results" default(500)
+// @Param        before query string false "Cursor: get receipts before this message ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/receipts [get]
+// @Security     BearerAuth
 func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -291,6 +350,22 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 // ─── Toggle Pin ─────────────────────────────────────────────────────────────
 // POST /api/v1/messenger/conversations/:id/pin
 
+// TogglePin pins or unpins a message in a conversation.
+// POST /api/v1/messenger/conversations/:id/pin
+//
+// TogglePin godoc
+// @Summary      Toggle pin message
+// @Description  Pin or unpin a message in a conversation
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        request body object true "Message to pin"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/pin [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
