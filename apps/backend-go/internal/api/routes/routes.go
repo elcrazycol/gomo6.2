@@ -572,6 +572,27 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		bots.POST("/:id/regenerate-token", botsHandler.RegenerateToken)
 	}
 
+	// Integrations (Spotify, etc.)
+	integrationsHandler := handlers.NewIntegrationsHandler(db)
+
+	integrationsGroup := api.Group("/integrations")
+	{
+		// Spotify — public now-playing endpoint
+		integrationsGroup.GET("/spotify/now-playing/:user_id", integrationsHandler.GetSpotifyNowPlaying)
+
+		// Spotify OAuth callback — no auth, receives redirect from Spotify
+		integrationsGroup.GET("/spotify/callback", integrationsHandler.SpotifyCallback)
+
+		// Protected endpoints (require auth)
+		integrationsProtected := integrationsGroup.Group("")
+		integrationsProtected.Use(middleware.AuthMiddleware(authService))
+		{
+			integrationsProtected.GET("/spotify/auth-url", integrationsHandler.GetSpotifyAuthURL)
+			integrationsProtected.GET("/spotify/status", integrationsHandler.GetSpotifyStatus)
+			integrationsProtected.DELETE("/spotify/disconnect", integrationsHandler.DisconnectSpotify)
+		}
+	}
+
 	// WebSocket endpoint — auth via first message, not URL query string.
 	if wsHandler != nil {
 		router.GET("/ws", wsHandler.HandleWebSocket)

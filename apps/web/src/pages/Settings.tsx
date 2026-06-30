@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronDown, HelpCircle, Type, Palette } from "lucide-react";
+import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2 } from "lucide-react";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
@@ -99,6 +99,13 @@ const Settings = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // Spotify integration state
+  const [spotifyConnected, setSpotifyConnected] = useState(false);
+  const [spotifyName, setSpotifyName] = useState<string | null>(null);
+  const [spotifyAvatar, setSpotifyAvatar] = useState<string | null>(null);
+  const [spotifyLoading, setSpotifyLoading] = useState(false);
+  const [spotifyAuthUrl, setSpotifyAuthUrl] = useState<string | null>(null);
+
   // Theme settings
   const [{ colorTheme, isDarkMode }, setThemeState] = useState(() => {
     const stored = getStoredTheme();
@@ -112,7 +119,7 @@ const Settings = () => {
   const [senderDisplayType, setSenderDisplayType] = useState<'classic' | 'modern'>(() => {
     return (localStorage.getItem('sender-display-type') as 'classic' | 'modern' | null) || 'classic';
   });
-  const settingsTabs = useMemo(() => ["appearance", "profile", "account", "privacy"] as const, []);
+  const settingsTabs = useMemo(() => ["appearance", "profile", "account", "privacy", "integrations"] as const, []);
   const currentTab = useMemo(() => {
     const pathPart = location.pathname.split("/")[2] || "appearance";
     return settingsTabs.includes(pathPart as (typeof settingsTabs)[number]) ? pathPart : "appearance";
@@ -405,6 +412,90 @@ const Settings = () => {
     navigate(`/settings/${value}`);
   };
 
+  // Spotify integration handlers
+  const loadSpotifyStatus = useCallback(async () => {
+    if (!user) return;
+    try {
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const res = await fetch('/api/v1/integrations/spotify/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setSpotifyConnected(data.connected);
+      setSpotifyName(data.spotify_name || null);
+      setSpotifyAvatar(data.spotify_avatar || null);
+    } catch {
+      // ignore
+    }
+  }, [user]);
+
+  const handleSpotifyConnect = async () => {
+    if (!user) return;
+    setSpotifyLoading(true);
+    try {
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const res = await fetch('/api/v1/integrations/spotify/auth-url', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.auth_url) {
+        setSpotifyAuthUrl(data.auth_url);
+      } else {
+        toast.error('Не удалось получить ссылку для авторизации');
+      }
+    } catch {
+      toast.error('Ошибка подключения к Spotify');
+    } finally {
+      setSpotifyLoading(false);
+    }
+  };
+
+  const handleSpotifyDisconnect = async () => {
+    if (!user) return;
+    setSpotifyLoading(true);
+    try {
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const res = await fetch('/api/v1/integrations/spotify/disconnect', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setSpotifyConnected(false);
+        setSpotifyName(null);
+        setSpotifyAvatar(null);
+        setSpotifyAuthUrl(null);
+        toast.success('Spotify отключён');
+      } else {
+        toast.error('Ошибка отключения');
+      }
+    } catch {
+      toast.error('Ошибка отключения');
+    } finally {
+      setSpotifyLoading(false);
+    }
+  };
+
+  // Load Spotify status on mount and check URL params for callback messages
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const status = params.get('spotify_status');
+    const message = params.get('spotify_message');
+    if (status === 'success') {
+      toast.success(message || 'Spotify подключён!');
+      // Clean URL
+      window.history.replaceState({}, '', location.pathname);
+    } else if (status === 'error') {
+      toast.error(message || 'Ошибка подключения Spotify');
+      window.history.replaceState({}, '', location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadSpotifyStatus();
+    }
+  }, [user, loadSpotifyStatus]);
+
   // Initialize theme on component mount (only update if changed)
   useEffect(() => {
     applyTheme(colorTheme, isDarkMode);
@@ -452,11 +543,12 @@ const Settings = () => {
             </div>
 
             <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto p-1">
+              <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 h-auto p-1">
                 <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 py-2">Внешний вид</TabsTrigger>
                 <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">Профиль</TabsTrigger>
                 <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">Аккаунт</TabsTrigger>
                 <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">Приватность</TabsTrigger>
+                <TabsTrigger value="integrations" className="text-xs sm:text-sm px-2 py-2">🔌 Интеграции</TabsTrigger>
               </TabsList>
 
               <TabsContent value="appearance" className="space-y-4">
@@ -767,6 +859,87 @@ const Settings = () => {
                       <TwoFASection userId={user.id} />
                     </div>
                   </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="integrations" className="space-y-4">
+                {/* Spotify Integration */}
+                <div className="bg-card p-4 sm:p-6 border border-border">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Music className="h-5 w-5 text-[#1DB954]" />
+                    <div>
+                      <h2 className="text-lg font-semibold">Spotify</h2>
+                      <p className="text-sm text-muted-foreground">
+                        {spotifyConnected
+                          ? `Подключён как ${spotifyName || "Spotify-аккаунт"}`
+                          : "Показывайте, что вы слушаете, прямо в профиле"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {spotifyLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <PentagramLoader size="sm" />
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {spotifyConnected ? (
+                        <>
+                          {spotifyAvatar && (
+                            <div className="flex items-center gap-3 p-3 bg-background/50 rounded-lg border border-border">
+                              <img
+                                src={spotifyAvatar}
+                                alt="Spotify avatar"
+                                className="w-10 h-10 rounded-full"
+                              />
+                              <div>
+                                <p className="font-medium text-sm">{spotifyName || "Spotify"}</p>
+                                <p className="text-xs text-muted-foreground">Подключён</p>
+                              </div>
+                            </div>
+                          )}
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleSpotifyDisconnect}
+                            className="gap-2"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Отключить Spotify
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-muted-foreground">
+                            Подключите Spotify, чтобы на вашем профиле отображался текущий трек.
+                            Это работает в реальном времени — другие пользователи увидят, что вы слушаете.
+                          </p>
+                          {spotifyAuthUrl ? (
+                            <div className="space-y-3">
+                              <p className="text-sm">
+                                Нажмите кнопку ниже, чтобы авторизоваться в Spotify:
+                              </p>
+                              <Button
+                                onClick={() => window.location.href = spotifyAuthUrl}
+                                className="gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-semibold"
+                              >
+                                <Music className="h-4 w-4" />
+                                Подключить Spotify
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              onClick={handleSpotifyConnect}
+                              className="gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-semibold"
+                            >
+                              <Music className="h-4 w-4" />
+                              Подключить Spotify
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 

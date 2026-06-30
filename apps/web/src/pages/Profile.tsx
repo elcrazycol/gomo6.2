@@ -36,6 +36,7 @@ import { FriendButton } from "@/components/FriendButton";
 import { FriendsList } from "@/components/FriendsList";
 import { FriendRequestsList } from "@/components/FriendRequestsList";
 import { useFriendsStore } from "@/stores/friendsStore";
+import { SpotifyNowPlaying } from "@/components/SpotifyNowPlaying";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { Users } from "lucide-react";
 
@@ -1185,6 +1186,11 @@ const Profile = () => {
                 <div className="text-sm">
                   <ProcessedContent content={profile.bio} contentJson={(profile as { bio_json?: unknown }).bio_json} currentUserId={currentUser?.id || null} isAdmin={isModerator} currentUsername={currentUserUsername} currentUserColor={currentUserColor} postAuthorId={profile.id} authorUsername={profile.username} />
                 </div>
+              )}
+
+              {/* Spotify Now Playing */}
+              {!isNonFriendOnPrivate && (
+                <SpotifyNowPlaying userId={userId!} />
               )}
 
               {/* Profile Tabs — hidden entirely for non-friends on private profiles */}
