@@ -52,6 +52,13 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 			return
 		}
 
+		// Skip caching for notifications — user_id comes from auth claims, not query params,
+		// so the cache key would collide across different users and invalidation would never match.
+		if strings.Contains(c.Request.URL.Path, "notifications") {
+			c.Next()
+			return
+		}
+
 		// Skip caching for messenger endpoints — they must be real-time
 		// Caching causes multi-minute delays in message delivery and conversation updates
 		if strings.Contains(c.Request.URL.Path, "messenger") {
