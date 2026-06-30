@@ -47,6 +47,7 @@ const (
 	RedisChannelChat          = "realtime:chat"
 	RedisChannelStatus        = "realtime:status"
 	RedisChannelNotifications = "realtime:notifications"
+	RedisChannelSpotify       = "realtime:spotify"
 )
 
 // Message represents a WebSocket message
@@ -202,7 +203,7 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify)
 	defer pubsub.Close()
 
 	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
@@ -523,6 +524,15 @@ func (h *Hub) PublishNewChatMessage(message interface{}) error {
 		Payload: message,
 	}
 	return h.PublishToRedis(RedisChannelChat, event)
+}
+
+// PublishNowPlaying publishes a Spotify now-playing event to Redis
+func (h *Hub) PublishNowPlaying(payload interface{}) error {
+	event := RealtimeEvent{
+		Type:    MessageTypeNowPlaying,
+		Payload: payload,
+	}
+	return h.PublishToRedis(RedisChannelSpotify, event)
 }
 
 // GetOnlineUsers returns a list of online user IDs
