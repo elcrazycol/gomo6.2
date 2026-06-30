@@ -11,6 +11,7 @@ import (
 	"github.com/gomo6/backend/internal/api/routes"
 	"github.com/gomo6/backend/internal/config"
 	"github.com/gomo6/backend/internal/database"
+	"github.com/gomo6/backend/internal/integrations"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/joho/godotenv"
@@ -120,6 +121,10 @@ func main() {
 	wsHub.SetDB(db)
 	go wsHub.Run()
 	log.Printf("WebSocket Hub initialized with allowed origins: %v", cfg.AllowedOrigins)
+
+	// Start Spotify now-playing poller (publishes via WebSocket every 15s)
+	spt := integrations.NewSpotifyService(db)
+	go websocket.NewSpotifyPoller(wsHub, spt).Start()
 
 	// ── Setup Gin router ────────────────────────────────────────────────
 	router := gin.New()
