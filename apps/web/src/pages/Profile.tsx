@@ -394,7 +394,10 @@ const Profile = () => {
       }
 
       // Check friendship status for private profile
-      if (currentUser?.id && currentUser.id !== userId) {
+      // Use session user (localCurrentUser) instead of React state currentUser
+      // to avoid race condition where currentUser is not yet set.
+      const localCurrentUser = sessionAuth.data.session?.user;
+      if (localCurrentUser?.id && localCurrentUser.id !== userId) {
         try {
           const friendRes = await fetch(`/api/v1/friends/status/${userId}`, { headers });
           const friendResult = await friendRes.json();
@@ -403,7 +406,7 @@ const Profile = () => {
           setIsMutualFriend(false);
         }
       } else {
-        setIsMutualFriend(currentUser?.id === userId ? true : false);
+        setIsMutualFriend(localCurrentUser?.id === userId ? true : false);
       }
       setPrivacyChecked(true);
 

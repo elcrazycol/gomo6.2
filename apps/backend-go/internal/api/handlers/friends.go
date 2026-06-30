@@ -153,7 +153,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 		}
 		// Notify the reverse request sender that their request was accepted
 		h.createFriendNotification(receiverID, "friend_accepted",
-			"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", getUsernameFromDB(h.db, senderID)), senderID)
+			"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", getUsernameFromDB(h.db, senderID)))
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 			"status":  "friends",
 			"message": "Friend request accepted automatically",
@@ -205,7 +205,7 @@ func (h *FriendsHandler) SendRequest(c *gin.Context) {
 	// Notify the receiver
 	senderUsername := getUsernameFromDB(h.db, senderID)
 	h.createFriendNotification(receiverID, "friend_request",
-		"Новая заявка в друзья", fmt.Sprintf("@%s хочет добавить вас в друзья", senderUsername), senderID)
+		"Новая заявка в друзья", fmt.Sprintf("@%s хочет добавить вас в друзья", senderUsername))
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"status":  "pending",
@@ -272,7 +272,7 @@ func (h *FriendsHandler) AcceptRequest(c *gin.Context) {
 	// Notify the sender
 	receiverUsername := getUsernameFromDB(h.db, claims.UserID)
 	h.createFriendNotification(request.SenderID, "friend_accepted",
-		"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", receiverUsername), claims.UserID)
+		"Заявка принята", fmt.Sprintf("@%s принял вашу заявку в друзья", receiverUsername))
 
 	// Invalidate caches for both users
 	invalidateFriendCaches(h.redis, request.SenderID, request.ReceiverID)
@@ -721,16 +721,13 @@ func (h *FriendsHandler) GetFriendStatus(c *gin.Context) {
 }
 
 // createFriendNotification sends a WebSocket notification for friend events.
-// relatedUserID is stored in related_post_id for click-through to profile.
-func (h *FriendsHandler) createFriendNotification(userID, notifType, title, message, relatedUserID string) {
-	if h.hub == nil {
+func (h *FriendsHandler) createFriendNotification(userID, notifType, title, message string) {
+	if h.db == nil {
 		return
 	}
-	var relatedPostID *string
-	if relatedUserID != "" {
-		relatedPostID = &relatedUserID
-	}
-	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, title, message, nil, relatedPostID)
+	// Note: do NOT pass relatedUserID as relatedPostID — that column has a FK to posts
+	// and passing a user UUID violates the constraint, silently dropping the notification.
+	_, err := CreateNotification(h.db, h.redis, h.hub, userID, notifType, title, message, nil, nil)
 	if err != nil {
 		log.Printf("[Friends] Failed to create notification: %v", err)
 	}
