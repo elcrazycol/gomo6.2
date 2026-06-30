@@ -438,6 +438,10 @@ const Settings = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Spotify не настроен на сервере');
+        return;
+      }
       if (data.auth_url) {
         setSpotifyAuthUrl(data.auth_url);
       } else {
@@ -548,7 +552,7 @@ const Settings = () => {
                 <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 py-2">Профиль</TabsTrigger>
                 <TabsTrigger value="account" className="text-xs sm:text-sm px-2 py-2">Аккаунт</TabsTrigger>
                 <TabsTrigger value="privacy" className="text-xs sm:text-sm px-2 py-2">Приватность</TabsTrigger>
-                <TabsTrigger value="integrations" className="text-xs sm:text-sm px-2 py-2">🔌 Интеграции</TabsTrigger>
+                <TabsTrigger value="integrations" className="text-xs sm:text-sm px-2 py-2">Интеграции</TabsTrigger>
               </TabsList>
 
               <TabsContent value="appearance" className="space-y-4">
