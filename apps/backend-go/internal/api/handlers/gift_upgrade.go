@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
 )
@@ -179,6 +180,12 @@ func (h *GiftsHandler) UpgradeGift(c *gin.Context) {
 	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to complete upgrade"))
 		return
+	}
+
+	// Invalidate caches
+	if h.redis != nil {
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/user_gifts*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/gift_catalog*")
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(models.GiftUpgradeResponse{
