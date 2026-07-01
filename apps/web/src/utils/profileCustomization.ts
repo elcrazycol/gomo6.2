@@ -98,3 +98,8 @@ export const clearCustomizationCache = (userId?: string) => {
     customizationCache.clear();
   }
 };
+
+/** Dispatch a DOM event so ProfileCacheContext can clear its own cache too. */
+export const dispatchProfileCacheInvalidate = () => {
+  window.dispatchEvent(new CustomEvent('profile-cache:invalidate'));
+};

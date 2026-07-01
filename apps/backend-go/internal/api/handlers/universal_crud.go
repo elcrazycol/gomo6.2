@@ -127,6 +127,14 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 	case "friend_requests", "friendships":
 		fmt.Printf("[CacheInvalidator] Invalidating friends cache: %s\n", tableName)
 		cache.InvalidateByPattern(h.redis, "data:/api/v1/friends*")
+	case "profile_customization":
+		if userID, ok := result["user_id"].(string); ok && userID != "" {
+			fmt.Printf("[CacheInvalidator] Invalidating profile_customization cache: user_id=%s\n", userID)
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=eq.%s*", userID))
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=%s*", userID))
+			// Also invalidate profile hover card cache (contains customization)
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
+		}
 	case "privacy_settings":
 		if userID, ok := result["user_id"].(string); ok && userID != "" {
 			fmt.Printf("[CacheInvalidator] Invalidating privacy_settings + profile cache: user_id=%s\n", userID)
@@ -329,6 +337,31 @@ RETURNING *`
 ON CONFLICT (post_id, user_id) DO UPDATE SET user_id = EXCLUDED.user_id
 RETURNING *`
 		return q, []interface{}{pid, uid}, true
+	case "profile_customization":
+		uid, hasUID := data["user_id"]
+		if !hasUID {
+			return "", nil, false
+		}
+		q := `INSERT INTO profile_customization (user_id, username_css, username_icon_svg, username_icon_fill, username_icon_stroke, profile_badge_text, profile_badge_css, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+ON CONFLICT (user_id) DO UPDATE SET
+  username_css = EXCLUDED.username_css,
+  username_icon_svg = EXCLUDED.username_icon_svg,
+  username_icon_fill = EXCLUDED.username_icon_fill,
+  username_icon_stroke = EXCLUDED.username_icon_stroke,
+  profile_badge_text = EXCLUDED.profile_badge_text,
+  profile_badge_css = EXCLUDED.profile_badge_css,
+  updated_at = NOW()
+RETURNING *`
+		return q, []interface{}{
+			uid,
+			data["username_css"],
+			data["username_icon_svg"],
+			data["username_icon_fill"],
+			data["username_icon_stroke"],
+			data["profile_badge_text"],
+			data["profile_badge_css"],
+		}, true
 	default:
 		return "", nil, false
 	}
@@ -403,6 +436,16 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*user_id=eq.%s*", uid))
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*board_id=eq.%s*", bid))
 			cache.InvalidateByPattern(h.redis, "data:/api/v1/gomosub_rules_acceptance?*")
+		}
+
+		// Invalidate profile customization cache on upsert
+		if tableName == "profile_customization" && h.redis != nil {
+			if userID, ok := result["user_id"].(string); ok {
+				fmt.Printf("[CacheInvalidator] Invalidating profile_customization cache on upsert: user_id=%s\n", userID)
+				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=eq.%s*", userID))
+				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_customization*user_id=%s*", userID))
+				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
+			}
 		}
 
 		c.JSON(http.StatusOK, models.SuccessResponse(result))
