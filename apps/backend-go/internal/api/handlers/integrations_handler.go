@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -13,12 +14,26 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/integrations"
+	"github.com/gomo6/backend/internal/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 // IntegrationsHandler handles third-party service integrations (Spotify, etc.)
 type IntegrationsHandler struct {
 	db      *sql.DB
 	spotify *integrations.SpotifyService
+	hub     *websocket.Hub
+	redis   *redis.Client
+}
+
+// SetWebSocketHub sets the WebSocket hub for real-time publishing
+func (h *IntegrationsHandler) SetWebSocketHub(hub *websocket.Hub) {
+	h.hub = hub
+}
+
+// SetRedis sets the Redis client for caching
+func (h *IntegrationsHandler) SetRedis(r *redis.Client) {
+	h.redis = r
 }
 
 // NewIntegrationsHandler creates a new integrations handler
@@ -309,6 +324,74 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 	}
 
 	resp := integrations.BuildNowPlayingResponse(playing)
+	resp.UpdatedAt = time.Now().UnixMilli()
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetSpotifyPlayerState fetches currently playing from Spotify, deduplicates via Redis,
+// and publishes to viewers only when the track state actually changes.
+// Called by the author's browser to drive real-time now-playing for profile visitors.
+// @Summary Get own Spotify player state (author-side polling endpoint)
+// @Tags integrations
+// @Security BearerAuth
+// @Success 200 {object} integrations.NowPlayingResponse
+// @Router /api/v1/integrations/spotify/me/state [get]
+func (h *IntegrationsHandler) GetSpotifyPlayerState(c *gin.Context) {
+	claims := c.MustGet("claims").(*auth.Claims)
+	userID := claims.UserID
+
+	// Mark author as actively polling so the backend poller skips this user
+	if h.redis != nil {
+		h.redis.Set(context.Background(), "spotify:author_active:"+userID, "1", 30*time.Second)
+	}
+
+	if !h.spotify.IsConfigured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Spotify integration not configured"})
+		return
+	}
+
+	// Get valid access token (refreshes if expired)
+	accessToken, err := h.spotify.GetValidAccessToken(userID)
+	if err != nil {
+		c.JSON(http.StatusOK, &integrations.NowPlayingResponse{IsConnected: false})
+		return
+	}
+
+	// Fetch currently playing from Spotify
+	playing, err := h.spotify.GetCurrentlyPlaying(accessToken)
+	if err != nil {
+		c.JSON(http.StatusOK, &integrations.NowPlayingResponse{IsConnected: true, IsPlaying: false})
+		return
+	}
+
+	resp := integrations.BuildNowPlayingResponse(playing)
+	resp.UpdatedAt = time.Now().UnixMilli()
+
+	// Deduplication: compare with cached state, only publish if changed
+	if h.redis != nil && h.hub != nil {
+		ctx := context.Background()
+		trackHash := integrations.ComputeTrackHash(resp)
+		cacheKey := "spotify:last_track:" + userID
+
+		lastHash, getErr := h.redis.Get(ctx, cacheKey).Result()
+		if getErr == nil && lastHash == trackHash {
+			// Same state — return without publishing
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+
+		// State changed — update cache and publish to viewers
+		h.redis.Set(ctx, cacheKey, trackHash, 60*time.Second)
+
+		payload := map[string]interface{}{
+			"user_id":  userID,
+			"response": resp,
+		}
+		if pubErr := h.hub.PublishNowPlaying(payload); pubErr != nil {
+			log.Printf("[Integrations] Publish error for user %s: %v", userID, pubErr)
+		}
+	}
+
 	c.JSON(http.StatusOK, resp)
 }
 

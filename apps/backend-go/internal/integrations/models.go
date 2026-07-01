@@ -100,6 +100,7 @@ type NowPlayingResponse struct {
 	ProgressMs  int    `json:"progress_ms,omitempty"`
 	DurationMs  int    `json:"duration_ms,omitempty"`
 	IsConnected bool   `json:"is_connected"`
+	UpdatedAt   int64  `json:"updated_at,omitempty"` // Unix ms when state was captured
 }
 
 // IntegrationStatusResponse returns the connection status for a user

@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"crypto/md5"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -317,6 +318,16 @@ func (s *SpotifyService) GetValidAccessToken(userID string) (string, error) {
 	}
 
 	return accessToken, nil
+}
+
+// ComputeTrackHash returns a short hash that changes when the track state changes.
+// Used for deduplication by both the backend poller and the author-side proxy endpoint.
+func ComputeTrackHash(resp *NowPlayingResponse) string {
+	if !resp.IsPlaying {
+		return "not_playing"
+	}
+	sum := md5.Sum([]byte(resp.TrackName + "|" + resp.ArtistName + "|" + resp.TrackURL))
+	return fmt.Sprintf("%x", sum)
 }
 
 // BuildNowPlayingResponse converts Spotify API data into a frontend-friendly response

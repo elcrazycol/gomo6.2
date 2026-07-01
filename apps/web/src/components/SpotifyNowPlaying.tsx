@@ -12,6 +12,7 @@ interface NowPlayingData {
   progress_ms?: number;
   duration_ms?: number;
   is_connected: boolean;
+  updated_at?: number;
 }
 
 type SpotifyNowPlayingProps = {
