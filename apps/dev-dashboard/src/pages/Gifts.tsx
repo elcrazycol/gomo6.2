@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -11,22 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import {
-  Plus,
-  Trash2,
-  Edit2,
-  Gift,
-  X,
-  Search,
-  Package,
-  Star,
-  Eye,
-  BarChart3,
-  Image,
-  Layers,
-  Upload,
-  Sparkles,
+  Plus, Trash2, Gift, X, Upload, Sparkles, ImageIcon, Search,
 } from "lucide-react";
 import { toast } from "sonner";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface GiftLayerItem {
   id: string;
@@ -35,7 +24,6 @@ interface GiftLayerItem {
   image_url: string;
   name?: string;
   sort_order: number;
-  created_at: string;
   usage_count?: number;
 }
 
@@ -53,70 +41,74 @@ interface GiftItem {
   sort_order: number;
   is_upgradable: boolean;
   upgrade_cost?: number | null;
-  created_at: string;
 }
 
-interface GiftForm {
-  name: string;
-  description: string;
-  image_url: string;
-  price: number;
-  category: string;
-  is_active: boolean;
-  is_limited: boolean;
-  max_quantity: number;
-  sort_order: number;
-  is_upgradable: boolean;
-  upgrade_cost: number;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const LAYER_TYPES = ["gift", "background", "symbol"] as const;
+const LAYER_LABELS: Record<string, string> = { gift: "Подарок", background: "Фон", symbol: "Символ" };
+const LAYER_ICONS: Record<string, string> = { gift: "🎁", background: "🖼️", symbol: "✨" };
+
+function storageUrl(url: string) {
+  if (url.startsWith("http")) return url;
+  return `/storage/v1/object/gift-layers/${url}`;
 }
 
-const defaultForm: GiftForm = {
-  name: "",
-  description: "",
-  image_url: "",
-  price: 10,
-  category: "general",
-  is_active: true,
-  is_limited: false,
-  max_quantity: 0,
-  sort_order: 0,
-  is_upgradable: false,
-  upgrade_cost: 20,
-};
+async function uploadFile(file: File, bucket: string, key: string): Promise<string> {
+  const token = api.getToken();
+  if (!token) throw new Error("Not authenticated");
 
-const layerTypeLabels: Record<string, string> = {
-  gift: "Подарок",
-  background: "Фон",
-  symbol: "Символ",
-};
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("bucket", bucket);
+  formData.append("key", key);
 
-const layerTypeColors: Record<string, string> = {
-  gift: "bg-pink-500/10 text-pink-600",
-  background: "bg-blue-500/10 text-blue-600",
-  symbol: "bg-amber-500/10 text-amber-600",
-};
+  const res = await fetch("/storage/v1/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
 
-const categoryColors: Record<string, string> = {
-  general: "bg-slate-500/10 text-slate-600 dark:text-slate-400",
-  rare: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  epic: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  legendary: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  special: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-};
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || "Upload failed");
+  return key;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 const GiftAdmin = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [selectedGift, setSelectedGift] = useState<GiftItem | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // ── Create/edit form state ──
   const [showForm, setShowForm] = useState(false);
   const [editingGift, setEditingGift] = useState<GiftItem | null>(null);
-  const [form, setForm] = useState<GiftForm>(defaultForm);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterCategory, setFilterCategory] = useState<string>("all");
-  // Layer management state
-  const [expandedGiftId, setExpandedGiftId] = useState<string | null>(null);
-  const [uploadLayerType, setUploadLayerType] = useState<"gift" | "background" | "symbol">("gift");
+  const [formName, setFormName] = useState("");
+  const [formDesc, setFormDesc] = useState("");
+  const [formPrice, setFormPrice] = useState(10);
+  const [formCategory, setFormCategory] = useState("general");
+  const [formActive, setFormActive] = useState(true);
+  const [formLimited, setFormLimited] = useState(false);
+  const [formMaxQty, setFormMaxQty] = useState(0);
+  const [formSort, setFormSort] = useState(0);
+  const [formUpgradable, setFormUpgradable] = useState(false);
+  const [formUpgradeCost, setFormUpgradeCost] = useState(20);
+  const [formImageUrl, setFormImageUrl] = useState("");
+  const [baseImageFile, setBaseImageFile] = useState<File | null>(null);
+  const [baseImagePreview, setBaseImagePreview] = useState("");
+  const [uploadingBase, setUploadingBase] = useState(false);
+
+  // ── Layer upload state ──
+  const [activeLayerTab, setActiveLayerTab] = useState<string>("gift");
+  const [dragOverLayer, setDragOverLayer] = useState(false);
   const [uploadingLayer, setUploadingLayer] = useState(false);
+  const layerInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Drag & drop for base image ──
+  const [dragOverBase, setDragOverBase] = useState(false);
 
   useEffect(() => {
     api.getSession().then(({ session }) => {
@@ -124,6 +116,18 @@ const GiftAdmin = () => {
       setSessionChecked(true);
     });
   }, []);
+
+  const basePreviewRef = useRef("");
+  basePreviewRef.current = baseImagePreview;
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (basePreviewRef.current) URL.revokeObjectURL(basePreviewRef.current);
+    };
+  }, []);
+
+  // ── Queries ──
 
   const { data: gifts, isLoading } = useQuery({
     queryKey: ["admin-gifts"],
@@ -136,743 +140,669 @@ const GiftAdmin = () => {
     enabled: sessionChecked,
   });
 
-  // Layers query for the expanded gift
   const { data: layers, isLoading: layersLoading } = useQuery({
-    queryKey: ["admin-gift-layers", expandedGiftId],
+    queryKey: ["admin-gift-layers", selectedGift?.id],
     queryFn: async () => {
-      if (!expandedGiftId) return [];
-      const res = await api.fetch(`/api/v1/admin/gifts/${expandedGiftId}/layers`);
+      if (!selectedGift) return [];
+      const res = await api.fetch(`/api/v1/admin/gifts/${selectedGift.id}/layers`);
       if (!res.ok) throw new Error("Failed to fetch layers");
       const json = await res.json();
       return json.data as GiftLayerItem[];
     },
-    enabled: !!expandedGiftId,
+    enabled: !!selectedGift,
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: GiftForm) => {
+  // ── Mutations ──
+
+  const createGift = useMutation({
+    mutationFn: async () => {
+      // Build imageUrl — use file only if actually selecting a file (upload after create)
+      let imageUrl = formImageUrl.trim();
+      const hasNewFile = baseImageFile && !imageUrl;
+
+      if (!formName.trim() || (!imageUrl && !hasNewFile) || formPrice <= 0) {
+        throw new Error("Заполните название, картинку и цену");
+      }
+
+      // If no URL but have a file, use a placeholder; upload after getting ID back
+      if (hasNewFile) imageUrl = "pending";
+
       const res = await api.fetch("/api/v1/admin/gifts", {
         method: "POST",
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          name: formName,
+          description: formDesc || null,
+          image_url: imageUrl,
+          price: formPrice,
+          category: formCategory,
+          is_active: formActive,
+          is_limited: formLimited,
+          max_quantity: formLimited ? formMaxQty : null,
+          sort_order: formSort,
+          is_upgradable: formUpgradable,
+          upgrade_cost: formUpgradable ? formUpgradeCost : null,
+        }),
       });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || "Failed to create gift");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create");
+      const gift = json.data as GiftItem;
+
+      // Upload base image with proper key AFTER getting the gift ID
+      if (baseImageFile) {
+        try {
+          const ext = baseImageFile.name.split(".").pop() || "png";
+          const key = `gifts/${gift.id}/base.${ext}`;
+          await uploadFile(baseImageFile, "gift-layers", key);
+          await api.fetch(`/api/v1/admin/gifts/${gift.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ image_url: key }),
+          });
+          gift.image_url = key;
+        } catch (err: any) {
+          toast.error(`Картинка не загрузилась: ${err.message}`);
+        }
       }
-      return res.json();
+
+      return gift;
     },
-    onSuccess: (result) => {
+    onSuccess: (gift) => {
       queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
       toast.success("Подарок создан");
-      setShowForm(false);
-      setForm(defaultForm);
-      // Auto-expand to let admin add layers
-      if (result?.data?.id) {
-        setExpandedGiftId(result.data.id);
-      }
+      resetForm();
+      setSelectedGift(gift);
     },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<GiftForm> }) => {
-      const res = await api.fetch(`/api/v1/admin/gifts/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || "Failed to update gift");
+  const updateGift = useMutation({
+    mutationFn: async () => {
+      if (!editingGift) return;
+      let imageUrl = formImageUrl.trim();
+
+      if (baseImageFile) {
+        setUploadingBase(true);
+        try {
+          const ext = baseImageFile.name.split(".").pop() || "png";
+          const key = `gifts/${editingGift.id}/base.${ext}`;
+          await uploadFile(baseImageFile, "gift-layers", key);
+          imageUrl = key;
+        } finally {
+          setUploadingBase(false);
+        }
       }
+
+      const res = await api.fetch(`/api/v1/admin/gifts/${editingGift.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: formName,
+          description: formDesc || null,
+          image_url: imageUrl,
+          price: formPrice,
+          category: formCategory,
+          is_active: formActive,
+          is_limited: formLimited,
+          max_quantity: formLimited ? formMaxQty : null,
+          sort_order: formSort,
+          is_upgradable: formUpgradable,
+          upgrade_cost: formUpgradable ? formUpgradeCost : null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", selectedGift?.id] });
       toast.success("Подарок обновлён");
-      setShowForm(false);
-      setEditingGift(null);
-      setForm(defaultForm);
+      resetForm();
     },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const deleteMutation = useMutation({
+  const deleteGift = useMutation({
     mutationFn: async (id: string) => {
-      const res = await api.fetch(`/api/v1/admin/gifts/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete gift");
+      await api.fetch(`/api/v1/admin/gifts/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
       toast.success("Подарок деактивирован");
+      if (selectedGift) setSelectedGift(null);
     },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const deleteLayerMutation = useMutation({
-    mutationFn: async ({ giftId, layerId }: { giftId: string; layerId: string }) => {
-      const res = await api.fetch(`/api/v1/admin/gifts/${giftId}/layers/${layerId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || "Failed to delete layer");
-      }
+  const deleteLayer = useMutation({
+    mutationFn: async (layerId: string) => {
+      if (!selectedGift) return;
+      await api.fetch(`/api/v1/admin/gifts/${selectedGift.id}/layers/${layerId}`, { method: "DELETE" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", expandedGiftId] });
+      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", selectedGift?.id] });
       queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
       toast.success("Слой удалён");
     },
     onError: (err: any) => toast.error(err.message),
   });
 
-  const handleUploadLayer = async (giftId: string, file: File) => {
-    const token = api.getToken();
-    if (!token) return;
+  // ── Layer upload ──
 
+  const doLayerUpload = useCallback(async (files: FileList | File[]) => {
+    if (!selectedGift || uploadingLayer) return;
     setUploadingLayer(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const key = `gifts/${giftId}/layers/${uploadLayerType}/${Date.now()}.${ext}`;
+    const fileArray = Array.from(files).filter(f => f.type === "image/png");
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("bucket", "gift-layers");
-      formData.append("key", key);
-
-      const uploadRes = await fetch("/api/v1/storage/v1/upload", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      const uploadJson = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(uploadJson.error || "Upload failed");
-
-      // Create layer record
-      const layerRes = await api.fetch(`/api/v1/admin/gifts/${giftId}/layers`, {
-        method: "POST",
-        body: JSON.stringify({
-          layer_type: uploadLayerType,
-          image_url: key,
-          name: file.name.replace(/\.[^.]+$/, ""),
-        }),
-      });
-
-      if (!layerRes.ok) throw new Error("Failed to create layer record");
-
-      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", giftId] });
-      queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
-      toast.success("Слой загружен");
-    } catch (err: any) {
-      toast.error(err.message || "Upload failed");
-    } finally {
+    if (fileArray.length === 0) {
+      toast.error("Только PNG файлы");
       setUploadingLayer(false);
+      return;
     }
-  };
 
-  const handleEdit = (gift: GiftItem) => {
-    setEditingGift(gift);
-    setForm({
-      name: gift.name,
-      description: gift.description || "",
-      image_url: gift.image_url,
-      price: gift.price,
-      category: gift.category,
-      is_active: gift.is_active,
-      is_limited: gift.is_limited,
-      max_quantity: gift.max_quantity || 0,
-      sort_order: gift.sort_order,
-      is_upgradable: gift.is_upgradable || false,
-      upgrade_cost: gift.upgrade_cost || 20,
-    });
+    let successCount = 0;
+    for (const file of fileArray) {
+      try {
+        const key = `gifts/${selectedGift.id}/layers/${activeLayerTab}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`;
+        await uploadFile(file, "gift-layers", key);
+
+        const layerRes = await api.fetch(`/api/v1/admin/gifts/${selectedGift.id}/layers`, {
+          method: "POST",
+          body: JSON.stringify({
+            layer_type: activeLayerTab,
+            image_url: key,
+            name: file.name.replace(/\.[^.]+$/, ""),
+          }),
+        });
+        if (layerRes.ok) successCount++;
+      } catch (err: any) {
+        toast.error(`Ошибка: ${err.message}`);
+      }
+    }
+
+    if (successCount > 0) {
+      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", selectedGift.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
+      toast.success(`Загружено ${successCount} слоёв`);
+    }
+    setUploadingLayer(false);
+  }, [selectedGift, activeLayerTab, uploadingLayer, queryClient]);
+
+  // ── Base image drop ──
+
+  const handleBaseImageDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverBase(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type === "image/png") {
+      if (baseImagePreview) URL.revokeObjectURL(baseImagePreview);
+      setBaseImageFile(file);
+      setBaseImagePreview(URL.createObjectURL(file));
+    } else {
+      toast.error("Только PNG");
+    }
+  }, [baseImagePreview]);
+
+  // ── Layer drop zone ──
+
+  const handleLayerDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverLayer(false);
+    doLayerUpload(e.dataTransfer.files);
+  }, [doLayerUpload]);
+
+  const openLayerFilePicker = useCallback(() => {
+    layerInputRef.current?.click();
+  }, []);
+
+  // ── Form helpers ──
+
+  const openCreateForm = () => {
+    resetForm();
     setShowForm(true);
   };
 
-  const handleSubmit = () => {
-    if (!form.name.trim() || !form.image_url.trim() || form.price <= 0) {
-      toast.error("Заполните обязательные поля");
-      return;
-    }
-    const payload: any = { ...form };
-    // Only send upgrade fields if gift is marked as upgradable
-    if (!form.is_upgradable) {
-      payload.upgrade_cost = null;
-    }
-    if (editingGift) {
-      updateMutation.mutate({ id: editingGift.id, data: payload });
-    } else {
-      createMutation.mutate(payload);
-    }
+  const openEditForm = (gift: GiftItem) => {
+    setEditingGift(gift);
+    setFormName(gift.name);
+    setFormDesc(gift.description || "");
+    setFormImageUrl(gift.image_url);
+    setFormPrice(gift.price);
+    setFormCategory(gift.category);
+    setFormActive(gift.is_active);
+    setFormLimited(gift.is_limited);
+    setFormMaxQty(gift.max_quantity || 0);
+    setFormSort(gift.sort_order);
+    setFormUpgradable(gift.is_upgradable);
+    setFormUpgradeCost(gift.upgrade_cost || 20);
+    setBaseImageFile(null);
+    if (baseImagePreview) { URL.revokeObjectURL(baseImagePreview); }
+    setBaseImagePreview("");
+    setShowForm(true);
   };
 
-  const handleCancel = () => {
+  const resetForm = () => {
     setShowForm(false);
     setEditingGift(null);
-    setForm(defaultForm);
+    setFormName("");
+    setFormDesc("");
+    setFormImageUrl("");
+    setFormPrice(10);
+    setFormCategory("general");
+    setFormActive(true);
+    setFormLimited(false);
+    setFormMaxQty(0);
+    setFormSort(0);
+    setFormUpgradable(false);
+    setFormUpgradeCost(20);
+    setBaseImageFile(null);
+    if (baseImagePreview) { URL.revokeObjectURL(baseImagePreview); }
+    setBaseImagePreview("");
   };
 
-  const toggleExpand = (giftId: string) => {
-    setExpandedGiftId(expandedGiftId === giftId ? null : giftId);
+  const handleSubmit = () => {
+    if (editingGift) updateGift.mutate();
+    else createGift.mutate();
   };
 
-  const filteredGifts = gifts?.filter((gift) => {
-    const matchesSearch =
-      !searchQuery ||
-      gift.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      gift.description?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = filterCategory === "all" || gift.category === filterCategory;
-    return matchesSearch && matchesCategory;
+  // ── Derived data ──
+
+  const layersByType = {
+    gift: layers?.filter(l => l.layer_type === "gift") || [],
+    background: layers?.filter(l => l.layer_type === "background") || [],
+    symbol: layers?.filter(l => l.layer_type === "symbol") || [],
+  };
+
+  const hasAllLayers = LAYER_TYPES.every(t => layersByType[t].length > 0);
+  const layersTotal = (layersByType.gift.length + layersByType.background.length + layersByType.symbol.length);
+
+  const activeGifts = gifts?.filter(g => g.is_active).length || 0;
+  const totalSold = gifts?.reduce((s, g) => s + g.sold_count, 0) || 0;
+
+  const filteredGifts = gifts?.filter(g => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return g.name.toLowerCase().includes(q) || (g.description || "").toLowerCase().includes(q);
   });
 
-  const categories = Array.from(new Set(gifts?.map((g) => g.category) || []));
-  const totalSold = gifts?.reduce((sum, g) => sum + g.sold_count, 0) || 0;
-  const activeCount = gifts?.filter((g) => g.is_active).length || 0;
-
-  const getLayerImageUrl = (imageUrl: string) => {
-    if (imageUrl.startsWith("http")) return imageUrl;
-    return `/api/v1/storage/v1/object/gift-layers/${imageUrl}`;
-  };
-
   if (!sessionChecked || isLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <PentagramLoader size="lg" />
-      </div>
-    );
+    return <div className="flex items-center justify-center py-20"><PentagramLoader size="lg" /></div>;
   }
 
-  // Count layers by type for the expanded gift
-  const layersByType = {
-    gift: layers?.filter((l) => l.layer_type === "gift") || [],
-    background: layers?.filter((l) => l.layer_type === "background") || [],
-    symbol: layers?.filter((l) => l.layer_type === "symbol") || [],
-  };
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <div className="space-y-6 max-w-6xl">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Подарки</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Управляйте каталогом подарков и слоями улучшений
+          <h1 className="text-2xl font-bold">Подарки</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {gifts?.length || 0} всего · {activeGifts} активных · продано {totalSold}
           </p>
         </div>
-        {!showForm && (
-          <Button onClick={() => { setEditingGift(null); setForm(defaultForm); setShowForm(true); }} className="gap-2">
-            <Plus className="w-4 h-4" />
-            Добавить подарок
-          </Button>
-        )}
+        <Button onClick={openCreateForm} className="gap-2" disabled={showForm}>
+          <Plus className="w-4 h-4" /> Создать подарок
+        </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-                <Package className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{gifts?.length || 0}</p>
-                <p className="text-[11px] text-muted-foreground">Всего</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Eye className="w-4 h-4 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{activeCount}</p>
-                <p className="text-[11px] text-muted-foreground">Активных</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-violet-500/10 flex items-center justify-center">
-                <BarChart3 className="w-4 h-4 text-violet-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{totalSold}</p>
-                <p className="text-[11px] text-muted-foreground">Продано</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <Star className="w-4 h-4 text-amber-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{categories.length}</p>
-                <p className="text-[11px] text-muted-foreground">Категорий</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ── Two-panel layout ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* LEFT: Gift list with search */}
+        <div className="lg:col-span-1 space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Каталог</h2>
 
-      {/* Form */}
-      {showForm && (
-        <Card className="border-emerald-500/20">
-          <CardHeader className="flex flex-row items-center justify-between pb-4">
-            <CardTitle className="text-lg">
-              {editingGift ? "Редактировать подарок" : "Новый подарок"}
-            </CardTitle>
-            <Button variant="ghost" size="sm" onClick={handleCancel} className="h-8 w-8 p-0">
-              <X className="w-4 h-4" />
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name" className="text-sm font-medium">Название *</Label>
-                <Input
-                  id="name"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="Название подарка"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="image_url" className="text-sm font-medium">URL изображения *</Label>
-                <Input
-                  id="image_url"
-                  value={form.image_url}
-                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
-                  placeholder="path/to/image.png"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="price" className="text-sm font-medium">Цена (дропсы) *</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  min={1}
-                  value={form.price}
-                  onChange={(e) => setForm({ ...form, price: parseInt(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="category" className="text-sm font-medium">Категория</Label>
-                <Input
-                  id="category"
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
-                  placeholder="general"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sort_order" className="text-sm font-medium">Порядок сортировки</Label>
-                <Input
-                  id="sort_order"
-                  type="number"
-                  value={form.sort_order}
-                  onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value) || 0 })}
-                />
-              </div>
-              {form.is_limited && (
-                <div className="space-y-2">
-                  <Label htmlFor="max_quantity" className="text-sm font-medium">Макс. количество</Label>
-                  <Input
-                    id="max_quantity"
-                    type="number"
-                    min={1}
-                    value={form.max_quantity}
-                    onChange={(e) => setForm({ ...form, max_quantity: parseInt(e.target.value) || 0 })}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description" className="text-sm font-medium">Описание</Label>
-              <Textarea
-                id="description"
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="Описание подарка"
-                rows={2}
-              />
-            </div>
-
-            {/* Upgrade section */}
-            <div className="border-t border-border pt-4 space-y-4">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <h4 className="text-sm font-semibold">Улучшения</h4>
-              </div>
-              <div className="flex flex-wrap items-center gap-6">
-                <div className="flex items-center gap-2.5">
-                  <Switch
-                    id="is_upgradable"
-                    checked={form.is_upgradable}
-                    onCheckedChange={(v) => setForm({ ...form, is_upgradable: v })}
-                  />
-                  <Label htmlFor="is_upgradable" className="text-sm">Улучшаемый подарок</Label>
-                </div>
-                <div className="flex items-center gap-2.5">
-                  <Switch
-                    id="is_active"
-                    checked={form.is_active}
-                    onCheckedChange={(v) => setForm({ ...form, is_active: v })}
-                  />
-                  <Label htmlFor="is_active" className="text-sm">Активен</Label>
-                </div>
-                <div className="flex items-center gap-2.5">
-                  <Switch
-                    id="is_limited"
-                    checked={form.is_limited}
-                    onCheckedChange={(v) => setForm({ ...form, is_limited: v })}
-                  />
-                  <Label htmlFor="is_limited" className="text-sm">Лимитированный</Label>
-                </div>
-              </div>
-              {form.is_upgradable && (
-                <div className="space-y-2 w-full sm:w-48">
-                  <Label htmlFor="upgrade_cost" className="text-sm font-medium">Стоимость улучшения (дропсы)</Label>
-                  <Input
-                    id="upgrade_cost"
-                    type="number"
-                    min={1}
-                    value={form.upgrade_cost}
-                    onChange={(e) => setForm({ ...form, upgrade_cost: parseInt(e.target.value) || 0 })}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="gap-2">
-                {editingGift ? "Сохранить изменения" : "Создать подарок"}
-              </Button>
-              <Button variant="outline" onClick={handleCancel}>Отмена</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Search and filters */}
-      {gifts && gifts.length > 0 && !showForm && (
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
+          {/* Search */}
+          <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Поиск подарков..."
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Поиск..."
               className="pl-9"
             />
           </div>
-          {categories.length > 0 && (
-            <div className="flex gap-1.5 flex-wrap">
-              <button
-                onClick={() => setFilterCategory("all")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                  filterCategory === "all"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                Все
-              </button>
-              {categories.map((cat) => (
+
+          {!filteredGifts || filteredGifts.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-12 text-center">
+                <Gift className="w-8 h-8 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-sm text-muted-foreground">
+                  {searchQuery ? "Ничего не найдено" : "Нет подарков"}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+              {filteredGifts.map(gift => (
                 <button
-                  key={cat}
-                  onClick={() => setFilterCategory(cat)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                    filterCategory === cat
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
+                  key={gift.id}
+                  onClick={() => setSelectedGift(gift)}
+                  className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center gap-3 ${
+                    selectedGift?.id === gift.id
+                      ? "border-primary bg-primary/5"
+                      : "border-transparent hover:bg-muted/50"
+                  } ${!gift.is_active ? "opacity-50" : ""}`}
                 >
-                  {cat}
+                  <div className="w-10 h-10 rounded-lg bg-muted overflow-hidden flex-shrink-0">
+                    {gift.image_url && gift.image_url !== "pending" ? (
+                      <img src={storageUrl(gift.image_url)} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center"><Gift className="w-4 h-4 text-muted-foreground" /></div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{gift.name}</p>
+                    <p className="text-xs text-muted-foreground">{gift.price} дропсов · {gift.category}</p>
+                  </div>
+                  {gift.is_upgradable && (
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                  )}
                 </button>
               ))}
             </div>
           )}
         </div>
-      )}
 
-      {/* Gift grid */}
-      {gifts && gifts.length === 0 && (
-        <Card className="border-dashed">
-          <CardContent className="py-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/10 flex items-center justify-center mx-auto mb-5">
-              <Gift className="w-7 h-7 text-violet-500/60" />
-            </div>
-            <h3 className="text-lg font-semibold mb-2">Каталог пуст</h3>
-            <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6 leading-relaxed">
-              Создайте первый подарок, чтобы пользователи могли отправлять друг друга подарки на gomo6.
-            </p>
-            <Button onClick={() => { setForm(defaultForm); setShowForm(true); }} className="gap-2">
-              <Plus className="w-4 h-4" />
-              Создать подарок
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {filteredGifts && filteredGifts.length > 0 && (
-        <div className="space-y-3">
-          {filteredGifts.map((gift) => (
-            <div key={gift.id}>
-              <Card
-                className={`group hover:shadow-md transition-all duration-200 ${
-                  !gift.is_active ? "opacity-50" : ""
-                }`}
-              >
-                <CardContent className="p-0">
-                  <div className="flex items-stretch">
-                    {/* Image */}
-                    <div
-                      className="w-24 sm:w-32 aspect-square bg-muted rounded-l-lg overflow-hidden relative flex-shrink-0 cursor-pointer"
-                      onClick={() => toggleExpand(gift.id)}
-                    >
-                      {gift.image_url ? (
-                        <img
-                          src={gift.image_url}
-                          alt={gift.name}
-                          className="w-full h-full object-cover"
-                        />
+        {/* RIGHT: Selected gift detail + layers */}
+        <div className="lg:col-span-2 space-y-6">
+          {!selectedGift ? (
+            <Card className="border-dashed">
+              <CardContent className="py-16 text-center">
+                <Gift className="w-10 h-10 mx-auto text-muted-foreground/20 mb-3" />
+                <p className="text-sm text-muted-foreground">Выберите подарок слева или создайте новый</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {/* Gift info card */}
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex gap-4">
+                    <div className="w-24 h-24 rounded-xl bg-muted overflow-hidden flex-shrink-0 border">
+                      {selectedGift.image_url && selectedGift.image_url !== "pending" ? (
+                        <img src={storageUrl(selectedGift.image_url)} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Gift className="w-8 h-8 text-muted-foreground/40" />
-                        </div>
+                        <div className="w-full h-full flex items-center justify-center"><Gift className="w-8 h-8 text-muted-foreground" /></div>
                       )}
-                      <div className="absolute top-1.5 left-1.5 flex gap-1">
-                        {gift.is_upgradable && (
-                          <Badge className="bg-amber-500/90 text-white border-0 text-[9px] py-0">
-                            <Sparkles className="w-2.5 h-2.5 mr-0.5" />
-                            Upgrade
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-bold">{selectedGift.name}</h3>
+                          {selectedGift.description && (
+                            <p className="text-sm text-muted-foreground mt-0.5">{selectedGift.description}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => openEditForm(selectedGift)}>Изменить</Button>
+                          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteGift.mutate(selectedGift.id)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <Badge variant="secondary">{selectedGift.price} дропсов</Badge>
+                        <Badge variant="outline">{selectedGift.category}</Badge>
+                        {!selectedGift.is_active && <Badge variant="destructive" className="text-xs">Неактивен</Badge>}
+                        {selectedGift.is_upgradable && (
+                          <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+                            <Sparkles className="w-3 h-3 mr-1" /> Улучшаемый · {selectedGift.upgrade_cost} дропсов
                           </Badge>
                         )}
                       </div>
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 p-3.5 flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <h3 className="font-semibold text-sm truncate">{gift.name}</h3>
-                            {gift.description && (
-                              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                                {gift.description}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                          <Badge variant="secondary" className={`text-[10px] ${categoryColors[gift.category] || ""}`}>
-                            {gift.category}
-                          </Badge>
-                          <span className="text-xs font-semibold">{gift.price} дропсов</span>
-                          <span className="text-[10px] text-muted-foreground">
-                            Продано: {gift.sold_count}
-                          </span>
-                          {gift.is_upgradable && (
-                            <span className="text-[10px] text-amber-600">
-                              Улучшение: {gift.upgrade_cost} дропсов
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-1.5 pt-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(gift)}
-                          className="gap-1.5 h-7 text-xs"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                          Изменить
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toggleExpand(gift.id)}
-                          className="gap-1.5 h-7 text-xs"
-                        >
-                          <Layers className="w-3 h-3" />
-                          Слои
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deleteMutation.mutate(gift.id)}
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Price badge */}
-                    <div className="absolute top-2 right-2">
-                      <Badge className="bg-background/90 backdrop-blur text-foreground border text-xs font-semibold">
-                        {gift.price} д
-                      </Badge>
+                      <p className="text-xs text-muted-foreground mt-2">Продано: {selectedGift.sold_count}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Layer management panel */}
-              {expandedGiftId === gift.id && (
-                <Card className="border-t-0 rounded-t-none border-dashed border-amber-500/20 bg-amber-500/[0.02]">
-                  <CardContent className="p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-amber-500" />
-                        Слои улучшения
-                        {gift.is_upgradable && (
-                          <Badge className="bg-emerald-500/10 text-emerald-600 border-0 text-[10px]">Активно</Badge>
-                        )}
-                      </h4>
+              {/* Layers section */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">Слои улучшения</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{layersTotal} слоёв</span>
+                      {selectedGift.is_upgradable
+                        ? <Badge className="bg-emerald-500/10 text-emerald-600 border-0 text-xs">Активно</Badge>
+                        : <Badge variant="outline" className="text-xs">Нужно заполнить</Badge>
+                      }
                     </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Layer type tabs */}
+                  <div className="flex gap-1 bg-muted rounded-lg p-1">
+                    {LAYER_TYPES.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setActiveLayerTab(t)}
+                        className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                          activeLayerTab === t ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {LAYER_ICONS[t]} {LAYER_LABELS[t]}
+                        <span className="ml-1 text-muted-foreground">({layersByType[t].length})</span>
+                      </button>
+                    ))}
+                  </div>
 
-                    {layersLoading ? (
-                      <div className="flex justify-center py-4">
+                  {/* Hidden file input for layers */}
+                  <input
+                    ref={layerInputRef}
+                    type="file"
+                    accept="image/png"
+                    multiple
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files) doLayerUpload(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+
+                  {/* Drop zone */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverLayer(true); }}
+                    onDragLeave={() => setDragOverLayer(false)}
+                    onDrop={handleLayerDrop}
+                    onClick={openLayerFilePicker}
+                    className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+                      dragOverLayer ? "border-primary bg-primary/5" : "border-muted-foreground/20 hover:border-muted-foreground/40"
+                    }`}
+                  >
+                    {uploadingLayer ? (
+                      <div className="flex flex-col items-center gap-2">
                         <PentagramLoader size="sm" />
+                        <p className="text-xs text-muted-foreground">Загрузка...</p>
                       </div>
                     ) : (
-                      <>
-                        {/* Upload bar */}
-                        <div className="flex flex-wrap items-end gap-2 p-3 bg-muted/50 rounded-lg">
-                          <div className="space-y-1">
-                            <Label className="text-[10px] text-muted-foreground">Тип слоя</Label>
-                            <div className="flex gap-1">
-                              {(["gift", "background", "symbol"] as const).map((t) => (
-                                <button
-                                  key={t}
-                                  onClick={() => setUploadLayerType(t)}
-                                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                                    uploadLayerType === t
-                                      ? "bg-primary text-primary-foreground"
-                                      : "bg-background text-muted-foreground hover:bg-background/80"
-                                  }`}
-                                >
-                                  {layerTypeLabels[t]}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <label className="cursor-pointer">
-                            <input
-                              type="file"
-                              accept="image/png"
-                              className="hidden"
-                              disabled={uploadingLayer}
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  handleUploadLayer(gift.id, file);
-                                }
-                                e.target.value = "";
-                              }}
-                            />
-                            <Button variant="outline" size="sm" className="gap-1.5" disabled={uploadingLayer} asChild={false}>
-                              {uploadingLayer ? (
-                                <><PentagramLoader size="sm" /></>
-                              ) : (
-                                <><Upload className="w-3 h-3" /> Загрузить PNG</>
-                              )}
-                            </Button>
-                          </label>
-                          <p className="text-[10px] text-muted-foreground ml-auto hidden sm:block">
-                            Нужно ≥1 слоя каждого типа для активации
-                          </p>
-                        </div>
-
-                        {/* Layer grid by type */}
-                        <div className="space-y-3">
-                          {(["gift", "background", "symbol"] as const).map((t) => {
-                            const items = layersByType[t];
-                            const hasLayers = items.length > 0;
-                            return (
-                              <div key={t}>
-                                <div className="flex items-center gap-2 mb-2">
-                                  <Badge className={`text-[10px] ${layerTypeColors[t]}`}>
-                                    {layerTypeLabels[t]}
-                                  </Badge>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    {items.length} слоёв
-                                  </span>
-                                  {!hasLayers && (
-                                    <span className="text-[10px] text-red-500">— нужно добавить</span>
-                                  )}
-                                </div>
-                                <div className="flex gap-2 flex-wrap">
-                                  {items.map((layer) => (
-                                    <div
-                                      key={layer.id}
-                                      className="relative group/layer w-16 h-16 rounded-lg bg-muted overflow-hidden border border-border hover:border-primary/50 transition-colors"
-                                    >
-                                      <img
-                                        src={getLayerImageUrl(layer.image_url)}
-                                        alt={layer.name || t}
-                                        className="w-full h-full object-cover"
-                                      />
-                                      <button
-                                        onClick={() => deleteLayerMutation.mutate({ giftId: gift.id, layerId: layer.id })}
-                                        className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-destructive/90 text-white flex items-center justify-center opacity-0 group-hover/layer:opacity-100 transition-opacity"
-                                      >
-                                        <X className="w-2.5 h-2.5" />
-                                      </button>
-                                      {layer.usage_count != null && layer.usage_count > 0 && (
-                                        <div className="absolute bottom-0 left-0 right-0 bg-background/80 text-center text-[8px] py-0.5">
-                                          ×{layer.usage_count}
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                  {!hasLayers && (
-                                    <div className="w-16 h-16 rounded-lg border border-dashed border-muted-foreground/30 flex items-center justify-center">
-                                      <Image className="w-4 h-4 text-muted-foreground/30" />
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* Upgrade activation status */}
-                        <div className="flex items-center gap-2 pt-1">
-                          {gift.is_upgradable ? (
-                            <span className="text-xs text-emerald-600">
-                              ✅ Подарок улучшаемый — все типы слоёв заполнены
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              📦 Добавьте слои всех трёх типов, чтобы активировать улучшения
-                            </span>
-                          )}
-                        </div>
-                      </>
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload className="w-6 h-6 text-muted-foreground/40" />
+                        <p className="text-sm text-muted-foreground">
+                          Перетащите PNG или нажмите для выбора
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/60">
+                          Тип: {LAYER_LABELS[activeLayerTab]} · можно несколько файлов
+                        </p>
+                      </div>
                     )}
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+                  </div>
 
-      {filteredGifts && filteredGifts.length === 0 && gifts && gifts.length > 0 && (
-        <div className="text-center py-12">
-          <Search className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">Ничего не найдено</p>
+                  {/* Layer grid — current tab */}
+                  {layersLoading ? (
+                    <div className="flex justify-center py-4"><PentagramLoader size="sm" /></div>
+                  ) : (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium">{LAYER_ICONS[activeLayerTab]} {LAYER_LABELS[activeLayerTab]}</span>
+                        {layersByType[activeLayerTab].length === 0 && (
+                          <span className="text-[10px] text-red-500">— нужно добавить</span>
+                        )}
+                      </div>
+                      {layersByType[activeLayerTab].length === 0 ? (
+                        <div className="grid grid-cols-4 gap-2">
+                          {[1, 2, 3, 4].map(i => (
+                            <div key={i} className="aspect-square rounded-lg border border-dashed border-muted-foreground/20 bg-muted/30" />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                          {layersByType[activeLayerTab].map(layer => (
+                            <div key={layer.id} className="group relative aspect-square rounded-lg bg-muted overflow-hidden border border-border hover:border-primary/50 transition-colors">
+                              <img src={storageUrl(layer.image_url)} alt="" className="w-full h-full object-cover" />
+                              <button
+                                onClick={() => deleteLayer.mutate(layer.id)}
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-destructive/90 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                              {layer.usage_count ? (
+                                <div className="absolute bottom-0 left-0 right-0 bg-background/80 text-center text-[9px] py-px">×{layer.usage_count}</div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Status footer */}
+                  <div className="flex items-center gap-2 pt-2 border-t">
+                    <div className="flex gap-1">
+                      {LAYER_TYPES.map(t => (
+                        <div key={t} className={`w-2 h-2 rounded-full ${layersByType[t].length > 0 ? "bg-emerald-500" : "bg-muted-foreground/30"}`} />
+                      ))}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {hasAllLayers ? "Все типы заполнены — улучшения активны" : "Добавьте все 3 типа слоёв для активации"}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Create / Edit modal ── */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] bg-background/80 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) resetForm(); }}>
+          <Card className="w-full max-w-lg max-h-[80vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>{editingGift ? "Редактировать" : "Новый подарок"}</CardTitle>
+              <Button variant="ghost" size="sm" onClick={resetForm}><X className="w-4 h-4" /></Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Base image — drag & drop */}
+              <div>
+                <Label className="text-sm mb-2 block">Картинка *</Label>
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragOverBase(true); }}
+                  onDragLeave={() => setDragOverBase(false)}
+                  onDrop={handleBaseImageDrop}
+                  onClick={() => {
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = "image/png";
+                    input.onchange = (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (file) {
+                        if (baseImagePreview) URL.revokeObjectURL(baseImagePreview);
+                        setBaseImageFile(file);
+                        setBaseImagePreview(URL.createObjectURL(file));
+                      }
+                    };
+                    input.click();
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-colors ${
+                    dragOverBase ? "border-primary bg-primary/5" : "border-muted-foreground/20 hover:border-muted-foreground/40"
+                  }`}
+                >
+                  {baseImagePreview ? (
+                    <img src={baseImagePreview} alt="preview" className="max-h-32 mx-auto rounded-lg" />
+                  ) : formImageUrl && formImageUrl !== "pending" ? (
+                    <img src={storageUrl(formImageUrl)} alt="current" className="max-h-32 mx-auto rounded-lg" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-6">
+                      <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
+                      <p className="text-sm text-muted-foreground">Перетащите PNG или нажмите</p>
+                    </div>
+                  )}
+                </div>
+                <Input
+                  value={formImageUrl}
+                  onChange={e => { setFormImageUrl(e.target.value); setBaseImageFile(null); if (baseImagePreview) { URL.revokeObjectURL(baseImagePreview); setBaseImagePreview(""); } }}
+                  placeholder="Или вставьте URL/путь"
+                  className="mt-2 text-xs"
+                />
+              </div>
+
+              {/* Name + Category */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-sm">Название *</Label>
+                  <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Название" className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-sm">Категория</Label>
+                  <Input value={formCategory} onChange={e => setFormCategory(e.target.value)} placeholder="general" className="mt-1" />
+                </div>
+              </div>
+
+              {/* Price + Sort */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-sm">Цена (дропсы) *</Label>
+                  <Input type="number" min={1} value={formPrice} onChange={e => setFormPrice(parseInt(e.target.value) || 0)} className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-sm">Порядок</Label>
+                  <Input type="number" value={formSort} onChange={e => setFormSort(parseInt(e.target.value) || 0)} className="mt-1" />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <Label className="text-sm">Описание</Label>
+                <Textarea value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="Описание..." rows={2} className="mt-1" />
+              </div>
+
+              {/* Toggles */}
+              <div className="flex flex-wrap gap-4 items-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={formActive} onCheckedChange={setFormActive} />
+                  <span className="text-sm">Активен</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={formLimited} onCheckedChange={setFormLimited} />
+                  <span className="text-sm">Лимит</span>
+                </label>
+                {formLimited && (
+                  <Input type="number" min={1} value={formMaxQty} onChange={e => setFormMaxQty(parseInt(e.target.value) || 0)} placeholder="Кол-во" className="w-20 h-8 text-xs" />
+                )}
+              </div>
+
+              {/* Upgrade */}
+              <div className="border-t pt-3 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Switch checked={formUpgradable} onCheckedChange={setFormUpgradable} />
+                  <span className="text-sm font-medium flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Улучшаемый
+                  </span>
+                </label>
+                {formUpgradable && (
+                  <div className="w-48">
+                    <Label className="text-xs text-muted-foreground">Стоимость улучшения (дропсы)</Label>
+                    <Input type="number" min={1} value={formUpgradeCost} onChange={e => setFormUpgradeCost(parseInt(e.target.value) || 0)} className="mt-1" />
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-2">
+                <Button onClick={handleSubmit} disabled={createGift.isPending || updateGift.isPending || uploadingBase} className="flex-1">
+                  {uploadingBase ? "Загрузка..." : editingGift ? "Сохранить" : "Создать"}
+                </Button>
+                <Button variant="outline" onClick={resetForm}>Отмена</Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
