@@ -20,10 +20,11 @@ import (
 
 // IntegrationsHandler handles third-party service integrations (Spotify, etc.)
 type IntegrationsHandler struct {
-	db      *sql.DB
-	spotify *integrations.SpotifyService
-	hub     *websocket.Hub
-	redis   *redis.Client
+	db                 *sql.DB
+	spotify            *integrations.SpotifyService
+	hub                *websocket.Hub
+	redis              *redis.Client
+	achievementChecker *AchievementChecker
 }
 
 // SetWebSocketHub sets the WebSocket hub for real-time publishing
@@ -34,6 +35,11 @@ func (h *IntegrationsHandler) SetWebSocketHub(hub *websocket.Hub) {
 // SetRedis sets the Redis client for caching
 func (h *IntegrationsHandler) SetRedis(r *redis.Client) {
 	h.redis = r
+}
+
+// SetAchievementChecker sets the achievement checker for auto-unlock
+func (h *IntegrationsHandler) SetAchievementChecker(ac *AchievementChecker) {
+	h.achievementChecker = ac
 }
 
 // NewIntegrationsHandler creates a new integrations handler
@@ -202,6 +208,11 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 	}
 
 	h.redirectToSettings(c, "success", "Spotify подключён!")
+
+	// Award Spotify integration achievement
+	if h.achievementChecker != nil {
+		go h.achievementChecker.AwardOneTime(userID, "spotify")
+	}
 }
 
 // DisconnectSpotify removes the Spotify integration for the authenticated user

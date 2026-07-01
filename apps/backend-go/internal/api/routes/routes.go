@@ -576,6 +576,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	integrationsHandler := handlers.NewIntegrationsHandler(db)
 	integrationsHandler.SetWebSocketHub(wsHub)
 	integrationsHandler.SetRedis(redis)
+	integrationsHandler.SetAchievementChecker(achChecker)
 
 	integrationsGroup := api.Group("/integrations")
 	{
