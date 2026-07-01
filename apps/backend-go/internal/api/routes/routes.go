@@ -352,6 +352,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.POST("/admin/gifts", giftAdminHandler.CreateGift)
 			protected.PUT("/admin/gifts/:id", giftAdminHandler.UpdateGift)
 			protected.DELETE("/admin/gifts/:id", giftAdminHandler.DeleteGift)
+			// Layer management
+			protected.GET("/admin/gifts/:id/layers", giftAdminHandler.ListLayers)
+			protected.POST("/admin/gifts/:id/layers", giftAdminHandler.CreateLayer)
+			protected.DELETE("/admin/gifts/:id/layers/:layerId", giftAdminHandler.DeleteLayer)
+			// Gift upgrade
+			protected.POST("/gifts/:giftRecordID/upgrade", giftsHandler.UpgradeGift)
 
 			// -- Messenger (clean API) --
 			// Read-only endpoints — higher rate limit (300 req/min)

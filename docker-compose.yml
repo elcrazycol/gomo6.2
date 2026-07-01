@@ -111,7 +111,7 @@ services:
         # Buckets: создаём если нет, всегда grant owner.
         # ВАЖНО: bucket allow запускается при каждом старте, чтобы новые бакеты
         # добавленные в список ниже получали права без down -v.
-        for bucket in content post-images avatars uploads emojis; do
+        for bucket in content post-images avatars uploads emojis gift-layers; do
           if $$G bucket info "$$bucket" >/dev/null 2>&1; then
             echo "Bucket $$bucket already exists."
           else

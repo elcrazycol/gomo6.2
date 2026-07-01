@@ -240,7 +240,7 @@ func TestBrowserReachableS3URL_CaseInsensitive(t *testing.T) {
 // =============================================================================
 
 func TestIsAllowedBucket_Defaults(t *testing.T) {
-	allowed := []string{"content", "post-images", "avatars", "uploads"}
+	allowed := []string{"content", "post-images", "avatars", "uploads", "emojis", "gift-layers"}
 	for _, b := range allowed {
 		t.Run(b, func(t *testing.T) {
 			if !IsAllowedBucket(b) {
@@ -410,7 +410,7 @@ func TestLoadAllowedBuckets_Defaults(t *testing.T) {
 	// allowedBucketsOnce has already fired in a full test run.
 	// This test verifies the current state matches expected defaults.
 	m := loadAllowedBuckets()
-	expected := []string{"content", "post-images", "avatars", "uploads", "emojis"}
+	expected := []string{"content", "post-images", "avatars", "uploads", "emojis", "gift-layers"}
 	for _, b := range expected {
 		if _, ok := m[b]; !ok {
 			t.Errorf("expected bucket %q in allowed set, got %v", b, keysOf(m))

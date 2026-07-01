@@ -21,8 +21,23 @@ import {
   Star,
   Eye,
   BarChart3,
+  Image,
+  Layers,
+  Upload,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+
+interface GiftLayerItem {
+  id: string;
+  gift_catalog_id: string;
+  layer_type: "gift" | "background" | "symbol";
+  image_url: string;
+  name?: string;
+  sort_order: number;
+  created_at: string;
+  usage_count?: number;
+}
 
 interface GiftItem {
   id: string;
@@ -36,6 +51,8 @@ interface GiftItem {
   max_quantity?: number;
   sold_count: number;
   sort_order: number;
+  is_upgradable: boolean;
+  upgrade_cost?: number | null;
   created_at: string;
 }
 
@@ -49,6 +66,8 @@ interface GiftForm {
   is_limited: boolean;
   max_quantity: number;
   sort_order: number;
+  is_upgradable: boolean;
+  upgrade_cost: number;
 }
 
 const defaultForm: GiftForm = {
@@ -61,6 +80,20 @@ const defaultForm: GiftForm = {
   is_limited: false,
   max_quantity: 0,
   sort_order: 0,
+  is_upgradable: false,
+  upgrade_cost: 20,
+};
+
+const layerTypeLabels: Record<string, string> = {
+  gift: "Подарок",
+  background: "Фон",
+  symbol: "Символ",
+};
+
+const layerTypeColors: Record<string, string> = {
+  gift: "bg-pink-500/10 text-pink-600",
+  background: "bg-blue-500/10 text-blue-600",
+  symbol: "bg-amber-500/10 text-amber-600",
 };
 
 const categoryColors: Record<string, string> = {
@@ -80,6 +113,10 @@ const GiftAdmin = () => {
   const [form, setForm] = useState<GiftForm>(defaultForm);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  // Layer management state
+  const [expandedGiftId, setExpandedGiftId] = useState<string | null>(null);
+  const [uploadLayerType, setUploadLayerType] = useState<"gift" | "background" | "symbol">("gift");
+  const [uploadingLayer, setUploadingLayer] = useState(false);
 
   useEffect(() => {
     api.getSession().then(({ session }) => {
@@ -99,6 +136,19 @@ const GiftAdmin = () => {
     enabled: sessionChecked,
   });
 
+  // Layers query for the expanded gift
+  const { data: layers, isLoading: layersLoading } = useQuery({
+    queryKey: ["admin-gift-layers", expandedGiftId],
+    queryFn: async () => {
+      if (!expandedGiftId) return [];
+      const res = await api.fetch(`/api/v1/admin/gifts/${expandedGiftId}/layers`);
+      if (!res.ok) throw new Error("Failed to fetch layers");
+      const json = await res.json();
+      return json.data as GiftLayerItem[];
+    },
+    enabled: !!expandedGiftId,
+  });
+
   const createMutation = useMutation({
     mutationFn: async (data: GiftForm) => {
       const res = await api.fetch("/api/v1/admin/gifts", {
@@ -109,12 +159,17 @@ const GiftAdmin = () => {
         const json = await res.json();
         throw new Error(json.error || "Failed to create gift");
       }
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
       toast.success("Подарок создан");
       setShowForm(false);
       setForm(defaultForm);
+      // Auto-expand to let admin add layers
+      if (result?.data?.id) {
+        setExpandedGiftId(result.data.id);
+      }
     },
     onError: (err: any) => toast.error(err.message),
   });
@@ -152,6 +207,69 @@ const GiftAdmin = () => {
     onError: (err: any) => toast.error(err.message),
   });
 
+  const deleteLayerMutation = useMutation({
+    mutationFn: async ({ giftId, layerId }: { giftId: string; layerId: string }) => {
+      const res = await api.fetch(`/api/v1/admin/gifts/${giftId}/layers/${layerId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to delete layer");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", expandedGiftId] });
+      queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
+      toast.success("Слой удалён");
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const handleUploadLayer = async (giftId: string, file: File) => {
+    const token = api.getToken();
+    if (!token) return;
+
+    setUploadingLayer(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
+      const key = `gifts/${giftId}/layers/${uploadLayerType}/${Date.now()}.${ext}`;
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("bucket", "gift-layers");
+      formData.append("key", key);
+
+      const uploadRes = await fetch("/api/v1/storage/v1/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      const uploadJson = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(uploadJson.error || "Upload failed");
+
+      // Create layer record
+      const layerRes = await api.fetch(`/api/v1/admin/gifts/${giftId}/layers`, {
+        method: "POST",
+        body: JSON.stringify({
+          layer_type: uploadLayerType,
+          image_url: key,
+          name: file.name.replace(/\.[^.]+$/, ""),
+        }),
+      });
+
+      if (!layerRes.ok) throw new Error("Failed to create layer record");
+
+      queryClient.invalidateQueries({ queryKey: ["admin-gift-layers", giftId] });
+      queryClient.invalidateQueries({ queryKey: ["admin-gifts"] });
+      toast.success("Слой загружен");
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed");
+    } finally {
+      setUploadingLayer(false);
+    }
+  };
+
   const handleEdit = (gift: GiftItem) => {
     setEditingGift(gift);
     setForm({
@@ -164,6 +282,8 @@ const GiftAdmin = () => {
       is_limited: gift.is_limited,
       max_quantity: gift.max_quantity || 0,
       sort_order: gift.sort_order,
+      is_upgradable: gift.is_upgradable || false,
+      upgrade_cost: gift.upgrade_cost || 20,
     });
     setShowForm(true);
   };
@@ -173,10 +293,15 @@ const GiftAdmin = () => {
       toast.error("Заполните обязательные поля");
       return;
     }
+    const payload: any = { ...form };
+    // Only send upgrade fields if gift is marked as upgradable
+    if (!form.is_upgradable) {
+      payload.upgrade_cost = null;
+    }
     if (editingGift) {
-      updateMutation.mutate({ id: editingGift.id, data: form });
+      updateMutation.mutate({ id: editingGift.id, data: payload });
     } else {
-      createMutation.mutate(form);
+      createMutation.mutate(payload);
     }
   };
 
@@ -184,6 +309,10 @@ const GiftAdmin = () => {
     setShowForm(false);
     setEditingGift(null);
     setForm(defaultForm);
+  };
+
+  const toggleExpand = (giftId: string) => {
+    setExpandedGiftId(expandedGiftId === giftId ? null : giftId);
   };
 
   const filteredGifts = gifts?.filter((gift) => {
@@ -199,6 +328,11 @@ const GiftAdmin = () => {
   const totalSold = gifts?.reduce((sum, g) => sum + g.sold_count, 0) || 0;
   const activeCount = gifts?.filter((g) => g.is_active).length || 0;
 
+  const getLayerImageUrl = (imageUrl: string) => {
+    if (imageUrl.startsWith("http")) return imageUrl;
+    return `/api/v1/storage/v1/object/gift-layers/${imageUrl}`;
+  };
+
   if (!sessionChecked || isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -207,6 +341,13 @@ const GiftAdmin = () => {
     );
   }
 
+  // Count layers by type for the expanded gift
+  const layersByType = {
+    gift: layers?.filter((l) => l.layer_type === "gift") || [],
+    background: layers?.filter((l) => l.layer_type === "background") || [],
+    symbol: layers?.filter((l) => l.layer_type === "symbol") || [],
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -214,7 +355,7 @@ const GiftAdmin = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Подарки</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Управляйте каталогом подарков для пользователей
+            Управляйте каталогом подарков и слоями улучшений
           </p>
         </div>
         {!showForm && (
@@ -313,7 +454,7 @@ const GiftAdmin = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="price" className="text-sm font-medium">Цена (gарма) *</Label>
+                <Label htmlFor="price" className="text-sm font-medium">Цена (дропсы) *</Label>
                 <Input
                   id="price"
                   type="number"
@@ -363,24 +504,53 @@ const GiftAdmin = () => {
                 rows={2}
               />
             </div>
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="flex items-center gap-2.5">
-                <Switch
-                  id="is_active"
-                  checked={form.is_active}
-                  onCheckedChange={(v) => setForm({ ...form, is_active: v })}
-                />
-                <Label htmlFor="is_active" className="text-sm">Активен</Label>
+
+            {/* Upgrade section */}
+            <div className="border-t border-border pt-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <h4 className="text-sm font-semibold">Улучшения</h4>
               </div>
-              <div className="flex items-center gap-2.5">
-                <Switch
-                  id="is_limited"
-                  checked={form.is_limited}
-                  onCheckedChange={(v) => setForm({ ...form, is_limited: v })}
-                />
-                <Label htmlFor="is_limited" className="text-sm">Лимитированный</Label>
+              <div className="flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    id="is_upgradable"
+                    checked={form.is_upgradable}
+                    onCheckedChange={(v) => setForm({ ...form, is_upgradable: v })}
+                  />
+                  <Label htmlFor="is_upgradable" className="text-sm">Улучшаемый подарок</Label>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    id="is_active"
+                    checked={form.is_active}
+                    onCheckedChange={(v) => setForm({ ...form, is_active: v })}
+                  />
+                  <Label htmlFor="is_active" className="text-sm">Активен</Label>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Switch
+                    id="is_limited"
+                    checked={form.is_limited}
+                    onCheckedChange={(v) => setForm({ ...form, is_limited: v })}
+                  />
+                  <Label htmlFor="is_limited" className="text-sm">Лимитированный</Label>
+                </div>
               </div>
+              {form.is_upgradable && (
+                <div className="space-y-2 w-full sm:w-48">
+                  <Label htmlFor="upgrade_cost" className="text-sm font-medium">Стоимость улучшения (дропсы)</Label>
+                  <Input
+                    id="upgrade_cost"
+                    type="number"
+                    min={1}
+                    value={form.upgrade_cost}
+                    onChange={(e) => setForm({ ...form, upgrade_cost: parseInt(e.target.value) || 0 })}
+                  />
+                </div>
+              )}
             </div>
+
             <div className="flex gap-2 pt-2">
               <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending} className="gap-2">
                 {editingGift ? "Сохранить изменения" : "Создать подарок"}
@@ -453,102 +623,248 @@ const GiftAdmin = () => {
       )}
 
       {filteredGifts && filteredGifts.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="space-y-3">
           {filteredGifts.map((gift) => (
-            <Card
-              key={gift.id}
-              className={`group hover:shadow-md transition-all duration-200 ${
-                !gift.is_active ? "opacity-50" : ""
-              }`}
-            >
-              <CardContent className="p-0">
-                {/* Image */}
-                <div className="aspect-[4/3] bg-muted rounded-t-lg overflow-hidden relative">
-                  {gift.image_url ? (
-                    <img
-                      src={gift.image_url}
-                      alt={gift.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Gift className="w-10 h-10 text-muted-foreground/40" />
-                    </div>
-                  )}
-                  {/* Overlay badges */}
-                  <div className="absolute top-2 left-2 flex gap-1.5">
-                    {gift.is_limited && (
-                      <Badge className="bg-amber-500/90 text-white border-0 text-[10px]">
-                        Limited
-                      </Badge>
-                    )}
-                    {!gift.is_active && (
-                      <Badge className="bg-muted/90 text-muted-foreground border-0 text-[10px]">
-                        Неактивен
-                      </Badge>
-                    )}
-                  </div>
-                  {/* Price badge */}
-                  <div className="absolute bottom-2 right-2">
-                    <Badge className="bg-background/90 backdrop-blur text-foreground border-0 text-xs font-semibold">
-                      {gift.price} г
-                    </Badge>
-                  </div>
-                </div>
-
-                {/* Info */}
-                <div className="p-3.5 space-y-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-sm truncate">{gift.name}</h3>
-                      {gift.description && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {gift.description}
-                        </p>
+            <div key={gift.id}>
+              <Card
+                className={`group hover:shadow-md transition-all duration-200 ${
+                  !gift.is_active ? "opacity-50" : ""
+                }`}
+              >
+                <CardContent className="p-0">
+                  <div className="flex items-stretch">
+                    {/* Image */}
+                    <div
+                      className="w-24 sm:w-32 aspect-square bg-muted rounded-l-lg overflow-hidden relative flex-shrink-0 cursor-pointer"
+                      onClick={() => toggleExpand(gift.id)}
+                    >
+                      {gift.image_url ? (
+                        <img
+                          src={gift.image_url}
+                          alt={gift.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Gift className="w-8 h-8 text-muted-foreground/40" />
+                        </div>
                       )}
+                      <div className="absolute top-1.5 left-1.5 flex gap-1">
+                        {gift.is_upgradable && (
+                          <Badge className="bg-amber-500/90 text-white border-0 text-[9px] py-0">
+                            <Sparkles className="w-2.5 h-2.5 mr-0.5" />
+                            Upgrade
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 p-3.5 flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-sm truncate">{gift.name}</h3>
+                            {gift.description && (
+                              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                                {gift.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                          <Badge variant="secondary" className={`text-[10px] ${categoryColors[gift.category] || ""}`}>
+                            {gift.category}
+                          </Badge>
+                          <span className="text-xs font-semibold">{gift.price} дропсов</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            Продано: {gift.sold_count}
+                          </span>
+                          {gift.is_upgradable && (
+                            <span className="text-[10px] text-amber-600">
+                              Улучшение: {gift.upgrade_cost} дропсов
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-1.5 pt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEdit(gift)}
+                          className="gap-1.5 h-7 text-xs"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          Изменить
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleExpand(gift.id)}
+                          className="gap-1.5 h-7 text-xs"
+                        >
+                          <Layers className="w-3 h-3" />
+                          Слои
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteMutation.mutate(gift.id)}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Price badge */}
+                    <div className="absolute top-2 right-2">
+                      <Badge className="bg-background/90 backdrop-blur text-foreground border text-xs font-semibold">
+                        {gift.price} д
+                      </Badge>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge
-                      variant="secondary"
-                      className={`text-[10px] ${categoryColors[gift.category] || ""}`}
-                    >
-                      {gift.category}
-                    </Badge>
-                    <span className="text-[10px] text-muted-foreground">
-                      Продано: {gift.sold_count}
-                    </span>
-                    {gift.is_limited && gift.max_quantity && (
-                      <span className="text-[10px] text-muted-foreground">
-                        Осталось: {gift.max_quantity - gift.sold_count}
-                      </span>
+              {/* Layer management panel */}
+              {expandedGiftId === gift.id && (
+                <Card className="border-t-0 rounded-t-none border-dashed border-amber-500/20 bg-amber-500/[0.02]">
+                  <CardContent className="p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Layers className="w-4 h-4 text-amber-500" />
+                        Слои улучшения
+                        {gift.is_upgradable && (
+                          <Badge className="bg-emerald-500/10 text-emerald-600 border-0 text-[10px]">Активно</Badge>
+                        )}
+                      </h4>
+                    </div>
+
+                    {layersLoading ? (
+                      <div className="flex justify-center py-4">
+                        <PentagramLoader size="sm" />
+                      </div>
+                    ) : (
+                      <>
+                        {/* Upload bar */}
+                        <div className="flex flex-wrap items-end gap-2 p-3 bg-muted/50 rounded-lg">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] text-muted-foreground">Тип слоя</Label>
+                            <div className="flex gap-1">
+                              {(["gift", "background", "symbol"] as const).map((t) => (
+                                <button
+                                  key={t}
+                                  onClick={() => setUploadLayerType(t)}
+                                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                                    uploadLayerType === t
+                                      ? "bg-primary text-primary-foreground"
+                                      : "bg-background text-muted-foreground hover:bg-background/80"
+                                  }`}
+                                >
+                                  {layerTypeLabels[t]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <label className="cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/png"
+                              className="hidden"
+                              disabled={uploadingLayer}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  handleUploadLayer(gift.id, file);
+                                }
+                                e.target.value = "";
+                              }}
+                            />
+                            <Button variant="outline" size="sm" className="gap-1.5" disabled={uploadingLayer} asChild={false}>
+                              {uploadingLayer ? (
+                                <><PentagramLoader size="sm" /></>
+                              ) : (
+                                <><Upload className="w-3 h-3" /> Загрузить PNG</>
+                              )}
+                            </Button>
+                          </label>
+                          <p className="text-[10px] text-muted-foreground ml-auto hidden sm:block">
+                            Нужно ≥1 слоя каждого типа для активации
+                          </p>
+                        </div>
+
+                        {/* Layer grid by type */}
+                        <div className="space-y-3">
+                          {(["gift", "background", "symbol"] as const).map((t) => {
+                            const items = layersByType[t];
+                            const hasLayers = items.length > 0;
+                            return (
+                              <div key={t}>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Badge className={`text-[10px] ${layerTypeColors[t]}`}>
+                                    {layerTypeLabels[t]}
+                                  </Badge>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {items.length} слоёв
+                                  </span>
+                                  {!hasLayers && (
+                                    <span className="text-[10px] text-red-500">— нужно добавить</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-2 flex-wrap">
+                                  {items.map((layer) => (
+                                    <div
+                                      key={layer.id}
+                                      className="relative group/layer w-16 h-16 rounded-lg bg-muted overflow-hidden border border-border hover:border-primary/50 transition-colors"
+                                    >
+                                      <img
+                                        src={getLayerImageUrl(layer.image_url)}
+                                        alt={layer.name || t}
+                                        className="w-full h-full object-cover"
+                                      />
+                                      <button
+                                        onClick={() => deleteLayerMutation.mutate({ giftId: gift.id, layerId: layer.id })}
+                                        className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-destructive/90 text-white flex items-center justify-center opacity-0 group-hover/layer:opacity-100 transition-opacity"
+                                      >
+                                        <X className="w-2.5 h-2.5" />
+                                      </button>
+                                      {layer.usage_count != null && layer.usage_count > 0 && (
+                                        <div className="absolute bottom-0 left-0 right-0 bg-background/80 text-center text-[8px] py-0.5">
+                                          ×{layer.usage_count}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {!hasLayers && (
+                                    <div className="w-16 h-16 rounded-lg border border-dashed border-muted-foreground/30 flex items-center justify-center">
+                                      <Image className="w-4 h-4 text-muted-foreground/30" />
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Upgrade activation status */}
+                        <div className="flex items-center gap-2 pt-1">
+                          {gift.is_upgradable ? (
+                            <span className="text-xs text-emerald-600">
+                              ✅ Подарок улучшаемый — все типы слоёв заполнены
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              📦 Добавьте слои всех трёх типов, чтобы активировать улучшения
+                            </span>
+                          )}
+                        </div>
+                      </>
                     )}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-1.5 pt-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(gift)}
-                      className="flex-1 gap-1.5 h-8 text-xs"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      Изменить
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteMutation.mutate(gift.id)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           ))}
         </div>
       )}
