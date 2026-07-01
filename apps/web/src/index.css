@@ -422,6 +422,11 @@ html, body {
   100% { transform: scale(1.8); opacity: 0; }
 }
 
+@keyframes float-symbol {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-4px) scale(1.03); }
+}
+
 /* ── Chat header group (topbar + pinned) ── */
 
 .chat-header-group {

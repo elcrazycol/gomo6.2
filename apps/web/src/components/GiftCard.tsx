@@ -16,6 +16,8 @@ export interface GiftCatalogItem {
   max_quantity?: number;
   sold_count: number;
   sort_order: number;
+  is_upgradable?: boolean;
+  upgrade_cost?: number | null;
 }
 
 export interface UserGiftItem {

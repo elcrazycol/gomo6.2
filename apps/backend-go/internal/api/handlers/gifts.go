@@ -406,11 +406,28 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	rows, err := h.db.Query(`
 		SELECT ug.id, ug.gift_id, ug.sender_id, ug.recipient_id, ug.message,
 		       ug.is_anonymous, ug.created_at,
+		       COALESCE(ug.is_upgraded, FALSE), ug.gift_layer_id, ug.background_layer_id, ug.symbol_layer_id, ug.upgraded_at,
 		       gc.name AS gift_name, gc.image_url AS gift_image_url, gc.price AS gift_price,
-		       u.username AS sender_username, u.avatar_url AS sender_avatar_url
+		       COALESCE(gc.is_upgradable, FALSE) AS is_gift_upgradable, gc.upgrade_cost AS gift_upgrade_cost,
+		       u.username AS sender_username, u.avatar_url AS sender_avatar_url,
+		       gl.image_url AS gift_layer_image_url,
+		       bgl.image_url AS background_layer_image_url,
+		       sl.image_url AS symbol_layer_image_url,
+		       CASE WHEN ug.gift_layer_id IS NOT NULL
+		           THEN 100 / NULLIF((SELECT COUNT(*) FROM user_gifts ug2 WHERE ug2.gift_id = ug.gift_id AND ug2.gift_layer_id = ug.gift_layer_id AND ug2.is_upgraded = TRUE), 0)
+		           ELSE NULL END AS gift_layer_rarity,
+		       CASE WHEN ug.background_layer_id IS NOT NULL
+		           THEN 100 / NULLIF((SELECT COUNT(*) FROM user_gifts ug2 WHERE ug2.gift_id = ug.gift_id AND ug2.background_layer_id = ug.background_layer_id AND ug2.is_upgraded = TRUE), 0)
+		           ELSE NULL END AS background_layer_rarity,
+		       CASE WHEN ug.symbol_layer_id IS NOT NULL
+		           THEN 100 / NULLIF((SELECT COUNT(*) FROM user_gifts ug2 WHERE ug2.gift_id = ug.gift_id AND ug2.symbol_layer_id = ug.symbol_layer_id AND ug2.is_upgraded = TRUE), 0)
+		           ELSE NULL END AS symbol_layer_rarity
 		FROM user_gifts ug
 		JOIN gift_catalog gc ON gc.id = ug.gift_id
 		LEFT JOIN users u ON u.id = ug.sender_id
+		LEFT JOIN gift_layers gl ON gl.id = ug.gift_layer_id
+		LEFT JOIN gift_layers bgl ON bgl.id = ug.background_layer_id
+		LEFT JOIN gift_layers sl ON sl.id = ug.symbol_layer_id
 		WHERE ug.recipient_id = $1
 		ORDER BY ug.created_at DESC
 		LIMIT $2 OFFSET $3
@@ -421,24 +438,57 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	}
 	defer rows.Close()
 
+	type ScanGift struct {
+		models.UserGift
+		giftLayerURL, bgLayerURL, symLayerURL sql.NullString
+		giftRarity, bgRarity, symRarity       sql.NullInt64
+	}
+
 	var gifts []models.UserGift
 	for rows.Next() {
-		var g models.UserGift
+		var g ScanGift
 		err := rows.Scan(
 			&g.ID, &g.GiftID, &g.SenderID, &g.RecipientID, &g.Message,
 			&g.IsAnonymous, &g.CreatedAt,
-			&g.GiftName, &g.GiftImageURL, &g.GiftPrice, &g.SenderUsername, &g.SenderAvatarURL,
+			&g.IsUpgraded, &g.GiftLayerID, &g.BackgroundLayerID, &g.SymbolLayerID, &g.UpgradedAt,
+			&g.GiftName, &g.GiftImageURL, &g.GiftPrice,
+			&g.IsGiftUpgradable, &g.GiftUpgradeCost,
+			&g.SenderUsername, &g.SenderAvatarURL,
+			&g.giftLayerURL, &g.bgLayerURL, &g.symLayerURL,
+			&g.giftRarity, &g.bgRarity, &g.symRarity,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return
 		}
+		if g.giftLayerURL.Valid {
+			g.GiftLayerImageURL = &g.giftLayerURL.String
+		}
+		if g.bgLayerURL.Valid {
+			g.BackgroundLayerImageURL = &g.bgLayerURL.String
+		}
+		if g.symLayerURL.Valid {
+			g.SymbolLayerImageURL = &g.symLayerURL.String
+		}
+		if g.giftRarity.Valid {
+			r := int(g.giftRarity.Int64)
+			g.GiftLayerRarity = &r
+		}
+		if g.bgRarity.Valid {
+			r := int(g.bgRarity.Int64)
+			g.BackgroundLayerRarity = &r
+		}
+		if g.symRarity.Valid {
+			r := int(g.symRarity.Int64)
+			g.SymbolLayerRarity = &r
+		}
+
 		// Hide sender info for anonymous gifts
 		if g.IsAnonymous {
 			g.SenderID = nil
 			g.SenderUsername = nil
 		}
-		gifts = append(gifts, g)
+		gifts = append(gifts, g.UserGift)
 	}
 
 	if gifts == nil {
@@ -476,6 +526,7 @@ func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 	rows, err := h.db.Query(`
 		SELECT id, name, description, image_url, price, category,
 		       is_active, is_limited, max_quantity, sold_count, sort_order,
+		       COALESCE(is_upgradable, FALSE), upgrade_cost,
 		       created_at, updated_at
 		FROM gift_catalog
 		WHERE is_active = true
@@ -494,6 +545,7 @@ func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 		err := rows.Scan(
 			&g.ID, &g.Name, &g.Description, &g.ImageURL, &g.Price, &g.Category,
 			&g.IsActive, &g.IsLimited, &g.MaxQuantity, &g.SoldCount, &g.SortOrder,
+			&g.IsUpgradable, &g.UpgradeCost,
 			&g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {

@@ -358,19 +358,21 @@ type GomosubInvite struct {
 
 // GiftCatalog — admin-managed gift definitions
 type GiftCatalog struct {
-	ID          string    `json:"id" db:"id"`
-	Name        string    `json:"name" db:"name"`
-	Description *string   `json:"description" db:"description"`
-	ImageURL    string    `json:"image_url" db:"image_url"`
-	Price       int       `json:"price" db:"price"`
-	Category    string    `json:"category" db:"category"`
-	IsActive    bool      `json:"is_active" db:"is_active"`
-	IsLimited   bool      `json:"is_limited" db:"is_limited"`
-	MaxQuantity *int      `json:"max_quantity,omitempty" db:"max_quantity"`
-	SoldCount   int       `json:"sold_count" db:"sold_count"`
-	SortOrder   int       `json:"sort_order" db:"sort_order"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID           string    `json:"id" db:"id"`
+	Name         string    `json:"name" db:"name"`
+	Description  *string   `json:"description" db:"description"`
+	ImageURL     string    `json:"image_url" db:"image_url"`
+	Price        int       `json:"price" db:"price"`
+	Category     string    `json:"category" db:"category"`
+	IsActive     bool      `json:"is_active" db:"is_active"`
+	IsLimited    bool      `json:"is_limited" db:"is_limited"`
+	MaxQuantity  *int      `json:"max_quantity,omitempty" db:"max_quantity"`
+	SoldCount    int       `json:"sold_count" db:"sold_count"`
+	SortOrder    int       `json:"sort_order" db:"sort_order"`
+	IsUpgradable bool      `json:"is_upgradable" db:"is_upgradable"`
+	UpgradeCost  *int      `json:"upgrade_cost,omitempty" db:"upgrade_cost"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // UserGift — a gift sent from one user to another
@@ -382,10 +384,27 @@ type UserGift struct {
 	Message     *string   `json:"message" db:"message"`
 	IsAnonymous bool      `json:"is_anonymous" db:"is_anonymous"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	// Upgrade fields
+	IsUpgraded        bool       `json:"is_upgraded" db:"is_upgraded"`
+	GiftLayerID       *string    `json:"gift_layer_id,omitempty" db:"gift_layer_id"`
+	BackgroundLayerID *string    `json:"background_layer_id,omitempty" db:"background_layer_id"`
+	SymbolLayerID     *string    `json:"symbol_layer_id,omitempty" db:"symbol_layer_id"`
+	UpgradedAt        *time.Time `json:"upgraded_at,omitempty" db:"upgraded_at"`
+	// Layer image URLs (joined)
+	GiftLayerImageURL       *string `json:"gift_layer_image_url,omitempty" db:"gift_layer_image_url"`
+	BackgroundLayerImageURL *string `json:"background_layer_image_url,omitempty" db:"background_layer_image_url"`
+	SymbolLayerImageURL     *string `json:"symbol_layer_image_url,omitempty" db:"symbol_layer_image_url"`
+	// Layer rarity percentages
+	GiftLayerRarity       *int `json:"gift_layer_rarity,omitempty" db:"gift_layer_rarity"`
+	BackgroundLayerRarity *int `json:"background_layer_rarity,omitempty" db:"background_layer_rarity"`
+	SymbolLayerRarity     *int `json:"symbol_layer_rarity,omitempty" db:"symbol_layer_rarity"`
 	// Joined fields from gift_catalog
 	GiftName     *string `json:"gift_name,omitempty" db:"gift_name"`
 	GiftImageURL *string `json:"gift_image_url,omitempty" db:"gift_image_url"`
 	GiftPrice    *int    `json:"gift_price,omitempty" db:"gift_price"`
+	// Catalog upgrade info
+	IsGiftUpgradable *bool `json:"is_gift_upgradable,omitempty" db:"is_gift_upgradable"`
+	GiftUpgradeCost  *int  `json:"gift_upgrade_cost,omitempty" db:"gift_upgrade_cost"`
 	// Joined field from users (sender)
 	SenderUsername  *string `json:"sender_username,omitempty" db:"sender_username"`
 	SenderAvatarURL *string `json:"sender_avatar_url,omitempty" db:"sender_avatar_url"`
@@ -522,4 +541,34 @@ type FriendResponse struct {
 // SendFriendRequest — request body for sending a friend request
 type SendFriendRequest struct {
 	ReceiverID string `json:"receiver_id" binding:"required"`
+}
+
+// GiftLayer — a visual layer (gift image, background, or symbol) for upgradable gifts
+type GiftLayer struct {
+	ID            string    `json:"id" db:"id"`
+	GiftCatalogID string    `json:"gift_catalog_id" db:"gift_catalog_id"`
+	LayerType     string    `json:"layer_type" db:"layer_type"`
+	ImageURL      string    `json:"image_url" db:"image_url"`
+	Name          *string   `json:"name" db:"name"`
+	SortOrder     int       `json:"sort_order" db:"sort_order"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	// Computed field: total times this layer has been used in upgrades
+	UsageCount *int `json:"usage_count,omitempty" db:"usage_count"`
+}
+
+// GiftUpgradeRequest — request body for upgrading a gift
+type GiftUpgradeRequest struct {
+	GiftRecordID string `json:"gift_record_id" binding:"required"`
+}
+
+// GiftUpgradeResponse — response after a successful upgrade
+type GiftUpgradeResponse struct {
+	GiftRecordID       string `json:"gift_record_id"`
+	GiftLayerID        string `json:"gift_layer_id"`
+	GiftLayerImageURL  string `json:"gift_layer_image_url"`
+	BackgroundLayerID  string `json:"background_layer_id"`
+	BackgroundImageURL string `json:"background_layer_image_url"`
+	SymbolLayerID      string `json:"symbol_layer_id"`
+	SymbolImageURL     string `json:"symbol_layer_image_url"`
+	UpgradedAt         string `json:"upgraded_at"`
 }

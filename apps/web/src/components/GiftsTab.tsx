@@ -3,13 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Gift, Send, User } from "lucide-react";
+import { Gift, Send, User, Sparkles } from "lucide-react";
 import { DropsBalance } from "@/components/DropsBalance";
 import { storageUrl } from "@/utils/storage";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
+import { UpgradedGiftCard } from "@/components/UpgradedGiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 
 interface UserGiftItem {
@@ -20,9 +21,22 @@ interface UserGiftItem {
   message?: string;
   is_anonymous: boolean;
   created_at: string;
+  is_upgraded: boolean;
+  gift_layer_id?: string;
+  background_layer_id?: string;
+  symbol_layer_id?: string;
+  upgraded_at?: string;
+  gift_layer_image_url?: string;
+  background_layer_image_url?: string;
+  symbol_layer_image_url?: string;
+  gift_layer_rarity?: number;
+  background_layer_rarity?: number;
+  symbol_layer_rarity?: number;
   gift_name?: string;
   gift_image_url?: string;
   gift_price?: number;
+  is_gift_upgradable?: boolean;
+  gift_upgrade_cost?: number;
   sender_username?: string;
   sender_avatar_url?: string;
 }
@@ -136,6 +150,10 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
     return storageUrl("post-images", url) || url;
   };
 
+  const handleUpgraded = () => {
+    loadGifts(0);
+  };
+
   return (
     <div className="relative">
       {/* Gift grid */}
@@ -152,8 +170,47 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
         <div className="space-y-3">
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-1.5 sm:gap-2">
             {gifts.map((gift) => {
-              const img = giftImageUrl(gift.gift_image_url);
               const senderImg = !gift.is_anonymous ? giftImageUrl(gift.sender_avatar_url) : null;
+              // Use UpgradedGiftCard for upgraded or upgradable gifts
+              if (gift.is_upgraded || gift.is_gift_upgradable) {
+                return (
+                  <button
+                    key={gift.id}
+                    onClick={() => setDetailGift(gift)}
+                    className="relative"
+                  >
+                    <UpgradedGiftCard
+                      id={gift.id}
+                      giftId={gift.gift_id}
+                      isUpgraded={gift.is_upgraded}
+                      isUpgradable={gift.is_gift_upgradable || false}
+                      upgradeCost={gift.gift_upgrade_cost}
+                      giftLayerImageUrl={gift.gift_layer_image_url}
+                      backgroundLayerImageUrl={gift.background_layer_image_url}
+                      symbolLayerImageUrl={gift.symbol_layer_image_url}
+                      giftLayerRarity={gift.gift_layer_rarity}
+                      backgroundLayerRarity={gift.background_layer_rarity}
+                      symbolLayerRarity={gift.symbol_layer_rarity}
+                      fallbackImageUrl={gift.gift_image_url}
+                      giftName={gift.gift_name}
+                      onUpgraded={handleUpgraded}
+                    />
+                    {/* Sender badge */}
+                    {!gift.is_anonymous && (
+                      <div className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full border border-background overflow-hidden bg-muted flex items-center justify-center z-10">
+                        {senderImg ? (
+                          <img src={senderImg} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <User className="w-3 h-3 text-muted-foreground" />
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              }
+
+              // Regular static gift
+              const img = giftImageUrl(gift.gift_image_url);
               return (
                 <button
                   key={gift.id}
@@ -167,7 +224,6 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                       <Gift className="w-6 h-6 text-muted-foreground" />
                     </div>
                   )}
-                  {/* Sender avatar badge */}
                   {!gift.is_anonymous && (
                     <div className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full border border-background overflow-hidden bg-muted flex items-center justify-center">
                       {senderImg ? (
@@ -212,9 +268,24 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
         <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
           {detailGift && (
             <>
-              {/* Gift image */}
-              <div className="w-full aspect-square bg-muted flex items-center justify-center">
-                {giftImageUrl(detailGift.gift_image_url) ? (
+              {/* Gift image — use upgraded card for upgraded gifts */}
+              <div className="w-full aspect-square bg-muted flex items-center justify-center overflow-hidden">
+                {detailGift.is_upgraded ? (
+                  <UpgradedGiftCard
+                    id={detailGift.id}
+                    giftId={detailGift.gift_id}
+                    isUpgraded={true}
+                    isUpgradable={false}
+                    giftLayerImageUrl={detailGift.gift_layer_image_url}
+                    backgroundLayerImageUrl={detailGift.background_layer_image_url}
+                    symbolLayerImageUrl={detailGift.symbol_layer_image_url}
+                    giftLayerRarity={detailGift.gift_layer_rarity}
+                    backgroundLayerRarity={detailGift.background_layer_rarity}
+                    symbolLayerRarity={detailGift.symbol_layer_rarity}
+                    fallbackImageUrl={detailGift.gift_image_url}
+                    giftName={detailGift.gift_name}
+                  />
+                ) : giftImageUrl(detailGift.gift_image_url) ? (
                   <img
                     src={giftImageUrl(detailGift.gift_image_url)!}
                     alt={detailGift.gift_name || "Подарок"}
@@ -259,6 +330,14 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                       <User className="w-4 h-4 text-muted-foreground" />
                     </div>
                     <span className="text-sm text-muted-foreground">Аноним</span>
+                  </div>
+                )}
+
+                {/* Upgrade status */}
+                {detailGift.is_upgraded && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Уникальный подарок</span>
                   </div>
                 )}
 
@@ -310,7 +389,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                 }}
                 className="flex flex-col items-center gap-2 p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors text-left"
               >
-                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden">
+                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden relative">
                   {gift.image_url ? (
                     <img
                       src={giftImageUrl(gift.image_url) || gift.image_url}
@@ -319,6 +398,11 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                     />
                   ) : (
                     <Gift className="w-8 h-8 text-muted-foreground" />
+                  )}
+                  {gift.is_upgradable && (
+                    <div className="absolute top-0 right-0 w-4 h-4 bg-amber-500 rounded-bl-lg flex items-center justify-center">
+                      <Sparkles className="w-2.5 h-2.5 text-white" />
+                    </div>
                   )}
                 </div>
                 <div className="text-center">
@@ -343,11 +427,16 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
           {selectedCatalogGift && (
             <div className="space-y-4">
               <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg">
-                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0 relative">
                   {selectedCatalogGift.image_url ? (
                     <img src={giftImageUrl(selectedCatalogGift.image_url) || selectedCatalogGift.image_url} alt={selectedCatalogGift.name} className="w-full h-full object-cover" />
                   ) : (
                     <Gift className="w-8 h-8 text-muted-foreground" />
+                  )}
+                  {selectedCatalogGift.is_upgradable && (
+                    <div className="absolute top-0 right-0 w-4 h-4 bg-amber-500 rounded-bl-lg flex items-center justify-center">
+                      <Sparkles className="w-2.5 h-2.5 text-white" />
+                    </div>
                   )}
                 </div>
                 <div>
