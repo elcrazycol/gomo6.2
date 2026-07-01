@@ -12,6 +12,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { UpgradedGiftCard } from "@/components/UpgradedGiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { toast } from "sonner";
 
 interface UserGiftItem {
   id: string;
@@ -58,6 +59,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
   const [selectedCatalogGift, setSelectedCatalogGift] = useState<GiftCatalogItem | null>(null);
   const [showSendDialog, setShowSendDialog] = useState(false);
   const [sending, setSending] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const [message, setMessage] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [detailGift, setDetailGift] = useState<UserGiftItem | null>(null);
@@ -99,6 +101,44 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
     loadGifts(nextOffset);
   };
 
+  const handleUpgrade = async () => {
+    if (!detailGift || upgrading) return;
+    setUpgrading(true);
+    try {
+      const { api } = await import("@/integrations/api/compat");
+      const session = await api.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) {
+        toast.error("Необходима авторизация");
+        setUpgrading(false);
+        return;
+      }
+
+      const res = await fetch(`/api/v1/gifts/${detailGift.id}/upgrade`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const result = await res.json();
+      if (!res.ok || !result.success) {
+        toast.error(result.error || "Не удалось улучшить подарок");
+        setUpgrading(false);
+        return;
+      }
+
+      toast.success(`Подарок «${detailGift.gift_name || "?"}» улучшен!`);
+      setDetailGift(null);
+      loadGifts(0);
+    } catch {
+      toast.error("Ошибка улучшения");
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
   const handleSendGift = async () => {
     if (!selectedCatalogGift || sending) return;
     setSending(true);
@@ -111,7 +151,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
       const res = await fetch("/api/v1/gifts/send", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -124,12 +164,10 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
 
       const result = await res.json();
       if (!res.ok || !result.success) {
-        const { toast } = await import("sonner");
         toast.error(result.error || "Не удалось отправить подарок");
         return;
       }
 
-      const { toast } = await import("sonner");
       toast.success(`Подарок «${selectedCatalogGift.name}» отправлен!`);
       setMessage("");
       setIsAnonymous(false);
@@ -138,7 +176,6 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
       loadGifts(0);
       onGiftSent?.();
     } catch {
-      const { toast } = await import("sonner");
       toast.error("Ошибка отправки подарка");
     } finally {
       setSending(false);
@@ -148,10 +185,6 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
   const giftImageUrl = (url?: string) => {
     if (!url) return null;
     return storageUrl("post-images", url) || url;
-  };
-
-  const handleUpgraded = () => {
-    loadGifts(0);
   };
 
   return (
@@ -184,7 +217,6 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                       giftId={gift.gift_id}
                       isUpgraded={gift.is_upgraded}
                       isUpgradable={gift.is_gift_upgradable || false}
-                      upgradeCost={gift.gift_upgrade_cost}
                       giftLayerImageUrl={gift.gift_layer_image_url}
                       backgroundLayerImageUrl={gift.background_layer_image_url}
                       symbolLayerImageUrl={gift.symbol_layer_image_url}
@@ -193,9 +225,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                       symbolLayerRarity={gift.symbol_layer_rarity}
                       fallbackImageUrl={gift.gift_image_url}
                       giftName={gift.gift_name}
-                      onUpgraded={handleUpgraded}
                     />
-                    {/* Sender badge */}
                     {!gift.is_anonymous && (
                       <div className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full border border-background overflow-hidden bg-muted flex items-center justify-center z-10">
                         {senderImg ? (
@@ -268,7 +298,7 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
         <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
           {detailGift && (
             <>
-              {/* Gift image — use upgraded card for upgraded gifts */}
+              {/* Gift image */}
               <div className="w-full aspect-square bg-muted flex items-center justify-center overflow-hidden">
                 {detailGift.is_upgraded ? (
                   <UpgradedGiftCard
@@ -282,6 +312,15 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                     giftLayerRarity={detailGift.gift_layer_rarity}
                     backgroundLayerRarity={detailGift.background_layer_rarity}
                     symbolLayerRarity={detailGift.symbol_layer_rarity}
+                    fallbackImageUrl={detailGift.gift_image_url}
+                    giftName={detailGift.gift_name}
+                  />
+                ) : detailGift.is_gift_upgradable ? (
+                  <UpgradedGiftCard
+                    id={detailGift.id}
+                    giftId={detailGift.gift_id}
+                    isUpgraded={false}
+                    isUpgradable={true}
                     fallbackImageUrl={detailGift.gift_image_url}
                     giftName={detailGift.gift_name}
                   />
@@ -339,6 +378,21 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Уникальный подарок</span>
                   </div>
+                )}
+
+                {/* Upgrade button — in detail dialog for upgradable, non-upgraded gifts */}
+                {!detailGift.is_upgraded && detailGift.is_gift_upgradable && isOwnProfile && (
+                  <Button
+                    size="sm"
+                    className="w-full gap-1.5"
+                    disabled={upgrading}
+                    onClick={handleUpgrade}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {upgrading
+                      ? "Улучшение..."
+                      : `Улучшить за ${detailGift.gift_upgrade_cost ?? "?"} ${formatDropsLabel(detailGift.gift_upgrade_cost ?? 0)}`}
+                  </Button>
                 )}
 
                 {/* Price */}
