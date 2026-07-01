@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '@/integrations/api/compat';
 
+// Listen for external invalidation events (e.g. from CustomProfile save)
+const INVALIDATE_EVENT = 'profile-cache:invalidate';
+
 interface ProfileData {
   username: string;
   color: string;
@@ -159,6 +162,16 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const clearCache = useCallback(() => {
     setCache(new Map());
     loadingRequests.current.clear();
+  }, []);
+
+  // Listen for external cache invalidation events
+  useEffect(() => {
+    const handler = () => {
+      setCache(new Map());
+      loadingRequests.current.clear();
+    };
+    window.addEventListener(INVALIDATE_EVENT, handler);
+    return () => window.removeEventListener(INVALIDATE_EVENT, handler);
   }, []);
 
   return (

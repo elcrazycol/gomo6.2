@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Palette, Image, Award, ArrowLeft, Save } from "lucide-react";
-import { clearCustomizationCache } from "@/utils/profileCustomization";
+import { clearCustomizationCache, dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
 
 import { ProfilePreview } from "./ProfilePreview";
@@ -127,6 +127,7 @@ const CustomProfile = () => {
       if (error) throw error;
 
       clearCustomizationCache(user.id);
+      dispatchProfileCacheInvalidate();
       initialSnapshotRef.current = JSON.stringify({ usernameCss, iconSvg, iconFill, iconStroke, badgeText, badgeCss });
       setHasChanges(false);
       toast.success("Кастомизация сохранена!");
