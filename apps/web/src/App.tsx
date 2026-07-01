@@ -9,6 +9,7 @@ import { LazyPage } from "@/components/LazyPage";
 import { AuthGuard } from "@/components/AuthGuard";
 import { applyTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 import { wsService } from "./services/websocket";
+import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
 import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
 
@@ -70,6 +71,9 @@ const App = () => {
     // Prefetch critical routes for instant navigation
     prefetchRoutes();
   }, []);
+
+  // Drive real-time Spotify now-playing for profile visitors
+  useSpotifyAuthorPolling();
 
   useEffect(() => {
     // Connect to WebSocket for real-time updates

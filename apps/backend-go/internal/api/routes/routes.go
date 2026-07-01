@@ -574,6 +574,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Integrations (Spotify, etc.)
 	integrationsHandler := handlers.NewIntegrationsHandler(db)
+	integrationsHandler.SetWebSocketHub(wsHub)
+	integrationsHandler.SetRedis(redis)
 
 	integrationsGroup := api.Group("/integrations")
 	{
@@ -589,6 +591,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		{
 			integrationsProtected.GET("/spotify/auth-url", integrationsHandler.GetSpotifyAuthURL)
 			integrationsProtected.GET("/spotify/status", integrationsHandler.GetSpotifyStatus)
+			integrationsProtected.GET("/spotify/me/state", integrationsHandler.GetSpotifyPlayerState)
 			integrationsProtected.DELETE("/spotify/disconnect", integrationsHandler.DisconnectSpotify)
 		}
 	}

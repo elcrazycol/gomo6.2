@@ -2,9 +2,7 @@ package websocket
 
 import (
 	"context"
-	"crypto/md5"
 	"database/sql"
-	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -97,6 +95,13 @@ func (p *SpotifyPoller) poll() {
 			p.backoff.Delete(userID)
 		}
 
+		// Skip users whose author-browser is actively polling (avoids duplicate Spotify API calls)
+		if p.redis != nil {
+			if _, err := p.redis.Get(context.Background(), "spotify:author_active:"+userID).Result(); err == nil {
+				continue
+			}
+		}
+
 		wg.Add(1)
 		p.sem <- struct{}{} // acquire concurrency slot
 		go func(uid string) {
@@ -182,9 +187,10 @@ func (p *SpotifyPoller) pollUser(userID string) {
 	}
 
 	resp := integrations.BuildNowPlayingResponse(playing)
+	resp.UpdatedAt = time.Now().UnixMilli()
 
 	// Deduplication: only publish if the track state actually changed
-	trackHash := p.computeTrackHash(resp)
+	trackHash := integrations.ComputeTrackHash(resp)
 	trackKey := spotifyLastTrackPrefix + userID
 
 	if p.redis != nil {
@@ -205,14 +211,4 @@ func (p *SpotifyPoller) pollUser(userID string) {
 	if err := p.hub.PublishNowPlaying(payload); err != nil {
 		log.Printf("[SpotifyPoller] Publish error for user %s: %v", userID, err)
 	}
-}
-
-// computeTrackHash returns a short hash that changes when the track changes.
-// "not_playing" for idle users, md5 of track identity otherwise.
-func (p *SpotifyPoller) computeTrackHash(resp *integrations.NowPlayingResponse) string {
-	if !resp.IsPlaying {
-		return "not_playing"
-	}
-	sum := md5.Sum([]byte(resp.TrackName + "|" + resp.ArtistName + "|" + resp.TrackURL))
-	return fmt.Sprintf("%x", sum)
 }
