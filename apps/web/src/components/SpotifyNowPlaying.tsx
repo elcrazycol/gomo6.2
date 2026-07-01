@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Music, ExternalLink, Disc3 } from "lucide-react";
 import { wsService } from "@/services/websocket";
 
@@ -25,6 +25,8 @@ type SpotifyNowPlayingProps = {
 export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
   const [data, setData] = useState<NowPlayingData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [displayProgressMs, setDisplayProgressMs] = useState(0);
+  const baseRef = useRef({ progress: 0, receivedAt: 0, duration: 0, playing: false });
 
   useEffect(() => {
     let mounted = true;
@@ -35,10 +37,7 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
           `/api/v1/integrations/spotify/now-playing/${encodeURIComponent(userId)}`
         );
         const json = await res.json();
-        if (mounted) {
-          setData(json);
-          setLoading(false);
-        }
+        if (mounted) applyUpdate(json);
       } catch {
         if (mounted) {
           setData(null);
@@ -48,6 +47,18 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
     };
 
     // Subscribe to WebSocket updates
+    const applyUpdate = (d: NowPlayingData) => {
+      setData(d);
+      setLoading(false);
+      baseRef.current = {
+        progress: d.progress_ms ?? 0,
+        receivedAt: Date.now(),
+        duration: d.duration_ms ?? 0,
+        playing: d.is_playing,
+      };
+      setDisplayProgressMs(d.progress_ms ?? 0);
+    };
+
     const room = `profile_now_playing_${userId}`;
     wsService.subscribe(room);
     const unsubHandler = wsService.on("now_playing", (msg) => {
@@ -56,8 +67,7 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
         response?: NowPlayingData;
       };
       if (p?.user_id === userId && p?.response) {
-        setData(p.response);
-        setLoading(false);
+        applyUpdate(p.response);
       }
     });
 
@@ -66,9 +76,19 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
     // Poll every 30s as fallback
     const pollInterval = setInterval(fetchNowPlaying, 30000);
 
+    // Interpolation loop: smoothly advance progress between server updates
+    const interpId = setInterval(() => {
+      const b = baseRef.current;
+      if (!b.playing || b.duration === 0) return;
+      const elapsed = Date.now() - b.receivedAt;
+      const current = Math.min(b.progress + elapsed, b.duration);
+      setDisplayProgressMs(current);
+    }, 200);
+
     return () => {
       mounted = false;
       clearInterval(pollInterval);
+      clearInterval(interpId);
       unsubHandler();
       wsService.unsubscribe(room);
     };
@@ -79,8 +99,8 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
   if (!data || !data.is_connected || !data.is_playing) return null;
 
   const progressPct =
-    data.duration_ms && data.progress_ms !== undefined
-      ? Math.min((data.progress_ms / data.duration_ms) * 100, 100)
+    data.duration_ms && displayProgressMs > 0
+      ? Math.min((displayProgressMs / data.duration_ms) * 100, 100)
       : 0;
 
   return (
@@ -148,12 +168,12 @@ export const SpotifyNowPlaying = ({ userId }: SpotifyNowPlayingProps) => {
       <div className="space-y-1">
         <div className="h-1 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-[#1DB954] rounded-full transition-all duration-1000 ease-linear"
+            className="h-full bg-[#1DB954] rounded-full"
             style={{ width: `${progressPct}%` }}
           />
         </div>
         <div className="flex justify-between text-[10px] text-muted-foreground/50">
-          <span>{formatMs(data.progress_ms)}</span>
+          <span>{formatMs(displayProgressMs)}</span>
           <span>{formatMs(data.duration_ms)}</span>
         </div>
       </div>
