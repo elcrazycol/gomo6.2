@@ -90,6 +90,37 @@
 				}
 			}
 		}
+		# Storage: reads → Garage (direct), writes → backend
+		@storageGet {
+			method GET HEAD
+			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
+		}
+		handle @storageGet {
+			route {
+				header {
+					Access-Control-Allow-Origin "*"
+					Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+					Access-Control-Allow-Headers "Content-Type, Range"
+					Access-Control-Expose-Headers "Content-Length, Content-Range, Content-Type, Accept-Ranges"
+					Cache-Control "public, max-age=3600"
+					Accept-Ranges "bytes"
+				}
+				rewrite * /{re.storage_read.2}
+				reverse_proxy garage:3902 {
+					header_up Host "{re.storage_read.1}.storage.garage.localhost"
+				}
+			}
+		}
+		handle /storage/v1/upload {
+			reverse_proxy backend:8080
+		}
+		@storageDelete {
+			path /storage/v1/object/*
+			method DELETE
+		}
+		handle @storageDelete {
+			reverse_proxy backend:8080
+		}
 		handle {
 			reverse_proxy dev-dashboard:80
 		}
