@@ -288,6 +288,36 @@ export function IconSparkles({ className, size = 24 }: IconProps) {
 }
 
 /**
+ * Music — Spotify integration achievement
+ */
+export function IconMusic({ className, size = 24 }: IconProps) {
+  const gid = useId().replace(/:/g, "");
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cn("text-green-400", className)}
+    >
+      <defs>
+        <linearGradient id={`music-${gid}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#4ade80" />
+          <stop offset="100%" stopColor="#22c55e" />
+        </linearGradient>
+      </defs>
+      <circle cx="8" cy="18" r="4" stroke={`url(#music-${gid})`} />
+      <path d="M12 18V6l8-4v12" stroke={`url(#music-${gid})`} opacity={0.7} />
+      <circle cx="20" cy="14" r="3" stroke={`url(#music-${gid})`} />
+    </svg>
+  );
+}
+
+/**
  * Zap — Secret posts achievement
  */
 export function IconZap({ className, size = 24 }: IconProps) {
@@ -329,6 +359,7 @@ export const ACHIEVEMENT_ICONS: Record<string, React.FC<IconProps>> = {
   palette: IconPalette,
   sparkles: IconSparkles,
   zap: IconZap,
+  music: IconMusic,
 };
 
 /**
