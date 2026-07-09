@@ -17,6 +17,7 @@ import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropsShop } from "@/components/DropsShop";
+import { eventManager } from "@/services/eventManager";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -803,6 +804,13 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
       setCurrentUserColor(data.color);
     });
   }, [user?.id, loadProfile]);
+
+  // Initialize centralized event manager for notifications + messenger
+  useEffect(() => {
+    if (!user?.id) return;
+    eventManager.init(user.id);
+    return () => eventManager.cleanup();
+  }, [user?.id]);
 
   useEffect(() => {
     const term = searchQuery.trim();

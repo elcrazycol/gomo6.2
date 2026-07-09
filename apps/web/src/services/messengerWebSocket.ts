@@ -1,17 +1,13 @@
 import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
 import { wsService, type WebSocketMessage } from "@/services/websocket";
 
-// ─── Messenger WebSocket — thin wrapper over wsService ──────────────────────
-// No separate connection. All transport is handled by wsService (App.tsx).
-// This class only registers handlers for chat-specific events.
+// ─── Messenger WebSocket — event handlers for chat-specific WS events ───────
+// No connection management. Transport is handled by wsService + eventManager.
+// This module only registers handlers that update the messenger store.
 
 class MessengerWebSocket {
   private handlersUnsub: (() => void)[] = [];
   private initialized = false;
-
-  get connected(): boolean {
-    return wsService.connected;
-  }
 
   connect(): void {
     if (this.initialized) return;
@@ -20,15 +16,9 @@ class MessengerWebSocket {
   }
 
   disconnect(): void {
-    this.unregisterHandlers();
-  }
-
-  subscribe(room: string): void {
-    wsService.subscribe(room);
-  }
-
-  unsubscribe(room: string): void {
-    wsService.unsubscribe(room);
+    for (const unsub of this.handlersUnsub) unsub();
+    this.handlersUnsub = [];
+    this.initialized = false;
   }
 
   sendTyping(conversationId: string, isTyping: boolean): void {
@@ -43,8 +33,6 @@ class MessengerWebSocket {
     });
   }
 
-  // ─── Handler registration ──────────────────────────────────────────────────
-
   private registerHandlers(): void {
     if (this.handlersUnsub.length > 0) return;
 
@@ -58,14 +46,6 @@ class MessengerWebSocket {
       wsService.on("user_offline", (msg) => this.handleUserOffline(msg)),
     );
   }
-
-  private unregisterHandlers(): void {
-    for (const unsub of this.handlersUnsub) unsub();
-    this.handlersUnsub = [];
-    this.initialized = false;
-  }
-
-  // ─── Event handlers ────────────────────────────────────────────────────────
 
   private handleNewChatMessage(msg: WebSocketMessage): void {
     const data = msg.data as Record<string, unknown>;

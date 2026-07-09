@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Attachment, ConversationView, MessageView, TypingUser, ReceiptRow } from "@/components/messenger/types";
 import { messengerApi } from "@/services/messengerApi";
+import { eventManager } from "@/services/eventManager";
 
 // ─── Batched markDelivered/markRead ─────────────────────────────────────────
 // Instead of hitting the API on every message, we queue the latest message ID
@@ -57,31 +58,8 @@ function flushPending(): void {
   pendingRead.clear();
 }
 
-// ─── Periodic conversation refresh (safety net for missed WS events) ───────
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
-
-function startRefreshTimer(): void {
-  if (refreshTimer) return;
-  refreshTimer = setInterval(() => {
-    const { me, selectedConversationId } = useMessengerStore.getState();
-    if (!me) return;
-    messengerApi.listConversations().then((convs) => {
-      const updatedConvs = convs.map((c) => {
-        // If we locally marked this chat as read (pending flush or currently viewing),
-        // trust local state over stale server response
-        if (pendingRead.has(c.id) || selectedConversationId === c.id) {
-          return { ...c, unread_count: 0 };
-        }
-        return c;
-      });
-      useMessengerStore.setState({ conversations: updatedConvs });
-    }).catch(() => {});
-  }, 30000);
-}
-
 export function destroyMessenger(): void {
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
-  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
   pendingDelivered.clear();
   pendingRead.clear();
   lastFlushed.delivered.clear();
@@ -204,7 +182,23 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const profile = await messengerApi.getMyProfile();
       set({ me: { id: profile.id, username: profile.username } });
       await get().loadConversations();
-      startRefreshTimer();
+
+      // Register callback for EventManager conversation updates (reconnection recovery)
+      eventManager.setMessengerCallbacks({
+        onCountUpdate: (convs) => {
+          const { selectedConversationId } = useMessengerStore.getState();
+          const updated = convs.map((c) => {
+            if (selectedConversationId === c.id) {
+              return { ...c, unread_count: 0 };
+            }
+            return c;
+          });
+          useMessengerStore.setState({ conversations: updated as ConversationView[] });
+        },
+      });
+
+      // Trigger initial sync now that all callbacks are registered
+      eventManager.startSync();
     } catch (e) {
       set({ error: "Не удалось загрузить профиль", isInitialLoading: false });
       return;
