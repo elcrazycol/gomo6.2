@@ -1,10 +1,11 @@
 import { memo, useCallback, useState, useMemo } from "react";
-import { MessageCircle, UserPlus, X } from "lucide-react";
+import { MessageCircle, UserPlus, X, Plus } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { formatConversationDate, formatPresence, getInitials } from "./utils";
+import { CreateGroupDialog } from "./CreateGroupDialog";
 import type { ConversationView } from "./types";
 
 interface Props {
@@ -96,6 +97,7 @@ export const ConversationList = memo(function ConversationList({
 
   const unread = totalUnread();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
 
   const filteredConversations = useMemo(() => {
     if (!searchQuery.trim()) return conversations;
@@ -130,7 +132,18 @@ export const ConversationList = memo(function ConversationList({
           </span>
         )}
         </div>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => setShowCreateGroup(true)}
+          title="Новый чат"
+          aria-label="Новый чат"
+        >
+          <Plus size={16} />
+        </button>
       </div>
+
+      <CreateGroupDialog open={showCreateGroup} onClose={() => setShowCreateGroup(false)} />
 
       {error && (
         <div className="error-banner">
