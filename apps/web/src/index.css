@@ -1,3 +1,5 @@
+@import "./components/messenger/messenger.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -168,7 +170,6 @@ html, body {
   }
 }
 
-@import "./components/messenger/messenger.css";
 
 /* Inline emoji objects used in RichTextEditor */
 .gomo-emoji {
