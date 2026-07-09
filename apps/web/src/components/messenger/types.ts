@@ -37,8 +37,20 @@ export type MessageView = {
   edited_at: string | null;
   sent_at: string;
   client_id: string;
+  attachments?: Attachment[];
   // Client-side state
   localStatus?: "sending" | "sent" | "failed";
+};
+
+export type Attachment = {
+  id?: string;
+  url: string;
+  type: "image" | "video" | "audio" | "file";
+  name: string;
+  size: number;
+  mime: string;
+  meta?: string | null;
+  sort_order?: number;
 };
 
 export type ReceiptRow = {

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ConversationView, MessageView, TypingUser, ReceiptRow } from "@/components/messenger/types";
+import type { Attachment, ConversationView, MessageView, TypingUser, ReceiptRow } from "@/components/messenger/types";
 import { messengerApi } from "@/services/messengerApi";
 
 // ─── Batched markDelivered/markRead ─────────────────────────────────────────
@@ -152,7 +152,7 @@ type MessengerStore = {
   ensureConversation: (conversationId: string) => Promise<void>;
   loadMessages: (conversationId: string) => Promise<void>;
   loadMoreMessages: (conversationId: string) => Promise<void>;
-  sendMessage: (content: string, clientId: string, parentMessageId?: string) => Promise<string>;
+  sendMessage: (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[]) => Promise<string>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   deleteMessage: (messageId: string) => Promise<void>;
   markRead: (messageId: string) => Promise<void>;
@@ -262,7 +262,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   },
 
   // ── Send message ──────────────────────────────────────────────────────
-  sendMessage: async (content: string, clientId: string, parentMessageId?: string) => {
+  sendMessage: async (content: string, clientId: string, parentMessageId?: string, attachments?: Attachment[]) => {
     const { selectedConversationId } = get();
     if (!selectedConversationId) return "";
 
@@ -280,11 +280,12 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       sent_at: new Date().toISOString(),
       client_id: clientId,
       localStatus: "sending",
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
     set((s) => ({ messages: [...s.messages, optimistic], isSending: true }));
 
     try {
-      const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId, parentMessageId);
+      const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId, parentMessageId, attachments);
       const sentAt = msg.sent_at;
       set((s) => {
         // Update message from optimistic to real

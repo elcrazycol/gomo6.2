@@ -36,7 +36,7 @@ describe("MessageComposer", () => {
     );
 
     const textarea = screen.getByPlaceholderText("Напиши сообщение...") as HTMLTextAreaElement;
-    const button = screen.getByRole("button") as HTMLButtonElement;
+    const button = screen.getByRole("button", { name: /send|отправить/i }) as HTMLButtonElement;
 
     return { ...utils, setDraft, onSend, onTyping, textarea, button };
   }

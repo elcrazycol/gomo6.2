@@ -49,23 +49,48 @@ type ConversationResponse struct {
 
 // MessageResponse is returned to the client
 type MessageResponse struct {
-	ID              string  `json:"id"`
-	ConversationID  string  `json:"conversation_id"`
-	SenderUserID    string  `json:"sender_user_id"`
-	ParentMessageID *string `json:"parent_message_id"`
-	Content         string  `json:"content"`
-	IsEdited        bool    `json:"is_edited"`
-	IsDeleted       bool    `json:"is_deleted"`
-	EditedAt        *string `json:"edited_at"`
-	SentAt          string  `json:"sent_at"`
-	ClientID        string  `json:"client_id"`
+	ID              string       `json:"id"`
+	ConversationID  string       `json:"conversation_id"`
+	SenderUserID    string       `json:"sender_user_id"`
+	ParentMessageID *string      `json:"parent_message_id"`
+	Content         string       `json:"content"`
+	IsEdited        bool         `json:"is_edited"`
+	IsDeleted       bool         `json:"is_deleted"`
+	EditedAt        *string      `json:"edited_at"`
+	SentAt          string       `json:"sent_at"`
+	ClientID        string       `json:"client_id"`
+	Attachments     []Attachment `json:"attachments,omitempty"`
+}
+
+// Attachment represents a file attached to a message
+type Attachment struct {
+	ID        string  `json:"id"`
+	URL       string  `json:"url"`
+	Type      string  `json:"type"`
+	Name      string  `json:"name"`
+	Size      int64   `json:"size"`
+	Mime      string  `json:"mime"`
+	Meta      *string `json:"meta,omitempty"`
+	SortOrder int     `json:"sort_order"`
 }
 
 // SendMessageRequest is the POST body for sending a message
 type SendMessageRequest struct {
-	Content         string  `json:"content" binding:"required,max=4000"`
-	ClientID        string  `json:"client_id" binding:"required"`
-	ParentMessageID *string `json:"parent_message_id"`
+	Content         string            `json:"content" binding:"required,max=4000"`
+	ClientID        string            `json:"client_id" binding:"required"`
+	ParentMessageID *string           `json:"parent_message_id"`
+	Attachments     []AttachmentInput `json:"attachments"`
+}
+
+// AttachmentInput is the attachment data sent by the client
+type AttachmentInput struct {
+	URL       string  `json:"url" binding:"required"`
+	Type      string  `json:"type" binding:"required,oneof=image video audio file"`
+	Name      string  `json:"name" binding:"required"`
+	Size      int64   `json:"size" binding:"required"`
+	Mime      string  `json:"mime" binding:"required"`
+	Meta      *string `json:"meta"`
+	SortOrder int     `json:"sort_order"`
 }
 
 // EditMessageRequest is the PUT body for editing a message
