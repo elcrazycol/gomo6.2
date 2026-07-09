@@ -57,6 +57,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tanstack/react-query": "^5.83.0",
     "@tanstack/react-virtual": "^3.14.2",
+    "@use-gesture/react": "^10.3.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -89,6 +90,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@swc/core": "^1.12.11",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -97,7 +99,6 @@
     "@types/node": "^22.19.7",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
-    "@swc/core": "^1.12.11",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "@vitest/coverage-v8": "^1.6.1",
     "autoprefixer": "^10.4.21",
