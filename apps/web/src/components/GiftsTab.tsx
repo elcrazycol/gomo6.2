@@ -1,16 +1,13 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Gift, Send, User, Sparkles } from "lucide-react";
 import { DropsBalance } from "@/components/DropsBalance";
 import { storageUrl } from "@/utils/storage";
-import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { UpgradedGiftCard } from "@/components/UpgradedGiftCard";
+import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import { toast } from "sonner";
 
@@ -295,130 +292,31 @@ export function GiftsTab({ userId, isOwnProfile, giftCatalog, recipientUsername,
 
       {/* Gift detail dialog */}
       <Dialog open={!!detailGift} onOpenChange={(open) => { if (!open) setDetailGift(null); }}>
-        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
+        <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
           {detailGift && (
-            <>
-              {/* Gift image */}
-              <div className="w-full aspect-square bg-muted flex items-center justify-center overflow-hidden">
-                {detailGift.is_upgraded ? (
-                  <UpgradedGiftCard
-                    id={detailGift.id}
-                    giftId={detailGift.gift_id}
-                    isUpgraded={true}
-                    isUpgradable={false}
-                    giftLayerImageUrl={detailGift.gift_layer_image_url}
-                    backgroundLayerImageUrl={detailGift.background_layer_image_url}
-                    symbolLayerImageUrl={detailGift.symbol_layer_image_url}
-                    giftLayerRarity={detailGift.gift_layer_rarity}
-                    backgroundLayerRarity={detailGift.background_layer_rarity}
-                    symbolLayerRarity={detailGift.symbol_layer_rarity}
-                    fallbackImageUrl={detailGift.gift_image_url}
-                    giftName={detailGift.gift_name}
-                  />
-                ) : detailGift.is_gift_upgradable ? (
-                  <UpgradedGiftCard
-                    id={detailGift.id}
-                    giftId={detailGift.gift_id}
-                    isUpgraded={false}
-                    isUpgradable={true}
-                    fallbackImageUrl={detailGift.gift_image_url}
-                    giftName={detailGift.gift_name}
-                  />
-                ) : giftImageUrl(detailGift.gift_image_url) ? (
-                  <img
-                    src={giftImageUrl(detailGift.gift_image_url)!}
-                    alt={detailGift.gift_name || "Подарок"}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Gift className="w-16 h-16 text-muted-foreground" />
-                )}
-              </div>
-
-              {/* Info */}
-              <div className="p-4 space-y-3">
-                {/* Sender */}
-                {!detailGift.is_anonymous && detailGift.sender_id ? (
-                  <ProfileHoverCard userId={detailGift.sender_id}>
-                    <a
-                      href={`/profile/${detailGift.sender_id}`}
-                      onClick={(e) => e.preventDefault()}
-                      className="flex items-center gap-2.5 group/sender"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex-shrink-0 border border-border">
-                        {giftImageUrl(detailGift.sender_avatar_url) ? (
-                          <img
-                            src={giftImageUrl(detailGift.sender_avatar_url)!}
-                            alt=""
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <User className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                        )}
-                      </div>
-                      <span className="text-sm font-medium group-hover/sender:text-primary transition-colors">
-                        {detailGift.sender_username || "пользователь"}
-                      </span>
-                    </a>
-                  </ProfileHoverCard>
-                ) : (
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex-shrink-0 border border-border flex items-center justify-center">
-                      <User className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                    <span className="text-sm text-muted-foreground">Аноним</span>
-                  </div>
-                )}
-
-                {/* Upgrade status */}
-                {detailGift.is_upgraded && (
-                  <div className="flex items-center gap-1.5 text-xs text-amber-600">
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Уникальный подарок</span>
-                  </div>
-                )}
-
-                {/* Upgrade button — in detail dialog for upgradable, non-upgraded gifts */}
-                {!detailGift.is_upgraded && detailGift.is_gift_upgradable && isOwnProfile && (
-                  <Button
-                    size="sm"
-                    className="w-full gap-1.5"
-                    disabled={upgrading}
-                    onClick={handleUpgrade}
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    {upgrading
-                      ? "Улучшение..."
-                      : `Улучшить за ${detailGift.gift_upgrade_cost ?? "?"} ${formatDropsLabel(detailGift.gift_upgrade_cost ?? 0)}`}
-                  </Button>
-                )}
-
-                {/* Price */}
-                {detailGift.gift_price != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Стоимость:</span>
-                    <span className="text-sm font-medium">
-                      {detailGift.gift_price} {formatDropsLabel(detailGift.gift_price)}
-                    </span>
-                  </div>
-                )}
-
-                {/* Message */}
-                {detailGift.message && (
-                  <div className="pt-2 border-t border-border">
-                    <p className="text-sm text-muted-foreground">Сообщение:</p>
-                    <p className="text-sm mt-1">{detailGift.message}</p>
-                  </div>
-                )}
-
-                {/* Date */}
-                <p className="text-xs text-muted-foreground pt-1">
-                  {formatDistanceToNow(new Date(detailGift.created_at), { addSuffix: true, locale: ru })}
-                </p>
-              </div>
-            </>
+            <GiftDetailPanel
+              isUpgraded={detailGift.is_upgraded}
+              isUpgradable={detailGift.is_gift_upgradable}
+              giftLayerImageUrl={detailGift.gift_layer_image_url}
+              backgroundLayerImageUrl={detailGift.background_layer_image_url}
+              symbolLayerImageUrl={detailGift.symbol_layer_image_url}
+              giftLayerRarity={detailGift.gift_layer_rarity}
+              backgroundLayerRarity={detailGift.background_layer_rarity}
+              symbolLayerRarity={detailGift.symbol_layer_rarity}
+              giftImageUrl={giftImageUrl(detailGift.gift_image_url)}
+              giftName={detailGift.gift_name}
+              senderId={detailGift.sender_id}
+              senderUsername={detailGift.sender_username}
+              senderAvatarUrl={giftImageUrl(detailGift.sender_avatar_url)}
+              isAnonymous={detailGift.is_anonymous}
+              price={detailGift.gift_price}
+              message={detailGift.message}
+              createdAt={detailGift.created_at}
+              onUpgrade={handleUpgrade}
+              upgradeCost={detailGift.gift_upgrade_cost}
+              upgrading={upgrading}
+              isOwnProfile={isOwnProfile}
+            />
           )}
         </DialogContent>
       </Dialog>
