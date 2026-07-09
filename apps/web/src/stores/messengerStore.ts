@@ -288,18 +288,25 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId, parentMessageId, attachments);
       const sentAt = msg.sent_at;
       set((s) => {
-        // Update message from optimistic to real
-        const messages = s.messages.map((m) =>
-          m.client_id === clientId ? { ...msg, localStatus: "sent" as const } : m,
-        );
+        // Update message from optimistic to real — preserve attachments from optimistic if server doesn't return them
+        const messages = s.messages.map((m) => {
+          if (m.client_id !== clientId) return m;
+          const serverAttachments = msg.attachments && msg.attachments.length > 0 ? msg.attachments : m.attachments;
+          return { ...msg, attachments: serverAttachments, localStatus: "sent" as const };
+        });
         // Optimistically update conversation: move to top with new preview
         const target = s.conversations.find((c) => c.id === selectedConversationId);
         let conversations = s.conversations;
         if (target) {
+          const previewText = content.trim()
+            ? content.slice(0, 80)
+            : attachments && attachments.length > 0
+              ? `📎 ${attachments.length > 1 ? `${attachments.length} файлов` : attachments[0].name}`
+              : "";
           const updated = {
             ...target,
             last_message_at: sentAt,
-            last_message_preview: content.slice(0, 80),
+            last_message_preview: previewText,
             last_message_sender_id: s.me!.id,
             unread_count: 0,
           };

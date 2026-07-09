@@ -195,11 +195,21 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Sanitize content (no HTML, no empty)
-	cleanContent, err := sanitizeContent(req.Content)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+	// Sanitize content (allow empty if attachments present)
+	cleanContent := strings.TrimSpace(req.Content)
+	if cleanContent == "" && len(req.Attachments) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
 		return
+	}
+	if cleanContent != "" {
+		if len([]rune(cleanContent)) > 4000 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
+			return
+		}
+		if hasHTML(cleanContent) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
+			return
+		}
 	}
 
 	// Verify membership
