@@ -419,9 +419,7 @@
 .message-scroll {
   overflow: auto;
   padding: 12px 14px;
-  display: grid;
-  gap: 8px;
-  align-content: start;
+  position: relative;
 }
 
 /* ── Date separator ── */
