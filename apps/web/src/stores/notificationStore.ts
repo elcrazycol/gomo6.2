@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { apiClient, type Notification } from "@/integrations/api/client";
-import { wsService } from "@/services/websocket";
 import type { WebSocketMessage } from "@/services/websocket";
+import { eventManager } from "@/services/eventManager";
 
 export interface AchievementData {
   notification_id: string;
@@ -39,11 +39,6 @@ type NotificationStore = {
 };
 
 const PAGE_SIZE = 20;
-let pollingInterval: ReturnType<typeof setInterval> | null = null;
-let wsUnsub: (() => void) | null = null;
-let wsConnectedUnsub: (() => void) | null = null;
-let initializedUserId: string | null = null;
-let lastReconnectFetch: number = 0;
 
 export const useNotificationStore = create<NotificationStore>((set, get) => ({
   notifications: [],
@@ -56,22 +51,17 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   lastUnlockedAchievement: null,
 
   init: (userId: string) => {
-    if (initializedUserId === userId && get().initialized) return;
-
-    // Clean up previous handlers before re-initializing (prevents leaks on re-login)
-    if (initializedUserId !== null) {
-      if (wsUnsub) { wsUnsub(); wsUnsub = null; }
-      if (wsConnectedUnsub) { wsConnectedUnsub(); wsConnectedUnsub = null; }
-      if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
-    }
-    initializedUserId = userId;
+    if (get().initialized) return;
 
     set({ isLoading: true, notifications: [], offset: 0, hasMore: true });
 
-    const handleWsNotification = (message: WebSocketMessage) => {
+    // Ensure eventManager is initialized
+    eventManager.init(userId);
+
+    // Register WS handler for new notifications
+    eventManager.on("new_notification", (message: WebSocketMessage) => {
       const notif = message.data as Notification & { achievement?: AchievementData };
       if (!notif || !notif.id) return;
-      if (notif.user_id && notif.user_id !== initializedUserId) return;
 
       set((state) => {
         const exists = state.notifications.some((n) => n.id === notif.id);
@@ -103,27 +93,14 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 
         return update;
       });
-    };
-
-    wsService.subscribeToNotifications(userId);
-    wsUnsub = wsService.on("new_notification", handleWsNotification);
-
-    wsConnectedUnsub = wsService.on("connected", () => {
-      wsService.subscribeToNotifications(userId);
-      get().fetchUnreadCount();
-      // Throttle re-fetch to prevent storm on flaky connections
-      if (!lastReconnectFetch || Date.now() - lastReconnectFetch > 2000) {
-        lastReconnectFetch = Date.now();
-        get().fetchInitial();
-      }
     });
 
-    pollingInterval = setInterval(() => {
-      if (!wsService.connected) {
-        get().fetchUnreadCount();
-        get().fetchInitial();
-      }
-    }, 15000);
+    // Register callback for EventManager count updates (reconnection recovery)
+    eventManager.setNotificationCallbacks({
+      onCountUpdate: (count: number) => {
+        set({ unreadCount: count });
+      },
+    });
 
     get().fetchInitial().then(() => set({ isLoading: false, initialized: true }));
   },
@@ -140,11 +117,9 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
       const data = (resp.data as Notification[] | null) ?? [];
 
       set((state) => {
-        // Preserve WS-pushed notifications that arrived during the fetch
-        const wsOnly = state.notifications.filter(
-          (wsNotif) => !data.some((n) => n.id === wsNotif.id)
-        );
-        const merged = [...wsOnly, ...data].sort(
+        const existingIds = new Set(state.notifications.map((n) => n.id));
+        const newItems = data.filter((n) => !existingIds.has(n.id));
+        const merged = [...newItems, ...state.notifications].sort(
           (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
         return {
@@ -239,10 +214,6 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   },
 
   cleanup: () => {
-    if (wsUnsub) { wsUnsub(); wsUnsub = null; }
-    if (wsConnectedUnsub) { wsConnectedUnsub(); wsConnectedUnsub = null; }
-    if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
-    initializedUserId = null;
     set({
       notifications: [],
       unreadCount: 0,

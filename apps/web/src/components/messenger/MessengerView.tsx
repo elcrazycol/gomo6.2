@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { messengerWs } from "@/services/messengerWebSocket";
+import { eventManager } from "@/services/eventManager";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
@@ -57,9 +58,8 @@ export const MessengerView = () => {
   // ── WS subscription ───────────────────────────────────────────────────
   useEffect(() => {
     if (!selectedConversationId) return;
-    const room = `chat_${selectedConversationId}`;
-    messengerWs.subscribe(room);
-    return () => { messengerWs.unsubscribe(room); };
+    eventManager.subscribeConversation(selectedConversationId);
+    return () => { eventManager.unsubscribeConversation(selectedConversationId); };
   }, [selectedConversationId]);
 
   // ── Mobile detection ──────────────────────────────────────────────────

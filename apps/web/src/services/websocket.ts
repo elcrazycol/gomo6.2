@@ -41,7 +41,8 @@ export type WebSocketMessageType =
   | 'message_deleted'
   | 'read_receipt'
   | 'chat_typing'
-  | 'now_playing';
+  | 'now_playing'
+  | 'disconnected';
 
 export interface WebSocketMessage {
   type: WebSocketMessageType;
@@ -179,6 +180,7 @@ class WebSocketService {
     this.isConnecting = false;
     
     this.stopPing();
+    this.emit('disconnected', { type: 'disconnected', data: {}, timestamp: Date.now() });
     
     // Attempt to reconnect unless it was a clean close
     if (event.code !== 1000 && event.code !== 1001) {

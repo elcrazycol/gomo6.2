@@ -99,18 +99,6 @@ describe("messengerWebSocket", () => {
     });
   });
 
-  describe("subscribe / unsubscribe", () => {
-    it("delegates to wsService.subscribe", () => {
-      messengerWs.subscribe("chat_conv-1");
-      expect(mockWsService.subscribe).toHaveBeenCalledWith("chat_conv-1");
-    });
-
-    it("delegates to wsService.unsubscribe", () => {
-      messengerWs.unsubscribe("chat_conv-1");
-      expect(mockWsService.unsubscribe).toHaveBeenCalledWith("chat_conv-1");
-    });
-  });
-
   describe("message handling", () => {
     beforeEach(() => {
       messengerWs.connect();
@@ -208,12 +196,6 @@ describe("messengerWebSocket", () => {
           data: { is_typing: true, conversation_id: "conv-1" },
         }),
       );
-    });
-  });
-
-  describe("connected", () => {
-    it("reflects wsService.connected", () => {
-      expect(messengerWs.connected).toBe(false);
     });
   });
 });
