@@ -76,7 +76,7 @@ type Attachment struct {
 
 // SendMessageRequest is the POST body for sending a message
 type SendMessageRequest struct {
-	Content         string            `json:"content" binding:"required,max=4000"`
+	Content         string            `json:"content" binding:"max=4000"`
 	ClientID        string            `json:"client_id" binding:"required"`
 	ParentMessageID *string           `json:"parent_message_id"`
 	Attachments     []AttachmentInput `json:"attachments"`

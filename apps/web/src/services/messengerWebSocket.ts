@@ -83,6 +83,7 @@ class MessengerWebSocket {
       sent_at: data.sent_at as string,
       client_id: (data.client_id as string) ?? "",
       localStatus: "sent" as const,
+      ...(data.attachments ? { attachments: data.attachments as import("@/components/messenger/types").Attachment[] } : {}),
     };
     store.addMessage(message);
 
