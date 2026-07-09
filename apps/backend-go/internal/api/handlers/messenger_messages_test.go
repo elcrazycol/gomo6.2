@@ -36,6 +36,11 @@ func TestGetMessages_Success(t *testing.T) {
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
 
+	// Attachments query (empty result)
+	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
+		WithArgs(testMsg2, testMsg1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
+
 	handler.GetMessages(c)
 
 	if w.Code != http.StatusOK {
@@ -76,6 +81,11 @@ func TestGetMessages_WithBefore(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, conversation_id, sender_user_id, parent_message_id,.*FROM chat_messages.*WHERE conversation_id = \$1 AND sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY sent_at DESC.*LIMIT \$3`).
 		WithArgs(testConv1, testMsg5, 10).
 		WillReturnRows(msgRows)
+
+	// Attachments query (empty result)
+	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
+		WithArgs(testMsg3).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
 
 	handler.GetMessages(c)
 
@@ -157,6 +167,9 @@ func TestSendMessage_Success(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
+	// Transaction Begin
+	mock.ExpectBegin()
+
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
 		"id", "conversation_id", "sender_user_id", "parent_message_id",
@@ -167,6 +180,9 @@ func TestSendMessage_Success(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id\).*VALUES \(\$1, \$2, \$3, \$4, \$5\).*RETURNING`).
 		WithArgs(testConv1, testUser1, "Hello, world!", testClientID1, nil).
 		WillReturnRows(msgRows)
+
+	// Transaction Commit
+	mock.ExpectCommit()
 
 	handler.SendMessage(c)
 
@@ -244,10 +260,16 @@ func TestSendMessage_Duplicate(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	// Insert fails — not a duplicate error
+	// Transaction Begin
+	mock.ExpectBegin()
+
+	// Insert fails with duplicate key error
 	mock.ExpectQuery(`INSERT INTO chat_messages.*`).
 		WithArgs(testConv1, testUser1, "Hello!", testClientID2, nil).
 		WillReturnError(sqlmock.ErrCancelled)
+
+	// Transaction Rollback (deferred)
+	mock.ExpectRollback()
 
 	handler.SendMessage(c)
 

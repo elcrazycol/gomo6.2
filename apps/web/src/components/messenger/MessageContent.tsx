@@ -1,12 +1,13 @@
 import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Users, MessageSquare, ArrowRight } from "lucide-react";
+import { Users, MessageSquare, ArrowRight, FileText, Image as ImageIcon, Mic, Video } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
+import type { Attachment } from "./types";
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
 
@@ -305,13 +306,69 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
 
 interface MessageContentProps {
   content: string;
+  attachments?: Attachment[];
 }
 
-export const MessageContent = memo(function MessageContent({ content }: MessageContentProps) {
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAttachmentIcon(type: Attachment["type"]) {
+  switch (type) {
+    case "image": return <ImageIcon size={16} />;
+    case "video": return <Video size={16} />;
+    case "audio": return <Mic size={16} />;
+    default: return <FileText size={16} />;
+  }
+}
+
+function AttachmentView({ attachment }: { attachment: Attachment }) {
+  const url = storageUrl("uploads", attachment.url);
+
+  if (attachment.type === "image" && url) {
+    return (
+      <div className="msg-attachment-image">
+        <img src={url} alt={attachment.name} loading="lazy" />
+      </div>
+    );
+  }
+
+  if (attachment.type === "video" && url) {
+    return (
+      <div className="msg-attachment-image">
+        <video src={url} controls preload="metadata" />
+      </div>
+    );
+  }
+
+  if (attachment.type === "audio" && url) {
+    return (
+      <div style={{ marginTop: 4 }}>
+        <audio src={url} controls preload="metadata" style={{ maxWidth: 240 }} />
+      </div>
+    );
+  }
+
+  return (
+    <a href={url || "#"} target="_blank" rel="noopener noreferrer" className="msg-attachment-file">
+      <span className="msg-attachment-file-icon">{getAttachmentIcon(attachment.type)}</span>
+      <div className="msg-attachment-file-info">
+        <div className="msg-attachment-file-name">{attachment.name}</div>
+        <div className="msg-attachment-file-size">{formatFileSize(attachment.size)}</div>
+      </div>
+    </a>
+  );
+}
+
+export const MessageContent = memo(function MessageContent({ content, attachments }: MessageContentProps) {
   const segments = useMemo(() => parseMessageLinks(content), [content]);
 
   const hasLinks = segments.some((s) => s.type === "link");
-  if (!hasLinks) {
+  const hasAttachments = attachments && attachments.length > 0;
+
+  if (!hasLinks && !hasAttachments) {
     return <p className="whitespace-pre-wrap break-words">{content}</p>;
   }
 
@@ -323,6 +380,13 @@ export const MessageContent = memo(function MessageContent({ content }: MessageC
         }
         return <LinkSegmentView key={i} segment={segment} />;
       })}
+      {hasAttachments && (
+        <div className="msg-attachments">
+          {attachments!.map((att, i) => (
+            <AttachmentView key={att.id || i} attachment={att} />
+          ))}
+        </div>
+      )}
     </div>
   );
 });

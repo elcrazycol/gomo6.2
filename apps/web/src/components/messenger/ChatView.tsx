@@ -10,7 +10,7 @@ import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
-import type { MessageView, ReceiptRow } from "./types";
+import type { Attachment, MessageView, ReceiptRow } from "./types";
 
 interface Props {
   onBack: () => void;
@@ -54,6 +54,7 @@ export const ChatView = memo(function ChatView({
   const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const shouldAutoScroll = useRef(true);
   const isScrolledUpRef = useRef(false);
 
@@ -201,13 +202,14 @@ export const ChatView = memo(function ChatView({
   const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
 
   const handleSend = useCallback(() => {
-    if (!draft.trim() || isSending) return;
+    if ((!draft.trim() && pendingAttachments.length === 0) || isSending) return;
     const clientId = `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    sendMessage(draft.trim(), clientId, replyToMessage?.id ?? undefined);
+    sendMessage(draft.trim() || " ", clientId, replyToMessage?.id ?? undefined, pendingAttachments.length > 0 ? pendingAttachments : undefined);
     setDraft("");
     setReplyToMessage(null);
+    setPendingAttachments([]);
     setTimeout(pinToBottom, 50);
-  }, [draft, isSending, sendMessage, pinToBottom, replyToMessage]);
+  }, [draft, isSending, sendMessage, pinToBottom, replyToMessage, pendingAttachments]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
     setEditingMessageId(msgId);
@@ -459,6 +461,8 @@ export const ChatView = memo(function ChatView({
         replyToMessage={replyToMessage}
         replySenderLabel={replyToMessage ? (replyToMessage.sender_user_id === me?.id ? "Вы" : "Собеседник") : undefined}
         onCancelReply={handleCancelReply}
+        pendingAttachments={pendingAttachments}
+        onAttachmentsChange={setPendingAttachments}
       />
 
       {/* Scroll to bottom button */}

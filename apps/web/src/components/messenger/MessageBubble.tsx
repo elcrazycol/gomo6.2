@@ -203,7 +203,7 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               )}
 
-              <MessageContent content={message.content} />
+              <MessageContent content={message.content} attachments={message.attachments} />
 
               <div className="message-meta">
                 <span className="message-time">{formatTime(message.sent_at)}</span>

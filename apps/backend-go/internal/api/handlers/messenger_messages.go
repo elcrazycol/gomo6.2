@@ -132,6 +132,24 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		messages = append(messages, msg)
 	}
 
+	// Batch-fetch attachments for all messages
+	if len(messages) > 0 {
+		ids := make([]string, len(messages))
+		for i, m := range messages {
+			ids[i] = m.ID
+		}
+		attMap, err := h.getAttachmentsByMessageIDs(ids)
+		if err != nil {
+			serverError(c, "get attachments", err)
+			return
+		}
+		for i := range messages {
+			if atts, ok := attMap[messages[i].ID]; ok {
+				messages[i].Attachments = atts
+			}
+		}
+	}
+
 	// Reverse to oldest-first order
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
@@ -202,10 +220,18 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
+	// Start transaction for message + attachments
+	tx, err := h.db.Begin()
+	if err != nil {
+		serverError(c, "begin transaction", err)
+		return
+	}
+	defer tx.Rollback()
+
 	// Insert message
 	var msg MessageResponse
 	var parentID, editedAt sql.NullString
-	err = h.db.QueryRow(`
+	err = tx.QueryRow(`
 		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, conversation_id, sender_user_id, parent_message_id,
@@ -218,6 +244,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	if err != nil {
 		// ClientID conflict = duplicate send, return existing message
 		if strings.Contains(err.Error(), "unique_client_msg") || strings.Contains(err.Error(), "duplicate key") {
+			_ = tx.Rollback()
 			existing := h.db.QueryRow(`
 				SELECT id, conversation_id, sender_user_id, parent_message_id,
 					content, is_edited, is_deleted, edited_at, sent_at, client_id
@@ -236,10 +263,29 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			if parentID.Valid {
 				msg.ParentMessageID = &parentID.String
 			}
+			// Fetch attachments for duplicate message
+			atts, _ := h.getAttachmentsByMessageIDs([]string{msg.ID})
+			if a, ok := atts[msg.ID]; ok {
+				msg.Attachments = a
+			}
 			c.JSON(http.StatusOK, models.SuccessResponse(msg))
 			return
 		}
 		serverError(c, "insert message", err)
+		return
+	}
+
+	// Insert attachments
+	if len(req.Attachments) > 0 {
+		if err := h.insertAttachments(tx, msg.ID, req.Attachments); err != nil {
+			serverError(c, "insert attachments", err)
+			return
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		serverError(c, "commit transaction", err)
 		return
 	}
 
@@ -252,6 +298,22 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	if editedAt.Valid {
 		s := editedAt.String
 		msg.EditedAt = &s
+	}
+
+	// Build attachment response
+	if len(req.Attachments) > 0 {
+		msg.Attachments = make([]Attachment, len(req.Attachments))
+		for i, att := range req.Attachments {
+			msg.Attachments[i] = Attachment{
+				Type:      att.Type,
+				URL:       att.URL,
+				Name:      att.Name,
+				Size:      att.Size,
+				Mime:      att.Mime,
+				Meta:      att.Meta,
+				SortOrder: i,
+			}
+		}
 	}
 
 	// Update conversation preview fields (trigger handles last_message_at, but not preview)
@@ -297,6 +359,9 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 		"sent_at":           msg.SentAt,
 		"client_id":         msg.ClientID,
 		"sender_username":   claims.Username,
+	}
+	if len(msg.Attachments) > 0 {
+		payload["attachments"] = msg.Attachments
 	}
 	if err := h.hub.PublishNewChatMessage(payload); err != nil {
 		log.Printf("[Messenger] WS broadcast error: %v", err)
@@ -456,4 +521,61 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
+}
+
+// getAttachmentsByMessageIDs fetches attachments for multiple messages in one query
+func (h *MessengerHandler) getAttachmentsByMessageIDs(messageIDs []string) (map[string][]Attachment, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+
+	// Build IN clause
+	placeholders := make([]string, len(messageIDs))
+	args := make([]interface{}, len(messageIDs))
+	for i, id := range messageIDs {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+		args[i] = id
+	}
+
+	query := `
+		SELECT id, message_id, url, type, name, size, mime, meta, sort_order
+		FROM message_attachments
+		WHERE message_id IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY message_id, sort_order
+	`
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string][]Attachment)
+	for rows.Next() {
+		var att Attachment
+		var msgID string
+		var meta sql.NullString
+		if err := rows.Scan(&att.ID, &msgID, &att.URL, &att.Type, &att.Name, &att.Size, &att.Mime, &meta, &att.SortOrder); err != nil {
+			return nil, err
+		}
+		if meta.Valid {
+			att.Meta = &meta.String
+		}
+		result[msgID] = append(result[msgID], att)
+	}
+	return result, nil
+}
+
+// insertAttachments inserts attachments for a message in a transaction
+func (h *MessengerHandler) insertAttachments(tx *sql.Tx, messageID string, attachments []AttachmentInput) error {
+	for i, att := range attachments {
+		_, err := tx.Exec(`
+			INSERT INTO message_attachments (message_id, url, type, name, size, mime, meta, sort_order)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, messageID, att.URL, att.Type, att.Name, att.Size, att.Mime, att.Meta, i)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

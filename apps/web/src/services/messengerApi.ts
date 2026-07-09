@@ -1,4 +1,4 @@
-import type { ConversationView, MessageView, ReceiptRow } from "@/components/messenger/types";
+import type { Attachment, ConversationView, MessageView, ReceiptRow } from "@/components/messenger/types";
 import { apiClient } from "@/integrations/api/client";
 
 const BASE = "/api/v1/messenger";
@@ -56,7 +56,6 @@ export const messengerApi = {
       return result.data as { id: string; username: string };
     } catch (e) {
       const err = e as Error & { status?: number };
-      // 401 is handled by apiClient.request() — tokens cleared + auth:expired dispatched
       if (err.status === 401 || !localStorage.getItem("auth_token")) {
         throw new Error("not authenticated");
       }
@@ -82,10 +81,21 @@ export const messengerApi = {
     return req<MessageView[]>(`/conversations/${conversationId}/messages${params}`);
   },
 
-  async sendMessage(conversationId: string, content: string, clientId: string, parentMessageId?: string): Promise<MessageView> {
+  async sendMessage(
+    conversationId: string,
+    content: string,
+    clientId: string,
+    parentMessageId?: string,
+    attachments?: Attachment[],
+  ): Promise<MessageView> {
     return req<MessageView>(`/conversations/${conversationId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content, client_id: clientId, ...(parentMessageId ? { parent_message_id: parentMessageId } : {}) }),
+      body: JSON.stringify({
+        content,
+        client_id: clientId,
+        ...(parentMessageId ? { parent_message_id: parentMessageId } : {}),
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      }),
     });
   },
 
@@ -140,5 +150,28 @@ export const messengerApi = {
   // ── Unread count ──────────────────────────────────────────────────────
   async getUnreadCount(): Promise<{ unread_count: number }> {
     return req("/unread-count");
+  },
+
+  // ── File upload ──────────────────────────────────────────────────────
+  async uploadFile(file: File): Promise<{ path: string }> {
+    const token = localStorage.getItem("auth_token") ?? "";
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("bucket", "uploads");
+
+    const res = await fetch("/storage/v1/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const message = ((body as Record<string, unknown>)?.error as string) || `Upload failed: ${res.status}`;
+      throw new Error(message);
+    }
+
+    const data = await res.json();
+    return { path: (data.data as { path: string }).path };
   },
 };

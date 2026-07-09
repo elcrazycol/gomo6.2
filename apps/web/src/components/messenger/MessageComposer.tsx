@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
-import { SendHorizontal, X, Pencil, CornerDownRight } from "lucide-react";
-import type { MessageView } from "./types";
+import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic } from "lucide-react";
+import type { Attachment, MessageView } from "./types";
+import { messengerApi } from "@/services/messengerApi";
+import { storageUrl } from "@/utils/storage";
 
 const MAX_LENGTH = 4000;
 const TYPING_DEBOUNCE_MS = 500;
@@ -12,7 +14,6 @@ interface Props {
   onSend: () => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   onTyping?: (isTyping: boolean) => void;
-  // Edit mode (Telegram-style inline editing in composer)
   editingMessageId?: string | null;
   editingContent?: string;
   onCancelEdit?: () => void;
@@ -20,6 +21,22 @@ interface Props {
   replyToMessage?: MessageView | null;
   replySenderLabel?: string;
   onCancelReply?: () => void;
+  pendingAttachments?: Attachment[];
+  onAttachmentsChange?: (attachments: Attachment[]) => void;
+}
+
+function getAttachmentIcon(type: Attachment["type"]) {
+  switch (type) {
+    case "image": return <ImageIcon size={16} />;
+    case "audio": return <Mic size={16} />;
+    default: return <FileText size={16} />;
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export const MessageComposer = memo(function MessageComposer({
@@ -36,16 +53,17 @@ export const MessageComposer = memo(function MessageComposer({
   replyToMessage,
   replySenderLabel,
   onCancelReply,
+  pendingAttachments = [],
+  onAttachmentsChange,
 }: Props) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isEditing = editingMessageId != null;
 
-  // Auto-focus composer when entering edit mode
   useEffect(() => {
     if (isEditing) {
       composerRef.current?.focus();
-      // Place cursor at end
       const el = composerRef.current;
       if (el) {
         el.setSelectionRange(el.value.length, el.value.length);
@@ -53,7 +71,6 @@ export const MessageComposer = memo(function MessageComposer({
     }
   }, [isEditing, composerRef]);
 
-  // Cleanup typing timer on unmount
   useEffect(() => {
     return () => {
       if (typingTimer.current) clearTimeout(typingTimer.current);
@@ -76,19 +93,16 @@ export const MessageComposer = memo(function MessageComposer({
       const value = e.target.value;
       if (value.length <= MAX_LENGTH) setDraft(value);
 
-      // JS fallback for auto-resize if field-sizing: content not supported
       if (!CSS.supports('field-sizing', 'content')) {
         const ta = e.target;
         ta.style.height = 'auto';
         ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
       }
 
-      // Reset inline height when cleared (e.g. after send)
       if (!value) {
         e.target.style.height = '';
       }
 
-      // Typing indicator — instant start via ref, debounced stop
       if (onTyping && value.length > 0) {
         if (!isTypingRef.current) {
           isTypingRef.current = true;
@@ -101,7 +115,6 @@ export const MessageComposer = memo(function MessageComposer({
           typingTimer.current = null;
         }, TYPING_DEBOUNCE_MS);
       } else if (onTyping) {
-        // Value is empty — stop typing immediately (e.g. backspaced all text)
         stopTyping();
       }
     },
@@ -143,17 +156,57 @@ export const MessageComposer = memo(function MessageComposer({
           onCancelEdit?.();
         }
       } else {
-        if (!isSending && draft.trim()) {
+        if (!isSending && (draft.trim() || pendingAttachments.length > 0)) {
           stopTyping();
           onSend();
         }
       }
     },
-    [onSend, isSending, draft, stopTyping, isEditing, editingContent, editingMessageId, onSaveEdit, onCancelEdit],
+    [onSend, isSending, draft, stopTyping, isEditing, editingContent, editingMessageId, onSaveEdit, onCancelEdit, pendingAttachments],
   );
 
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newAttachments: Attachment[] = [];
+    for (const file of Array.from(files)) {
+      try {
+        const { path } = await messengerApi.uploadFile(file);
+        const type: Attachment["type"] = file.type.startsWith("image/") ? "image"
+          : file.type.startsWith("video/") ? "video"
+          : file.type.startsWith("audio/") ? "audio"
+          : "file";
+
+        newAttachments.push({
+          url: path,
+          type,
+          name: file.name,
+          size: file.size,
+          mime: file.type || "application/octet-stream",
+        });
+      } catch (err) {
+        console.error("Upload failed:", err);
+      }
+    }
+
+    if (newAttachments.length > 0 && onAttachmentsChange) {
+      onAttachmentsChange([...pendingAttachments, ...newAttachments]);
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, [pendingAttachments, onAttachmentsChange]);
+
+  const handleRemoveAttachment = useCallback((index: number) => {
+    if (onAttachmentsChange) {
+      onAttachmentsChange(pendingAttachments.filter((_, i) => i !== index));
+    }
+  }, [pendingAttachments, onAttachmentsChange]);
+
   const remaining = MAX_LENGTH - draft.length;
-  const canSend = isEditing ? draft.trim().length > 0 : !isSending && draft.trim().length > 0;
+  const canSend = isEditing
+    ? draft.trim().length > 0
+    : !isSending && (draft.trim().length > 0 || pendingAttachments.length > 0);
 
   return (
     <form className={`composer${isSending ? " is-sending" : ""}`} onSubmit={handleSubmit}>
@@ -178,6 +231,46 @@ export const MessageComposer = memo(function MessageComposer({
           </button>
         </div>
       )}
+
+      {/* Pending attachments preview */}
+      {pendingAttachments.length > 0 && (
+        <div className="composer-attachments-preview">
+          {pendingAttachments.map((att, i) => (
+            <div key={i} className="composer-attachment-chip">
+              {att.type === "image" && att.url ? (
+                <img src={storageUrl("uploads", att.url) || undefined} alt={att.name} className="composer-attachment-thumb" />
+              ) : (
+                <span className="composer-attachment-icon">{getAttachmentIcon(att.type)}</span>
+              )}
+              <span className="composer-attachment-name">{att.name}</span>
+              <span className="composer-attachment-size">{formatFileSize(att.size)}</span>
+              <button type="button" className="composer-attachment-remove" onClick={() => handleRemoveAttachment(i)} aria-label="Удалить">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="composer-attach-btn-wrap">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*,audio/*,.pdf,.txt,.md"
+          onChange={handleFileSelect}
+          style={{ display: "none" }}
+        />
+        <button
+          type="button"
+          className="composer-attach-btn"
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Прикрепить файл"
+        >
+          <Paperclip size={18} />
+        </button>
+      </div>
+
       <div className="composer-input-wrap">
         <textarea
           ref={composerRef}
@@ -195,7 +288,7 @@ export const MessageComposer = memo(function MessageComposer({
           </span>
         )}
       </div>
-      <button type="submit" className={`send-button${isEditing ? " is-edit" : ""}`} disabled={!canSend}>
+      <button type="submit" className={`send-button${isEditing ? " is-edit" : ""}`} disabled={!canSend} aria-label={isEditing ? "Сохранить" : "Отправить"}>
         {isEditing ? <Pencil size={16} /> : <SendHorizontal size={16} />}
       </button>
     </form>
