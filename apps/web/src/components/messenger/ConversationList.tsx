@@ -1,12 +1,11 @@
 import { memo, useCallback, useState, useMemo } from "react";
-import { MessageCircle, UserPlus, X, Plus, Users } from "lucide-react";
+import { MessageCircle, UserPlus, X, Plus } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
 import { formatConversationDate, getInitials } from "./utils";
-import { CreateGroupDialog } from "./CreateGroupDialog";
-import { StartChatDialog } from "./StartChatDialog";
+import { NewChatDialog } from "./NewChatDialog";
 import type { ConversationView } from "./types";
 
 interface Props {
@@ -98,8 +97,7 @@ export const ConversationList = memo(function ConversationList({
 
   const unread = totalUnread();
   const [searchQuery, setSearchQuery] = useState("");
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [showStartChat, setShowStartChat] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(false);
 
   const filteredConversations = useMemo(() => {
     if (!searchQuery.trim()) return conversations;
@@ -134,51 +132,18 @@ export const ConversationList = memo(function ConversationList({
           </span>
         )}
         </div>
-        <div className="header-actions">
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => setShowStartChat(true)}
-            title="Найти пользователя"
-            aria-label="Найти пользователя"
-          >
-            <UserPlus size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => setShowCreateGroup(true)}
-            title="Создать группу"
-            aria-label="Создать группу"
-          >
-            <Users size={16} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => setShowNewChat(true)}
+          title="Новый чат"
+          aria-label="Новый чат"
+        >
+          <Plus size={16} />
+        </button>
       </div>
 
-      {showStartChat && (
-        <div style={{ borderBottom: "1px solid hsl(var(--border))" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "hsl(var(--muted-foreground))" }}>Новый чат</span>
-            <button type="button" onClick={() => setShowStartChat(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 2, display: "flex" }}>
-              <X size={14} />
-            </button>
-          </div>
-          <StartChatDialog open={showStartChat} onClose={() => setShowStartChat(false)} />
-        </div>
-      )}
-
-      {showCreateGroup && (
-        <div style={{ borderBottom: "1px solid hsl(var(--border))" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "hsl(var(--muted-foreground))" }}>Новая группа</span>
-            <button type="button" onClick={() => setShowCreateGroup(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 2, display: "flex" }}>
-              <X size={14} />
-            </button>
-          </div>
-          <CreateGroupDialog open={showCreateGroup} onClose={() => setShowCreateGroup(false)} />
-        </div>
-      )}
+      <NewChatDialog open={showNewChat} onClose={() => setShowNewChat(false)} />
 
       {error && (
         <div className="error-banner">

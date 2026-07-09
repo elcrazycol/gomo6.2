@@ -49,13 +49,15 @@ BEGIN
   INSERT INTO chat_members (conversation_id, user_id, role)
   VALUES (v_conv_id, v_my_id, 'admin');
 
-  -- Add other members
-  FOREACH v_member_id IN ARRAY p_member_ids LOOP
-    IF v_member_id != v_my_id THEN
-      INSERT INTO chat_members (conversation_id, user_id, role)
-      VALUES (v_conv_id, v_member_id, 'member');
-    END IF;
-  END LOOP;
+  -- Add other members (if any)
+  IF p_member_ids IS NOT NULL AND array_length(p_member_ids, 1) > 0 THEN
+    FOREACH v_member_id IN ARRAY p_member_ids LOOP
+      IF v_member_id != v_my_id THEN
+        INSERT INTO chat_members (conversation_id, user_id, role)
+        VALUES (v_conv_id, v_member_id, 'member');
+      END IF;
+    END LOOP;
+  END IF;
 
   RETURN v_conv_id;
 END;
