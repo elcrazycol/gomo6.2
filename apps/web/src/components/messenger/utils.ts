@@ -36,3 +36,22 @@ export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | nu
 };
 
 export const getInitials = (username: string): string => username.slice(0, 2).toUpperCase();
+
+const USER_COLORS = [
+  "text-red-500",
+  "text-blue-500",
+  "text-green-500",
+  "text-yellow-500",
+  "text-purple-500",
+  "text-pink-500",
+  "text-indigo-500",
+  "text-teal-500",
+];
+
+export const getUserColorClass = (userId: string): string => {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return USER_COLORS[Math.abs(hash) % USER_COLORS.length];
+};

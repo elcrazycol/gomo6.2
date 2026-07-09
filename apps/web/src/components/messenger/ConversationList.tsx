@@ -23,7 +23,7 @@ const ConversationCard = memo(function ConversationCard({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const isOnline = conversation.other_is_online;
+  const isOnline = !conversation.is_group && conversation.other_is_online;
   const unread = conversation.unread_count ?? 0;
 
   return (
@@ -34,13 +34,15 @@ const ConversationCard = memo(function ConversationCard({
     >
       <div className="avatar-wrapper">
         <div className="avatar">
-          {conversation.other_avatar_url ? (
+          {conversation.is_group ? (
+            <span>{conversation.group_name ? conversation.group_name.slice(0, 2).toUpperCase() : "ГР"}</span>
+          ) : conversation.other_avatar_url ? (
             <img
               src={storageUrl("post-images", conversation.other_avatar_url) || undefined}
-              alt={conversation.other_username}
+              alt={conversation.other_username || ""}
             />
           ) : (
-            <span>{getInitials(conversation.other_username)}</span>
+            <span>{getInitials(conversation.other_username || "")}</span>
           )}
         </div>
         {isOnline && <span className="online-dot" title="Онлайн" />}
@@ -48,14 +50,18 @@ const ConversationCard = memo(function ConversationCard({
       <div className="conversation-copy">
         <div className="conversation-head">
           <div className="conversation-user-badge">
-            <UserBadge
-              userId={conversation.other_user_id}
-              username={conversation.other_username}
-              displayName={conversation.other_display_name}
-              showOutline={false}
-              disableLink
-              disableHoverCard
-            />
+            {conversation.is_group ? (
+              <span className="font-bold text-xs sm:text-sm">{conversation.group_name || "Группа"}</span>
+            ) : (
+              <UserBadge
+                userId={conversation.other_user_id || ""}
+                username={conversation.other_username || ""}
+                displayName={conversation.other_display_name}
+                showOutline={false}
+                disableLink
+                disableHoverCard
+              />
+            )}
           </div>
           <span className="conversation-time">
             {formatConversationDate(conversation.last_message_at)}

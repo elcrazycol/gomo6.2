@@ -1,4 +1,4 @@
-import type { Attachment, ConversationView, MessageView, ReceiptRow } from "@/components/messenger/types";
+import type { Attachment, ConversationView, GroupMember, MessageView, ReceiptRow } from "@/components/messenger/types";
 import { apiClient } from "@/integrations/api/client";
 import { uploadFile } from "@/utils/storage";
 
@@ -158,5 +158,37 @@ export const messengerApi = {
     const ext = file.name.split(".").pop() || "bin";
     const key = `messenger/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     return uploadFile("uploads", key, file);
+  },
+
+  // ── Group chats ──────────────────────────────────────────────────────
+  async createGroup(name: string, memberIds: string[]): Promise<{ conversation_id: string }> {
+    return req("/groups", {
+      method: "POST",
+      body: JSON.stringify({ name, member_ids: memberIds }),
+    });
+  },
+
+  async updateGroup(groupId: string, data: { name?: string; avatar_url?: string }): Promise<{ updated: boolean }> {
+    return req(`/groups/${groupId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async addGroupMembers(groupId: string, userIds: string[]): Promise<{ added: number }> {
+    return req(`/groups/${groupId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+  },
+
+  async removeGroupMember(groupId: string, userId: string): Promise<{ removed: boolean }> {
+    return req(`/groups/${groupId}/members/${userId}`, {
+      method: "DELETE",
+    });
+  },
+
+  async getGroupMembers(groupId: string): Promise<GroupMember[]> {
+    return req<GroupMember[]>(`/groups/${groupId}/members`);
   },
 };

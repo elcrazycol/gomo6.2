@@ -65,24 +65,26 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	var rows *sql.Rows
 	if before != "" {
 		rows, err = h.db.Query(`
-			SELECT id, conversation_id, sender_user_id, parent_message_id,
-				content, is_edited, is_deleted,
-				edited_at, sent_at, client_id
-			FROM chat_messages
-			WHERE conversation_id = $1 AND sent_at < (
+			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
+				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
+				m.edited_at, m.sent_at, m.client_id
+			FROM chat_messages m
+			LEFT JOIN users u ON u.id = m.sender_user_id
+			WHERE m.conversation_id = $1 AND m.sent_at < (
 				SELECT sent_at FROM chat_messages WHERE id = $2
 			)
-			ORDER BY sent_at DESC
+			ORDER BY m.sent_at DESC
 			LIMIT $3
 		`, conversationID, before, limit)
 	} else {
 		rows, err = h.db.Query(`
-			SELECT id, conversation_id, sender_user_id, parent_message_id,
-				content, is_edited, is_deleted,
-				edited_at, sent_at, client_id
-			FROM chat_messages
-			WHERE conversation_id = $1
-			ORDER BY sent_at DESC
+			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
+				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
+				m.edited_at, m.sent_at, m.client_id
+			FROM chat_messages m
+			LEFT JOIN users u ON u.id = m.sender_user_id
+			WHERE m.conversation_id = $1
+			ORDER BY m.sent_at DESC
 			LIMIT $2
 		`, conversationID, limit)
 	}
@@ -96,17 +98,21 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	messages := []MessageResponse{}
 	for rows.Next() {
 		var msg MessageResponse
-		var parentID, editedAt sql.NullString
+		var parentID, editedAt, senderUsername sql.NullString
 		var encryptedContent string
 		var isDeleted bool
 
 		if err := rows.Scan(
-			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-			&encryptedContent, &msg.IsEdited, &isDeleted,
+			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
+			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
 		); err != nil {
 			serverError(c, "scan message row", err)
 			return
+		}
+
+		if senderUsername.Valid {
+			msg.SenderUsername = senderUsername.String
 		}
 
 		msg.IsDeleted = isDeleted

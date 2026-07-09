@@ -38,13 +38,19 @@ type ConversationResponse struct {
 	UnreadCount         int     `json:"unread_count"`
 	LastReadAt          *string `json:"last_read_at"`
 	IsMuted             bool    `json:"is_muted"`
-	OtherUserID         string  `json:"other_user_id"`
-	OtherUsername       string  `json:"other_username"`
-	OtherDisplayName    *string `json:"other_display_name"`
-	OtherAvatarURL      *string `json:"other_avatar_url"`
-	OtherAccountNum     *int    `json:"other_account_number"`
-	OtherIsOnline       *bool   `json:"other_is_online"`
-	OtherLastSeenAt     *string `json:"other_last_seen_at"`
+	// 1:1 fields (null for groups)
+	OtherUserID      *string `json:"other_user_id"`
+	OtherUsername    *string `json:"other_username"`
+	OtherDisplayName *string `json:"other_display_name"`
+	OtherAvatarURL   *string `json:"other_avatar_url"`
+	OtherAccountNum  *int    `json:"other_account_number"`
+	OtherIsOnline    *bool   `json:"other_is_online"`
+	OtherLastSeenAt  *string `json:"other_last_seen_at"`
+	// Group fields
+	IsGroup     bool    `json:"is_group"`
+	GroupName   *string `json:"group_name"`
+	GroupAvatar *string `json:"group_avatar_url"`
+	MemberCount int     `json:"member_count"`
 }
 
 // MessageResponse is returned to the client
@@ -52,6 +58,7 @@ type MessageResponse struct {
 	ID              string       `json:"id"`
 	ConversationID  string       `json:"conversation_id"`
 	SenderUserID    string       `json:"sender_user_id"`
+	SenderUsername  string       `json:"sender_username,omitempty"`
 	ParentMessageID *string      `json:"parent_message_id"`
 	Content         string       `json:"content"`
 	IsEdited        bool         `json:"is_edited"`
@@ -101,6 +108,35 @@ type EditMessageRequest struct {
 // MarkReadRequest is the POST body for marking messages as read
 type MarkReadRequest struct {
 	MessageID string `json:"message_id" binding:"required"`
+}
+
+// CreateGroupRequest is the POST body for creating a group chat
+type CreateGroupRequest struct {
+	Name      string   `json:"name" binding:"required,min=1,max=100"`
+	MemberIDs []string `json:"member_ids" binding:"required,min=1,max=49"`
+}
+
+// UpdateGroupRequest is the PUT body for updating a group chat
+type UpdateGroupRequest struct {
+	Name      *string `json:"name"`
+	AvatarURL *string `json:"avatar_url"`
+}
+
+// AddMembersRequest is the POST body for adding members to a group
+type AddMembersRequest struct {
+	UserIDs []string `json:"user_ids" binding:"required,min=1"`
+}
+
+// GroupMemberResponse represents a member of a group
+type GroupMemberResponse struct {
+	UserID      string  `json:"user_id"`
+	Username    string  `json:"username"`
+	DisplayName *string `json:"display_name"`
+	AvatarURL   *string `json:"avatar_url"`
+	Role        string  `json:"role"`
+	JoinedAt    string  `json:"joined_at"`
+	IsOnline    *bool   `json:"is_online"`
+	LastSeenAt  *string `json:"last_seen_at"`
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────
