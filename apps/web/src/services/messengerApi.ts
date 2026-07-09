@@ -1,5 +1,6 @@
 import type { Attachment, ConversationView, MessageView, ReceiptRow } from "@/components/messenger/types";
 import { apiClient } from "@/integrations/api/client";
+import { uploadFile } from "@/utils/storage";
 
 const BASE = "/api/v1/messenger";
 const TOKEN = () => localStorage.getItem("auth_token") ?? "";
@@ -154,24 +155,8 @@ export const messengerApi = {
 
   // ── File upload ──────────────────────────────────────────────────────
   async uploadFile(file: File): Promise<{ path: string }> {
-    const token = localStorage.getItem("auth_token") ?? "";
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("bucket", "uploads");
-
-    const res = await fetch("/storage/v1/upload", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const message = ((body as Record<string, unknown>)?.error as string) || `Upload failed: ${res.status}`;
-      throw new Error(message);
-    }
-
-    const data = await res.json();
-    return { path: (data.data as { path: string }).path };
+    const ext = file.name.split(".").pop() || "bin";
+    const key = `messenger/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    return uploadFile("uploads", key, file);
   },
 };
