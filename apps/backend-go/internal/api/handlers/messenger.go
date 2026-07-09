@@ -113,7 +113,7 @@ type MarkReadRequest struct {
 // CreateGroupRequest is the POST body for creating a group chat
 type CreateGroupRequest struct {
 	Name      string   `json:"name" binding:"required,min=1,max=100"`
-	MemberIDs []string `json:"member_ids" binding:"required,min=1,max=49"`
+	MemberIDs []string `json:"member_ids" binding:"max=49"`
 }
 
 // UpdateGroupRequest is the PUT body for updating a group chat

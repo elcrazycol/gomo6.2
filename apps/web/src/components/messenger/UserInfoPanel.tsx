@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { X, Gift, ExternalLink, Users } from "lucide-react";
+import { X, Gift, ExternalLink, Search, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
@@ -52,6 +52,10 @@ export function UserInfoPanel({
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
   const [sending, setSending] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [addMemberQuery, setAddMemberQuery] = useState("");
+  const [addMemberResults, setAddMemberResults] = useState<Array<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>>([]);
+  const [isSearchingMembers, setIsSearchingMembers] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +71,35 @@ export function UserInfoPanel({
       .then((members) => setGroupMembers(members))
       .catch(() => {});
   }, [open, isGroup, conversationId]);
+
+  useEffect(() => {
+    if (!showAddMember || !addMemberQuery.trim() || addMemberQuery.length < 1) {
+      setAddMemberResults([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setIsSearchingMembers(true);
+      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`)
+        .then((r) => r.json())
+        .then((res) => setAddMemberResults(res.data || []))
+        .catch(() => setAddMemberResults([]))
+        .finally(() => setIsSearchingMembers(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [showAddMember, addMemberQuery]);
+
+  const handleAddMember = useCallback(async (userId: string) => {
+    if (!conversationId) return;
+    try {
+      await messengerApi.addGroupMembers(conversationId, [userId]);
+      const members = await messengerApi.getGroupMembers(conversationId);
+      setGroupMembers(members);
+      setShowAddMember(false);
+      setAddMemberQuery("");
+    } catch (err) {
+      console.error("Failed to add member:", err);
+    }
+  }, [conversationId]);
 
   const giftImageUrl = (url?: string) => {
     if (!url) return null;
@@ -154,27 +187,103 @@ export function UserInfoPanel({
               </p>
 
               {/* Members list */}
-              {groupMembers.length > 0 && (
-                <div style={{ width: "100%", marginTop: 12 }}>
-                  <p className="eyebrow" style={{ marginBottom: 8 }}>Участники</p>
-                  {groupMembers.map((m) => (
-                    <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                      <div className="avatar small" style={{ width: 28, height: 28, fontSize: 11 }}>
-                        {m.avatar_url ? (
-                          <img src={storageUrl("post-images", m.avatar_url) || undefined} alt={m.username} />
-                        ) : (
-                          <span>{getInitials(m.username)}</span>
-                        )}
-                      </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>{m.display_name || m.username}</span>
-                        {m.role === "admin" && <span style={{ fontSize: 11, color: "hsl(var(--primary))", marginLeft: 4 }}>admin</span>}
-                      </div>
-                      {m.is_online && <span className="online-dot" style={{ width: 8, height: 8 }} />}
-                    </div>
-                  ))}
+              <div style={{ width: "100%", marginTop: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <p className="eyebrow" style={{ margin: 0 }}>Участники</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddMember(!showAddMember)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid hsl(var(--border))",
+                      background: "hsl(var(--card))",
+                      color: "hsl(var(--foreground))",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <UserPlus size={12} />
+                    Добавить
+                  </button>
                 </div>
-              )}
+
+                {showAddMember && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ position: "relative" }}>
+                      <Search size={14} style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "hsl(var(--muted-foreground))" }} />
+                      <input
+                        type="text"
+                        value={addMemberQuery}
+                        onChange={(e) => setAddMemberQuery(e.target.value)}
+                        placeholder="Найти пользователя..."
+                        autoFocus
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px 6px 28px",
+                          borderRadius: 6,
+                          border: "1px solid hsl(var(--input))",
+                          background: "hsl(var(--background))",
+                          color: "hsl(var(--foreground))",
+                          fontSize: 12,
+                          outline: "none",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </div>
+                    {addMemberResults.map((user) => (
+                      <button
+                        key={user.id}
+                        type="button"
+                        onClick={() => handleAddMember(user.id)}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          width: "100%",
+                          padding: "6px 8px",
+                          border: "none",
+                          borderRadius: 6,
+                          background: "transparent",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "hsl(var(--thread-hover))"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                      >
+                        <div className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
+                          {user.avatar_url ? (
+                            <img src={storageUrl("post-images", user.avatar_url) || undefined} alt={user.username} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+                          ) : (
+                            <span>{getInitials(user.username)}</span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: 12 }}>{user.display_name || user.username}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {groupMembers.map((m) => (
+                  <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                    <div className="avatar small" style={{ width: 28, height: 28, fontSize: 11 }}>
+                      {m.avatar_url ? (
+                        <img src={storageUrl("post-images", m.avatar_url) || undefined} alt={m.username} />
+                      ) : (
+                        <span>{getInitials(m.username)}</span>
+                      )}
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>{m.display_name || m.username}</span>
+                      {m.role === "admin" && <span style={{ fontSize: 11, color: "hsl(var(--primary))", marginLeft: 4 }}>admin</span>}
+                    </div>
+                    {m.is_online && <span className="online-dot" style={{ width: 8, height: 8 }} />}
+                  </div>
+                ))}
+              </div>
             </>
           ) : (
             <>

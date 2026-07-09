@@ -40,10 +40,6 @@ BEGIN
     RAISE EXCEPTION 'Group name is required';
   END IF;
 
-  IF array_length(p_member_ids, 1) IS NULL OR array_length(p_member_ids, 1) < 1 THEN
-    RAISE EXCEPTION 'At least 1 other member is required';
-  END IF;
-
   -- Create conversation
   v_conv_id := gen_random_uuid();
   INSERT INTO chat_conversations (id, is_group, group_name, created_by)
