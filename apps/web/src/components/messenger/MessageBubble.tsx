@@ -14,6 +14,8 @@ interface Props {
   isMine: boolean;
   isConsecutive: boolean;
   isPinned: boolean;
+  isGroup?: boolean;
+  senderName?: string;
   onEdit: (id: string, content: string) => void;
   onDelete: (id: string) => void;
   onTogglePin: (id: string) => void;
@@ -30,6 +32,8 @@ export const MessageBubble = memo(function MessageBubble({
   isMine,
   isConsecutive,
   isPinned,
+  isGroup,
+  senderName,
   onEdit,
   onDelete,
   onTogglePin,
@@ -174,6 +178,13 @@ export const MessageBubble = memo(function MessageBubble({
             {swipeOffset < -20 && (
               <div className="swipe-reply-indicator" style={{ opacity: Math.min(1, Math.abs(swipeOffset) / SWIPE_THRESHOLD) }}>
                 <Reply size={18} />
+              </div>
+            )}
+
+            {/* Sender name in groups */}
+            {isGroup && !isMine && !isConsecutive && senderName && (
+              <div className="msg-sender-name" style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
+                {senderName}
               </div>
             )}
 

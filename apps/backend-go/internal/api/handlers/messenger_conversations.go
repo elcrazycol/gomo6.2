@@ -31,13 +31,17 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		SELECT
 			c.id, c.last_message_at, c.last_message_preview,
 			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
-			cm.unread_count, cm.unread_count AS unread,
-			u.id AS other_id, u.username AS other_username, u.display_name AS other_display_name,
-			u.avatar_url, u.account_number, u.is_online, u.last_seen_at
+			cm.unread_count, cm.is_muted,
+			c.is_group, c.group_name, c.group_avatar_url,
+			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
+			-- 1:1 fields (NULL for groups)
+			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
+			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
+			ou.is_online AS other_is_online, ou.last_seen_at AS other_last_seen_at
 		FROM chat_members cm
 		INNER JOIN chat_conversations c ON c.id = cm.conversation_id
-		INNER JOIN chat_members cm2 ON cm2.conversation_id = cm.conversation_id AND cm2.user_id != $1
-		INNER JOIN users u ON u.id = cm2.user_id
+		LEFT JOIN chat_members cm2 ON cm2.conversation_id = cm.conversation_id AND cm2.user_id != $1
+		LEFT JOIN users ou ON ou.id = cm2.user_id AND c.is_group = false
 		WHERE cm.user_id = $1
 		ORDER BY c.last_message_at DESC NULLS LAST
 	`, claims.UserID)
@@ -50,16 +54,19 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 	conversations := []ConversationResponse{}
 	for rows.Next() {
 		var conv ConversationResponse
-		var otherAvatar, otherLastSeen sql.NullString
+		var otherID, otherUsername, otherDisplayName, otherAvatar, otherLastSeen sql.NullString
 		var otherAccount sql.NullInt64
 		var otherOnline sql.NullBool
 		var preview, lastMsgAt, lastMsgSender, pinnedMsg sql.NullString
+		var groupName, groupAvatar sql.NullString
 
 		if err := rows.Scan(
 			&conv.ID, &lastMsgAt, &preview,
 			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
-			&conv.UnreadCount, &conv.UnreadCount,
-			&conv.OtherUserID, &conv.OtherUsername, &conv.OtherDisplayName,
+			&conv.UnreadCount, &conv.IsMuted,
+			&conv.IsGroup, &groupName, &groupAvatar,
+			&conv.MemberCount,
+			&otherID, &otherUsername, &otherDisplayName,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
 		); err != nil {
 			serverError(c, "scan conversation row", err)
@@ -82,6 +89,23 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		}
 		if pinnedMsg.Valid {
 			conv.PinnedMessageID = &pinnedMsg.String
+		}
+		// Group fields
+		if groupName.Valid {
+			conv.GroupName = &groupName.String
+		}
+		if groupAvatar.Valid {
+			conv.GroupAvatar = &groupAvatar.String
+		}
+		// 1:1 fields
+		if otherID.Valid {
+			conv.OtherUserID = &otherID.String
+		}
+		if otherUsername.Valid {
+			conv.OtherUsername = &otherUsername.String
+		}
+		if otherDisplayName.Valid {
+			conv.OtherDisplayName = &otherDisplayName.String
 		}
 		if otherAvatar.Valid {
 			conv.OtherAvatarURL = &otherAvatar.String
@@ -238,4 +262,232 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"left": true}))
+}
+
+// ─── Create Group Conversation ──────────────────────────────────────────────
+// POST /api/v1/messenger/groups
+
+func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	var req CreateGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request: name and member_ids required"))
+		return
+	}
+
+	// Convert string IDs to UUIDs
+	memberUUIDs := make([]string, 0, len(req.MemberIDs))
+	for _, id := range req.MemberIDs {
+		if !isUUID(id) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid member ID: "+id))
+			return
+		}
+		memberUUIDs = append(memberUUIDs, id)
+	}
+
+	// Use RPC function
+	var convID string
+	err := h.db.QueryRow(`
+		SELECT rpc_create_group_chat($1, $2)
+	`, req.Name, memberUUIDs).Scan(&convID)
+	if err != nil {
+		serverError(c, "create group chat", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"conversation_id": convID,
+		"is_group":        true,
+		"group_name":      req.Name,
+	}))
+}
+
+// ─── Update Group ───────────────────────────────────────────────────────────
+// PUT /api/v1/messenger/groups/:id
+
+func (h *MessengerHandler) UpdateGroup(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	groupID := c.Param("id")
+	if !isUUID(groupID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid group_id"))
+		return
+	}
+
+	// Check if caller is admin
+	var isAdmin bool
+	err := h.db.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')
+	`, groupID, claims.UserID).Scan(&isAdmin)
+	if err != nil || !isAdmin {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Only admins can update group"))
+		return
+	}
+
+	var req UpdateGroupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	if req.Name != nil {
+		if _, err := h.db.Exec(`UPDATE chat_conversations SET group_name = $1, updated_at = NOW() WHERE id = $2`, *req.Name, groupID); err != nil {
+			serverError(c, "update group name", err)
+			return
+		}
+	}
+	if req.AvatarURL != nil {
+		if _, err := h.db.Exec(`UPDATE chat_conversations SET group_avatar_url = $1, updated_at = NOW() WHERE id = $2`, *req.AvatarURL, groupID); err != nil {
+			serverError(c, "update group avatar", err)
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
+}
+
+// ─── Add Members ────────────────────────────────────────────────────────────
+// POST /api/v1/messenger/groups/:id/members
+
+func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	groupID := c.Param("id")
+	if !isUUID(groupID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid group_id"))
+		return
+	}
+
+	var req AddMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_ids required"))
+		return
+	}
+
+	// Use RPC function
+	userUUIDs := make([]string, 0, len(req.UserIDs))
+	for _, id := range req.UserIDs {
+		if !isUUID(id) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID: "+id))
+			return
+		}
+		userUUIDs = append(userUUIDs, id)
+	}
+
+	_, err := h.db.Exec(`SELECT rpc_add_group_members($1, $2)`, groupID, userUUIDs)
+	if err != nil {
+		serverError(c, "add group members", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": len(userUUIDs)}))
+}
+
+// ─── Remove Member ──────────────────────────────────────────────────────────
+// DELETE /api/v1/messenger/groups/:id/members/:userId
+
+func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	groupID := c.Param("id")
+	userID := c.Param("userId")
+	if !isUUID(groupID) || !isUUID(userID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid group_id or user_id"))
+		return
+	}
+
+	_, err := h.db.Exec(`SELECT rpc_remove_group_member($1, $2)`, groupID, userID)
+	if err != nil {
+		serverError(c, "remove group member", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"removed": true}))
+}
+
+// ─── Get Group Members ──────────────────────────────────────────────────────
+// GET /api/v1/messenger/groups/:id/members
+
+func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	groupID := c.Param("id")
+	if !isUUID(groupID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid group_id"))
+		return
+	}
+
+	// Verify membership
+	member, err := h.isMember(groupID, claims.UserID)
+	if err != nil || !member {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this group"))
+		return
+	}
+
+	rows, err := h.db.Query(`
+		SELECT
+			u.id, u.username, u.display_name, u.avatar_url,
+			cm.role, cm.joined_at,
+			u.is_online, u.last_seen_at
+		FROM chat_members cm
+		INNER JOIN users u ON u.id = cm.user_id
+		WHERE cm.conversation_id = $1
+		ORDER BY cm.role DESC, cm.joined_at ASC
+	`, groupID)
+	if err != nil {
+		serverError(c, "get group members", err)
+		return
+	}
+	defer rows.Close()
+
+	members := []GroupMemberResponse{}
+	for rows.Next() {
+		var m GroupMemberResponse
+		var displayName, avatarURL, lastSeen sql.NullString
+		var online sql.NullBool
+
+		if err := rows.Scan(
+			&m.UserID, &m.Username, &displayName, &avatarURL,
+			&m.Role, &m.JoinedAt,
+			&online, &lastSeen,
+		); err != nil {
+			serverError(c, "scan member row", err)
+			return
+		}
+		if displayName.Valid {
+			m.DisplayName = &displayName.String
+		}
+		if avatarURL.Valid {
+			m.AvatarURL = &avatarURL.String
+		}
+		if online.Valid {
+			m.IsOnline = &online.Bool
+		}
+		if lastSeen.Valid {
+			m.LastSeenAt = &lastSeen.String
+		}
+		members = append(members, m)
+	}
+
+	if members == nil {
+		members = []GroupMemberResponse{}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(members))
 }

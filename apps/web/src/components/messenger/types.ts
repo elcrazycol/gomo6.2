@@ -17,19 +17,27 @@ export type ConversationView = {
   pinned_message_id: string | null;
   updated_at: string;
   unread_count: number;
-  other_user_id: string;
-  other_username: string;
+  is_muted: boolean;
+  // 1:1 fields (null for groups)
+  other_user_id: string | null;
+  other_username: string | null;
   other_display_name?: string | null;
   other_avatar_url: string | null;
   other_account_number: number | null;
   other_is_online: boolean | null;
   other_last_seen_at: string | null;
+  // Group fields
+  is_group: boolean;
+  group_name: string | null;
+  group_avatar_url: string | null;
+  member_count: number;
 };
 
 export type MessageView = {
   id: string;
   conversation_id: string;
   sender_user_id: string;
+  sender_username?: string;
   parent_message_id: string | null;
   content: string;
   is_edited: boolean;
@@ -65,6 +73,17 @@ export type TypingUser = {
   username: string;
   is_typing: boolean;
   timestamp: number;
+};
+
+export type GroupMember = {
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role: string;
+  joined_at: string;
+  is_online: boolean | null;
+  last_seen_at: string | null;
 };
 
 export type WsEvent =

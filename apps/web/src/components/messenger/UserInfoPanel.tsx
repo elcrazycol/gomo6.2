@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { X, Gift, ExternalLink } from "lucide-react";
+import { X, Gift, ExternalLink, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
@@ -8,17 +8,25 @@ import { storageUrl } from "@/utils/storage";
 import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { messengerApi } from "@/services/messengerApi";
+import type { GroupMember } from "./types";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   conversationId: string;
-  userId: string;
-  username: string;
+  // 1:1 fields
+  userId?: string;
+  username?: string;
   displayName?: string | null;
-  avatarUrl: string | null;
-  isOnline: boolean | null;
-  lastSeenAt: string | null;
+  avatarUrl?: string | null;
+  isOnline?: boolean | null;
+  lastSeenAt?: string | null;
+  // Group fields
+  isGroup?: boolean;
+  groupName?: string | null;
+  groupAvatarUrl?: string | null;
+  memberCount?: number;
 }
 
 export function UserInfoPanel({
@@ -31,6 +39,10 @@ export function UserInfoPanel({
   avatarUrl,
   isOnline,
   lastSeenAt,
+  isGroup,
+  groupName,
+  groupAvatarUrl,
+  memberCount,
 }: Props) {
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
   const [showCatalog, setShowCatalog] = useState(false);
@@ -38,6 +50,7 @@ export function UserInfoPanel({
   const [showSendDialog, setShowSendDialog] = useState(false);
   const [message, setMessage] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -47,6 +60,13 @@ export function UserInfoPanel({
       .then((res) => setGiftCatalog(res.data || []))
       .catch(() => {});
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !isGroup || !conversationId) return;
+    messengerApi.getGroupMembers(conversationId)
+      .then((members) => setGroupMembers(members))
+      .catch(() => {});
+  }, [open, isGroup, conversationId]);
 
   const giftImageUrl = (url?: string) => {
     if (!url) return null;
@@ -114,49 +134,99 @@ export function UserInfoPanel({
         </div>
 
         <div className="user-info-panel-body">
-          {/* Avatar */}
-          <div className="user-info-avatar">
-            {avatarSrc ? (
-              <img src={avatarSrc} alt={username} />
-            ) : (
-              <span>{getInitials(username)}</span>
-            )}
-          </div>
+          {isGroup ? (
+            <>
+              {/* Group avatar */}
+              <div className="user-info-avatar">
+                {groupAvatarUrl ? (
+                  <img src={storageUrl("post-images", groupAvatarUrl) || undefined} alt={groupName || ""} />
+                ) : (
+                  <span>{groupName ? groupName.slice(0, 2).toUpperCase() : "ГР"}</span>
+                )}
+              </div>
 
-          {/* Name */}
-          <h3 className="user-info-name">{displayName || username}</h3>
+              {/* Group name */}
+              <h3 className="user-info-name">{groupName || "Группа"}</h3>
 
-          {/* Username */}
-          <Link to={`/profile/${userId}`} className="user-info-username" onClick={onClose}>
-            @{username}
-            <ExternalLink size={12} />
-          </Link>
+              {/* Member count */}
+              <p className="user-info-presence">
+                {memberCount} участник{memberCount === 1 ? "" : memberCount < 5 ? "а" : "ов"}
+              </p>
 
-          {/* Presence */}
-          <p className="user-info-presence">
-            {formatPresence(isOnline, lastSeenAt)}
-          </p>
+              {/* Members list */}
+              {groupMembers.length > 0 && (
+                <div style={{ width: "100%", marginTop: 12 }}>
+                  <p className="eyebrow" style={{ marginBottom: 8 }}>Участники</p>
+                  {groupMembers.map((m) => (
+                    <div key={m.user_id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                      <div className="avatar small" style={{ width: 28, height: 28, fontSize: 11 }}>
+                        {m.avatar_url ? (
+                          <img src={storageUrl("post-images", m.avatar_url) || undefined} alt={m.username} />
+                        ) : (
+                          <span>{getInitials(m.username)}</span>
+                        )}
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>{m.display_name || m.username}</span>
+                        {m.role === "admin" && <span style={{ fontSize: 11, color: "hsl(var(--primary))", marginLeft: 4 }}>admin</span>}
+                      </div>
+                      {m.is_online && <span className="online-dot" style={{ width: 8, height: 8 }} />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {/* 1:1 avatar */}
+              <div className="user-info-avatar">
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt={username || ""} />
+                ) : (
+                  <span>{getInitials(username || "")}</span>
+                )}
+              </div>
 
-          {/* Actions */}
-          <div className="user-info-actions">
-            <Link
-              to={`/profile/${userId}`}
-              className="user-info-action-btn"
-              onClick={onClose}
-            >
-              Профиль
-            </Link>
-            {giftCatalog.length > 0 && (
-              <button
-                type="button"
-                className="user-info-action-btn primary"
-                onClick={() => setShowCatalog(true)}
-              >
-                <Gift size={14} />
-                Подарить
-              </button>
-            )}
-          </div>
+              {/* Name */}
+              <h3 className="user-info-name">{displayName || username}</h3>
+
+              {/* Username */}
+              {userId && username && (
+                <Link to={`/profile/${userId}`} className="user-info-username" onClick={onClose}>
+                  @{username}
+                  <ExternalLink size={12} />
+                </Link>
+              )}
+
+              {/* Presence */}
+              <p className="user-info-presence">
+                {formatPresence(isOnline ?? null, lastSeenAt ?? null)}
+              </p>
+
+              {/* Actions */}
+              <div className="user-info-actions">
+                {userId && (
+                  <Link
+                    to={`/profile/${userId}`}
+                    className="user-info-action-btn"
+                    onClick={onClose}
+                  >
+                    Профиль
+                  </Link>
+                )}
+                {giftCatalog.length > 0 && (
+                  <button
+                    type="button"
+                    className="user-info-action-btn primary"
+                    onClick={() => setShowCatalog(true)}
+                  >
+                    <Gift size={14} />
+                    Подарить
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

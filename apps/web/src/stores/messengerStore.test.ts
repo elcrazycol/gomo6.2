@@ -30,12 +30,17 @@ function mockConv(overrides: Partial<ConversationView> = {}): ConversationView {
     pinned_message_id: null,
     updated_at: "2025-06-01T12:00:00Z",
     unread_count: 0,
+    is_muted: false,
     other_user_id: "u2",
     other_username: "alice",
     other_avatar_url: null,
     other_account_number: 1001,
     other_is_online: null,
     other_last_seen_at: null,
+    is_group: false,
+    group_name: null,
+    group_avatar_url: null,
+    member_count: 2,
     ...overrides,
   };
 }

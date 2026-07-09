@@ -22,14 +22,15 @@ func TestListConversations_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "unread",
+		"unread_count", "is_muted",
+		"is_group", "group_name", "group_avatar_url", "member_count",
 		"other_id", "other_username", "other_display_name",
-		"avatar_url", "account_number", "is_online", "last_seen_at",
+		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at",
 	}).
-		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, 3, testUser2, "alice", "Alice", nil, 1001, true, nil).
-		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, 0, testUser3, "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
+		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, nil, nil, 2, testUser2, "alice", "Alice", nil, 1001, true, nil).
+		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, nil, nil, 2, testUser3, "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
 
-	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*INNER JOIN chat_conversations c.*INNER JOIN chat_members cm2.*INNER JOIN users u.*WHERE cm.user_id = \$1`).
+	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*LEFT JOIN`).
 		WithArgs(testUser1).
 		WillReturnRows(rows)
 
@@ -58,9 +59,10 @@ func TestListConversations_Empty(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "unread",
+		"unread_count", "is_muted",
+		"is_group", "group_name", "group_avatar_url", "member_count",
 		"other_id", "other_username", "other_display_name",
-		"avatar_url", "account_number", "is_online", "last_seen_at",
+		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at",
 	})
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).

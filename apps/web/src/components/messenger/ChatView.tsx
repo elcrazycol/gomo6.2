@@ -288,18 +288,29 @@ export const ChatView = memo(function ChatView({
               <ArrowLeft size={16} />
             </button>
             <div className="avatar small">
-              {conversation.other_avatar_url ? (
-                <img src={storageUrl("post-images", conversation.other_avatar_url) || undefined} alt={conversation.other_username} />
+              {conversation.is_group ? (
+                <span>{conversation.group_name ? conversation.group_name.slice(0, 2).toUpperCase() : "ГР"}</span>
+              ) : conversation.other_avatar_url ? (
+                <img src={storageUrl("post-images", conversation.other_avatar_url) || undefined} alt={conversation.other_username || ""} />
               ) : (
-                <span>{getInitials(conversation.other_username)}</span>
+                <span>{getInitials(conversation.other_username || "")}</span>
               )}
             </div>
             <div className="chat-topbar-info">
               <div className="chat-topbar-username">
-                <UserBadge userId={conversation.other_user_id} username={conversation.other_username} displayName={conversation.other_display_name} showOutline={false} />
+                {conversation.is_group ? (
+                  <span className="font-bold text-sm">{conversation.group_name || "Группа"}</span>
+                ) : (
+                  <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} />
+                )}
               </div>
               <p className="presence-copy">
-                {typingUsername ? <em>печатает...</em> : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
+                {typingUsername
+                  ? <em>{conversation.is_group ? "печатают..." : "печатает..."}</em>
+                  : conversation.is_group
+                    ? `${conversation.member_count} участник${conversation.member_count === 1 ? "" : conversation.member_count < 5 ? "а" : "ов"}`
+                    : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)
+                }
               </p>
             </div>
           </div>
@@ -419,6 +430,8 @@ export const ChatView = memo(function ChatView({
                     isMine={msg.sender_user_id === me.id}
                     isConsecutive={isConsecutive}
                     isPinned={conversation.pinned_message_id === msg.id}
+                    isGroup={conversation.is_group}
+                    senderName={conversation.is_group && !isConsecutive ? (msg.sender_user_id === me.id ? "Вы" : msg.sender_username || undefined) : undefined}
                     onEdit={(id, content) => handleStartEdit(id, content)}
                     onDelete={deleteMessage}
                     onTogglePin={(id) => togglePin(id)}
@@ -477,12 +490,16 @@ export const ChatView = memo(function ChatView({
         open={showUserInfo}
         onClose={() => setShowUserInfo(false)}
         conversationId={conversation.id}
-        userId={conversation.other_user_id}
-        username={conversation.other_username}
+        userId={conversation.other_user_id || undefined}
+        username={conversation.other_username || undefined}
         displayName={conversation.other_display_name}
         avatarUrl={conversation.other_avatar_url}
         isOnline={conversation.other_is_online}
         lastSeenAt={conversation.other_last_seen_at}
+        isGroup={conversation.is_group}
+        groupName={conversation.group_name}
+        groupAvatarUrl={conversation.group_avatar_url}
+        memberCount={conversation.member_count}
       />
 
       {/* Gift detail dialog */}

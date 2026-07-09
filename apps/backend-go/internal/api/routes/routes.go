@@ -385,6 +385,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				messengerWrite.POST("/messenger/conversations/:id/pin", messengerHandler.TogglePin)
 				messengerWrite.DELETE("/messenger/conversations/:id/leave", messengerHandler.LeaveConversation)
 
+				// Group chats
+				messengerWrite.POST("/messenger/groups", messengerHandler.CreateGroupConversation)
+				messengerWrite.PUT("/messenger/groups/:id", messengerHandler.UpdateGroup)
+				messengerWrite.POST("/messenger/groups/:id/members", messengerHandler.AddGroupMembers)
+				messengerWrite.DELETE("/messenger/groups/:id/members/:userId", messengerHandler.RemoveGroupMember)
+				messengerRead.GET("/messenger/groups/:id/members", messengerHandler.GetGroupMembers)
+
 				// Friends
 				protected.POST("/friends/request", friendsHandler.SendRequest)
 				protected.PUT("/friends/request/:id/accept", friendsHandler.AcceptRequest)

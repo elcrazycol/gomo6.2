@@ -75,6 +75,7 @@ class MessengerWebSocket {
       id: data.id as string,
       conversation_id: data.conversation_id as string,
       sender_user_id: data.sender_user_id as string,
+      sender_username: (data.sender_username as string) ?? "",
       parent_message_id: (data.parent_message_id as string) ?? null,
       content: data.content as string,
       is_edited: (data.is_edited as boolean) ?? false,
