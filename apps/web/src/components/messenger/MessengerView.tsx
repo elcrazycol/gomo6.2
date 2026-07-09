@@ -23,7 +23,6 @@ export const MessengerView = () => {
   // Refs
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
-  const msgScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Mobile
   const [isMobile, setIsMobile] = useState(false);
@@ -169,7 +168,6 @@ export const MessengerView = () => {
             <ChatView
               onBack={handleBack}
               composerRef={composerRef}
-              messageScrollRef={msgScrollRef}
               endRef={endRef}
               typingUsername={typingUsername}
               onTyping={handleTyping}

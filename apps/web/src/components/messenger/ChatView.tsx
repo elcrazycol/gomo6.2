@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -14,7 +15,6 @@ import type { MessageView, ReceiptRow } from "./types";
 interface Props {
   onBack: () => void;
   composerRef: React.RefObject<HTMLTextAreaElement | null>;
-  messageScrollRef: React.RefObject<HTMLDivElement | null>;
   endRef: React.RefObject<HTMLDivElement | null>;
   typingUsername?: string | null;
   onTyping: (isTyping: boolean) => void;
@@ -23,7 +23,6 @@ interface Props {
 export const ChatView = memo(function ChatView({
   onBack,
   composerRef,
-  messageScrollRef,
   endRef,
   typingUsername,
   onTyping,
@@ -56,28 +55,42 @@ export const ChatView = memo(function ChatView({
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const shouldAutoScroll = useRef(true);
-  const prevLength = useRef(0);
   const isScrolledUpRef = useRef(false);
 
   const convReceipts = receipts.get(conversation?.id ?? "") ?? [];
 
+  // Virtual scroll
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const prevItemCountRef = useRef(0);
+  const isLoadingMoreRef = useRef(false);
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 56,
+    overscan: 5,
+  });
+
   // Auto-scroll to bottom
   const pinToBottom = useCallback(() => {
-    const el = messageScrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messageScrollRef]);
+    if (messages.length > 0) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+    }
+  }, [virtualizer, messages.length]);
 
   // Auto-scroll only when conversation changes (initial load)
   useLayoutEffect(() => {
     shouldAutoScroll.current = true;
-    pinToBottom();
-  }, [conversation?.id]);
+    prevItemCountRef.current = 0;
+    // Small delay to let virtualizer measure
+    requestAnimationFrame(() => pinToBottom());
+  }, [conversation?.id, pinToBottom]);
 
   // Sync ref with state for stable callback
   useEffect(() => { isScrolledUpRef.current = isScrolledUp; }, [isScrolledUp]);
 
   const handleScroll = useCallback(() => {
-    const el = messageScrollRef.current;
+    const el = scrollContainerRef.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     shouldAutoScroll.current = dist <= 32;
@@ -90,25 +103,33 @@ export const ChatView = memo(function ChatView({
       setNewMessageCount(0);
     }
     // Load more when scrolled near top
-    if (el.scrollTop < 50 && hasMoreMessages && !isLoadingMore && conversation?.id) {
+    if (el.scrollTop < 50 && hasMoreMessages && !isLoadingMore && !isLoadingMoreRef.current && conversation?.id) {
+      isLoadingMoreRef.current = true;
       const prevHeight = el.scrollHeight;
+      const prevScrollTop = el.scrollTop;
       loadMoreMessages(conversation.id).then(() => {
         requestAnimationFrame(() => {
-          if (el) el.scrollTop = el.scrollHeight - prevHeight;
+          if (el) {
+            const newHeight = el.scrollHeight;
+            el.scrollTop = prevScrollTop + (newHeight - prevHeight);
+          }
+          isLoadingMoreRef.current = false;
         });
+      }).catch(() => {
+        isLoadingMoreRef.current = false;
       });
     }
-  }, [messageScrollRef, hasMoreMessages, isLoadingMore, conversation?.id, loadMoreMessages]);
+  }, [hasMoreMessages, isLoadingMore, conversation?.id, loadMoreMessages]);
 
   // Auto-scroll on new messages only if user is at bottom
   useEffect(() => {
-    if (messages.length > prevLength.current && shouldAutoScroll.current) {
+    if (messages.length > prevItemCountRef.current && shouldAutoScroll.current) {
       pinToBottom();
     }
-    if (isScrolledUp && messages.length > prevLength.current) {
-      setNewMessageCount((c) => c + (messages.length - prevLength.current));
+    if (isScrolledUp && messages.length > prevItemCountRef.current) {
+      setNewMessageCount((c) => c + (messages.length - prevItemCountRef.current));
     }
-    prevLength.current = messages.length;
+    prevItemCountRef.current = messages.length;
   }, [messages.length, isScrolledUp, pinToBottom]);
 
   // Reset auto-scroll when viewport changes (keyboard open/close)
@@ -218,9 +239,11 @@ export const ChatView = memo(function ChatView({
   const scrollToPinned = useCallback(() => {
     const pid = conversation?.pinned_message_id;
     if (!pid) return;
-    const el = messageScrollRef.current?.querySelector(`[data-message-id="${pid}"]`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [conversation?.pinned_message_id, messageScrollRef]);
+    const idx = messages.findIndex((m) => m.id === pid);
+    if (idx >= 0) {
+      virtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" });
+    }
+  }, [conversation?.pinned_message_id, messages, virtualizer]);
 
   const getPeerReceipt = (msgId: string): ReceiptRow | undefined => {
     return convReceipts.find((r) => r.message_id === msgId && r.user_id !== me?.id);
@@ -295,7 +318,7 @@ export const ChatView = memo(function ChatView({
       </div>
 
       {/* Messages */}
-      <div ref={messageScrollRef} className="message-scroll" onScroll={handleScroll}>
+      <div ref={scrollContainerRef} className="message-scroll" onScroll={handleScroll}>
         {error && (
           <div className="error-banner chat-error-banner">
             <span>{error}</span>
@@ -312,9 +335,16 @@ export const ChatView = memo(function ChatView({
             <p>Напиши первое сообщение, и переписка начнётся сразу.</p>
           </div>
         ) : (
-          <>
-            {messages.map((msg, i) => {
-              const prev = i > 0 ? messages[i - 1] : null;
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const msg = messages[virtualRow.index];
+              const prev = virtualRow.index > 0 ? messages[virtualRow.index - 1] : null;
               const isConsecutive =
                 prev != null &&
                 prev.sender_user_id === msg.sender_user_id &&
@@ -327,7 +357,18 @@ export const ChatView = memo(function ChatView({
               if (giftData) {
                 const imgSrc = giftData.imageUrl ? storageUrl("post-images", giftData.imageUrl) || giftData.imageUrl : null;
                 return (
-                  <div key={msg.id}>
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
                     {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
                     <div className="msg-gift-standalone">
                       <div className="msg-gift-standalone-card">
@@ -358,7 +399,18 @@ export const ChatView = memo(function ChatView({
               }
 
               return (
-                <div key={msg.id}>
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
                   {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
                   <MessageBubble
                     message={msg}
@@ -378,7 +430,7 @@ export const ChatView = memo(function ChatView({
                 </div>
               );
             })}
-          </>
+          </div>
         )}
         <div ref={endRef} />
       </div>
