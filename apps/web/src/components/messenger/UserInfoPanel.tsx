@@ -79,7 +79,9 @@ export function UserInfoPanel({
     }
     const timer = setTimeout(() => {
       setIsSearchingMembers(true);
-      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`)
+      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") ?? ""}` },
+      })
         .then((r) => r.json())
         .then((res) => setAddMemberResults(res.data || []))
         .catch(() => setAddMemberResults([]))

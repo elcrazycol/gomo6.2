@@ -42,7 +42,9 @@ export function StartChatDialog({ open, onClose }: Props) {
     }
     const timer = setTimeout(() => {
       setIsSearching(true);
-      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(query)}`)
+      fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") ?? ""}` },
+      })
         .then((r) => r.json())
         .then((res) => setResults(res.data || []))
         .catch(() => setResults([]))
