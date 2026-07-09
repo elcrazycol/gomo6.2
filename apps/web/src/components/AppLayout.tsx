@@ -18,6 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropsShop } from "@/components/DropsShop";
 import { eventManager } from "@/services/eventManager";
+import { useTabTitle } from "@/hooks/useTabTitle";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -84,6 +85,8 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const isBackgroundResumeRef = useRef(false);
   const { scrollY } = useScroll();
   const [showDropsShop, setShowDropsShop] = useState(false);
+
+  useTabTitle();
 
   // Global DropsShop listener
   useEffect(() => {
