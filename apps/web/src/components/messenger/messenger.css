@@ -471,6 +471,28 @@
   gap: 4px;
   width: 100%;
   min-width: 0;
+  position: relative;
+}
+
+.bubble-row-inner.is-swiping {
+  transition: none !important;
+}
+
+.swipe-reply-indicator {
+  position: absolute;
+  right: -40px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .message-bubble {

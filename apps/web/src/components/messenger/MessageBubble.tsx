@@ -1,4 +1,5 @@
 import { memo, useCallback, useState, useRef } from "react";
+import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy } from "lucide-react";
 import { formatTime } from "./utils";
 import { MessageContent } from "./MessageContent";
@@ -6,6 +7,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, C
 import type { MessageView } from "./types";
 
 const LONG_PRESS_DELAY = 400;
+const SWIPE_THRESHOLD = 80;
 
 interface Props {
   message: MessageView;
@@ -41,6 +43,9 @@ export const MessageBubble = memo(function MessageBubble({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const hasTriggeredReply = useRef(false);
 
   const clearLongPress = useCallback(() => {
     if (longPressTimer.current) {
@@ -50,7 +55,47 @@ export const MessageBubble = memo(function MessageBubble({
     setIsLongPressing(false);
   }, []);
 
+  const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+
+  const bind = useDrag(
+    ({ movement: [mx], last, cancel, active, direction: [dx] }) => {
+      if (!isTouchDevice) return;
+
+      if (active) {
+        const offsetX = Math.min(0, mx);
+        setSwipeOffset(offsetX);
+        setIsSwiping(true);
+
+        if (Math.abs(offsetX) > SWIPE_THRESHOLD && !hasTriggeredReply.current) {
+          hasTriggeredReply.current = true;
+          if (navigator.vibrate) navigator.vibrate(5);
+          cancel();
+          setSwipeOffset(0);
+          setIsSwiping(false);
+          onReply(message);
+        }
+
+        if (last) {
+          setSwipeOffset(0);
+          setIsSwiping(false);
+          hasTriggeredReply.current = false;
+        }
+      } else {
+        setSwipeOffset(0);
+        setIsSwiping(false);
+        hasTriggeredReply.current = false;
+      }
+    },
+    {
+      axis: "x",
+      filterTaps: true,
+      from: () => [0, 0],
+      threshold: 5,
+    },
+  );
+
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (isSwiping) return;
     const touch = e.touches[0];
     touchStartPos.current = { x: touch.clientX, y: touch.clientY };
 
@@ -80,7 +125,7 @@ export const MessageBubble = memo(function MessageBubble({
     };
     e.currentTarget.addEventListener("touchend", cleanup);
     e.currentTarget.addEventListener("touchcancel", cleanup);
-  }, [clearLongPress]);
+  }, [clearLongPress, isSwiping]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -117,12 +162,21 @@ export const MessageBubble = memo(function MessageBubble({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            className={`bubble-row-inner${isLongPressing ? " is-long-press" : ""}`}
+            className={`bubble-row-inner${isLongPressing ? " is-long-press" : ""}${isSwiping ? " is-swiping" : ""}`}
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchCancel}
+            {...bind()}
+            style={{ transform: `translateX(${swipeOffset}px)`, touchAction: "pan-y" }}
           >
+            {/* Swipe reply indicator */}
+            {swipeOffset < -20 && (
+              <div className="swipe-reply-indicator" style={{ opacity: Math.min(1, Math.abs(swipeOffset) / SWIPE_THRESHOLD) }}>
+                <Reply size={18} />
+              </div>
+            )}
+
             <div
               className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}`}
               data-message-id={message.id}
