@@ -1,15 +1,12 @@
 import { memo, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Users, MessageSquare, ArrowRight, Gift, User } from "lucide-react";
+import { Users, MessageSquare, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
-import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
-import { formatDropsLabel } from "@/utils/formatDropsLabel";
+import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
 
@@ -245,6 +242,14 @@ interface GiftDetailItem {
   gift_price?: number;
   sender_username?: string;
   sender_avatar_url?: string;
+  is_upgraded: boolean;
+  is_gift_upgradable?: boolean;
+  gift_layer_image_url?: string;
+  background_layer_image_url?: string;
+  symbol_layer_image_url?: string;
+  gift_layer_rarity?: number;
+  background_layer_rarity?: number;
+  symbol_layer_rarity?: number;
 }
 
 const giftImageUrl = (url?: string) => {
@@ -269,69 +274,27 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
         {gift && (
-          <>
-            <div className="w-full aspect-square bg-muted flex items-center justify-center">
-              {giftImageUrl(gift.gift_image_url) ? (
-                <img
-                  src={giftImageUrl(gift.gift_image_url)!}
-                  alt={gift.gift_name || "Подарок"}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <Gift className="w-16 h-16 text-muted-foreground" />
-              )}
-            </div>
-            <div className="p-4 space-y-3">
-              {!gift.is_anonymous && gift.sender_id ? (
-                <ProfileHoverCard userId={gift.sender_id}>
-                  <a
-                    href={`/profile/${gift.sender_id}`}
-                    onClick={(e) => e.preventDefault()}
-                    className="flex items-center gap-2.5 group/sender"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex-shrink-0 border border-border">
-                      {giftImageUrl(gift.sender_avatar_url) ? (
-                        <img src={giftImageUrl(gift.sender_avatar_url)!} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <User className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-sm font-medium group-hover/sender:text-primary transition-colors">
-                      {gift.sender_username || "пользователь"}
-                    </span>
-                  </a>
-                </ProfileHoverCard>
-              ) : (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-muted overflow-hidden flex-shrink-0 border border-border flex items-center justify-center">
-                    <User className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                  <span className="text-sm text-muted-foreground">Аноним</span>
-                </div>
-              )}
-              {gift.gift_price != null && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Стоимость:</span>
-                  <span className="text-sm font-medium">
-                    {gift.gift_price} {formatDropsLabel(gift.gift_price)}
-                  </span>
-                </div>
-              )}
-              {gift.message && (
-                <div className="pt-2 border-t border-border">
-                  <p className="text-sm text-muted-foreground">Сообщение:</p>
-                  <p className="text-sm mt-1">{gift.message}</p>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground pt-1">
-                {formatDistanceToNow(new Date(gift.created_at), { addSuffix: true, locale: ru })}
-              </p>
-            </div>
-          </>
+          <GiftDetailPanel
+            isUpgraded={gift.is_upgraded}
+            isUpgradable={gift.is_gift_upgradable}
+            giftLayerImageUrl={gift.gift_layer_image_url}
+            backgroundLayerImageUrl={gift.background_layer_image_url}
+            symbolLayerImageUrl={gift.symbol_layer_image_url}
+            giftLayerRarity={gift.gift_layer_rarity}
+            backgroundLayerRarity={gift.background_layer_rarity}
+            symbolLayerRarity={gift.symbol_layer_rarity}
+            giftImageUrl={giftImageUrl(gift.gift_image_url)}
+            giftName={gift.gift_name}
+            senderId={gift.sender_id}
+            senderUsername={gift.sender_username}
+            senderAvatarUrl={giftImageUrl(gift.sender_avatar_url)}
+            isAnonymous={gift.is_anonymous}
+            price={gift.gift_price}
+            message={gift.message}
+            createdAt={gift.created_at}
+          />
         )}
       </DialogContent>
     </Dialog>
