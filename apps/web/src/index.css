@@ -1,5 +1,3 @@
-@import "./components/messenger/messenger.css";
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

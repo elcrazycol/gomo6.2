@@ -6,6 +6,7 @@ import { messengerWs } from "@/services/messengerWebSocket";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
+import "./messenger.css";
 
 export const MessengerView = () => {
   const [searchParams, setSearchParams] = useSearchParams();
