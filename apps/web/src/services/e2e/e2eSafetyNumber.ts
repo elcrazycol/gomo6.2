@@ -84,10 +84,9 @@ export async function generateSafetyNumber(
   remoteUserId: string
 ): Promise<SafetyNumber | null> {
   // Fetch BOTH users' public keys from the server
-  // This ensures safety numbers match regardless of local key state
   const [localBundle, remoteBundle] = await Promise.all([
-    e2eApi.fetchKeyBundle(localUserId),
-    e2eApi.fetchKeyBundle(remoteUserId),
+    e2eApi.fetchKeyBundle(localUserId).catch(() => ({ devices: [] })),
+    e2eApi.fetchKeyBundle(remoteUserId).catch(() => ({ devices: [] })),
   ]);
 
   if (!localBundle.devices?.length || !remoteBundle.devices?.length) return null;
