@@ -95,7 +95,7 @@ describe("messengerWebSocket", () => {
     it("does not double-register handlers", () => {
       messengerWs.connect();
       messengerWs.connect();
-      expect(mockWsService.on).toHaveBeenCalledTimes(7);
+      expect(mockWsService.on).toHaveBeenCalledTimes(8);
     });
   });
 

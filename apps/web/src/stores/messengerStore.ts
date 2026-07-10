@@ -441,12 +441,11 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   selectConversation: (id) => {
     // Flush pending reads/delivered before switching so DB stays in sync
     flushPending();
-    set({ selectedConversationId: id, hasMoreMessages: true, isLoadingMore: false });
+    // Clear messages immediately to prevent stale messages from previous conversation
+    set({ selectedConversationId: id, messages: [], hasMoreMessages: true, isLoadingMore: false, isMessagesLoading: !!id });
     if (id) {
       get().loadMessages(id);
       get().loadReceipts(id);
-    } else {
-      set({ messages: [] });
     }
   },
 
