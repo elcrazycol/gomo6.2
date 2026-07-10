@@ -1756,7 +1756,6 @@
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
-    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .messenger-shell.mobile-chat-open .sidebar-panel {
@@ -1765,7 +1764,6 @@
 
   .conversation-list {
     min-height: 0;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .mobile-only {
@@ -1814,7 +1812,6 @@
 
   .message-scroll {
     padding: 8px 10px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .message-bubble {
@@ -1847,7 +1844,6 @@
 
   .composer {
     padding: 8px 10px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 
   .composer textarea {
