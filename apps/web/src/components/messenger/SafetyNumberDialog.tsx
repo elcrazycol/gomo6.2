@@ -43,10 +43,13 @@ export function SafetyNumberDialog({
     (async () => {
       const [sn, isVerified] = await Promise.all([
         generateSafetyNumber(
-          // We need the current user's ID — get it from auth token
-          JSON.parse(
-            atob(localStorage.getItem("auth_token")?.split(".")[1] || "{}")
-          ).sub || "",
+          // Get current user's ID from JWT payload (field is "user_id")
+          (() => {
+            try {
+              const payload = JSON.parse(atob(localStorage.getItem("auth_token")?.split(".")[1] || "{}"));
+              return payload.user_id || "";
+            } catch { return ""; }
+          })(),
           remoteUserId
         ),
         isConversationVerified(conversationId),
