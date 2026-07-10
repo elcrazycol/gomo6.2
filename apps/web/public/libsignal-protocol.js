@@ -35464,8 +35464,8 @@ Internal.protoText = function() {
 /* vim: ts=4:sw=4 */
 var Internal = Internal || {};
 
-var ProtoBuf = require('protobufjs')
-var ByteBuffer = require('mocha-bytebuffer')
+var ProtoBuf = ProtoBuf || {}
+var ByteBuffer = (typeof ByteBuffer !== 'undefined') ? ByteBuffer : {}
 
 Internal.protobuf = function() {
     'use strict';
