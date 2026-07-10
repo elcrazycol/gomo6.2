@@ -38,7 +38,8 @@ export async function generateSafetyNumber(
 
   // Generate fingerprint using Signal's algorithm
   const FingerprintGenerator = getFingerprintGenerator();
-  const fingerprint = await FingerprintGenerator.createFor(
+  const generator = new FingerprintGenerator(1000);
+  const fingerprint = await generator.createFor(
     localUserId,
     localKeyPair.publicKey,
     remoteUserId,
