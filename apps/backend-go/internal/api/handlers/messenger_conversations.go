@@ -188,21 +188,10 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	}
 
 	// Atomic find-or-create via DB function (race-safe via ON CONFLICT)
-	convID, err := h.FindOrCreateConversation(claims.UserID, req.UserID)
+	convID, err := h.FindOrCreateConversation(claims.UserID, req.UserID, req.IsE2E)
 	if err != nil {
 		serverError(c, "find or create conversation", err)
 		return
-	}
-
-	// Set E2E flag if requested (only sets, never unsets)
-	if req.IsE2E {
-		_, err = h.db.Exec(`
-			UPDATE chat_conversations SET is_e2e = true WHERE id = $1
-		`, convID)
-		if err != nil {
-			serverError(c, "set e2e flag", err)
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))

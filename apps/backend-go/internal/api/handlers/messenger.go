@@ -248,9 +248,9 @@ func decryptMessageContent(msg *MessageResponse) {
 // FindOrCreateConversation atomically finds or creates a 1:1 conversation between two users.
 // Uses the DB function find_or_create_conversation when available (migration 054+).
 // Falls back to Go-level retry logic if the function doesn't exist yet.
-func (h *MessengerHandler) FindOrCreateConversation(user1, user2 string) (string, error) {
+func (h *MessengerHandler) FindOrCreateConversation(user1, user2 string, isE2E bool) (string, error) {
 	var convID string
-	err := h.db.QueryRow("SELECT find_or_create_conversation($1, $2)", user1, user2).Scan(&convID)
+	err := h.db.QueryRow("SELECT find_or_create_conversation($1, $2, $3)", user1, user2, isE2E).Scan(&convID)
 	if err == nil {
 		return convID, nil
 	}
@@ -259,21 +259,23 @@ func (h *MessengerHandler) FindOrCreateConversation(user1, user2 string) (string
 		return "", fmt.Errorf("find_or_create_conversation: %w", err)
 	}
 	log.Printf("[Messenger] find_or_create_conversation function not found, using legacy fallback")
-	return h.findOrCreateConversationLegacy(user1, user2)
+	return h.findOrCreateConversationLegacy(user1, user2, isE2E)
 }
 
 // findOrCreateConversationLegacy is the pre-migration fallback using Go-level retry.
-func (h *MessengerHandler) findOrCreateConversationLegacy(user1, user2 string) (string, error) {
+func (h *MessengerHandler) findOrCreateConversationLegacy(user1, user2 string, isE2E bool) (string, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		var convID string
 		err := h.db.QueryRow(`
 			SELECT cm1.conversation_id
 			FROM chat_members cm1
 			INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
+			INNER JOIN chat_conversations c ON c.id = cm1.conversation_id
 			WHERE cm1.user_id = $1 AND cm2.user_id = $2
+			  AND COALESCE(c.is_e2e, false) = $3
 			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
 			LIMIT 1
-		`, user1, user2).Scan(&convID)
+		`, user1, user2, isE2E).Scan(&convID)
 		if err == nil {
 			return convID, nil
 		}
@@ -284,7 +286,7 @@ func (h *MessengerHandler) findOrCreateConversationLegacy(user1, user2 string) (
 		if err != nil {
 			return "", err
 		}
-		err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
+		err = tx.QueryRow(`INSERT INTO chat_conversations (is_e2e) VALUES ($1) RETURNING id`, isE2E).Scan(&convID)
 		if err != nil {
 			tx.Rollback()
 			continue
