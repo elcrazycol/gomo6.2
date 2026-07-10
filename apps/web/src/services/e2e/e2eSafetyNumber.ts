@@ -5,7 +5,7 @@ import * as e2eApi from "./e2eApi";
 // Implements the same fingerprint generation as Signal Protocol without
 // depending on the broken libsignal-protocol.js UMD bundle.
 
-const VERSION = 0x05;
+const VERSION = 0;
 
 const FINGERPRINT_EMOJIS = [
   "0\uFE0F\u20E3", "1\uFE0F\u20E3", "2\uFE0F\u20E3", "3\uFE0F\u20E3", "4\uFE0F\u20E3",
@@ -49,21 +49,22 @@ async function getDisplayString(
   identityKey: ArrayBuffer
 ): Promise<string> {
   const identifierBytes = new TextEncoder().encode(identifier);
-  const versionBuffer = new Uint8Array([VERSION]);
+  // VERSION as 2-byte Uint16Array (matches Signal's shortToArrayBuffer)
+  const versionBuffer = new Uint16Array([VERSION]).buffer;
 
-  // Data = VERSION + identityKey + identifier
+  // Data = VERSION(2 bytes) + identityKey + identifier
   const data = concat(versionBuffer, identityKey, identifierBytes);
 
   // Iterate hash 1000 times with data as both value and key
   const hash = await iterateHash(data, data, 1000);
 
-  // Take last 30 bytes, split into 6 chunks of 5 bytes each
+  // Take first 30 bytes (offset 0,5,10,15,20,25), split into 6 chunks of 5 bytes
   // Each 5 bytes → 40 bits → format as 5-digit decimal
   const hashArray = new Uint8Array(hash);
   const chunks: string[] = [];
   for (let i = 0; i < 6; i++) {
-    const offset = hashArray.length - 30 + i * 5;
-    // Read 5 bytes as big-endian 40-bit number
+    const offset = i * 5;
+    // Read 5 bytes as big-endian number (matches Signal's getEncodedChunk)
     let value = 0;
     for (let j = 0; j < 5; j++) {
       value = (value * 256 + hashArray[offset + j]) % 100000;
