@@ -72,7 +72,3 @@ export function getSessionCipher(
 ): any {
   return new libsignal.SessionCipher(storage, remoteAddress);
 }
-
-export function getFingerprintGenerator() {
-  return libsignal.FingerprintGenerator;
-}
