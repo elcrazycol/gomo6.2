@@ -344,7 +344,13 @@ export const ChatView = memo(function ChatView({
         )}
 
         {/* E2E banner */}
-        {conversation.is_e2e && <E2EBanner />}
+        {conversation.is_e2e && (
+          <E2EBanner
+            conversationId={conversation.id}
+            remoteUserId={conversation.other_user_id || undefined}
+            remoteUsername={conversation.other_username || undefined}
+          />
+        )}
       </div>
 
       {/* Messages */}
