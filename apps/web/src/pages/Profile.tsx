@@ -1099,7 +1099,10 @@ const Profile = () => {
                   onClick={async () => {
                     try {
                       const { startE2EChat } = await import("@/services/e2e/e2eManager");
-                      const { conversationId } = await startE2EChat(userId!);
+                      const { conversationId, needsOtherUserKeys } = await startE2EChat(userId!);
+                      if (needsOtherUserKeys) {
+                        alert("E2E чат создан. Чтобы обмениваться зашифрованными сообщениями, собеседник должен также открыть E2E чат из вашего профиля.");
+                      }
                       navigate(`/messages?conversation=${conversationId}`);
                     } catch (err) {
                       alert((err as Error).message || "Не удалось начать E2E чат");

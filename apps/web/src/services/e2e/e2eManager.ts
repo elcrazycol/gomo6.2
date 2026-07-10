@@ -119,22 +119,25 @@ export async function ensureDeviceReady(): Promise<boolean> {
 
 export async function startE2EChat(
   otherUserId: string
-): Promise<{ conversationId: string }> {
+): Promise<{ conversationId: string; needsOtherUserKeys: boolean }> {
   await ensureDeviceReady();
 
-  // Fetch other user's key bundle
-  const bundle = await e2eApi.fetchKeyBundle(otherUserId);
-  if (!bundle.devices || bundle.devices.length === 0) {
-    throw new Error(
-      "User has no E2E keys registered. They need to start an E2E chat first."
-    );
-  }
-
-  // Create E2E conversation on server
+  // Create E2E conversation on server first
   const result = await messengerApi.getOrCreateConversation(otherUserId, true);
   const conversationId = (result as { conversation_id: string }).conversation_id;
 
-  return { conversationId };
+  // Try to fetch other user's key bundle (may not exist yet)
+  let needsOtherUserKeys = false;
+  try {
+    const bundle = await e2eApi.fetchKeyBundle(otherUserId);
+    if (!bundle.devices || bundle.devices.length === 0) {
+      needsOtherUserKeys = true;
+    }
+  } catch {
+    needsOtherUserKeys = true;
+  }
+
+  return { conversationId, needsOtherUserKeys };
 }
 
 // ─── Send E2E Message ───────────────────────────────────────────────────────
