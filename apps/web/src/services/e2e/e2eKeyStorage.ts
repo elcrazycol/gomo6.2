@@ -1,5 +1,5 @@
 const DB_NAME = "e2e_keys";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

@@ -310,13 +310,13 @@ export const ChatView = memo(function ChatView({
               )}
             </div>
             <div className="chat-topbar-info">
-              <div className="chat-topbar-username">
+              <div className="chat-topbar-username flex items-center gap-1">
                 {conversation.is_group ? (
                   <span className="font-bold text-sm">{conversation.group_name || "Группа"}</span>
                 ) : (
                   <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} />
                 )}
-                {conversation.is_e2e && <span title="E2E зашифрован"><Lock className="w-3 h-3 text-green-500 ml-1" /></span>}
+                {conversation.is_e2e && <span title="E2E зашифрован" className="flex-shrink-0"><Lock className="w-3 h-3 text-green-500" /></span>}
               </div>
               <p className="presence-copy">
                 {typingUsername
