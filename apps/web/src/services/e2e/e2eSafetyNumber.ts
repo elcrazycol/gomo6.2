@@ -1,4 +1,3 @@
-import { getIdentityKeyPair, getDeviceId } from "./e2eKeyStorage";
 import * as e2eApi from "./e2eApi";
 
 // ─── Signal Safety Number Algorithm (pure WebCrypto) ─────────────────────────
@@ -86,20 +85,21 @@ export async function generateSafetyNumber(
   localUserId: string,
   remoteUserId: string
 ): Promise<SafetyNumber | null> {
-  const deviceId = getDeviceId();
-  const localKeyPair = await getIdentityKeyPair(deviceId);
-  if (!localKeyPair) return null;
+  // Fetch BOTH users' public keys from the server
+  // This ensures safety numbers match regardless of local key state
+  const [localBundle, remoteBundle] = await Promise.all([
+    e2eApi.fetchKeyBundle(localUserId),
+    e2eApi.fetchKeyBundle(remoteUserId),
+  ]);
 
-  const bundle = await e2eApi.fetchKeyBundle(remoteUserId);
-  if (!bundle.devices || bundle.devices.length === 0) return null;
+  if (!localBundle.devices?.length || !remoteBundle.devices?.length) return null;
 
-  const remoteIdentityKey = base64ToBuffer(bundle.devices[0].public_identity_key);
+  const localIdentityKey = base64ToBuffer(localBundle.devices[0].public_identity_key);
+  const remoteIdentityKey = base64ToBuffer(remoteBundle.devices[0].public_identity_key);
 
-  // Generate display strings for both users
-  const localString = await getDisplayString(localUserId, localKeyPair.publicKey);
+  const localString = await getDisplayString(localUserId, localIdentityKey);
   const remoteString = await getDisplayString(remoteUserId, remoteIdentityKey);
 
-  // Sort and concatenate (same order on both devices = same safety number)
   const combined = [localString, remoteString].sort().join("");
   const numeric = combined;
 
