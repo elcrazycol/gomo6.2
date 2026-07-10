@@ -72,6 +72,7 @@ func RunMigrations(db *sql.DB) error {
 
 	appliedCount := 0
 	skippedCount := 0
+	failedCount := 0
 	for _, file := range files {
 		name := filepath.Base(file)
 		if applied[name] {
@@ -89,7 +90,7 @@ func RunMigrations(db *sql.DB) error {
 		// Strip explicit BEGIN/COMMIT — the Go runner wraps in its own transaction.
 		// Some older migrations (e.g. 013) embed their own transaction blocks,
 		// which would cause "unexpected transaction status idle" errors.
-		sql := stripTransactionWrappers(string(content))
+		migrationSQL := stripTransactionWrappers(string(content))
 
 		// Apply the migration in a transaction
 		tx, err := db.Begin()
@@ -97,8 +98,23 @@ func RunMigrations(db *sql.DB) error {
 			return fmt.Errorf("begin transaction for %s: %w", name, err)
 		}
 
-		if _, err := tx.Exec(sql); err != nil {
+		if _, err := tx.Exec(migrationSQL); err != nil {
 			tx.Rollback()
+			errMsg := err.Error()
+			// If the error is about duplicate objects, the migration was partially
+			// applied (e.g. by docker-entrypoint or manual SQL). Mark it as applied
+			// so we don't retry on every startup.
+			if isDuplicateObjectError(errMsg) {
+				log.Printf("RunMigrations: %s — objects already exist, marking as applied", name)
+				if _, markErr := db.Exec(
+					"INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
+					name,
+				); markErr != nil {
+					log.Printf("RunMigrations: WARNING failed to mark %s: %v", name, markErr)
+				}
+				failedCount++
+				continue
+			}
 			return fmt.Errorf("execute migration %s: %w", name, err)
 		}
 
@@ -115,8 +131,8 @@ func RunMigrations(db *sql.DB) error {
 		appliedCount++
 	}
 
-	log.Printf("RunMigrations: complete — %d applied, %d skipped (already applied)",
-		appliedCount, skippedCount)
+	log.Printf("RunMigrations: complete — %d applied, %d skipped (already applied), %d previously applied",
+		appliedCount, skippedCount, failedCount)
 	return nil
 }
 
@@ -128,6 +144,40 @@ func stripTransactionWrappers(sql string) string {
 	s = strings.TrimSuffix(s, "COMMIT;")
 	s = strings.TrimPrefix(s, "BEGIN;")
 	return strings.TrimSpace(s)
+}
+
+// isDuplicateObjectError checks if a PostgreSQL error indicates that the
+// object (table, column, index, constraint) already exists.
+func isDuplicateObjectError(errMsg string) bool {
+	duplicatePatterns := []string{
+		"already exists",
+		"duplicate column",
+		"duplicate key",
+		"relation .* already exists",
+		"column .* already exists",
+		"index .* already exists",
+		"constraint .* already exists",
+		"type .* already exists",
+	}
+	for _, pattern := range duplicatePatterns {
+		if strings.Contains(errMsg, pattern) {
+			return true
+		}
+	}
+	// PostgreSQL error codes for duplicate objects
+	duplicateCodes := []string{
+		"42710", // duplicate_object
+		"42P07", // duplicate_table
+		"42701", // duplicate_column
+		"42P16", // invalid_table_definition (unique constraint exists)
+		"23505", // unique_violation
+	}
+	for _, code := range duplicateCodes {
+		if strings.Contains(errMsg, code) {
+			return true
+		}
+	}
+	return false
 }
 
 // getAppliedMigrations returns the set of migration filenames already recorded
