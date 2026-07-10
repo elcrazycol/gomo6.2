@@ -1,4 +1,6 @@
-import LongRq from 'long'
+/* eslint-disable */
+// libsignal-protocol.js — patched to remove ES module import
+// Long is provided globally by the loader before this script executes
 
 ;(function(){
 var Internal = {};
@@ -29846,7 +29848,7 @@ Curve25519Worker.prototype = {
 
     /* CommonJS */ if (typeof require === 'function' && typeof module === 'object' && module && typeof exports === 'object' && exports)
         module['exports'] = (function() {
-            var Long; try { Long = LongRq; } catch (e) {}
+            var Long; try { Long = window.Long; } catch (e) {}
             return loadByteBuffer(Long);
         })();
     /* AMD */ else if (typeof define === 'function' && define["amd"])
