@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { X, Gift, ExternalLink, Search, UserPlus } from "lucide-react";
+import { X, Gift, ExternalLink, Search, UserPlus, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
@@ -333,6 +333,25 @@ export function UserInfoPanel({
                   >
                     <Gift size={14} />
                     Подарить
+                  </button>
+                )}
+                {userId && (
+                  <button
+                    type="button"
+                    className="user-info-action-btn"
+                    onClick={async () => {
+                      try {
+                        const { startE2EChat } = await import("@/services/e2e/e2eManager");
+                        const { conversationId } = await startE2EChat(userId);
+                        window.location.href = `/messages?conversation=${conversationId}`;
+                        onClose();
+                      } catch (err) {
+                        alert((err as Error).message || "Не удалось начать E2E чат");
+                      }
+                    }}
+                  >
+                    <Lock size={14} />
+                    E2E Чат
                   </button>
                 )}
               </div>

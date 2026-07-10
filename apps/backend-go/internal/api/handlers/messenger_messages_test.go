@@ -28,9 +28,10 @@ func TestGetMessages_Success(t *testing.T) {
 		"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
 		"content", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
+		"ciphertexts", "sender_device_id",
 	}).
-		AddRow(testMsg2, testConv1, testUser2, "bob", nil, "Hi!", false, false, nil, now.Add(time.Minute), "c2").
-		AddRow(testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", false, false, nil, now, "c1")
+		AddRow(testMsg2, testConv1, testUser2, "bob", nil, "Hi!", false, false, nil, now.Add(time.Minute), "c2", nil, "").
+		AddRow(testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", false, false, nil, now, "c1", nil, "")
 
 	mock.ExpectQuery(`SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
@@ -76,7 +77,8 @@ func TestGetMessages_WithBefore(t *testing.T) {
 		"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
 		"content", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(testMsg3, testConv1, testUser1, "testuser", nil, "Third", false, false, nil, now, "c3")
+		"ciphertexts", "sender_device_id",
+	}).AddRow(testMsg3, testConv1, testUser1, "testuser", nil, "Third", false, false, nil, now, "c3", nil, "")
 
 	mock.ExpectQuery(`SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
 		WithArgs(testConv1, testMsg5, 10).
@@ -125,7 +127,7 @@ func TestGetMessages_Empty(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT m.id, m.conversation_id.*FROM chat_messages m.*`).
 		WithArgs(testConv1, 50).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id", "content", "is_edited", "is_deleted", "edited_at", "sent_at", "client_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id", "content", "is_edited", "is_deleted", "edited_at", "sent_at", "client_id", "ciphertexts", "sender_device_id"}))
 
 	handler.GetMessages(c)
 
@@ -162,6 +164,11 @@ func TestSendMessage_Success(t *testing.T) {
 	body := SendMessageRequest{Content: "Hello, world!", ClientID: testClientID1}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
+	// Check conversation type (is_e2e)
+	mock.ExpectQuery(`SELECT COALESCE\(is_e2e, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_e2e"}).AddRow(false))
+
 	// Membership check
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
 		WithArgs(testConv1, testUser1).
@@ -175,10 +182,11 @@ func TestSendMessage_Success(t *testing.T) {
 		"id", "conversation_id", "sender_user_id", "parent_message_id",
 		"content", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow("20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, "Hello, world!", false, false, nil, now, testClientID1)
+		"ciphertexts", "sender_device_id",
+	}).AddRow("20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, "Hello, world!", false, false, nil, now, testClientID1, nil, "")
 
-	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id\).*VALUES \(\$1, \$2, \$3, \$4, \$5\).*RETURNING`).
-		WithArgs(testConv1, testUser1, "Hello, world!", testClientID1, nil).
+	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id, ciphertexts, sender_device_id\).*VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\).*RETURNING`).
+		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID1, nil, nil, nil).
 		WillReturnRows(msgRows)
 
 	// Transaction Commit
@@ -192,11 +200,15 @@ func TestSendMessage_Success(t *testing.T) {
 }
 
 func TestSendMessage_EmptyContent(t *testing.T) {
-	handler, _ := setupMessengerHandler(t)
+	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "   ", ClientID: testClientID1}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+
+	mock.ExpectQuery(`SELECT COALESCE\(is_e2e, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_e2e"}).AddRow(false))
 
 	handler.SendMessage(c)
 
@@ -206,11 +218,15 @@ func TestSendMessage_EmptyContent(t *testing.T) {
 }
 
 func TestSendMessage_HtmlRejected(t *testing.T) {
-	handler, _ := setupMessengerHandler(t)
+	handler, mock := setupMessengerHandler(t)
 
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "<script>alert('xss')</script>", ClientID: testClientID1}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+
+	mock.ExpectQuery(`SELECT COALESCE\(is_e2e, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_e2e"}).AddRow(false))
 
 	handler.SendMessage(c)
 
@@ -225,6 +241,10 @@ func TestSendMessage_NotMember(t *testing.T) {
 	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID1}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
+
+	mock.ExpectQuery(`SELECT COALESCE\(is_e2e, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_e2e"}).AddRow(false))
 
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
@@ -256,6 +276,10 @@ func TestSendMessage_Duplicate(t *testing.T) {
 	body := SendMessageRequest{Content: "Hello!", ClientID: testClientID2}
 	c, w := newPOSTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", body, claims, map[string]string{"id": testConv1})
 
+	mock.ExpectQuery(`SELECT COALESCE\(is_e2e, false\) FROM chat_conversations WHERE id = \$1`).
+		WithArgs(testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"is_e2e"}).AddRow(false))
+
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members.*`).
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -265,7 +289,7 @@ func TestSendMessage_Duplicate(t *testing.T) {
 
 	// Insert fails with duplicate key error
 	mock.ExpectQuery(`INSERT INTO chat_messages.*`).
-		WithArgs(testConv1, testUser1, "Hello!", testClientID2, nil).
+		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID2, nil, nil, nil).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	// Transaction Rollback (deferred)

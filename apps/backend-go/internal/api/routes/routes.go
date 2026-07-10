@@ -107,6 +107,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	friendsHandler := handlers.NewFriendsHandler(db)
 	friendsHandler.SetRedis(redis)
 	friendsHandler.SetWebSocketHub(wsHub)
+	e2eHandler := handlers.NewE2EHandler(db)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -401,6 +402,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				protected.GET("/friends", friendsHandler.GetFriends)
 				protected.GET("/friends/requests", friendsHandler.GetRequests)
 				protected.GET("/friends/status/:userId", friendsHandler.GetFriendStatus)
+
+				// E2E key management
+				protected.POST("/e2e/keys", e2eHandler.RegisterKeys)
+				protected.GET("/e2e/keys/:userId", e2eHandler.FetchKeyBundle)
+				protected.POST("/e2e/keys/consume-prekey", e2eHandler.ConsumePreKey)
+				protected.POST("/e2e/keys/prekeys", e2eHandler.UploadPreKeys)
+				protected.GET("/e2e/devices", e2eHandler.ListDevices)
+				protected.DELETE("/e2e/devices/:deviceId", e2eHandler.DeleteDevice)
 			}
 		}
 	}

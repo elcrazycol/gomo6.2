@@ -35,6 +35,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			cm.unread_count, cm.is_muted,
 			c.is_group, c.group_name, c.group_avatar_url,
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
+			c.is_e2e,
 			-- 1:1 fields (NULL for groups)
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
 			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
@@ -67,6 +68,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.UnreadCount, &conv.IsMuted,
 			&conv.IsGroup, &groupName, &groupAvatar,
 			&conv.MemberCount,
+			&conv.IsE2E,
 			&otherID, &otherUsername, &otherDisplayName,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
 		); err != nil {
@@ -161,6 +163,7 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 
 	var req struct {
 		UserID string `json:"user_id" binding:"required"`
+		IsE2E  bool   `json:"is_e2e"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_id is required"))
@@ -189,6 +192,17 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	if err != nil {
 		serverError(c, "find or create conversation", err)
 		return
+	}
+
+	// Set E2E flag if requested (only sets, never unsets)
+	if req.IsE2E {
+		_, err = h.db.Exec(`
+			UPDATE chat_conversations SET is_e2e = true WHERE id = $1
+		`, convID)
+		if err != nil {
+			serverError(c, "set e2e flag", err)
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))

@@ -69,10 +69,10 @@ export const messengerApi = {
     return req<ConversationView[]>("/conversations");
   },
 
-  async getOrCreateConversation(userId: string): Promise<{ conversation_id: string }> {
+  async getOrCreateConversation(userId: string, isE2E?: boolean): Promise<{ conversation_id: string }> {
     return req("/conversations", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ user_id: userId, is_e2e: isE2E ?? false }),
     });
   },
 
@@ -88,6 +88,7 @@ export const messengerApi = {
     clientId: string,
     parentMessageId?: string,
     attachments?: Attachment[],
+    e2ePayload?: { is_encrypted: boolean; ciphertexts: { device_id: string; ephemeral_key: string; ciphertext: string }[]; sender_device_id: string },
   ): Promise<MessageView> {
     return req<MessageView>(`/conversations/${conversationId}/messages`, {
       method: "POST",
@@ -96,6 +97,7 @@ export const messengerApi = {
         client_id: clientId,
         ...(parentMessageId ? { parent_message_id: parentMessageId } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        ...(e2ePayload || {}),
       }),
     });
   },
