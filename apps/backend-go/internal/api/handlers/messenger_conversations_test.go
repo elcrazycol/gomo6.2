@@ -130,8 +130,8 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Atomic find-or-create via DB function
-	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
-		WithArgs(testUser1, testUser2).
+	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2, \$3\)`).
+		WithArgs(testUser1, testUser2, false).
 		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow(testConv1))
 
 	handler.GetOrCreateConversation(c)
@@ -162,8 +162,8 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Atomic find-or-create via DB function — returns new conversation
-	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
-		WithArgs(testUser1, testUser2).
+	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2, \$3\)`).
+		WithArgs(testUser1, testUser2, false).
 		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow(testConv1))
 
 	handler.GetOrCreateConversation(c)
