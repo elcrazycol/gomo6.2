@@ -41,22 +41,30 @@ export function SafetyNumberDialog({
     if (!open) return;
     setLoading(true);
     (async () => {
-      const [sn, isVerified] = await Promise.all([
-        generateSafetyNumber(
-          // Get current user's ID from JWT payload (field is "user_id")
-          (() => {
-            try {
-              const payload = JSON.parse(atob(localStorage.getItem("auth_token")?.split(".")[1] || "{}"));
-              return payload.user_id || "";
-            } catch { return ""; }
-          })(),
-          remoteUserId
-        ),
-        isConversationVerified(conversationId),
-      ]);
-      setSafetyNumber(sn);
-      setVerified(isVerified);
-      setLoading(false);
+      try {
+        // Get local user ID from JWT
+        let localUserId = "";
+        try {
+          const payload = JSON.parse(atob(localStorage.getItem("auth_token")?.split(".")[1] || "{}"));
+          localUserId = payload.user_id || "";
+        } catch { /* ignore */ }
+
+        if (!localUserId || !remoteUserId) {
+          setLoading(false);
+          return;
+        }
+
+        const [sn, isVerified] = await Promise.all([
+          generateSafetyNumber(localUserId, remoteUserId).catch(() => null),
+          isConversationVerified(conversationId).catch(() => false),
+        ]);
+        setSafetyNumber(sn);
+        setVerified(isVerified);
+      } catch {
+        // Safety number generation failed — show empty state
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [open, conversationId, remoteUserId]);
 
