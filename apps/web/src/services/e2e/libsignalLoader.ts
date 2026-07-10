@@ -4,24 +4,30 @@ let loadPromise: Promise<void> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const libsignal: any;
 
+function loadScript(src: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const scriptId = `script-${src}`;
+    if (document.getElementById(scriptId)) { resolve(); return; }
+    const script = document.createElement("script");
+    script.id = scriptId;
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
 export async function loadLibsignal(): Promise<void> {
   if (loaded) return;
   if (loadPromise) return loadPromise;
 
-  loadPromise = new Promise<void>((resolve, reject) => {
-    const scriptId = "libsignal-protocol-script";
-    if (document.getElementById(scriptId)) {
-      loaded = true;
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = scriptId;
-    script.src = "/libsignal-protocol.js";
-    script.onload = () => { loaded = true; resolve(); };
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
+  loadPromise = (async () => {
+    // Load long.js first (provides window.Long for libsignal-protocol)
+    await loadScript("/long.js");
+    // Load libsignal-protocol (uses window.Long internally)
+    await loadScript("/libsignal-protocol.js");
+    loaded = true;
+  })();
 
   return loadPromise;
 }
