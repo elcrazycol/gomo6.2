@@ -1,9 +1,9 @@
-import { SignalProtocolAddress } from "libsignal-protocol";
 import {
   loadLibsignal,
   getKeyHelper,
   getSessionBuilder,
   getSessionCipher,
+  getSignalProtocolAddress,
 } from "./libsignalLoader";
 import type { CiphertextEntry } from "@/components/messenger/types";
 
@@ -197,8 +197,8 @@ const sessionStore = new SignalSessionStore2();
 function getAddress(
   name: string,
   deviceId: number
-): SignalProtocolAddress {
-  return new SignalProtocolAddress(name, deviceId);
+) {
+  return getSignalProtocolAddress(name, deviceId);
 }
 
 function getStorage() {
