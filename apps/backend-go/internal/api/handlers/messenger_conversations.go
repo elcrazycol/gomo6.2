@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
@@ -275,34 +276,54 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 
 	var req CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request: name and member_ids required"))
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request: name required"))
 		return
 	}
 
-	// Convert string IDs to UUIDs
-	memberUUIDs := make([]string, 0, len(req.MemberIDs))
-	for _, id := range req.MemberIDs {
-		if !isUUID(id) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid member ID: "+id))
-			return
-		}
-		memberUUIDs = append(memberUUIDs, id)
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Group name is required"))
+		return
 	}
 
-	// Use RPC function
+	// Create conversation
 	var convID string
 	err := h.db.QueryRow(`
-		SELECT rpc_create_group_chat($1, $2)
-	`, req.Name, memberUUIDs).Scan(&convID)
+		INSERT INTO chat_conversations (is_group, group_name, created_by)
+		VALUES (true, $1, $2)
+		RETURNING id
+	`, name, claims.UserID).Scan(&convID)
 	if err != nil {
-		serverError(c, "create group chat", err)
+		serverError(c, "create group", err)
 		return
+	}
+
+	// Add creator as admin
+	_, err = h.db.Exec(`
+		INSERT INTO chat_members (conversation_id, user_id, role)
+		VALUES ($1, $2, 'admin')
+	`, convID, claims.UserID)
+	if err != nil {
+		serverError(c, "add creator as admin", err)
+		return
+	}
+
+	// Add other members if any
+	for _, id := range req.MemberIDs {
+		if !isUUID(id) || id == claims.UserID {
+			continue
+		}
+		h.db.Exec(`
+			INSERT INTO chat_members (conversation_id, user_id, role)
+			VALUES ($1, $2, 'member')
+			ON CONFLICT (conversation_id, user_id) DO NOTHING
+		`, convID, id)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"conversation_id": convID,
 		"is_group":        true,
-		"group_name":      req.Name,
+		"group_name":      name,
 	}))
 }
 
@@ -374,23 +395,28 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 		return
 	}
 
-	// Use RPC function
-	userUUIDs := make([]string, 0, len(req.UserIDs))
-	for _, id := range req.UserIDs {
-		if !isUUID(id) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID: "+id))
-			return
-		}
-		userUUIDs = append(userUUIDs, id)
-	}
-
-	_, err := h.db.Exec(`SELECT rpc_add_group_members($1, $2)`, groupID, userUUIDs)
-	if err != nil {
-		serverError(c, "add group members", err)
+	// Check if caller is admin
+	var isAdmin bool
+	h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')`, groupID, claims.UserID).Scan(&isAdmin)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Only admins can add members"))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": len(userUUIDs)}))
+	added := 0
+	for _, id := range req.UserIDs {
+		if !isUUID(id) {
+			continue
+		}
+		_, err := h.db.Exec(`INSERT INTO chat_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (conversation_id, user_id) DO NOTHING`, groupID, id)
+		if err == nil {
+			added++
+		}
+	}
+
+	h.db.Exec(`UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, groupID)
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": added}))
 }
 
 // ─── Remove Member ──────────────────────────────────────────────────────────
@@ -409,11 +435,29 @@ func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
 		return
 	}
 
-	_, err := h.db.Exec(`SELECT rpc_remove_group_member($1, $2)`, groupID, userID)
-	if err != nil {
-		serverError(c, "remove group member", err)
-		return
+	// Users can remove themselves, admins can remove others
+	if userID != claims.UserID {
+		var isAdmin bool
+		h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')`, groupID, claims.UserID).Scan(&isAdmin)
+		if !isAdmin {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Only admins can remove other members"))
+			return
+		}
 	}
+
+	// Check if removing last admin
+	var targetRole string
+	h.db.QueryRow(`SELECT role FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID).Scan(&targetRole)
+	if targetRole == "admin" {
+		var adminCount int
+		h.db.QueryRow(`SELECT COUNT(*) FROM chat_members WHERE conversation_id = $1 AND role = 'admin'`, groupID).Scan(&adminCount)
+		if adminCount <= 1 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot remove the last admin"))
+			return
+		}
+	}
+
+	h.db.Exec(`DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"removed": true}))
 }
