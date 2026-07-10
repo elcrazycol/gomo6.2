@@ -31,6 +31,8 @@ export type ConversationView = {
   group_name: string | null;
   group_avatar_url: string | null;
   member_count: number;
+  // E2E field
+  is_e2e?: boolean;
 };
 
 export type MessageView = {
@@ -46,8 +48,17 @@ export type MessageView = {
   sent_at: string;
   client_id: string;
   attachments?: Attachment[];
+  // E2E fields
+  ciphertexts?: CiphertextEntry[];
+  sender_device_id?: string;
   // Client-side state
   localStatus?: "sending" | "sent" | "failed";
+};
+
+export type CiphertextEntry = {
+  device_id: string;
+  ephemeral_key: string;
+  ciphertext: string;
 };
 
 export type Attachment = {

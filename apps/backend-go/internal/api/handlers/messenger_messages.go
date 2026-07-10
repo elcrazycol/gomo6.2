@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -67,7 +68,9 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		rows, err = h.db.Query(`
 			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id
+				m.edited_at, m.sent_at, m.client_id,
+				CASE WHEN m.ciphertexts IS NOT NULL THEN m.ciphertexts::text ELSE NULL END,
+				COALESCE(m.sender_device_id, '')
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1 AND m.sent_at < (
@@ -80,7 +83,9 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		rows, err = h.db.Query(`
 			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id
+				m.edited_at, m.sent_at, m.client_id,
+				CASE WHEN m.ciphertexts IS NOT NULL THEN m.ciphertexts::text ELSE NULL END,
+				COALESCE(m.sender_device_id, '')
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1
@@ -101,11 +106,14 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		var parentID, editedAt, senderUsername sql.NullString
 		var encryptedContent string
 		var isDeleted bool
+		var ciphertextsRaw sql.NullString
+		var senderDeviceID string
 
 		if err := rows.Scan(
 			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
 			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
+			&ciphertextsRaw, &senderDeviceID,
 		); err != nil {
 			serverError(c, "scan message row", err)
 			return
@@ -133,6 +141,16 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		if editedAt.Valid {
 			s := editedAt.String
 			msg.EditedAt = &s
+		}
+
+		// E2E ciphertexts
+		if ciphertextsRaw.Valid && ciphertextsRaw.String != "" {
+			if entries, err := unmarshalCiphertexts(ciphertextsRaw.String); err == nil {
+				msg.Ciphertexts = entries
+			}
+		}
+		if senderDeviceID != "" {
+			msg.SenderDeviceID = senderDeviceID
 		}
 
 		messages = append(messages, msg)
@@ -201,19 +219,48 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Sanitize content (allow empty if attachments present)
-	cleanContent := strings.TrimSpace(req.Content)
-	if cleanContent == "" && len(req.Attachments) == 0 {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
+	// Check if conversation is E2E
+	var isE2E bool
+	err := h.db.QueryRow("SELECT COALESCE(is_e2e, false) FROM chat_conversations WHERE id = $1", conversationID).Scan(&isE2E)
+	if err != nil {
+		serverError(c, "check conversation type", err)
 		return
 	}
-	if cleanContent != "" {
-		if len([]rune(cleanContent)) > 4000 {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
+
+	// E2E messages: content is ciphertexts JSON, no client-side content validation
+	var encryptedContent string
+	var cleanContent string
+	if isE2E && req.IsEncrypted && len(req.Ciphertexts) > 0 {
+		ciphertextsJSON, err := marshalCiphertexts(req.Ciphertexts)
+		if err != nil {
+			serverError(c, "marshal ciphertexts", err)
 			return
 		}
-		if hasHTML(cleanContent) {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
+		encryptedContent, err = encryptContent(ciphertextsJSON)
+		if err != nil {
+			serverError(c, "encrypt ciphertexts", err)
+			return
+		}
+	} else {
+		// Regular message: validate and encrypt content
+		cleanContent = strings.TrimSpace(req.Content)
+		if cleanContent == "" && len(req.Attachments) == 0 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
+			return
+		}
+		if cleanContent != "" {
+			if len([]rune(cleanContent)) > 4000 {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
+				return
+			}
+			if hasHTML(cleanContent) {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
+				return
+			}
+		}
+		encryptedContent, err = encryptContent(cleanContent)
+		if err != nil {
+			serverError(c, "encrypt content", err)
 			return
 		}
 	}
@@ -229,13 +276,6 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Encrypt content before storing
-	encryptedContent, err := encryptContent(cleanContent)
-	if err != nil {
-		serverError(c, "encrypt content", err)
-		return
-	}
-
 	// Start transaction for message + attachments
 	tx, err := h.db.Begin()
 	if err != nil {
@@ -247,23 +287,31 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// Insert message
 	var msg MessageResponse
 	var parentID, editedAt sql.NullString
+	var senderDeviceID, ciphertextsRaw sql.NullString
 	err = tx.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id, ciphertexts, sender_device_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, conversation_id, sender_user_id, parent_message_id,
-			content, is_edited, is_deleted, edited_at, sent_at, client_id
-	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
+			content, is_edited, is_deleted, edited_at, sent_at, client_id,
+			CASE WHEN ciphertexts IS NOT NULL THEN ciphertexts::text ELSE NULL END,
+			sender_device_id
+	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID,
+		nullJSONB(req.Ciphertexts), nullString(req.SenderDeviceID)).Scan(
 		&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
+		&ciphertextsRaw, &senderDeviceID,
 	)
 	if err != nil {
 		// ClientID conflict = duplicate send, return existing message
 		if strings.Contains(err.Error(), "unique_client_msg") || strings.Contains(err.Error(), "duplicate key") {
 			_ = tx.Rollback()
+			var dupCiphertextsRaw, dupSenderDeviceID sql.NullString
 			existing := h.db.QueryRow(`
 				SELECT id, conversation_id, sender_user_id, parent_message_id,
-					content, is_edited, is_deleted, edited_at, sent_at, client_id
+					content, is_edited, is_deleted, edited_at, sent_at, client_id,
+					CASE WHEN ciphertexts IS NOT NULL THEN ciphertexts::text ELSE NULL END,
+					COALESCE(sender_device_id, '')
 				FROM chat_messages
 				WHERE conversation_id = $1 AND client_id = $2
 			`, conversationID, req.ClientID)
@@ -271,6 +319,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 				&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 				&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 				&editedAt, &msg.SentAt, &msg.ClientID,
+				&dupCiphertextsRaw, &dupSenderDeviceID,
 			); err2 != nil {
 				serverError(c, "fetch duplicate message", err2)
 				return
@@ -278,6 +327,14 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			decryptMessageContent(&msg)
 			if parentID.Valid {
 				msg.ParentMessageID = &parentID.String
+			}
+			if dupCiphertextsRaw.Valid && dupCiphertextsRaw.String != "" {
+				if entries, err := unmarshalCiphertexts(dupCiphertextsRaw.String); err == nil {
+					msg.Ciphertexts = entries
+				}
+			}
+			if dupSenderDeviceID.Valid {
+				msg.SenderDeviceID = dupSenderDeviceID.String
 			}
 			// Fetch attachments for duplicate message
 			atts, _ := h.getAttachmentsByMessageIDs([]string{msg.ID})
@@ -306,7 +363,19 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	}
 
 	// Decrypt content for response
-	msg.Content = cleanContent
+	if isE2E && req.IsEncrypted {
+		// E2E: keep ciphertexts in response, content is the encrypted payload
+		if ciphertextsRaw.Valid && ciphertextsRaw.String != "" {
+			if entries, err := unmarshalCiphertexts(ciphertextsRaw.String); err == nil {
+				msg.Ciphertexts = entries
+			}
+		}
+		if senderDeviceID.Valid {
+			msg.SenderDeviceID = senderDeviceID.String
+		}
+	} else {
+		msg.Content = cleanContent
+	}
 
 	if parentID.Valid {
 		msg.ParentMessageID = &parentID.String
@@ -594,4 +663,24 @@ func (h *MessengerHandler) insertAttachments(tx *sql.Tx, messageID string, attac
 		}
 	}
 	return nil
+}
+
+// nullJSONB returns a driver.Value that can be NULL for JSONB columns
+func nullJSONB(entries []CiphertextEntry) interface{} {
+	if len(entries) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(entries)
+	if err != nil {
+		return nil
+	}
+	return string(b)
+}
+
+// nullString returns a sql.NullString for optional string values
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
 }

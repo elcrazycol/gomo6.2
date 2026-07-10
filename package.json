@@ -9,7 +9,7 @@
   "dependencies": {
     "@depay/widgets": "^13.0.45",
     "@radix-ui/react-switch": "^1.2.6",
-    "@signalapp/libsignal-client": "^0.90.0",
+    "libsignal-protocol": "^1.3.15",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

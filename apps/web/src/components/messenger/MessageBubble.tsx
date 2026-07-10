@@ -1,6 +1,6 @@
 import { memo, useCallback, useState, useRef } from "react";
 import { useDrag } from "@use-gesture/react";
-import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy } from "lucide-react";
+import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Lock } from "lucide-react";
 import { formatTime } from "./utils";
 import { MessageContent } from "./MessageContent";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -210,6 +210,9 @@ export const MessageBubble = memo(function MessageBubble({
               <MessageContent content={message.content} attachments={message.attachments} />
 
               <div className="message-meta">
+                {message.ciphertexts && message.ciphertexts.length > 0 && (
+                  <span title="E2E зашифровано"><Lock className="w-2.5 h-2.5 text-green-500/70 mr-0.5" /></span>
+                )}
                 <span className="message-time">{formatTime(message.sent_at)}</span>
                 {message.is_edited && <span className="edited-label">изм.</span>}
                 {isMine && (

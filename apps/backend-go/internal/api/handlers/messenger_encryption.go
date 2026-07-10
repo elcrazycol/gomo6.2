@@ -4,7 +4,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -94,4 +96,49 @@ func decryptContent(encoded string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// marshalCiphertexts converts CiphertextEntries to JSON for storage
+func marshalCiphertexts(entries []CiphertextEntry) (string, error) {
+	b, err := json.Marshal(entries)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// unmarshalCiphertexts parses stored ciphertexts JSON
+func unmarshalCiphertexts(raw string) ([]CiphertextEntry, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var entries []CiphertextEntry
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// ciphertextsNullString is a helper for scanning nullable JSONB ciphertexts
+type ciphertextsNullString struct {
+	Data  string
+	Valid bool
+}
+
+func (n *ciphertextsNullString) Scan(value interface{}) error {
+	if value == nil {
+		n.Data = ""
+		n.Valid = false
+		return nil
+	}
+	n.Valid = true
+	switch v := value.(type) {
+	case []byte:
+		n.Data = string(v)
+	case string:
+		n.Data = v
+	case driver.Value:
+		n.Data = fmt.Sprintf("%v", v)
+	}
+	return nil
 }

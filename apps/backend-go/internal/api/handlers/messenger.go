@@ -51,22 +51,26 @@ type ConversationResponse struct {
 	GroupName   *string `json:"group_name"`
 	GroupAvatar *string `json:"group_avatar_url"`
 	MemberCount int     `json:"member_count"`
+	// E2E field
+	IsE2E bool `json:"is_e2e"`
 }
 
 // MessageResponse is returned to the client
 type MessageResponse struct {
-	ID              string       `json:"id"`
-	ConversationID  string       `json:"conversation_id"`
-	SenderUserID    string       `json:"sender_user_id"`
-	SenderUsername  string       `json:"sender_username,omitempty"`
-	ParentMessageID *string      `json:"parent_message_id"`
-	Content         string       `json:"content"`
-	IsEdited        bool         `json:"is_edited"`
-	IsDeleted       bool         `json:"is_deleted"`
-	EditedAt        *string      `json:"edited_at"`
-	SentAt          string       `json:"sent_at"`
-	ClientID        string       `json:"client_id"`
-	Attachments     []Attachment `json:"attachments,omitempty"`
+	ID              string            `json:"id"`
+	ConversationID  string            `json:"conversation_id"`
+	SenderUserID    string            `json:"sender_user_id"`
+	SenderUsername  string            `json:"sender_username,omitempty"`
+	ParentMessageID *string           `json:"parent_message_id"`
+	Content         string            `json:"content"`
+	IsEdited        bool              `json:"is_edited"`
+	IsDeleted       bool              `json:"is_deleted"`
+	EditedAt        *string           `json:"edited_at"`
+	SentAt          string            `json:"sent_at"`
+	ClientID        string            `json:"client_id"`
+	Attachments     []Attachment      `json:"attachments,omitempty"`
+	Ciphertexts     []CiphertextEntry `json:"ciphertexts,omitempty"`
+	SenderDeviceID  string            `json:"sender_device_id,omitempty"`
 }
 
 // Attachment represents a file attached to a message
@@ -87,6 +91,16 @@ type SendMessageRequest struct {
 	ClientID        string            `json:"client_id" binding:"required"`
 	ParentMessageID *string           `json:"parent_message_id"`
 	Attachments     []AttachmentInput `json:"attachments"`
+	IsEncrypted     bool              `json:"is_encrypted"`
+	Ciphertexts     []CiphertextEntry `json:"ciphertexts"`
+	SenderDeviceID  string            `json:"sender_device_id"`
+}
+
+// CiphertextEntry is a per-device encrypted payload for E2E messages
+type CiphertextEntry struct {
+	DeviceID     string `json:"device_id"`
+	EphemeralKey string `json:"ephemeral_key"`
+	Ciphertext   string `json:"ciphertext"`
 }
 
 // AttachmentInput is the attachment data sent by the client
