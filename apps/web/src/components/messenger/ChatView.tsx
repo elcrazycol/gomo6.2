@@ -64,6 +64,7 @@ export const ChatView = memo(function ChatView({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevItemCountRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
+  const messagesLengthRef = useRef(0);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -72,18 +73,23 @@ export const ChatView = memo(function ChatView({
     overscan: 5,
   });
 
-  // Auto-scroll to bottom
+  // Keep ref in sync
+  useEffect(() => { messagesLengthRef.current = messages.length; }, [messages.length]);
+
+  // Auto-scroll to bottom — direct DOM for reliability
   const pinToBottom = useCallback(() => {
-    if (messages.length > 0) {
-      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
-    }
-  }, [virtualizer, messages.length]);
+    requestAnimationFrame(() => {
+      const el = scrollContainerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+  }, []);
 
   // Auto-scroll only when conversation changes (initial load)
   useLayoutEffect(() => {
     shouldAutoScroll.current = true;
     prevItemCountRef.current = 0;
-    // Small delay to let virtualizer measure
     requestAnimationFrame(() => pinToBottom());
   }, [conversation?.id, pinToBottom]);
 
@@ -125,7 +131,8 @@ export const ChatView = memo(function ChatView({
   // Auto-scroll on new messages only if user is at bottom
   useEffect(() => {
     if (messages.length > prevItemCountRef.current && shouldAutoScroll.current) {
-      pinToBottom();
+      // Double rAF to ensure DOM has updated
+      requestAnimationFrame(() => requestAnimationFrame(() => pinToBottom()));
     }
     if (isScrolledUp && messages.length > prevItemCountRef.current) {
       setNewMessageCount((c) => c + (messages.length - prevItemCountRef.current));
@@ -137,13 +144,17 @@ export const ChatView = memo(function ChatView({
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
+    let keyboardTimer: ReturnType<typeof setTimeout>;
     const onResize = () => {
-      // Keyboard opened/closed — ensure next message auto-scrolls
       shouldAutoScroll.current = true;
-      pinToBottom();
+      clearTimeout(keyboardTimer);
+      keyboardTimer = setTimeout(() => pinToBottom(), 150);
     };
     vv.addEventListener("resize", onResize);
-    return () => vv.removeEventListener("resize", onResize);
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      clearTimeout(keyboardTimer);
+    };
   }, [pinToBottom]);
 
   // Escape key to go back to conversation list
@@ -208,7 +219,8 @@ export const ChatView = memo(function ChatView({
     setDraft("");
     setReplyToMessage(null);
     setPendingAttachments([]);
-    setTimeout(pinToBottom, 50);
+    // Scroll after optimistic insert renders
+    setTimeout(pinToBottom, 100);
   }, [draft, isSending, sendMessage, pinToBottom, replyToMessage, pendingAttachments]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
