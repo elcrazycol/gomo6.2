@@ -35464,8 +35464,10 @@ Internal.protoText = function() {
 /* vim: ts=4:sw=4 */
 var Internal = Internal || {};
 
-var ProtoBuf = ProtoBuf || {}
-var ByteBuffer = (typeof ByteBuffer !== 'undefined') ? ByteBuffer : {}
+// Patched: use globally loaded protobufjs and bundled ByteBuffer
+// protobufjs sets window.ProtoBuf, ByteBuffer is bundled inside this file
+var ProtoBuf = window.ProtoBuf || ProtoBuf;
+var ByteBuffer = window.ByteBuffer || (typeof ByteBuffer !== 'undefined' ? ByteBuffer : {});
 
 Internal.protobuf = function() {
     'use strict';
