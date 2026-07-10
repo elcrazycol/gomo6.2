@@ -35190,6 +35190,10 @@ Curve25519Worker.prototype = {
     libsignal.Curve       = wrapCurve(Internal.Curve);
     libsignal.Curve.async = wrapCurve(Internal.Curve.async);
 
+    // Expose ProtoBuf and ByteBuffer to global scope for require() shim
+    window.InternalProtoBuf = ProtoBuf;
+    window.InternalByteBuffer = ByteBuffer;
+
 })();
 
 /*
@@ -35464,10 +35468,9 @@ Internal.protoText = function() {
 /* vim: ts=4:sw=4 */
 var Internal = Internal || {};
 
-// Patched: use globally loaded protobufjs and bundled ByteBuffer
-// protobufjs sets window.ProtoBuf, ByteBuffer is bundled inside this file
-var ProtoBuf = window.ProtoBuf || ProtoBuf;
-var ByteBuffer = window.ByteBuffer || (typeof ByteBuffer !== 'undefined' ? ByteBuffer : {});
+// Patched: use internal implementations exposed from the closure above
+var ProtoBuf = window.InternalProtoBuf || {};
+var ByteBuffer = window.InternalByteBuffer || {};
 
 Internal.protobuf = function() {
     'use strict';
