@@ -30,3 +30,4 @@ CREATE INDEX idx_conversations_e2e ON chat_conversations(user1_id, user2_id)
 
 -- Per-device ciphertexts for E2E messages
 ALTER TABLE chat_messages ADD COLUMN ciphertexts JSONB;
+ALTER TABLE chat_messages ADD COLUMN sender_device_id TEXT;
