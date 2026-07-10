@@ -47,7 +47,7 @@ export const MessengerView = () => {
     if (isInitialLoading) return;
     const targetUser = searchParams.get("user");
     const reqConv = searchParams.get("conversation");
-    if (targetUser) {
+    if (targetUser && targetUser !== "null") {
       handleStartChat(targetUser);
     } else if (reqConv) {
       selectConversation(reqConv);
@@ -119,7 +119,9 @@ export const MessengerView = () => {
     setSidebarOpen(false);
     const conv = useMessengerStore.getState().conversations.find((c) => c.id === id);
     if (conv) {
-      setSearchParams({ conversation: id, user: conv.other_user_id }, { replace: true });
+      const params: Record<string, string> = { conversation: id };
+      if (conv.other_user_id) params.user = conv.other_user_id;
+      setSearchParams(params, { replace: true });
     }
   }, [selectConversation, setSearchParams]);
 
