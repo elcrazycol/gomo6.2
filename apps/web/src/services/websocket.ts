@@ -41,6 +41,7 @@ export type WebSocketMessageType =
   | 'message_deleted'
   | 'read_receipt'
   | 'chat_typing'
+  | 'group_updated'
   | 'now_playing'
   | 'disconnected';
 

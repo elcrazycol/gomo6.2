@@ -416,6 +416,19 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 
 	h.db.Exec(`UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, groupID)
 
+	// Broadcast group update to all members
+	if h.hub != nil {
+		go func() {
+			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+				Type: "group_updated",
+				Payload: map[string]interface{}{
+					"conversation_id": groupID,
+					"event":           "group_updated",
+				},
+			})
+		}()
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": added}))
 }
 

@@ -181,13 +181,6 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             )}
 
-            {/* Sender name in groups */}
-            {isGroup && !isMine && !isConsecutive && senderName && (
-              <div className="msg-sender-name" style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
-                {senderName}
-              </div>
-            )}
-
             <div
               className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}`}
               data-message-id={message.id}

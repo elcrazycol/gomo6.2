@@ -44,6 +44,7 @@ class MessengerWebSocket {
       wsService.on("chat_typing", (msg) => this.handleTyping(msg)),
       wsService.on("user_online", (msg) => this.handleUserOnline(msg)),
       wsService.on("user_offline", (msg) => this.handleUserOffline(msg)),
+      wsService.on("group_updated", (msg) => this.handleGroupUpdated(msg)),
     );
   }
 
@@ -124,6 +125,11 @@ class MessengerWebSocket {
   private handleUserOffline(msg: WebSocketMessage): void {
     const data = msg.data as Record<string, unknown>;
     useMessengerStore.getState().setUserOnline(data.user_id as string, false);
+  }
+
+  private handleGroupUpdated(_msg: WebSocketMessage): void {
+    // Reload conversations to pick up group changes
+    useMessengerStore.getState().loadConversations();
   }
 }
 

@@ -5,7 +5,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
-import { formatPresence, getInitials } from "./utils";
+import { formatPresence, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
@@ -425,13 +425,17 @@ export const ChatView = memo(function ChatView({
                   }}
                 >
                   {dateLabel && <div className="date-separator"><span>{dateLabel}</span></div>}
+                  {conversation.is_group && !isConsecutive && msg.sender_user_id !== me.id && msg.sender_username && (
+                    <div className={`msg-sender-name ${getUserColorClass(msg.sender_user_id)}`} style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, marginLeft: 4, paddingLeft: 4 }}>
+                      {msg.sender_username}
+                    </div>
+                  )}
                   <MessageBubble
                     message={msg}
                     isMine={msg.sender_user_id === me.id}
                     isConsecutive={isConsecutive}
                     isPinned={conversation.pinned_message_id === msg.id}
                     isGroup={conversation.is_group}
-                    senderName={conversation.is_group && !isConsecutive ? (msg.sender_user_id === me.id ? "Вы" : msg.sender_username || undefined) : undefined}
                     onEdit={(id, content) => handleStartEdit(id, content)}
                     onDelete={deleteMessage}
                     onTogglePin={(id) => togglePin(id)}
