@@ -8,9 +8,8 @@ const FLICKER_INTERVAL_MS = 500;
 export function useTabTitle() {
   const location = useLocation();
   const totalUnread = useMessengerStore((s) => s.totalUnread());
-  const prevCountRef = useRef(totalUnread);
   const flickerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isVisibleRef = useRef(true);
+  const isVisibleRef = useRef(!document.hidden);
 
   const stopFlicker = useCallback(() => {
     if (flickerTimerRef.current) {
@@ -32,10 +31,12 @@ export function useTabTitle() {
     [stopFlicker],
   );
 
+  // Track tab visibility
   useEffect(() => {
     const onVisibilityChange = () => {
-      isVisibleRef.current = !document.hidden;
-      if (isVisibleRef.current && totalUnread > 0) {
+      const visible = !document.hidden;
+      isVisibleRef.current = visible;
+      if (visible && totalUnread > 0) {
         stopFlicker();
         document.title = `(\u2009${totalUnread}\u2009) ${BASE_TITLE}`;
       }
@@ -44,26 +45,25 @@ export function useTabTitle() {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [totalUnread, stopFlicker]);
 
+  // React to unread count changes
   useEffect(() => {
     const onMessagesPage = location.pathname === "/messages";
 
     if (onMessagesPage || totalUnread === 0) {
       stopFlicker();
       document.title = BASE_TITLE;
-      prevCountRef.current = totalUnread;
       return;
     }
 
-    if (!isVisibleRef.current && totalUnread > prevCountRef.current) {
-      startFlicker(totalUnread);
-    } else {
+    if (isVisibleRef.current) {
       stopFlicker();
       document.title = `(\u2009${totalUnread}\u2009) ${BASE_TITLE}`;
+    } else {
+      startFlicker(totalUnread);
     }
-
-    prevCountRef.current = totalUnread;
   }, [totalUnread, location.pathname, stopFlicker, startFlicker]);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopFlicker();
