@@ -54,16 +54,14 @@ async function getDisplayString(
   // Data = VERSION(2 bytes) + identityKey + identifier
   const data = concat(versionBuffer, identityKey, identifierBytes);
 
-  // Iterate hash 1000 times with data as both value and key
-  const hash = await iterateHash(data, data, 1000);
+  // iterateHash(data, key, iterations) — key is the identity key, not data!
+  const hash = await iterateHash(data, identityKey, 1000);
 
   // Take first 30 bytes (offset 0,5,10,15,20,25), split into 6 chunks of 5 bytes
-  // Each 5 bytes → 40 bits → format as 5-digit decimal
   const hashArray = new Uint8Array(hash);
   const chunks: string[] = [];
   for (let i = 0; i < 6; i++) {
     const offset = i * 5;
-    // Read 5 bytes as big-endian number (matches Signal's getEncodedChunk)
     let value = 0;
     for (let j = 0; j < 5; j++) {
       value = (value * 256 + hashArray[offset + j]) % 100000;
