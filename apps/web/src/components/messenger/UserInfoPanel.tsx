@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { X, Gift, ExternalLink, Search, UserPlus, Lock, ShieldCheck, Shield } from "lucide-react";
+import { X, Gift, ExternalLink, Search, UserPlus, Lock, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
@@ -58,7 +58,6 @@ export function UserInfoPanel({
   const [showAddMember, setShowAddMember] = useState(false);
   const [addMemberQuery, setAddMemberQuery] = useState("");
   const [addMemberResults, setAddMemberResults] = useState<Array<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>>([]);
-  const [isSearchingMembers, setIsSearchingMembers] = useState(false);
   const [showE2EInfo, setShowE2EInfo] = useState(false);
   const [showSafetyNumber, setShowSafetyNumber] = useState(false);
 
@@ -83,14 +82,12 @@ export function UserInfoPanel({
       return;
     }
     const timer = setTimeout(() => {
-      setIsSearchingMembers(true);
       fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") ?? ""}` },
       })
         .then((r) => r.json())
         .then((res) => setAddMemberResults(res.data || []))
-        .catch(() => setAddMemberResults([]))
-        .finally(() => setIsSearchingMembers(false));
+        .catch(() => setAddMemberResults([]));
     }, 300);
     return () => clearTimeout(timer);
   }, [showAddMember, addMemberQuery]);
