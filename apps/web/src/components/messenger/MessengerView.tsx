@@ -45,12 +45,12 @@ export const MessengerView = () => {
   // ── URL sync ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (isInitialLoading) return;
-    const targetUser = searchParams.get("user");
     const reqConv = searchParams.get("conversation");
-    if (targetUser && targetUser !== "null") {
-      handleStartChat(targetUser);
-    } else if (reqConv) {
+    const targetUser = searchParams.get("user");
+    if (reqConv) {
       selectConversation(reqConv);
+    } else if (targetUser && targetUser !== "null") {
+      handleStartChat(targetUser);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialLoading]);
