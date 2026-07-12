@@ -517,6 +517,7 @@ export const ChatView = memo(function ChatView({
         open={showUserInfo}
         onClose={() => setShowUserInfo(false)}
         conversationId={conversation.id}
+        isE2E={conversation.is_e2e}
         userId={conversation.other_user_id || undefined}
         username={conversation.other_username || undefined}
         displayName={conversation.other_display_name}

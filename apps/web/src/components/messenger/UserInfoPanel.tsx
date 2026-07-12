@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { X, Gift, ExternalLink, Search, UserPlus, Lock } from "lucide-react";
+import { X, Gift, ExternalLink, Search, UserPlus, Lock, ShieldCheck, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
@@ -9,12 +9,14 @@ import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import { messengerApi } from "@/services/messengerApi";
+import { SafetyNumberDialog } from "./SafetyNumberDialog";
 import type { GroupMember } from "./types";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   conversationId: string;
+  isE2E?: boolean;
   // 1:1 fields
   userId?: string;
   username?: string;
@@ -33,6 +35,7 @@ export function UserInfoPanel({
   open,
   onClose,
   conversationId,
+  isE2E,
   userId,
   username,
   displayName,
@@ -56,6 +59,8 @@ export function UserInfoPanel({
   const [addMemberQuery, setAddMemberQuery] = useState("");
   const [addMemberResults, setAddMemberResults] = useState<Array<{ id: string; username: string; display_name: string | null; avatar_url: string | null }>>([]);
   const [isSearchingMembers, setIsSearchingMembers] = useState(false);
+  const [showE2EInfo, setShowE2EInfo] = useState(false);
+  const [showSafetyNumber, setShowSafetyNumber] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -339,17 +344,23 @@ export function UserInfoPanel({
                   <button
                     type="button"
                     className="user-info-action-btn"
-                    onClick={async () => {
-                      try {
-                        const { startE2EChat } = await import("@/services/e2e/e2eManager");
-                        const { conversationId, needsOtherUserKeys } = await startE2EChat(userId);
-                        if (needsOtherUserKeys) {
-                          alert("E2E чат создан. Чтобы обмениваться зашифрованными сообщениями, собеседник должен также открыть E2E чат.");
-                        }
-                        window.location.href = `/messages?conversation=${conversationId}`;
-                        onClose();
-                      } catch (err) {
-                        alert((err as Error).message || "Не удалось начать E2E чат");
+                    onClick={() => {
+                      if (isE2E) {
+                        setShowE2EInfo(true);
+                      } else {
+                        (async () => {
+                          try {
+                            const { startE2EChat } = await import("@/services/e2e/e2eManager");
+                            const { conversationId: newConvId, needsOtherUserKeys } = await startE2EChat(userId);
+                            if (needsOtherUserKeys) {
+                              alert("E2E чат создан. Чтобы обмениваться зашифрованными сообщениями, собеседник должен также открыть E2E чат.");
+                            }
+                            window.location.href = `/messages?conversation=${newConvId}`;
+                            onClose();
+                          } catch (err) {
+                            alert((err as Error).message || "Не удалось начать E2E чат");
+                          }
+                        })();
                       }
                     }}
                   >
@@ -461,6 +472,64 @@ export function UserInfoPanel({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* E2E info dialog */}
+      <Dialog open={showE2EInfo} onOpenChange={setShowE2EInfo}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-green-500" />
+              E2E шифрование
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <p>
+              Этот чат зашифрован методом <strong>end-to-end</strong> — сообщения видите только вы и собеседник.
+              Сервер хранит только зашифрованный текст и не может его прочитать.
+            </p>
+            <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+              <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">Как это работает</p>
+              <ul className="space-y-1 text-muted-foreground">
+                <li>• При первом E2E-чате генерируются ключи шифрования</li>
+                <li>• Обмен ключами через Signal Protocol (X3DH)</li>
+                <li>• Сообщения шифруются на вашем устройстве и расшифровываются только у получателя</li>
+              </ul>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Для дополнительной безопасности вы можете <strong>сверить safety number</strong> с собеседником — это подтвердит, что между вами нет перехвата.
+            </p>
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={() => { setShowE2EInfo(false); setShowSafetyNumber(true); }}
+              >
+                <Shield className="w-4 h-4 mr-1" />
+                Сверить Safety Number
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowE2EInfo(false)}
+              >
+                Закрыть
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Safety number dialog */}
+      {userId && (
+        <SafetyNumberDialog
+          open={showSafetyNumber}
+          onClose={() => setShowSafetyNumber(false)}
+          conversationId={conversationId}
+          remoteUserId={userId}
+          remoteUsername={username || ""}
+        />
+      )}
     </>
   );
 }
