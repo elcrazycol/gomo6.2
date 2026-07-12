@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Attachment, ConversationView, MessageView, TypingUser, ReceiptRow } from "@/components/messenger/types";
 import { messengerApi } from "@/services/messengerApi";
 import { eventManager } from "@/services/eventManager";
+import { sendE2EMessage, getDeviceId } from "@/services/e2e/e2eManager";
 
 // ─── Batched markDelivered/markRead ─────────────────────────────────────────
 // Instead of hitting the API on every message, we queue the latest message ID
@@ -279,7 +280,37 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set((s) => ({ messages: [...s.messages, optimistic], isSending: true }));
 
     try {
-      const msg = await messengerApi.sendMessage(selectedConversationId, content, clientId, parentMessageId, attachments);
+      const conversation = get().conversations.find((c) => c.id === selectedConversationId);
+      let msg: MessageView;
+
+      if (conversation?.is_e2e && conversation.other_user_id) {
+        // E2E message: encrypt with Signal Protocol and send via E2E path
+        const deviceId = getDeviceId();
+        await sendE2EMessage(
+          selectedConversationId,
+          conversation.other_user_id,
+          content,
+          deviceId
+        );
+        // Construct a minimal MessageView for optimistic update
+        // (the real message comes back via WebSocket)
+        msg = {
+          id: tempId,
+          conversation_id: selectedConversationId,
+          sender_user_id: get().me!.id,
+          parent_message_id: parentMessageId ?? null,
+          content,
+          is_edited: false,
+          is_deleted: false,
+          edited_at: null,
+          sent_at: new Date().toISOString(),
+          client_id: clientId,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        };
+      } else {
+        // Regular message
+        msg = await messengerApi.sendMessage(selectedConversationId, content, clientId, parentMessageId, attachments);
+      }
       const sentAt = msg.sent_at;
       set((s) => {
         // Update message from optimistic to real — preserve attachments from optimistic if server doesn't return them

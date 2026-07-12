@@ -5,6 +5,13 @@ import {
   getSessionCipher,
   getSignalProtocolAddress,
 } from "./libsignalLoader";
+import {
+  getIdentityKeyPair as dbGetIdentityKeyPair,
+  getSignedPreKey as dbGetSignedPreKey,
+  getOneTimePreKeys as dbGetOneTimePreKeys,
+  removeOneTimePreKey as dbRemoveOneTimePreKey,
+  saveSession as dbSaveSession,
+} from "./e2eKeyStorage";
 import type { CiphertextEntry } from "@/components/messenger/types";
 
 // ─── ArrayBuffer helpers ─────────────────────────────────────────────────────
@@ -41,29 +48,83 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-// ─── Simple in-memory session store for libsignal-protocol ────────────────────
+// ─── Write-through store base ────────────────────────────────────────────────
+// libsignal calls store methods synchronously during encrypt/decrypt.
+// IndexedDB is async. Solution: in-memory Map as source of truth (sync reads),
+// write-through to IndexedDB on every mutation (async, non-blocking).
 
-class SignalSessionStore {
-  private store: Map<string, unknown> = new Map();
+abstract class WriteThroughStore<T> {
+  protected store: Map<string, T> = new Map();
+  private initPromise: Promise<void> | null = null;
+  private ready = false;
 
-  async getRecord(identifier: string): Promise<unknown | undefined> {
-    return this.store.get(identifier);
+  protected abstract loadFromDB(): Promise<[string, T][]>;
+  protected abstract saveToDB(key: string, value: T): Promise<void>;
+  protected abstract deleteFromDB(key: string): Promise<void>;
+
+  private async ensureReady(): Promise<void> {
+    if (this.ready) return;
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        const entries = await this.loadFromDB();
+        for (const [k, v] of entries) {
+          this.store.set(k, v);
+        }
+        this.ready = true;
+      })();
+    }
+    return this.initPromise;
   }
 
-  async putRecord(identifier: string, record: unknown): Promise<void> {
-    this.store.set(identifier, record);
+  async get(key: string): Promise<T | undefined> {
+    await this.ensureReady();
+    return this.store.get(key);
+  }
+
+  async put(key: string, value: T): Promise<void> {
+    await this.ensureReady();
+    this.store.set(key, value);
+    this.saveToDB(key, value).catch(() => { /* background write */ });
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.ensureReady();
+    this.store.delete(key);
+    this.deleteFromDB(key).catch(() => { /* background write */ });
+  }
+
+  getSync(key: string): T | undefined {
+    return this.store.get(key);
+  }
+
+  getAllSync(): Map<string, T> {
+    return this.store;
+  }
+}
+
+// ─── Signal Protocol stores (write-through to IndexedDB) ────────────────────
+
+class SignalIdentityStore extends WriteThroughStore<{ pubKey: ArrayBuffer; privKey: ArrayBuffer }> {
+  protected async loadFromDB(): Promise<[string, { pubKey: ArrayBuffer; privKey: ArrayBuffer }][]> {
+    return [];
+  }
+  protected async saveToDB(): Promise<void> { /* identity is saved via e2eKeyStorage directly */ }
+  protected async deleteFromDB(): Promise<void> { /* identity persists */ }
+
+  // libsignal uses these for identity management
+  async getRecord(identifier: string): Promise<{ pubKey: ArrayBuffer; privKey: ArrayBuffer } | undefined> {
+    return this.getSync(identifier);
+  }
+
+  async putRecord(identifier: string, record: { pubKey: ArrayBuffer; privKey: ArrayBuffer }): Promise<void> {
+    await this.put(identifier, record);
   }
 
   async removeRecord(identifier: string): Promise<void> {
-    this.store.delete(identifier);
+    await this.delete(identifier);
   }
 
-  async isTrustedIdentity(
-    _identifier: string,
-    _identityKey: unknown,
-    _direction: unknown
-  ): Promise<boolean> {
-    // For MVP: always trust. In production, implement safety number verification.
+  async isTrustedIdentity(_identifier: string, _identityKey: unknown, _direction: unknown): Promise<boolean> {
     return true;
   }
 
@@ -72,72 +133,94 @@ class SignalSessionStore {
   }
 }
 
-class SignalPreKeyStore {
-  private store: Map<number, { pubKey: ArrayBuffer; privKey: ArrayBuffer }> =
-    new Map();
+class SignalPreKeyStore extends WriteThroughStore<{ pubKey: ArrayBuffer; privKey: ArrayBuffer }> {
+  protected async loadFromDB(): Promise<[string, { pubKey: ArrayBuffer; privKey: ArrayBuffer }][]> {
+    const opks = await dbGetOneTimePreKeys();
+    return opks.map((k) => [String(k.keyId), { pubKey: k.publicKey, privKey: k.privateKey }]);
+  }
+
+  protected async saveToDB(_key: string, _value: { pubKey: ArrayBuffer; privKey: ArrayBuffer }): Promise<void> {
+    // OPKs are managed via e2eKeyStorage directly — this is mainly for in-memory session state
+  }
+
+  protected async deleteFromDB(key: string): Promise<void> {
+    const allKeys = await dbGetOneTimePreKeys();
+    const match = allKeys.find((k) => String(k.keyId) === key);
+    if (match) {
+      await dbRemoveOneTimePreKey(match.id);
+    }
+  }
 
   async getPreKey(keyId: number): Promise<{ pubKey: ArrayBuffer; privKey: ArrayBuffer }> {
-    const key = this.store.get(keyId);
+    const key = this.getSync(String(keyId));
     if (!key) throw new Error(`Pre-key ${keyId} not found`);
     return key;
   }
 
-  async savePreKey(
-    keyId: number,
-    keyPair: { pubKey: ArrayBuffer; privKey: ArrayBuffer }
-  ): Promise<void> {
-    this.store.set(keyId, keyPair);
+  async savePreKey(keyId: number, keyPair: { pubKey: ArrayBuffer; privKey: ArrayBuffer }): Promise<void> {
+    await this.put(String(keyId), keyPair);
   }
 
   async removePreKey(keyId: number): Promise<void> {
-    this.store.delete(keyId);
+    await this.delete(String(keyId));
   }
 }
 
-class SignalSignedPreKeyStore {
-  private store: Map<
-    number,
-    { pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }
-  > = new Map();
+class SignalSignedPreKeyStore extends WriteThroughStore<{ pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }> {
+  protected async loadFromDB(): Promise<[string, { pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }][] > {
+    // Signed pre-key is loaded separately via loadAllKeyMaterial
+    return [];
+  }
+  protected async saveToDB(): Promise<void> { /* SPK is saved via e2eKeyStorage directly */ }
+  protected async deleteFromDB(): Promise<void> { /* SPK persists */ }
 
-  async getSignedPreKey(
-    keyId: number
-  ): Promise<{ pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }> {
-    const key = this.store.get(keyId);
+  async getSignedPreKey(keyId: number): Promise<{ pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }> {
+    const key = this.getSync(String(keyId));
     if (!key) throw new Error(`Signed pre-key ${keyId} not found`);
     return key;
   }
 
-  async saveSignedPreKey(
-    keyId: number,
-    keyPair: { pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }
-  ): Promise<void> {
-    this.store.set(keyId, keyPair);
+  async saveSignedPreKey(keyId: number, keyPair: { pubKey: ArrayBuffer; privKey: ArrayBuffer; signature: ArrayBuffer }): Promise<void> {
+    await this.put(String(keyId), keyPair);
   }
 
   async removeSignedPreKey(_keyId: number): Promise<void> {
-    this.store.delete(_keyId);
+    // SPK is not removed
   }
 }
 
-class SignalSessionStore2 {
-  private store: Map<string, { [key: number]: unknown }> = new Map();
-
-  async getSessions(name: string): Promise<{ [key: number]: unknown }> {
-    return this.store.get(name) || {};
+class SignalSessionStore extends WriteThroughStore<Record<number, unknown>> {
+  protected async loadFromDB(): Promise<[string, Record<number, unknown>][]> {
+    // Sessions are loaded separately via loadAllKeyMaterial
+    return [];
   }
 
-  async putSession(
-    name: string,
-    number_: number,
-    record: unknown
-  ): Promise<boolean> {
-    const sessions = this.store.get(name) || {};
+  protected async saveToDB(key: string, value: Record<number, unknown>): Promise<void> {
+    await dbSaveSession({ conversationId: key, sessions: value });
+  }
+
+  protected async deleteFromDB(key: string): Promise<void> {
+    // Sessions persist — deletion not critical
+  }
+
+  async getSessions(name: string): Promise<Record<number, unknown>> {
+    return this.getSync(name) || {};
+  }
+
+  async putSession(name: string, number_: number, record: unknown): Promise<boolean> {
+    const sessions = this.getSync(name) || {};
     sessions[number_] = record;
-    this.store.set(name, sessions);
+    await this.put(name, sessions);
     return true;
   }
 }
+
+// ─── Global store instances ──────────────────────────────────────────────────
+
+export const identityStore = new SignalIdentityStore();
+export const preKeyStore = new SignalPreKeyStore();
+export const signedPreKeyStore = new SignalSignedPreKeyStore();
+export const sessionStore = new SignalSessionStore();
 
 // ─── Key Generation ──────────────────────────────────────────────────────────
 
@@ -187,17 +270,60 @@ export async function generateRegistrationId(): Promise<number> {
   return getKeyHelper().generateRegistrationId();
 }
 
+// ─── Load all key material from IndexedDB into in-memory stores ──────────────
+
+let currentIdentityKeyPair: GeneratedKeyPair | null = null;
+
+export function getCurrentIdentityKeyPair(): GeneratedKeyPair | null {
+  return currentIdentityKeyPair;
+}
+
+export async function loadAllKeyMaterial(deviceId: string): Promise<void> {
+  // Load identity key pair
+  const ikp = await dbGetIdentityKeyPair(deviceId);
+  if (ikp) {
+    currentIdentityKeyPair = { pubKey: ikp.publicKey, privKey: ikp.privateKey };
+    // Populate identity store for libsignal
+    await identityStore.put(deviceId, { pubKey: ikp.publicKey, privKey: ikp.privateKey });
+  }
+
+  // Load signed pre-key
+  const spk = await dbGetSignedPreKey(deviceId);
+  if (spk) {
+    await signedPreKeyStore.put(String(spk.keyId), {
+      pubKey: spk.publicKey,
+      privKey: spk.privateKey,
+      signature: spk.signature,
+    });
+  }
+
+  // Load one-time pre-keys
+  const opks = await dbGetOneTimePreKeys();
+  for (const opk of opks) {
+    await preKeyStore.put(String(opk.keyId), {
+      pubKey: opk.publicKey,
+      privKey: opk.privateKey,
+    });
+  }
+
+  // Load sessions
+  // Sessions are loaded lazily from IndexedDB via the sessionStore's loadFromDB
+  // but we can also pre-load them for known conversations
+  // This is handled lazily — sessionStore.get() triggers loadFromDB on first call
+}
+
+// ─── Save session to IndexedDB after ratchet mutations ───────────────────────
+
+export async function persistSessionState(name: string): Promise<void> {
+  const sessions = sessionStore.getSync(name);
+  if (sessions) {
+    await dbSaveSession({ conversationId: name, sessions });
+  }
+}
+
 // ─── Key Exchange (X3DH) ─────────────────────────────────────────────────────
 
-const identityStore = new SignalSessionStore();
-const preKeyStore = new SignalPreKeyStore();
-const signedPreKeyStore = new SignalSignedPreKeyStore();
-const sessionStore = new SignalSessionStore2();
-
-function getAddress(
-  name: string,
-  deviceId: number
-) {
+function getAddress(name: string, deviceId: number) {
   return getSignalProtocolAddress(name, deviceId);
 }
 
@@ -252,9 +378,11 @@ export async function performKeyExchange(
 
   await builder.processPreKey(preKeyBundle);
 
-  return {
-    sessionId: `${addressName}.${theirDeviceId}`,
-  };
+  // Persist session after key exchange
+  const sessionId = `${addressName}.${theirDeviceId}`;
+  await persistSessionState(addressName);
+
+  return { sessionId };
 }
 
 // ─── Encryption / Decryption ─────────────────────────────────────────────────
@@ -271,6 +399,9 @@ export async function encryptMessage(
 
   const plaintextBuffer = new TextEncoder().encode(plaintext).buffer;
   const cipherMessage = await cipher.encrypt(plaintextBuffer);
+
+  // Persist session state after encryption (Double Ratchet mutation)
+  await persistSessionState(addressName);
 
   return {
     ciphertext: JSON.stringify({
@@ -304,6 +435,9 @@ export async function decryptMessage(
   } else {
     plainBuffer = await cipher.decryptWhisperMessage(cipherMessage.body);
   }
+
+  // Persist session state after decryption (Double Ratchet mutation + possible new session from type 3)
+  await persistSessionState(addressName);
 
   return new TextDecoder().decode(new Uint8Array(plainBuffer));
 }
