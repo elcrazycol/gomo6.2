@@ -61,7 +61,7 @@ class MessengerWebSocket {
     // Decrypt E2E messages from others
     if (ciphertexts && ciphertexts.length > 0 && !isMine) {
       const myDeviceId = getDeviceId();
-      receiveE2EMessage(ciphertexts, myDeviceId, data.sender_user_id as string)
+      receiveE2EMessage(ciphertexts, myDeviceId, data.sender_user_id as string, data.sender_device_id as string | undefined)
         .then((plaintext) => {
           if (plaintext) {
             // Update the already-added message with decrypted content

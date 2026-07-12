@@ -12,6 +12,7 @@ import {
   generateSignedPreKey,
   generatePreKeys,
   bufferToBase64,
+  base64ToBuffer,
   loadAllKeyMaterial,
   getCurrentIdentityKeyPair,
   performKeyExchange,
@@ -235,7 +236,8 @@ export async function sendE2EMessage(
 export async function receiveE2EMessage(
   ciphertexts: { device_id: string; ciphertext: string }[],
   myDeviceId: string,
-  senderUserId: string
+  senderUserId: string,
+  senderDeviceId?: string
 ): Promise<string | null> {
   await ensureDeviceReady();
 
@@ -246,15 +248,13 @@ export async function receiveE2EMessage(
   }
 
   try {
-    // senderUserId is used as the address name for Signal protocol
-    // The sender's device ID is extracted from the ciphertext entry
-    // For now we use device ID 1 as default (sender's primary device)
-    const senderDeviceId = 1;
+    // Use the sender's device ID if provided, otherwise default to 1
+    const senderDeviceIdNum = senderDeviceId ? (parseInt(senderDeviceId, 10) || 1) : 1;
 
     const plaintext = await decryptMessage(
       myEntry.ciphertext,
       senderUserId,
-      senderDeviceId
+      senderDeviceIdNum
     );
 
     return plaintext;
