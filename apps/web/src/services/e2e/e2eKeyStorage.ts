@@ -1,5 +1,5 @@
 const DB_NAME = "e2e_keys";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -17,6 +17,9 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("sessions")) {
         db.createObjectStore("sessions", { keyPath: "conversationId" });
+      }
+      if (!db.objectStoreNames.contains("trusted_identities")) {
+        db.createObjectStore("trusted_identities", { keyPath: "address" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -179,6 +182,7 @@ export async function getAllSessions(): Promise<StoredSession[]> {
 // ─── Device ID ───────────────────────────────────────────────────────────────
 
 const DEVICE_ID_KEY = "e2e_device_id";
+const REGISTRATION_ID_KEY = "e2e_registration_id";
 
 export function getDeviceId(): string {
   let deviceId = localStorage.getItem(DEVICE_ID_KEY);
@@ -187,4 +191,45 @@ export function getDeviceId(): string {
     localStorage.setItem(DEVICE_ID_KEY, deviceId);
   }
   return deviceId;
+}
+
+// ─── Registration ID ────────────────────────────────────────────────────────
+
+export function getRegistrationId(): number | null {
+  const val = localStorage.getItem(REGISTRATION_ID_KEY);
+  return val !== null ? parseInt(val, 10) : null;
+}
+
+export function saveRegistrationId(id: number): void {
+  localStorage.setItem(REGISTRATION_ID_KEY, String(id));
+}
+
+// ─── Trusted Identities (TOFU) ──────────────────────────────────────────────
+
+export interface TrustedIdentity {
+  address: string;
+  publicKey: string; // base64-encoded identity key
+  firstSeenAt: string;
+}
+
+export async function getTrustedIdentity(address: string): Promise<TrustedIdentity | null> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("trusted_identities", "readonly");
+    const store = tx.objectStore("trusted_identities");
+    const req = store.get(address);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveTrustedIdentity(trusted: TrustedIdentity): Promise<void> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("trusted_identities", "readwrite");
+    const store = tx.objectStore("trusted_identities");
+    const req = store.put(trusted);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
 }
