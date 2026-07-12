@@ -27,6 +27,18 @@ export type LoginRequest = components['schemas']['LoginRequest'];
 export type CreateThreadRequest = components['schemas']['CreateThreadRequest'];
 export type CreatePostRequest = components['schemas']['CreatePostRequest'];
 
+export interface SessionInfo {
+  id: string;
+  user_agent: string;
+  os_name: string;
+  browser_name: string;
+  device_type: string;
+  ip_address: string;
+  created_at: string;
+  last_active_at: string;
+  is_current: boolean;
+}
+
 // APIResponse wrapper (not from OpenAPI — hand-written generic for {success, data, error} format)
 export interface ApiResponse<T> {
   success: boolean;
@@ -636,6 +648,25 @@ class ApiClient {
   async deletePasskey(credentialId: string): Promise<{ ok: boolean }> {
     const resp = await this.request<{ ok: boolean }>(`/api/v1/auth/webauthn/credentials/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
     return resp.data as { ok: boolean };
+  }
+
+  // ─── Session management ───────────────────────────────────────────────────
+
+  async getSessions(): Promise<SessionInfo[]> {
+    const resp = await this.request<SessionInfo[]>('/api/v1/auth/sessions');
+    return (resp.data as SessionInfo[]) ?? [];
+  }
+
+  async deleteSession(sessionId: string): Promise<{ ok: boolean; is_current: boolean; was_current: boolean }> {
+    const resp = await this.request<{ ok: boolean; is_current: boolean; was_current: boolean }>(
+      `/api/v1/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }
+    );
+    return resp.data as { ok: boolean; is_current: boolean; was_current: boolean };
+  }
+
+  async deleteAllOtherSessions(): Promise<{ deleted: number }> {
+    const resp = await this.request<{ deleted: number }>('/api/v1/auth/sessions', { method: 'DELETE' });
+    return resp.data as { deleted: number };
   }
 }
 

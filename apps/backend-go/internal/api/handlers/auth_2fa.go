@@ -73,6 +73,9 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		return
 	}
 
+	// Track session
+	h.createSession(claims.UserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+
 	// Optionally trust the device
 	if req.TrustDevice && req.DeviceID != "" {
 		h.trustDevice(claims.UserID, req.DeviceID)

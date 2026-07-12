@@ -103,6 +103,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// Track session
+	h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"user":          user,
 		"token":         tokenPair.AccessToken,
@@ -222,6 +225,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 							return
 						}
 
+						h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+
 						c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 							"user":          user,
 							"token":         tokenPair.AccessToken,
@@ -256,6 +261,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
+
+	h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"user":          user,

@@ -390,6 +390,9 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 		return
 	}
 
+	// Track session
+	createSessionDB(h.db, h.redis, authedUserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"user":          authedUser,
 		"token":         tokenPair.AccessToken,

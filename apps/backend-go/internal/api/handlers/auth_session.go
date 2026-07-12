@@ -41,6 +41,9 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}
 	claims := claimsI.(*auth.Claims)
 
+	// Compute old session ID before rotation
+	oldSessionID := SessionIDFromRefreshToken(req.RefreshToken)
+
 	// Validate and rotate refresh token
 	tokenPair, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, req.RefreshToken)
 	if err != nil {
@@ -48,10 +51,16 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		// failed (potential token theft). "Not found" is benign (already used, expired).
 		if !errors.Is(err, auth.ErrRefreshTokenNotFound) {
 			h.authService.RevokeAllRefreshTokens(claims.UserID)
+			// Also clean up all sessions from DB
+			h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
 		}
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid or expired refresh token. Please log in again."))
 		return
 	}
+
+	// Update session in DB: delete old record, create new one with new refresh token
+	h.db.Exec(`DELETE FROM user_sessions WHERE id = $1 AND user_id = $2`, oldSessionID, claims.UserID)
+	h.createSession(claims.UserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"token":         tokenPair.AccessToken,
@@ -87,6 +96,9 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 	// Revoke all refresh tokens for this user
 	h.authService.RevokeAllRefreshTokens(claims.UserID)
+
+	// Delete all sessions from DB
+	h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }

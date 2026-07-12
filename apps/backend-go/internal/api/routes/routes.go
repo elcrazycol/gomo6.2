@@ -178,6 +178,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 					}
 				}
 			}
+
+			// Session management endpoints
+			authGroup.GET("/sessions", middleware.AuthMiddleware(authService), authHandler.ListSessions)
+			authGroup.DELETE("/sessions", middleware.AuthMiddleware(authService), authHandler.DeleteAllOtherSessions)
+			authGroup.DELETE("/sessions/:id", middleware.AuthMiddleware(authService), authHandler.DeleteSession)
 		}
 	}
 
