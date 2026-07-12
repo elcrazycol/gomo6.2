@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { ChevronDown, HelpCircle, Type, Palette, Music, Trash2 } from "lucide-react";
 import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
+import { SessionsSettings } from "@/components/SessionsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
 
 const defaultPrivacySettings = {
@@ -852,6 +853,11 @@ const Settings = () => {
                     {/* Passkeys Section */}
                     <div className="border-t border-border pt-4 mt-4">
                       <PasskeysSettings />
+                    </div>
+
+                    {/* Sessions Section */}
+                    <div className="border-t border-border pt-4 mt-4">
+                      <SessionsSettings />
                     </div>
 
                     {/* 2FA Section */}
