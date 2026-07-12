@@ -1758,12 +1758,10 @@
     grid-template-rows: auto 1fr auto;
   }
 
-  .messenger-shell.mobile-chat-open .sidebar-panel {
-    display: none;
-  }
-
   .conversation-list {
     min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .mobile-only {
