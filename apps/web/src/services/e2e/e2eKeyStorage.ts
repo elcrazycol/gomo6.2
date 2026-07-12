@@ -165,6 +165,17 @@ export async function saveSession(session: StoredSession): Promise<void> {
   });
 }
 
+export async function getAllSessions(): Promise<StoredSession[]> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("sessions", "readonly");
+    const store = tx.objectStore("sessions");
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // ─── Device ID ───────────────────────────────────────────────────────────────
 
 const DEVICE_ID_KEY = "e2e_device_id";

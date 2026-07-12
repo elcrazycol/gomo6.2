@@ -11,6 +11,7 @@ import {
   getOneTimePreKeys as dbGetOneTimePreKeys,
   removeOneTimePreKey as dbRemoveOneTimePreKey,
   saveSession as dbSaveSession,
+  getAllSessions as dbGetAllSessions,
 } from "./e2eKeyStorage";
 import type { CiphertextEntry } from "@/components/messenger/types";
 
@@ -191,8 +192,8 @@ class SignalSignedPreKeyStore extends WriteThroughStore<{ pubKey: ArrayBuffer; p
 
 class SignalSessionStore extends WriteThroughStore<Record<number, unknown>> {
   protected async loadFromDB(): Promise<[string, Record<number, unknown>][]> {
-    // Sessions are loaded separately via loadAllKeyMaterial
-    return [];
+    const sessions = await dbGetAllSessions();
+    return sessions.map((s) => [s.conversationId, s.sessions as Record<number, unknown>]);
   }
 
   protected async saveToDB(key: string, value: Record<number, unknown>): Promise<void> {
