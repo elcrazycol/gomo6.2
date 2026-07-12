@@ -314,7 +314,7 @@ export const ChatView = memo(function ChatView({
                 {conversation.is_group ? (
                   <span className="font-bold text-sm">{conversation.group_name || "Группа"}</span>
                 ) : (
-                  <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} />
+                  <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} disableLink />
                 )}
                 {conversation.is_e2e && <span title="E2E зашифрован" className="flex-shrink-0"><Lock className="w-3 h-3 text-green-500" /></span>}
               </div>
