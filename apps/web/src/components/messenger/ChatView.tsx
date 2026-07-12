@@ -295,8 +295,8 @@ export const ChatView = memo(function ChatView({
     <>
       {/* Header group: topbar + pinned banner — one grid row */}
       <div className="chat-header-group">
-        <div className="chat-topbar">
-          <div className="chat-topbar-main" onClick={() => setShowUserInfo(true)}>
+        <div className="chat-topbar" onClick={() => setShowUserInfo(true)}>
+          <div className="chat-topbar-main">
             <button type="button" className="mobile-only messenger-back-button" onClick={(e) => { e.stopPropagation(); onBack(); }} aria-label="Назад">
               <ArrowLeft size={16} />
             </button>
