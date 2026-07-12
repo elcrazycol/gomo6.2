@@ -12,6 +12,8 @@ import {
   removeOneTimePreKey as dbRemoveOneTimePreKey,
   saveSession as dbSaveSession,
   getAllSessions as dbGetAllSessions,
+  getTrustedIdentity as dbGetTrustedIdentity,
+  saveTrustedIdentity as dbSaveTrustedIdentity,
 } from "./e2eKeyStorage";
 import type { CiphertextEntry } from "@/components/messenger/types";
 
@@ -106,11 +108,34 @@ abstract class WriteThroughStore<T> {
 // ─── Signal Protocol stores (write-through to IndexedDB) ────────────────────
 
 class SignalIdentityStore extends WriteThroughStore<{ pubKey: ArrayBuffer; privKey: ArrayBuffer }> {
+  private trustedIdentities: Map<string, ArrayBuffer> = new Map();
+  private trustedLoaded = false;
+
   protected async loadFromDB(): Promise<[string, { pubKey: ArrayBuffer; privKey: ArrayBuffer }][]> {
     return [];
   }
   protected async saveToDB(): Promise<void> { /* identity is saved via e2eKeyStorage directly */ }
   protected async deleteFromDB(): Promise<void> { /* identity persists */ }
+
+  private async ensureTrustedLoaded(): Promise<void> {
+    if (this.trustedLoaded) return;
+    // Load all trusted identities from IndexedDB
+    // We iterate by trying getTrustedIdentity for known addresses
+    // Since we can't enumerate all, we'll load lazily per-address
+    this.trustedLoaded = true;
+  }
+
+  private async loadTrustedKey(address: string): Promise<ArrayBuffer | undefined> {
+    const trusted = await dbGetTrustedIdentity(address);
+    if (!trusted) return undefined;
+    // Decode base64 public key to ArrayBuffer
+    const binary = atob(trusted.publicKey);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
 
   // libsignal uses these for identity management
   async getRecord(identifier: string): Promise<{ pubKey: ArrayBuffer; privKey: ArrayBuffer } | undefined> {
@@ -125,12 +150,56 @@ class SignalIdentityStore extends WriteThroughStore<{ pubKey: ArrayBuffer; privK
     await this.delete(identifier);
   }
 
-  async isTrustedIdentity(_identifier: string, _identityKey: unknown, _direction: unknown): Promise<boolean> {
+  async isTrustedIdentity(
+    identifier: string,
+    identityKey: unknown,
+    _direction: unknown
+  ): Promise<boolean> {
+    const theirKey = identityKey as ArrayBuffer;
+    if (!theirKey) return false;
+
+    const storedKey = await this.loadTrustedKey(identifier);
+
+    if (!storedKey) {
+      // First contact — TOFU: trust and save
+      await this.saveTrustedKey(identifier, theirKey);
+      return true;
+    }
+
+    // Compare keys byte by byte
+    if (storedKey.byteLength !== theirKey.byteLength) {
+      return false;
+    }
+    const a = new Uint8Array(storedKey);
+    const b = new Uint8Array(theirKey);
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
     return true;
   }
 
-  async saveIdentity(_identifier: string, _identityKey: unknown): Promise<boolean> {
+  async saveIdentity(identifier: string, identityKey: unknown): Promise<boolean> {
+    const theirKey = identityKey as ArrayBuffer;
+    if (theirKey) {
+      await this.saveTrustedKey(identifier, theirKey);
+    }
     return false;
+  }
+
+  private async saveTrustedKey(address: string, key: ArrayBuffer): Promise<void> {
+    // Encode ArrayBuffer to base64
+    const bytes = new Uint8Array(key);
+    let binary = "";
+    for (const b of bytes) {
+      binary += String.fromCharCode(b);
+    }
+    const base64 = btoa(binary);
+
+    await dbSaveTrustedIdentity({
+      address,
+      publicKey: base64,
+      firstSeenAt: new Date().toISOString(),
+    });
   }
 }
 
@@ -274,9 +343,18 @@ export async function generateRegistrationId(): Promise<number> {
 // ─── Load all key material from IndexedDB into in-memory stores ──────────────
 
 let currentIdentityKeyPair: GeneratedKeyPair | null = null;
+let currentRegistrationId: number | null = null;
 
 export function getCurrentIdentityKeyPair(): GeneratedKeyPair | null {
   return currentIdentityKeyPair;
+}
+
+export function getLocalRegistrationId(): number | null {
+  return currentRegistrationId;
+}
+
+export function setLocalRegistrationId(id: number): void {
+  currentRegistrationId = id;
 }
 
 export async function loadAllKeyMaterial(deviceId: string): Promise<void> {
@@ -284,7 +362,6 @@ export async function loadAllKeyMaterial(deviceId: string): Promise<void> {
   const ikp = await dbGetIdentityKeyPair(deviceId);
   if (ikp) {
     currentIdentityKeyPair = { pubKey: ikp.publicKey, privKey: ikp.privateKey };
-    // Populate identity store for libsignal
     await identityStore.put(deviceId, { pubKey: ikp.publicKey, privKey: ikp.privateKey });
   }
 
@@ -307,10 +384,8 @@ export async function loadAllKeyMaterial(deviceId: string): Promise<void> {
     });
   }
 
-  // Load sessions
-  // Sessions are loaded lazily from IndexedDB via the sessionStore's loadFromDB
-  // but we can also pre-load them for known conversations
-  // This is handled lazily — sessionStore.get() triggers loadFromDB on first call
+  // Load registration ID (from localStorage via e2eKeyStorage)
+  // Registration ID is loaded by e2eManager on init
 }
 
 // ─── Save session to IndexedDB after ratchet mutations ───────────────────────

@@ -5,19 +5,25 @@ import {
   saveSignedPreKey,
   getOneTimePreKeys,
   saveOneTimePreKeys,
+  getRegistrationId,
+  saveRegistrationId,
   type OneTimePreKey,
 } from "./e2eKeyStorage";
 import {
   generateIdentityKeyPair,
   generateSignedPreKey,
   generatePreKeys,
+  generateRegistrationId,
   bufferToBase64,
   base64ToBuffer,
   loadAllKeyMaterial,
   getCurrentIdentityKeyPair,
+  getLocalRegistrationId,
+  setLocalRegistrationId,
   performKeyExchange,
   encryptMessage,
   decryptMessage,
+  sessionStore,
 } from "./e2eCrypto";
 import * as e2eApi from "./e2eApi";
 import { messengerApi } from "@/services/messengerApi";
@@ -32,15 +38,13 @@ async function withKeyLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
 }
 
 // ─── Session creation mutex ──────────────────────────────────────────────────
-// Prevents race conditions when sending rapid messages to same recipient
 
 const sessionMutexes = new Map<string, Promise<void>>();
 
 function withSessionMutex<T>(recipientId: string, fn: () => Promise<T>): Promise<T> {
   const prev = sessionMutexes.get(recipientId) || Promise.resolve();
   const next = prev.then(fn, fn);
-  sessionMutexes.set(recipientId, next.then(() => { /* cleanup on next tick */ }));
-  // Don't keep stale entries
+  sessionMutexes.set(recipientId, next.then(() => {}));
   next.then(() => {
     if (sessionMutexes.get(recipientId) === next) {
       sessionMutexes.delete(recipientId);
@@ -66,6 +70,19 @@ export async function initE2E(): Promise<void> {
     if (!existing) {
       await generateAndRegisterKeys(deviceId);
     }
+
+    // Load registration ID
+    let regId = getRegistrationId();
+    if (regId === null) {
+      // Legacy device — generate and save
+      await loadAllKeyMaterial(deviceId);
+      regId = await generateRegistrationId();
+      saveRegistrationId(regId);
+      setLocalRegistrationId(regId);
+    } else {
+      setLocalRegistrationId(regId);
+    }
+
     // Load all key material from IndexedDB into in-memory Signal stores
     await loadAllKeyMaterial(deviceId);
     initialized = true;
@@ -78,6 +95,7 @@ async function generateAndRegisterKeys(deviceId: string): Promise<void> {
   const ik = await generateIdentityKeyPair();
   const spk = await generateSignedPreKey(ik, 1);
   const opks = await generatePreKeys(1, 100);
+  const regId = await generateRegistrationId();
 
   await saveIdentityKeyPair({
     deviceId,
@@ -101,6 +119,9 @@ async function generateAndRegisterKeys(deviceId: string): Promise<void> {
   }));
   await saveOneTimePreKeys(opkEntries);
 
+  saveRegistrationId(regId);
+  setLocalRegistrationId(regId);
+
   await e2eApi.registerKeys({
     device_id: deviceId,
     public_identity_key: bufferToBase64(ik.pubKey),
@@ -121,6 +142,8 @@ export async function ensureDeviceReady(): Promise<boolean> {
   if (existing) {
     if (!initialized) {
       await loadAllKeyMaterial(deviceId);
+      const regId = getRegistrationId();
+      if (regId !== null) setLocalRegistrationId(regId);
       initialized = true;
     }
     return true;
@@ -163,7 +186,6 @@ export async function sendE2EMessage(
   await ensureDeviceReady();
 
   return withSessionMutex(recipientUserId, async () => {
-    // Fetch recipient's key bundle
     const bundle = await e2eApi.fetchKeyBundle(recipientUserId);
     if (!bundle.devices || bundle.devices.length === 0) {
       throw new Error("Recipient has no E2E keys");
@@ -178,38 +200,47 @@ export async function sendE2EMessage(
 
     for (const device of bundle.devices) {
       const addressName = recipientUserId;
-
-      // Decode their public keys from base64
-      const theirIdentityKey = base64ToBuffer(device.public_identity_key);
-      const theirSignedPreKey = base64ToBuffer(device.public_signed_pre_key);
-      const theirOneTimePreKey = device.one_time_pre_key
-        ? base64ToBuffer(device.one_time_pre_key.public_key)
-        : null;
-
-      // Perform X3DH key exchange if no session exists yet
       const theirDeviceIdNum = parseInt(device.device_id, 10) || 1;
-      // Check if session exists by trying to get it
-      // If performKeyExchange fails, it means we already have a session
-      try {
-        await performKeyExchange(
-          theirIdentityKey,
-          theirSignedPreKey,
-          theirOneTimePreKey,
-          0, // registrationId — not critical for processing
-          theirDeviceIdNum,
-          ourIdentityKey,
-          addressName
-        );
 
-        // Consume OPK on server (before sending, so server stops offering it)
-        if (device.one_time_pre_key) {
-          await e2eApi.consumePreKey(device.one_time_pre_key.id);
+      // Check if session already exists for this specific device
+      const addressStr = `${addressName}.${theirDeviceIdNum}`;
+      const existingSessions = sessionStore.getSync(addressStr);
+      const needsKeyExchange = !existingSessions || Object.keys(existingSessions).length === 0;
+
+      if (needsKeyExchange) {
+        const theirIdentityKey = base64ToBuffer(device.public_identity_key);
+        const theirSignedPreKey = base64ToBuffer(device.public_signed_pre_key);
+        const theirOneTimePreKey = device.one_time_pre_key
+          ? base64ToBuffer(device.one_time_pre_key.public_key)
+          : null;
+
+        try {
+          await performKeyExchange(
+            theirIdentityKey,
+            theirSignedPreKey,
+            theirOneTimePreKey,
+            getLocalRegistrationId() || 0,
+            theirDeviceIdNum,
+            ourIdentityKey,
+            addressName
+          );
+
+          if (device.one_time_pre_key) {
+            await e2eApi.consumePreKey(device.one_time_pre_key.id);
+          }
+        } catch (err) {
+          const error = err as Error;
+          if (error.message?.includes("Identity key changed")) {
+            throw new Error(
+              `Ключи безопасности @${recipientUserId} изменились. ` +
+              `Возможно, он сменил устройство или канал скомпрометирован. ` +
+              `Сообщение НЕ отправлено.`
+            );
+          }
+          throw err;
         }
-      } catch {
-        // Session may already exist — proceed with encryption
       }
 
-      // Encrypt with real Signal Protocol
       const { ciphertext } = await encryptMessage(plaintext, addressName, theirDeviceIdNum);
 
       ciphertexts.push({
@@ -219,15 +250,13 @@ export async function sendE2EMessage(
       });
     }
 
-    // Send via messenger API
     await messengerApi.sendMessage(conversationId, "", crypto.randomUUID(), undefined, undefined, {
       is_encrypted: true,
       ciphertexts,
       sender_device_id: senderDeviceId,
     });
 
-    // Replenish OPKs if running low
-    rotatePreKeys().catch(() => { /* fire and forget */ });
+    rotatePreKeys().catch(() => {});
   });
 }
 
@@ -241,14 +270,12 @@ export async function receiveE2EMessage(
 ): Promise<string | null> {
   await ensureDeviceReady();
 
-  // Find my device's ciphertext
   const myEntry = ciphertexts.find((e) => e.device_id === myDeviceId);
   if (!myEntry) {
     return null;
   }
 
   try {
-    // Use the sender's device ID if provided, otherwise default to 1
     const senderDeviceIdNum = senderDeviceId ? (parseInt(senderDeviceId, 10) || 1) : 1;
 
     const plaintext = await decryptMessage(
