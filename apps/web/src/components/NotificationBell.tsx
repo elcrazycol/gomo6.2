@@ -86,9 +86,9 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {notifications.map((notif) => {
                   const isFriendEvent = notif.type === "friend_request" || notif.type === "friend_accepted";
-                  // Friend events have no related_post_id (FK constraint) — message already shows username.
-                  // Non-friend events with related_post_id still link to /profile/{uuid}.
-                  const link = !isFriendEvent && notif.related_post_id
+                  const link = isFriendEvent && notif.related_user_id
+                    ? `/profile/${notif.related_user_id}`
+                    : !isFriendEvent && notif.related_post_id
                     ? `/profile/${notif.related_post_id}`
                     : notif.related_thread_id
                     ? `/notify?thread=${notif.related_thread_id}`
