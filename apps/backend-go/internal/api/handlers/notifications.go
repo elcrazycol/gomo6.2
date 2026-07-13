@@ -27,6 +27,7 @@ type notificationPayload struct {
 	Message         string      `json:"message"`
 	RelatedThreadID interface{} `json:"related_thread_id"`
 	RelatedPostID   interface{} `json:"related_post_id"`
+	RelatedUserID   interface{} `json:"related_user_id"`
 	IsRead          bool        `json:"is_read"`
 	CreatedAt       string      `json:"created_at"`
 }
@@ -51,7 +52,7 @@ func (h *NotificationsHandler) SetWebSocketHub(hub *websocket.Hub) {
 
 // CreateNotification creates a notification, invalidates cache, and broadcasts via WebSocket.
 // This is the single function for ALL notification creation across the codebase.
-func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, title, message string, relatedThreadID, relatedPostID *string) (*models.Notification, error) {
+func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hub, userID, notifType, title, message string, relatedThreadID, relatedPostID, relatedUserID *string) (*models.Notification, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database not available")
 	}
@@ -64,23 +65,24 @@ func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 		Message:         message,
 		RelatedThreadID: relatedThreadID,
 		RelatedPostID:   relatedPostID,
+		RelatedUserID:   relatedUserID,
 		IsRead:          false,
 		CreatedAt:       &now,
 	}
 
 	query := `
-		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, is_read, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, is_read, created_at
+		INSERT INTO notifications (user_id, type, title, message, related_thread_id, related_post_id, related_user_id, is_read, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id, is_read, created_at
 	`
 
 	var retCreatedAt time.Time
 	err := db.QueryRow(query,
-		userID, notifType, title, message, relatedThreadID, relatedPostID, false, now,
+		userID, notifType, title, message, relatedThreadID, relatedPostID, relatedUserID, false, now,
 	).Scan(
 		&notification.ID, &notification.UserID, &notification.Type,
 		&notification.Title, &notification.Message, &notification.RelatedThreadID,
-		&notification.RelatedPostID, &notification.IsRead, &retCreatedAt,
+		&notification.RelatedPostID, &notification.RelatedUserID, &notification.IsRead, &retCreatedAt,
 	)
 
 	if err != nil {
@@ -106,6 +108,7 @@ func CreateNotification(db *sql.DB, redisClient *redis.Client, hub *websocket.Hu
 			Message:         notification.Message,
 			RelatedThreadID: nullableString(notification.RelatedThreadID),
 			RelatedPostID:   nullableString(notification.RelatedPostID),
+			RelatedUserID:   nullableString(notification.RelatedUserID),
 			IsRead:          notification.IsRead,
 			CreatedAt:       retCreatedAt.Format(time.RFC3339Nano),
 		}
@@ -150,7 +153,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 	userClaims := claims.(*auth.Claims)
 
 	query := `
-		SELECT id, user_id, type, title, message, related_thread_id, related_post_id, 
+		SELECT id, user_id, type, title, message, related_thread_id, related_post_id, related_user_id,
 		       is_read, created_at
 		FROM notifications 
 		WHERE user_id = $1
@@ -204,7 +207,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 		err := rows.Scan(
 			&notification.ID, &notification.UserID, &notification.Type,
 			&notification.Title, &notification.Message, &notification.RelatedThreadID,
-			&notification.RelatedPostID, &notification.IsRead, &notification.CreatedAt,
+			&notification.RelatedPostID, &notification.RelatedUserID, &notification.IsRead, &notification.CreatedAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))

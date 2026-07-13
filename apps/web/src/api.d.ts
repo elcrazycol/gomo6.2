@@ -4311,6 +4311,7 @@ export interface components {
             message: string;
             related_thread_id?: string | null;
             related_post_id?: string | null;
+            related_user_id?: string | null;
             is_read: boolean;
             created_at: string;
         };

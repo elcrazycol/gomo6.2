@@ -16,7 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Lock } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
@@ -1092,26 +1092,6 @@ const Profile = () => {
                 >
                   <MessageSquare className="w-4 h-4" />
                   <span className="hidden sm:inline">Написать</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      const { startE2EChat } = await import("@/services/e2e/e2eManager");
-                      const { conversationId, needsOtherUserKeys } = await startE2EChat(userId!);
-                      if (needsOtherUserKeys) {
-                        alert("E2E чат создан. Чтобы обмениваться зашифрованными сообщениями, собеседник должен также открыть E2E чат из вашего профиля.");
-                      }
-                      navigate(`/messages?conversation=${conversationId}`);
-                    } catch (err) {
-                      alert((err as Error).message || "Не удалось начать E2E чат");
-                    }
-                  }}
-                  className="h-8 w-8 sm:w-auto p-0 sm:px-3 rounded-full sm:rounded-md transition-colors text-xs sm:text-sm gap-1.5 border-green-500/30 text-green-600 hover:bg-green-500/10"
-                >
-                  <Lock className="w-4 h-4" />
-                  <span className="hidden sm:inline">E2E Чат</span>
                 </Button>
               </div>
             )}

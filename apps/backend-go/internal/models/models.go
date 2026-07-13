@@ -212,6 +212,7 @@ type Notification struct {
 	Message         string     `json:"message" db:"message"`
 	RelatedThreadID *string    `json:"related_thread_id" db:"related_thread_id"`
 	RelatedPostID   *string    `json:"related_post_id" db:"related_post_id"`
+	RelatedUserID   *string    `json:"related_user_id" db:"related_user_id"`
 	IsRead          bool       `json:"is_read" db:"is_read"`
 	CreatedAt       *time.Time `json:"created_at" db:"created_at"`
 }

@@ -37,6 +37,14 @@ class EventManager {
       wsService.on("connected", this.handleConnected),
     );
 
+    // Bridge wsService "new_notification" events to eventManager handlers
+    this.wsUnsubs.push(
+      wsService.on("new_notification", (msg) => {
+        const handlers = this.handlers.get("new_notification");
+        if (handlers) handlers.forEach(h => h(msg));
+      }),
+    );
+
     // Subscribe to user-level notification room
     wsService.subscribeToNotifications(userId);
   }
