@@ -7,6 +7,7 @@ import { api } from "@/integrations/api/compat";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
+import { EmojiInline } from "@/components/EmojiInline";
 import type { Attachment } from "./types";
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
@@ -367,16 +368,30 @@ export const MessageContent = memo(function MessageContent({ content, attachment
 
   const hasLinks = segments.some((s) => s.type === "link");
   const hasAttachments = attachments && attachments.length > 0;
+  const hasEmojis = /\[e:[^\]]+\]/.test(content);
 
-  if (!hasLinks && !hasAttachments) {
+  if (!hasLinks && !hasAttachments && !hasEmojis) {
     return <p className="whitespace-pre-wrap break-words">{content}</p>;
   }
+
+  const renderTextWithEmojis = (text: string) => {
+    if (!/\[e:[^\]]+\]/.test(text)) return text;
+    const regex = /(\[e:[^\]]+\])/g;
+    const parts = text.split(regex);
+    return parts.map((part, i) => {
+      if (part.startsWith("[e:") && part.endsWith("]")) {
+        const emojiId = part.slice(3, -1);
+        return <EmojiInline key={i} emojiId={emojiId} />;
+      }
+      return part;
+    });
+  };
 
   return (
     <div className="whitespace-pre-wrap break-words">
       {segments.map((segment, i) => {
         if (segment.type === "text") {
-          return <span key={i}>{segment.content}</span>;
+          return <span key={i}>{renderTextWithEmojis(segment.content)}</span>;
         }
         return <LinkSegmentView key={i} segment={segment} />;
       })}

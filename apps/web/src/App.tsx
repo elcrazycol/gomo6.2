@@ -12,6 +12,7 @@ import { wsService } from "./services/websocket";
 import { useSpotifyAuthorPolling } from "@/hooks/useSpotifyAuthorPolling";
 import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
 import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
+import { EmojiDataProvider } from "@/contexts/EmojiDataContext";
 
 // Lazy load pages for better performance
 const Index = lazy(() => import("./pages/Index"));
@@ -28,6 +29,11 @@ const EmojiModeration = lazy(() => import("./pages/EmojiModeration"));
 const EmojiCreate = lazy(() => import("./pages/EmojiCreate"));
 const EmojiEdit = lazy(() => import("./pages/EmojiEdit"));
 const EmojiEditForm = lazy(() => import("./pages/EmojiEditForm"));
+const EmojiPacks = lazy(() => import("./pages/EmojiPacks"));
+const EmojiPackDetail = lazy(() => import("./pages/EmojiPackDetail"));
+const EmojiPackCreate = lazy(() => import("./pages/EmojiPackCreate"));
+const EmojiPackEdit = lazy(() => import("./pages/EmojiPackEdit"));
+const EmojiMyPacks = lazy(() => import("./pages/EmojiMyPacks"));
 const Messages = lazy(() => import("./pages/Messages"));
 const Settings = lazy(() => import("./pages/Settings"));
 const CustomProfile = lazy(() => import("./pages/settings/CustomProfile"));
@@ -130,6 +136,7 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <ProfileCacheProvider>
         <LikesCacheProvider>
+          <EmojiDataProvider>
             <TooltipProvider>
               <Toaster />
               <Sonner />
@@ -152,6 +159,11 @@ const App = () => {
                     <Route path="moderation/emojis/create" element={<AuthGuard><LazyPage component={EmojiCreate} /></AuthGuard>} />
                     <Route path="moderation/emojis/edit" element={<AuthGuard><LazyPage component={EmojiEdit} /></AuthGuard>} />
                     <Route path="moderation/emojis/edit/:emojiId" element={<AuthGuard><LazyPage component={EmojiEditForm} /></AuthGuard>} />
+                    <Route path="emojis" element={<LazyPage component={EmojiPacks} />} />
+                    <Route path="emojis/pack/:slug" element={<LazyPage component={EmojiPackDetail} />} />
+                    <Route path="emojis/create" element={<AuthGuard><LazyPage component={EmojiPackCreate} /></AuthGuard>} />
+                    <Route path="emojis/my" element={<AuthGuard><LazyPage component={EmojiMyPacks} /></AuthGuard>} />
+                    <Route path="emojis/edit/:id" element={<AuthGuard><LazyPage component={EmojiPackEdit} /></AuthGuard>} />
                     <Route path="settings/custom" element={<AuthGuard><LazyPage component={CustomProfile} /></AuthGuard>} />
                     <Route path="settings/placeholders" element={<AuthGuard><LazyPage component={Placeholders} /></AuthGuard>} />
                     <Route path="settings/:section" element={<AuthGuard><LazyPage component={Settings} /></AuthGuard>} />
@@ -181,6 +193,7 @@ const App = () => {
               </Routes>
             </BrowserRouter>
           </TooltipProvider>
+          </EmojiDataProvider>
         </LikesCacheProvider>
     </ProfileCacheProvider>
   </QueryClientProvider>

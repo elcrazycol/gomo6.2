@@ -143,6 +143,21 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/friends*user_id=%s*", userID))
 		}
+	case "emoji_packs":
+		fmt.Printf("[CacheInvalidator] Invalidating emoji_packs cache: id=%s\n", values["id"])
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
+	case "custom_emojis":
+		fmt.Printf("[CacheInvalidator] Invalidating custom_emojis cache: id=%s\n", values["id"])
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/custom_emojis*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
+	case "user_emoji_subscriptions":
+		if userID, ok := result["user_id"].(string); ok && userID != "" {
+			fmt.Printf("[CacheInvalidator] Invalidating user_emoji_subscriptions cache: user_id=%s\n", userID)
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_emoji_subscriptions*user_id=eq.%s*", userID))
+		}
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
 	default:
 		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 		cache.InvalidateForTable(h.redis, tableName, values)

@@ -1,75 +1,35 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EmojiInline } from "./EmojiInline";
+import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { EmojiInline } from './EmojiInline';
 
-const mockFrom = vi.fn();
-vi.mock("@/integrations/api/compat", () => ({
-  api: {
-    from: (...args: any[]) => mockFrom(...args),
-  },
+vi.mock('@/contexts/EmojiDataContext', () => ({
+  useEmojiData: () => ({
+    allEmojis: new Map([
+      ['test-id', { id: 'test-id', pack_id: 'pack1', name: 'test emoji', image_url: '/test.webp', is_animated: false }],
+    ]),
+    resolveEmojis: vi.fn().mockResolvedValue(undefined),
+  }),
 }));
 
-function makeChain<T>(resolveValue: T): any {
-  const p = Promise.resolve(resolveValue) as any;
-  p.select = () => p;
-  p.eq = () => p;
-  p.maybeSingle = () => p;
-  return p;
-}
+vi.mock('@/utils/storage', () => ({
+  storageUrl: (bucket: string, key: string) => `https://example.com/${bucket}/${key}`,
+}));
 
-describe("EmojiInline", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('EmojiInline', () => {
+  it('renders emoji by id', () => {
+    render(<EmojiInline emojiId="test-id" />);
+    const img = screen.getByAltText('test emoji');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.com/emojis//test.webp');
   });
 
-  it("renders without crashing", () => {
-    mockFrom.mockReturnValue(makeChain({ data: null, error: null }));
-    const { container } = render(<EmojiInline code="smile" />);
-    expect(container).toBeTruthy();
-  });
-
-  it("shows emoji image when found", async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "emojis") {
-        return makeChain({ data: { image_url: "smile.png", name: "Smile" }, error: null });
-      }
-      return makeChain({ data: null, error: null });
-    });
-
+  it('renders legacy code as text', () => {
     render(<EmojiInline code="smile" />);
-    await waitFor(() => {
-      const img = screen.getByRole("img");
-      expect(img).toHaveAttribute("src", "smile.png");
-      expect(img).toHaveAttribute("alt", "Smile");
-    });
+    expect(screen.getByText(':smile:')).toBeInTheDocument();
   });
 
-  it("shows code text when emoji not found", async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "emojis") {
-        return makeChain({ data: null, error: null });
-      }
-      return makeChain({ data: null, error: null });
-    });
-
-    render(<EmojiInline code="unknown" />);
-    await waitFor(() => {
-      expect(screen.getByText(":unknown:")).toBeInTheDocument();
-    });
-  });
-
-  it("applies custom className", async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "emojis") {
-        return makeChain({ data: { image_url: "smile.png", name: "Smile" }, error: null });
-      }
-      return makeChain({ data: null, error: null });
-    });
-
-    render(<EmojiInline code="smile" className="custom" />);
-    await waitFor(() => {
-      const img = screen.getByRole("img");
-      expect(img.className).toContain("custom");
-    });
+  it('renders loading placeholder when emoji not found', () => {
+    render(<EmojiInline emojiId="unknown-id" />);
+    expect(screen.getByText('[?]')).toBeInTheDocument();
   });
 });
