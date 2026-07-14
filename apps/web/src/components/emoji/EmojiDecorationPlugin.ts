@@ -39,6 +39,14 @@ function buildDecorations(
     const url = emoji ? storageUrl('emojis', emoji.image_url) : '';
     const alt = emoji?.name || 'emoji';
 
+    // Hide the [e:uuid] text — zero font-size, collapsed dimensions
+    decorations.push(
+      Decoration.inline(from, to, {
+        style: 'font-size:0;line-height:0;letter-spacing:-1em;width:0;overflow:hidden;display:inline-block;vertical-align:middle',
+      }),
+    );
+
+    // Render emoji image as a widget at the same position
     const widget = document.createElement('span');
     widget.className = 'gomo-custom-emoji';
     widget.contentEditable = 'false';
@@ -53,7 +61,7 @@ function buildDecorations(
     img.draggable = false;
     widget.appendChild(img);
 
-    decorations.push(Decoration.widget(from, widget, { side: -1 }));
+    decorations.push(Decoration.widget(from, widget, { side: 1 }));
   }
 
   return DecorationSet.create(doc, decorations);
