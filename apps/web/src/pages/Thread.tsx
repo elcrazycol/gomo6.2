@@ -735,8 +735,8 @@ const Thread = () => {
     }
   };
 
-  const handleEmojiSelect = (emojiCode: string) => {
-    editorRef.current?.insertText(emojiCode);
+  const handleEmojiSelect = (data: { emojiId: string; packId: string; url: string; name: string }) => {
+    editorRef.current?.insertEmoji(data);
   };
 
   const handleLogout = async () => {

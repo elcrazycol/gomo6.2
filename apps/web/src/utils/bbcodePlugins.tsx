@@ -16,7 +16,7 @@ const processTextContent = (text: string, keyPrefix: string = 'bb'): React.React
   let key = 0;
   
   // Split by emojis, mentions, URLs, markdown formatting
-  const regex = /(\*\*.*?\*\*|\*[^*].*?\*|:[^:\s]+:|@[^\s]+|https?:\/\/[^\s]+)/g;
+  const regex = /(\*\*.*?\*\*|\*[^*].*?\*|\[e:[^\]]+\]|:[^:\s]+:|@[^\s]+|https?:\/\/[^\s]+)/g;
   const parts = text.split(regex);
   
   for (const part of parts) {
@@ -62,7 +62,14 @@ const processTextContent = (text: string, keyPrefix: string = 'bb'): React.React
         </em>
       );
     }
-    // Emoji :code:
+    // Custom emoji [e:emojiId]
+    else if (part.startsWith('[e:') && part.endsWith(']')) {
+      const emojiId = part.slice(3, -1);
+      elements.push(
+        <EmojiInline key={`${keyPrefix}-emoji-${key++}`} emojiId={emojiId} />
+      );
+    }
+    // Legacy emoji :code: (was never functional, show as text)
     else if (part.startsWith(':') && part.endsWith(':') && part.length > 2) {
       const emojiCode = part.slice(1, -1);
       elements.push(

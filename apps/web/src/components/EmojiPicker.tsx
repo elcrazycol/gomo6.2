@@ -1,316 +1,90 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { api } from '@/integrations/api/compat';
+import { useEmojiData, EmojiData, EmojiPackData } from '@/contexts/EmojiDataContext';
+import { storageUrl } from '@/utils/storage';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Smile, Loader2 } from 'lucide-react';
-
-interface EmojiGroup {
-  id: string;
-  name: string;
-}
-
-interface Emoji {
-  id: string;
-  name: string;
-  code: string;
-  image_url: string;
-  group_id: string;
-}
+import { Smile, Search, PackagePlus } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Link } from 'react-router-dom';
 
 interface EmojiPickerProps {
-  onEmojiSelect: (emojiCode: string) => void;
+  onEmojiSelect: (data: { emojiId: string; packId: string; url: string; name: string }) => void;
   children?: React.ReactNode;
   triggerRef?: React.RefObject<HTMLElement>;
 }
 
 export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPickerProps) => {
-  const [groups, setGroups] = useState<EmojiGroup[]>([]);
-  const [emojis, setEmojis] = useState<Emoji[]>([]);
-  const [groupedEmojis, setGroupedEmojis] = useState<Record<string, Emoji[]>>({});
-  const [selectedGroup, setSelectedGroup] = useState<string>('');
-  const [loading, setLoading] = useState(true);
+  const { subscribedPacks, allEmojis, isLoading } = useEmojiData();
   const [open, setOpen] = useState(false);
+  const [selectedPackId, setSelectedPackId] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [position, setPosition] = useState({ top: 0, left: 0 });
-  const [panelHeight, setPanelHeight] = useState(300); // More realistic initial height
-  const [closeTimeout, setCloseTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    // Check if device is mobile
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768 || 'ontouchstart' in window);
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   const updatePosition = useCallback(() => {
     if (triggerRef?.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      let currentPanelHeight = panelHeight; // Use measured height, fallback to initial estimate
-
-      // If panel exists, use its actual height
-      if (panelRef.current) {
-        currentPanelHeight = panelRef.current.offsetHeight;
-      }
-
-      // Always position above button
-      const top = rect.top - currentPanelHeight;
-
-      // Center panel horizontally relative to button
       const panelWidth = 320;
       const buttonCenter = rect.left + rect.width / 2;
-      const panelLeft = buttonCenter - panelWidth / 2;
+      let panelLeft = buttonCenter - panelWidth / 2;
+      panelLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
 
-      // Ensure panel stays within viewport bounds
-      const clampedLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
+      const panelHeight = panelRef.current?.offsetHeight || 350;
+      const top = rect.top - panelHeight - 8;
 
-      setPosition({
-        top,
-        left: clampedLeft
-      });
+      setPosition({ top: top < 8 ? rect.bottom + 8 : top, left: panelLeft });
     }
-  }, [triggerRef, panelHeight]);
-
-  const groupEmojis = useCallback(() => {
-    const grouped = emojis.reduce((acc, emoji) => {
-      const groupId = emoji.group_id;
-      if (!acc[groupId]) {
-        acc[groupId] = [];
-      }
-      acc[groupId].push(emoji);
-      return acc;
-    }, {} as Record<string, Emoji[]>);
-
-    setGroupedEmojis(grouped);
-  }, [emojis]);
+  }, [triggerRef]);
 
   useEffect(() => {
-    if (open) {
-      loadEmojis();
-      // Calculate initial position immediately - always position above button
-      if (triggerRef?.current) {
-        const rect = triggerRef.current.getBoundingClientRect();
-        const estimatedHeight = 300; // More realistic initial estimate
-        const top = rect.top - estimatedHeight; // Position above button with estimated height
-        const panelWidth = 320;
-        const buttonCenter = rect.left + rect.width / 2;
-        const panelLeft = buttonCenter - panelWidth / 2;
-        const clampedLeft = Math.max(8, Math.min(panelLeft, window.innerWidth - panelWidth - 8));
-        
-        setPosition({ top, left: clampedLeft });
-      }
-      
-      // Update position after content loads and panel is measured
-      requestAnimationFrame(() => {
-        if (panelRef.current) {
-          const height = panelRef.current.offsetHeight;
-          setPanelHeight(height);
-          updatePosition();
-        }
-      });
+    if (open && triggerRef?.current) {
+      requestAnimationFrame(updatePosition);
     }
   }, [open, triggerRef, updatePosition]);
 
   useEffect(() => {
-    if (open && panelRef.current) {
-      const height = panelRef.current.offsetHeight;
-      setPanelHeight(height);
-      updatePosition();
-    }
-  }, [open, loading, updatePosition]); // Re-measure when content loads
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (isMobile && open) {
-        if (
-          pickerRef.current &&
-          !pickerRef.current.contains(event.target as Node) &&
-          triggerRef?.current &&
-          !triggerRef.current.contains(event.target as Node)
-        ) {
-          setOpen(false);
-        }
-      }
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        pickerRef.current && !pickerRef.current.contains(e.target as Node) &&
+        triggerRef?.current && !triggerRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
-        if (closeTimeout) {
-          clearTimeout(closeTimeout);
-          setCloseTimeout(null);
-        }
       }
     };
-
-    if (isMobile) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    document.addEventListener('keydown', handleEscape);
-
+    const escHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('keydown', escHandler);
     return () => {
-      if (isMobile) {
-        document.removeEventListener('mousedown', handleClickOutside);
-      }
-      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', escHandler);
     };
-  }, [isMobile, open, closeTimeout, triggerRef]);
+  }, [open, triggerRef]);
 
-  const openPicker = () => {
-    if (closeTimeout) {
-      clearTimeout(closeTimeout);
-      setCloseTimeout(null);
-    }
-    setOpen(true);
-  };
-
-  const handleButtonMouseLeave = (e: React.MouseEvent) => {
-    // Don't close immediately - let the user move to the panel
-    // The panel will handle closing when mouse leaves it
-  };
-
-  const handlePanelMouseLeave = (e: React.MouseEvent) => {
-    // Check if we're actually leaving the panel/button area
-    const relatedTarget = e.relatedTarget as HTMLElement;
-    const isLeavingToButton = triggerRef?.current?.contains(relatedTarget);
-
-    // Only close if we're not moving back to the button
-    if (!isLeavingToButton) {
-      closePicker();
-    }
-  };
-
-  const closePicker = () => {
-    // Clear any existing timeout
-    if (closeTimeout) clearTimeout(closeTimeout);
-    // Close immediately when mouse leaves panel area
-    setOpen(false);
-  };
-
-  useEffect(() => {
-    if (emojis.length > 0) {
-      groupEmojis();
-      if (!selectedGroup && groups.length > 0) {
-        setSelectedGroup(groups[0].id);
-      }
-    }
-  }, [emojis, groups, groupEmojis, selectedGroup]);
-
-  const loadEmojis = async () => {
-    try {
-      setLoading(true);
-
-      // TODO: Implement emoji system when tables are created
-      // For now, just set empty arrays to prevent errors
-      setGroups([]);
-      setEmojis([]);
-      setGroupedEmojis({});
-    } catch (error) {
-      console.error('Error loading emojis:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const scrollToGroup = (groupId: string) => {
-    setSelectedGroup(groupId);
-    const element = document.getElementById(`emoji-group-${groupId}`);
-    if (element && scrollAreaRef.current) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
-  const handleEmojiClick = (emojiCode: string) => {
-    onEmojiSelect(`:${emojiCode}:`);
-    // Don't close picker - let user continue selecting emojis
-  };
-
-  const renderGroupNavigation = () => {
-    if (groups.length === 0) return null;
-
-    return (
-      <div className="flex gap-1 p-2 bg-muted/50 border-b">
-        {groups.map((group) => {
-          const groupEmojis = groupedEmojis[group.id] || [];
-          const firstEmoji = groupEmojis[0];
-
-          return (
-            <Button
-              key={group.id}
-              variant={selectedGroup === group.id ? "default" : "ghost"}
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={() => scrollToGroup(group.id)}
-              title={group.name}
-            >
-              {firstEmoji ? (
-                <img
-                  src={firstEmoji.image_url}
-                  alt={firstEmoji.name}
-                  className="w-5 h-5 object-contain"
-                />
-              ) : (
-                <span className="text-xs">?</span>
-              )}
-            </Button>
-          );
-        })}
-      </div>
+  const getFilteredEmojis = useCallback((pack: EmojiPackData): EmojiData[] => {
+    if (!pack.emojis) return [];
+    if (!search) return pack.emojis;
+    return pack.emojis.filter(e =>
+      e.name.toLowerCase().includes(search.toLowerCase())
     );
-  };
+  }, [search]);
 
-  const renderEmojiGroups = () => {
-    return groups.map((group) => {
-      const groupEmojis = groupedEmojis[group.id] || [];
+  const currentPack = subscribedPacks.find(p => p.id === selectedPackId) || subscribedPacks[0];
 
-      if (groupEmojis.length === 0) return null;
-
-      return (
-        <div key={group.id} id={`emoji-group-${group.id}`} className="mb-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 px-2">
-            {group.name}
-          </h4>
-          <div className="grid grid-cols-8 gap-1">
-            {groupEmojis.map((emoji) => (
-              <Button
-                key={emoji.id}
-                variant="ghost"
-                size="sm"
-                className="h-10 w-10 p-0 hover:bg-muted"
-                onClick={() => handleEmojiClick(emoji.code)}
-                title={`:${emoji.code}:`}
-              >
-                <img
-                  src={emoji.image_url}
-                  alt={emoji.name}
-                  className="w-7 h-7 object-contain"
-                />
-              </Button>
-            ))}
-          </div>
-          <Separator className="mt-4" />
-        </div>
-      );
-    });
+  const handleEmojiClick = (emoji: EmojiData, pack: EmojiPackData) => {
+    const url = storageUrl('emojis', emoji.image_url);
+    onEmojiSelect({ emojiId: emoji.id, packId: pack.id, url, name: emoji.name });
   };
 
   return (
     <>
-      {/* Trigger button */}
       <div
-        onClick={isMobile ? () => setOpen(!open) : undefined}
-        onMouseEnter={!isMobile ? openPicker : undefined}
-        onMouseLeave={!isMobile ? handleButtonMouseLeave : undefined}
-        ref={(triggerRef as React.Ref<HTMLDivElement>) ?? undefined}
+        onClick={() => setOpen(!open)}
+        ref={triggerRef as React.Ref<HTMLDivElement>}
       >
         {children || (
           <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl shrink-0">
@@ -319,36 +93,112 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
         )}
       </div>
 
-      {/* Portal for the picker */}
       {open && createPortal(
         <div
-          ref={(el) => {
-            if (el && panelRef.current !== el) {
-              panelRef.current = el;
-              // Update position after render with proper measurement
-              requestAnimationFrame(() => {
-                updatePosition();
-              });
-            }
-          }}
+          ref={panelRef}
           className="fixed z-[100] w-80 bg-background/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden"
-          style={{
-            top: position.top,
-            left: position.left,
-            maxHeight: '400px'
-          }}
-          onMouseLeave={!isMobile ? handlePanelMouseLeave : undefined}
+          style={{ top: position.top, left: position.left, maxHeight: '400px' }}
         >
-          {loading ? (
+          {isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <Loader2 className="h-6 w-6 animate-spin" />
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+            </div>
+          ) : subscribedPacks.length === 0 ? (
+            <div className="p-6 text-center text-muted-foreground">
+              <PackagePlus className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm mb-3">Нет подписанных паков</p>
+              <Link to="/emojis" onClick={() => setOpen(false)}>
+                <Button variant="outline" size="sm">Найти паки</Button>
+              </Link>
             </div>
           ) : (
             <div className="max-h-96 flex flex-col">
-              {renderGroupNavigation()}
-              <ScrollArea className="flex-1 p-2" ref={scrollAreaRef}>
-                {renderEmojiGroups()}
+              {/* Search */}
+              <div className="p-2 border-b">
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Поиск эмодзи..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-8 h-8 text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Pack tabs */}
+              <div className="flex gap-1 p-2 border-b overflow-x-auto">
+                {subscribedPacks.map((pack) => (
+                  <Button
+                    key={pack.id}
+                    variant={(currentPack?.id === pack.id && !search) ? "default" : "ghost"}
+                    size="sm"
+                    className="h-8 w-8 p-0 shrink-0"
+                    onClick={() => { setSelectedPackId(pack.id); setSearch(''); }}
+                    title={pack.name}
+                  >
+                    {pack.icon_url ? (
+                      <img src={storageUrl('emojis', pack.icon_url)} alt={pack.name} className="w-5 h-5 object-contain" />
+                    ) : (
+                      <span className="text-xs">{pack.name.charAt(0)}</span>
+                    )}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Emoji grid */}
+              <ScrollArea className="flex-1 p-2">
+                {search ? (
+                  // Search results across all packs
+                  subscribedPacks.map(pack => {
+                    const filtered = getFilteredEmojis(pack);
+                    if (filtered.length === 0) return null;
+                    return (
+                      <div key={pack.id} className="mb-3">
+                        <h4 className="text-xs font-medium text-muted-foreground mb-1 px-1">{pack.name}</h4>
+                        <div className="grid grid-cols-8 gap-1">
+                          {filtered.map(emoji => (
+                            <button
+                              key={emoji.id}
+                              className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center"
+                              onClick={() => handleEmojiClick(emoji, pack)}
+                              title={emoji.name}
+                            >
+                              <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : currentPack ? (
+                  <div>
+                    <h4 className="text-xs font-medium text-muted-foreground mb-1 px-1">{currentPack.name}</h4>
+                    <div className="grid grid-cols-8 gap-1">
+                      {(currentPack.emojis || []).map(emoji => (
+                        <button
+                          key={emoji.id}
+                          className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center"
+                          onClick={() => handleEmojiClick(emoji, currentPack)}
+                          title={emoji.name}
+                        >
+                          <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </ScrollArea>
+
+              {/* Footer */}
+              <div className="p-2 border-t">
+                <Link to="/emojis" onClick={() => setOpen(false)} className="w-full">
+                  <Button variant="ghost" size="sm" className="w-full text-xs">
+                    <PackagePlus className="h-3 w-3 mr-1" />
+                    Обзор паков
+                  </Button>
+                </Link>
+              </div>
             </div>
           )}
         </div>,

@@ -6,7 +6,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $createTextNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
+import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $createTextNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $isTextNode, $insertNodes } from "lexical";
 import { TOGGLE_LINK_COMMAND, LinkNode } from "@lexical/link";
 import { $getSelectionStyleValueForProperty, $patchStyleText } from "@lexical/selection";
 import { mergeRegister } from "@lexical/utils";
@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { normalizeLexicalContent, lexicalJsonToPlainText, insertTextAtSelection, EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
+import { EmojiNode, $createEmojiNode, $isEmojiNode } from "@/components/emoji/EmojiNode";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -35,6 +36,7 @@ interface GomoRichEditorProps {
 export interface GomoRichEditorHandle {
   focus: () => void;
   insertText: (text: string) => void;
+  insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => void;
 }
 
 const theme = {
@@ -660,6 +662,12 @@ const EditorBridge = forwardRef<GomoRichEditorHandle>((_, ref) => {
   useImperativeHandle(ref, () => ({
     focus: () => editor.focus(),
     insertText: (text: string) => insertTextAtSelection(editor as Parameters<typeof insertTextAtSelection>[0], text),
+    insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
+      editor.update(() => {
+        const node = $createEmojiNode(data);
+        $insertNodes([node]);
+      });
+    },
   }), [editor]);
 
   return null;
@@ -687,6 +695,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   useImperativeHandle(ref, () => ({
     focus: () => bridgeRef.current?.focus(),
     insertText: (text: string) => bridgeRef.current?.insertText(text),
+    insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => bridgeRef.current?.insertEmoji(data),
   }), []);
 
   return (
@@ -698,7 +707,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         onError(error) {
           throw error;
         },
-        nodes: [LinkNode],
+        nodes: [LinkNode, EmojiNode],
       }}
     >
       <div className="space-y-2">

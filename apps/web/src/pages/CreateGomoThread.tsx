@@ -111,9 +111,9 @@ const CreateGomoThread = () => {
     [attachments]
   );
 
-  const handleEmojiSelect = (emojiCode: string) => {
+  const handleEmojiSelect = (data: { emojiId: string; packId: string; url: string; name: string }) => {
     editorRef.current?.focus();
-    editorRef.current?.insertText(emojiCode);
+    editorRef.current?.insertEmoji(data);
   };
 
   const handleCreate = async () => {

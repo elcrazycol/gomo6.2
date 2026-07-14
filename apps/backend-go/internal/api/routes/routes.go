@@ -109,6 +109,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	friendsHandler.SetRedis(redis)
 	friendsHandler.SetWebSocketHub(wsHub)
 	e2eHandler := handlers.NewE2EHandler(db)
+	emojiPacksHandler := handlers.NewEmojiPacksHandler(db)
 	var storageHandler *storageHandlers.StorageHandler
 	storageClient, err := stor.NewStorageClient()
 	if err != nil {
@@ -309,6 +310,16 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/user_settings_changes", universalHandler.HandleTableRequest)
 		rest.Any("/user_settings_changes/*path", universalHandler.HandleTableRequest)
 
+		// Emoji packs (public + protected)
+		rest.Any("/emoji_packs", universalHandler.HandleTableRequest)
+		rest.Any("/emoji_packs/*path", universalHandler.HandleTableRequest)
+		rest.Any("/custom_emojis", universalHandler.HandleTableRequest)
+		rest.Any("/custom_emojis/*path", universalHandler.HandleTableRequest)
+		rest.Any("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
+		rest.Any("/user_emoji_subscriptions/*path", universalHandler.HandleTableRequest)
+		rest.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
+		rest.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
+
 		// Protected endpoints
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
@@ -418,6 +429,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				protected.POST("/e2e/keys/prekeys", e2eHandler.UploadPreKeys)
 				protected.GET("/e2e/devices", e2eHandler.ListDevices)
 				protected.DELETE("/e2e/devices/:deviceId", e2eHandler.DeleteDevice)
+
+				// Emoji packs (protected)
+				protected.GET("/my-emoji-packs", emojiPacksHandler.GetMyPacks)
+				protected.GET("/my-emoji-subscriptions", emojiPacksHandler.GetMySubscriptions)
 			}
 		}
 	}
@@ -431,6 +446,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rpc.GET("/get_recent_post_likers", rpcHandler.GetRecentPostLikers)
 		rpc.GET("/get_recent_thread_likers", rpcHandler.GetRecentThreadLikers)
 		rpc.GET("/get_thread_likes_batch", rpcHandler.GetThreadLikesBatch)
+
+		// Emoji resolve (public — guests need to render custom emojis in posts)
+		rpc.POST("/resolve_emojis", emojiPacksHandler.ResolveEmojis)
 
 		// Protected RPC functions
 		protected := rpc.Group("")

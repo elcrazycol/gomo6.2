@@ -296,12 +296,18 @@ const styleStringToObject = (style = ""): React.CSSProperties => {
 
 const textToInlineNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
   if (!text) return [];
-  const regex = /(:[^:\s]+:|@[^\s]+|https?:\/\/[^\s]+)/g;
+  const regex = /(\[e:[^\]]+\]|:[^:\s]+:|@[^\s]+|https?:\/\/[^\s]+)/g;
   const parts = text.split(regex);
 
   return parts.map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     if (!part) return null;
+    // New system: [e:emojiId]
+    if (part.startsWith("[e:") && part.endsWith("]")) {
+      const emojiId = part.slice(3, -1);
+      return <EmojiInline key={key} emojiId={emojiId} />;
+    }
+    // Legacy: :code: (was never functional, show as text)
     if (part.startsWith(":") && part.endsWith(":") && part.length > 2) {
       return <EmojiInline key={key} code={part.slice(1, -1)} />;
     }
