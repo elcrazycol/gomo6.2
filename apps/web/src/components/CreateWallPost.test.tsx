@@ -41,6 +41,12 @@ vi.mock("@/components/GomoRichEditor", () => {
                 text: (legacyContent || "") + text,
               });
             },
+            insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
+              onChange?.({
+                json: contentJson || {},
+                text: (legacyContent || "") + `[e:${data.emojiId}]`,
+              });
+            },
           };
         }
         return (
@@ -104,7 +110,7 @@ vi.mock("@/components/EmojiPicker", () => ({
     <div data-testid="emoji-picker">
       <button
         data-testid="insert-emoji"
-        onClick={() => onEmojiSelect("😀")}
+        onClick={() => onEmojiSelect({ emojiId: "test-emoji-id", packId: "test-pack", url: "/test.webp", name: "test" })}
       >
         😀
       </button>
@@ -521,7 +527,7 @@ describe("CreateWallPost", () => {
 
     await waitFor(() => {
       const textarea = screen.getByTestId("rich-editor-textarea");
-      expect(textarea).toHaveValue("😀");
+      expect(textarea).toHaveValue("[e:test-emoji-id]");
     });
   });
 });
