@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '@/integrations/api/compat';
+import { apiClient } from '@/integrations/api/client';
 import { storageUrl } from '@/utils/storage';
 
 export interface EmojiData {
@@ -54,44 +55,32 @@ export const EmojiDataProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return;
       }
 
-      const { data: subs } = await api
-        .from('user_emoji_subscriptions')
-        .select('pack_id')
-        .eq('user_id', user.id);
+      const result = await apiClient.rawRequest<{ id: string; name: string; slug: string; description: string | null; icon_url: string | null; author_id: string; emoji_count: number; subscriber_count: number; is_public: boolean; created_at: string; updated_at: string; emojis: EmojiData[] }>('/api/v1/my-emoji-subscriptions');
 
-      if (!subs || subs.length === 0) {
+      if (!result.data) {
         setIsLoading(false);
         return;
       }
 
-      const packIds = subs.map((s: Record<string, unknown>) => s.pack_id as string);
-      setSubscribedPackIds(new Set(packIds));
+      const packs = (Array.isArray(result.data) ? result.data : [result.data]) as EmojiPackData[];
+      setSubscribedPacks(packs);
+      setSubscribedPackIds(new Set(packs.map(p => p.id)));
 
-      const { data: packs } = await api
-        .from('emoji_packs')
-        .select('*')
-        .in('id', packIds);
-
-      if (packs) {
-        setSubscribedPacks(packs as EmojiPackData[]);
-
-        const emojiMap = new Map<string, EmojiData>();
-        for (const pack of packs) {
-          const p = pack as EmojiPackData;
-          if (p.emojis) {
-            for (const emoji of p.emojis) {
-              emojiMap.set(emoji.id, emoji);
-            }
+      const emojiMap = new Map<string, EmojiData>();
+      for (const pack of packs) {
+        if (pack.emojis) {
+          for (const emoji of pack.emojis) {
+            emojiMap.set(emoji.id, emoji);
           }
         }
-        setAllEmojis(prev => {
-          const next = new Map(prev);
-          for (const [k, v] of emojiMap) {
-            next.set(k, v);
-          }
-          return next;
-        });
       }
+      setAllEmojis(prev => {
+        const next = new Map(prev);
+        for (const [k, v] of emojiMap) {
+          next.set(k, v);
+        }
+        return next;
+      });
     } catch (err) {
       console.error('Error loading emoji subscriptions:', err);
     } finally {
