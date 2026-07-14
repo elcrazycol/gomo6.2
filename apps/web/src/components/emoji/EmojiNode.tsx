@@ -90,14 +90,6 @@ export class EmojiNode extends ElementNode {
   }
 
   isIsolated(): boolean {
-    return true;
-  }
-
-  canInsertTextBefore(): boolean {
-    return false;
-  }
-
-  canInsertTextAfter(): boolean {
     return false;
   }
 }
