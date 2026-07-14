@@ -6,7 +6,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $createTextNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $isTextNode, $insertNodes } from "lexical";
+import { COMMAND_PRIORITY_LOW, FORMAT_TEXT_COMMAND, KEY_DOWN_COMMAND, $createParagraphNode, $createTextNode, $getNodeByKey, $getRoot, $getSelection, $isRangeSelection, $isTextNode } from "lexical";
 import { TOGGLE_LINK_COMMAND, LinkNode } from "@lexical/link";
 import { $getSelectionStyleValueForProperty, $patchStyleText } from "@lexical/selection";
 import { mergeRegister } from "@lexical/utils";
@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { normalizeLexicalContent, lexicalJsonToPlainText, insertTextAtSelection, EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
-import { EmojiNode, $createEmojiNode, $isEmojiNode } from "@/components/emoji/EmojiNode";
+import { EmojiDecorationPlugin } from "@/components/emoji/EmojiDecorationPlugin";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -663,10 +663,7 @@ const EditorBridge = forwardRef<GomoRichEditorHandle>((_, ref) => {
     focus: () => editor.focus(),
     insertText: (text: string) => insertTextAtSelection(editor as Parameters<typeof insertTextAtSelection>[0], text),
     insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
-      editor.update(() => {
-        const node = $createEmojiNode(data);
-        $insertNodes([node]);
-      });
+      insertTextAtSelection(editor as Parameters<typeof insertTextAtSelection>[0], `[e:${data.emojiId}]`);
     },
   }), [editor]);
 
@@ -707,7 +704,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         onError(error) {
           throw error;
         },
-        nodes: [LinkNode, EmojiNode],
+        nodes: [LinkNode],
       }}
     >
       <div className="space-y-2">
@@ -755,6 +752,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
           <LinkPlugin />
           <StyleContinuationPlugin />
           <IndentationPlugin />
+          <EmojiDecorationPlugin />
           <InitialContentPlugin initialState={initialState} />
           <OnChangePlugin
             onChange={(editorState) => {
