@@ -17,9 +17,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
-import { CustomEmojiNode } from "@/components/emoji/CustomEmojiNode";
 import { SpoilerMark } from "@/components/emoji/SpoilerMark";
 import { CustomTabExtension } from "@/components/CustomTabExtension";
+import { EmojiDecorationExtension } from "@/components/emoji/EmojiDecorationPlugin";
+import { useEmojiData } from "@/contexts/EmojiDataContext";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -195,6 +196,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 }, ref) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
+  const { allEmojis } = useEmojiData();
 
   const initialContent = useMemo(
     () => normalizeContent(contentJson, legacyContent),
@@ -219,11 +221,11 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       TextStyle,
       Color,
       Placeholder.configure({ placeholder }),
-      CustomEmojiNode,
       SpoilerMark,
       CustomTabExtension,
+      EmojiDecorationExtension.configure({ emojiMap: allEmojis }),
     ],
-    [placeholder]
+    [placeholder, allEmojis]
   );
 
   const handleChange = useCallback(
@@ -262,11 +264,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       editor?.chain().focus().insertContent(text).run();
     },
     insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
-      editor?.commands.setCustomEmoji({
-        emojiId: data.emojiId,
-        url: data.url,
-        name: data.name,
-      });
+      editor?.chain().focus().insertContent(`[e:${data.emojiId}]`).run();
     },
   }), [editor]);
 
