@@ -310,15 +310,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/user_settings_changes", universalHandler.HandleTableRequest)
 		rest.Any("/user_settings_changes/*path", universalHandler.HandleTableRequest)
 
-		// Emoji packs — specific routes BEFORE wildcards (Gin requirement)
+		// Emoji packs — specific routes BEFORE any wildcard (Gin requirement)
 		rest.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
 		rest.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
 		rest.Any("/emoji_packs", universalHandler.HandleTableRequest)
-		rest.Any("/emoji_packs/*path", universalHandler.HandleTableRequest)
 		rest.Any("/custom_emojis", universalHandler.HandleTableRequest)
-		rest.Any("/custom_emojis/*path", universalHandler.HandleTableRequest)
 		rest.Any("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
-		rest.Any("/user_emoji_subscriptions/*path", universalHandler.HandleTableRequest)
 
 		// Protected endpoints
 		protected := rest.Group("")
