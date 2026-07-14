@@ -222,16 +222,8 @@ const Thread = () => {
 
     window.addEventListener('storage', handleStorageChange);
 
-    const interval = setInterval(() => {
-      const current = localStorage.getItem('sender-display-type') as 'classic' | 'modern';
-      if (current && current !== senderDisplayType) {
-        setSenderDisplayType(current || 'classic');
-      }
-    }, 1000);
-
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
     };
   }, [senderDisplayType]);
 
@@ -1260,7 +1252,7 @@ const Thread = () => {
                 key={`${post.id}-${post.created_at}`}
                 id={`post-${post.id}`}
                 style={{ contentVisibility: "auto", containIntrinsicSize: "auto 160px" }}
-                className={`bg-post-header p-2 sm:p-3 border border-border transition-all duration-500 ${
+                className={`bg-post-header p-2 sm:p-3 border border-border transition-opacity duration-200 ${
                   pulsingPostId === post.id ? 'ring-1 ring-primary/60' : ''
                 }`}
               >
@@ -1398,7 +1390,7 @@ const Thread = () => {
 
               {isInputPanelCollapsed && (
                 <div className="mx-auto max-w-xs">
-                  <div className="bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-2 flex justify-center">
+                  <div className="bg-background border border-border/40 rounded-2xl shadow-xl p-2 flex justify-center">
                     <button
                       type="button"
                       onClick={() => setIsInputPanelCollapsed(false)}
@@ -1426,7 +1418,7 @@ const Thread = () => {
 
                   <form
                     onSubmit={handleSubmitPost}
-                    className={`bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl transition-all duration-300 relative ${
+                    className={`bg-background border border-border/40 rounded-2xl shadow-xl transition-all duration-300 relative ${
                       isExpandedView
                         ? isMobile
                           ? 'p-4 space-y-3 max-h-[80vh] overflow-y-auto'
