@@ -2,11 +2,13 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { EmojiInline } from './EmojiInline';
 
+const mockEmojis = new Map([
+  ['test-id', { id: 'test-id', pack_id: 'pack1', name: 'test emoji', image_url: '/test.webp', is_animated: false }],
+]);
+
 vi.mock('@/contexts/EmojiDataContext', () => ({
   useEmojiData: () => ({
-    allEmojis: new Map([
-      ['test-id', { id: 'test-id', pack_id: 'pack1', name: 'test emoji', image_url: '/test.webp', is_animated: false }],
-    ]),
+    allEmojis: mockEmojis,
     resolveEmojis: vi.fn().mockResolvedValue(undefined),
   }),
 }));
@@ -28,8 +30,11 @@ describe('EmojiInline', () => {
     expect(screen.getByText(':smile:')).toBeInTheDocument();
   });
 
-  it('renders loading placeholder when emoji not found', () => {
+  it('renders fallback when emoji not found after resolve', async () => {
     render(<EmojiInline emojiId="unknown-id" />);
-    expect(screen.getByText('[?]')).toBeInTheDocument();
+    // After resolve completes, emoji is still not in map, so shows [?]
+    const { findByText } = screen;
+    const fallback = await findByText('[?]');
+    expect(fallback).toBeInTheDocument();
   });
 });
