@@ -406,6 +406,14 @@ const renderNode = (node: LexicalJsonNode, key: string): React.ReactNode => {
       );
     case "text":
       return renderTextNode(node, key);
+    case "emoji": {
+      const n = node as LexicalJsonNode & { emojiId?: string; url?: string; name?: string };
+      if (n.url) {
+        return <img key={key} src={n.url} alt={n.name || 'emoji'} style={{ height: '1.2em', width: 'auto', verticalAlign: 'middle', margin: '0 2px' }} draggable={false} />;
+      }
+      if (n.emojiId) return <EmojiInline key={key} emojiId={n.emojiId} />;
+      return null;
+    }
     default:
       return <React.Fragment key={key}>{(node.children || []).map((child, index) => renderNode(child, `${key}-${index}`))}</React.Fragment>;
   }
