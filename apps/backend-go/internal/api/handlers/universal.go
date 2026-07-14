@@ -153,6 +153,24 @@ func joinStrings(strs []string, sep string) string {
 	return result
 }
 
+func isValidColumnName(name string) bool {
+	if len(name) == 0 || len(name) > 63 {
+		return false
+	}
+	for i, c := range name {
+		if i == 0 {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+				return false
+			}
+		} else {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func buildFilterClause(column, rawValue string, argIndex int) (string, []interface{}, int) {
 	parts := strings.SplitN(rawValue, ".", 2)
 	if len(parts) != 2 {
@@ -222,6 +240,9 @@ func buildFilterFromParts(column, op, value string, argIndex int) (string, []int
 func parseOrCondition(condition string) (column, op, value string, ok bool) {
 	parts := strings.SplitN(condition, ".", 3)
 	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	if !isValidColumnName(parts[0]) {
 		return "", "", "", false
 	}
 	return parts[0], parts[1], parts[2], true

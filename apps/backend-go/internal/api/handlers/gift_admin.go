@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -40,7 +39,10 @@ func (h *GiftAdminHandler) isAdmin(userID string) bool {
 // @Router       /admin/gifts [get]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
@@ -113,7 +115,10 @@ func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
 // @Router       /admin/gifts [post]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
@@ -194,7 +199,10 @@ func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
 // @Router       /admin/gifts/{id} [put]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
@@ -325,7 +333,10 @@ func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
 // @Router       /admin/gifts/{id} [delete]
 // @Security     BearerAuth
 func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
@@ -346,7 +357,10 @@ func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
 
 // ListLayers — GET /api/v1/admin/gifts/:id/layers (admin only)
 func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
@@ -396,7 +410,10 @@ func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
 
 // CreateLayer — POST /api/v1/admin/gifts/:id/layers (admin only)
 func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
@@ -461,7 +478,10 @@ func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
 
 // DeleteLayer — DELETE /api/v1/admin/gifts/:id/layers/:layerId (admin only)
 func (h *GiftAdminHandler) DeleteLayer(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	if !h.isAdmin(claims.UserID) {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return

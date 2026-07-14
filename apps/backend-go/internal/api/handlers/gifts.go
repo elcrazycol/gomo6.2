@@ -47,7 +47,10 @@ func (h *GiftsHandler) SetWebSocketHub(hub *websocket.Hub) { h.hub = hub }
 // @Router       /gifts/send [post]
 // @Security     BearerAuth
 func (h *GiftsHandler) SendGift(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	senderID := claims.UserID
 
 	var req models.SendGiftRequest
