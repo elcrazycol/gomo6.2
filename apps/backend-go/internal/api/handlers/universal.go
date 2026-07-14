@@ -86,6 +86,9 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"reports":                      true,
 		"user_bans":                    true,
 		"user_settings_changes":        true,
+		"emoji_packs":                  true,
+		"custom_emojis":                true,
+		"user_emoji_subscriptions":     true,
 	}
 
 	if !allowedTables[tableName] {
