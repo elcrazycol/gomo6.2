@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -89,7 +88,10 @@ func (h *DropsHandler) loadKeys() {
 // @Router       /user/drops [get]
 // @Security     BearerAuth
 func (h *DropsHandler) GetDropsBalance(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	userID := claims.UserID
 
 	var drops int
@@ -449,7 +451,10 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 // @Router       /drops/history [get]
 // @Security     BearerAuth
 func (h *DropsHandler) GetDropsHistory(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	userID := claims.UserID
 
 	offset := 0
@@ -520,7 +525,10 @@ type ManualVerifyRequest struct {
 // @Router       /drops/manual-verify [post]
 // @Security     BearerAuth
 func (h *DropsHandler) ManualVerify(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	userID := claims.UserID
 
 	var req ManualVerifyRequest
@@ -597,7 +605,10 @@ func (h *DropsHandler) ManualVerify(c *gin.Context) {
 // @Router       /drops/wallet [get]
 // @Security     BearerAuth
 func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	userID := claims.UserID
 
 	var info models.WalletInfo
@@ -627,7 +638,10 @@ func (h *DropsHandler) GetWalletInfo(c *gin.Context) {
 // @Router       /drops/transfer [post]
 // @Security     BearerAuth
 func (h *DropsHandler) TransferDrops(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	senderID := claims.UserID
 
 	var req models.TransferDropsRequest

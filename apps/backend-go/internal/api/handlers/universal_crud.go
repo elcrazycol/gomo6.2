@@ -175,6 +175,9 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
+		if !isValidColumnName(key) {
+			continue
+		}
 
 		for _, rawValue := range values {
 			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
@@ -590,6 +593,9 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
+		if !isValidColumnName(key) {
+			continue
+		}
 		for _, rawValue := range values {
 			clause, nextArgs, nextIndex := buildFilterClause(key, rawValue, argIndex)
 			if clause != "" {
@@ -710,6 +716,9 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 
 	for key, values := range c.Request.URL.Query() {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
+			continue
+		}
+		if !isValidColumnName(key) {
 			continue
 		}
 		for _, rawValue := range values {

@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/oauth"
 )
@@ -34,7 +33,10 @@ func NewDeveloperHandler(db *sql.DB, oauthSvc *oauth.OAuthService) *DeveloperHan
 // @Router       /developer/apps [get]
 // @Security     BearerAuth
 func (h *DeveloperHandler) ListApps(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	apps, err := h.oauthSvc.GetApplicationsByOwner(claims.UserID)
 	if err != nil {
@@ -63,7 +65,10 @@ func (h *DeveloperHandler) ListApps(c *gin.Context) {
 // @Router       /developer/apps [post]
 // @Security     BearerAuth
 func (h *DeveloperHandler) CreateApp(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	var req oauth.CreateAppRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -134,7 +139,10 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 // @Router       /developer/apps/{id} [get]
 // @Security     BearerAuth
 func (h *DeveloperHandler) GetApp(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	appID := c.Param("id")
 
 	app, err := h.oauthSvc.GetApplicationByID(appID)
@@ -165,7 +173,10 @@ func (h *DeveloperHandler) GetApp(c *gin.Context) {
 // @Router       /developer/apps/{id} [put]
 // @Security     BearerAuth
 func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	appID := c.Param("id")
 
 	var req oauth.UpdateAppRequest
@@ -205,7 +216,10 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 // @Router       /developer/apps/{id} [delete]
 // @Security     BearerAuth
 func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	appID := c.Param("id")
 
 	err := h.oauthSvc.DeleteApplication(appID, claims.UserID)
@@ -234,7 +248,10 @@ func (h *DeveloperHandler) DeleteApp(c *gin.Context) {
 // @Router       /developer/apps/{id}/regenerate-secret [post]
 // @Security     BearerAuth
 func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	appID := c.Param("id")
 
 	newSecret, err := h.oauthSvc.RegenerateClientSecret(appID, claims.UserID)
@@ -271,7 +288,10 @@ func (h *DeveloperHandler) RegenerateSecret(c *gin.Context) {
 // @Router       /developer/apps/{id}/tokens [get]
 // @Security     BearerAuth
 func (h *DeveloperHandler) ListTokens(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	appID := c.Param("id")
 
 	tokens, err := h.oauthSvc.GetTokensByApp(appID, claims.UserID)
@@ -303,7 +323,10 @@ func (h *DeveloperHandler) ListTokens(c *gin.Context) {
 // @Router       /developer/apps/{id}/revoke-user-tokens [post]
 // @Security     BearerAuth
 func (h *DeveloperHandler) RevokeUserTokens(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	appID := c.Param("id")
 
 	var req struct {

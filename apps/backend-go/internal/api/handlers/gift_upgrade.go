@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
@@ -16,7 +15,10 @@ import (
 // UpgradeGift upgrades a static gift to a unique layered combination.
 // POST /api/v1/gifts/:giftRecordID/upgrade (protected)
 func (h *GiftsHandler) UpgradeGift(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	userID := claims.UserID
 	giftRecordID := c.Param("giftRecordID")
 

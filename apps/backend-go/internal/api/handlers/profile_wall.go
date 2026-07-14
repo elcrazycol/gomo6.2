@@ -68,6 +68,9 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
+		if !isValidColumnName(key) {
+			continue
+		}
 		for _, rawValue := range values {
 			clause, nextArgs, nextIndex := buildFilterClause(tableAlias+"."+key, rawValue, ai)
 			if clause != "" {

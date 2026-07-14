@@ -54,8 +54,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	devDashboardHandler := handlers.NewDevDashboardHandler(db, oauthService)
 
 	// Initialize rate limiters (Redis-backed for distributed deployment)
-	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute) // 100 req/min for auth/me
-	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)   // 20/min token, 10/min revoke
+	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute)     // 100 req/min for auth/me
+	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
+	globalRateLimiter := middleware.NewGlobalRateLimiter(redis, 200, time.Minute) // 200 req/min per IP for public endpoints
 
 	// Initialize WebAuthn handler for passkey support (Redis-backed sessions)
 	webauthnHandler := handlers.NewWebAuthnHandler(db, redis, authService)
@@ -191,6 +192,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	{
 		// Apply data caching middleware for GET requests (2 minute TTL)
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
+		// Global rate limiting for public endpoints (200 req/min per IP)
+		rest.Use(middleware.GlobalRateLimitMiddleware(globalRateLimiter))
 		// Populate claims if auth token is present (does not block anonymous requests)
 		rest.Use(middleware.OptionalAuthMiddlewareWithDB(authService, db))
 

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/integrations"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
@@ -79,7 +78,10 @@ func (h *IntegrationsHandler) GetSpotifyAuthURL(c *gin.Context) {
 		return
 	}
 
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	// Store the state in Redis with 10 minute expiry via DB (no Redis dependency in this handler)
 	// We'll store it in the user_integrations table temporarily as a pending state
@@ -222,7 +224,10 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 // @Success 200
 // @Router /api/v1/integrations/spotify/disconnect [delete]
 func (h *IntegrationsHandler) DisconnectSpotify(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	_, err := h.db.Exec(`
 		UPDATE user_integrations SET is_connected = false, updated_at = NOW()
@@ -245,7 +250,10 @@ func (h *IntegrationsHandler) DisconnectSpotify(c *gin.Context) {
 // @Success 200 {object} integrations.IntegrationStatusResponse
 // @Router /api/v1/integrations/spotify/status [get]
 func (h *IntegrationsHandler) GetSpotifyStatus(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	resp := &integrations.IntegrationStatusResponse{
 		Connected: false,
@@ -348,7 +356,10 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 // @Success 200 {object} integrations.NowPlayingResponse
 // @Router /api/v1/integrations/spotify/me/state [get]
 func (h *IntegrationsHandler) GetSpotifyPlayerState(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	userID := claims.UserID
 
 	// Mark author as actively polling so the backend poller skips this user

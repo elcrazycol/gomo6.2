@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -48,7 +47,10 @@ func generateBotToken() (rawToken string, hash string, err error) {
 // @Router       /bots [get]
 // @Security     BearerAuth
 func (h *BotsHandler) ListBots(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	rows, err := h.db.Query(`
 		SELECT id, owner_id, user_id, username, display_name, description, is_active, created_at, updated_at
@@ -87,7 +89,10 @@ func (h *BotsHandler) ListBots(c *gin.Context) {
 // @Router       /bots [post]
 // @Security     BearerAuth
 func (h *BotsHandler) CreateBot(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 
 	var req models.CreateBotRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -196,7 +201,10 @@ func (h *BotsHandler) CreateBot(c *gin.Context) {
 // @Router       /bots/{id} [get]
 // @Security     BearerAuth
 func (h *BotsHandler) GetBot(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	botID := c.Param("id")
 
 	var b models.Bot
@@ -232,7 +240,10 @@ func (h *BotsHandler) GetBot(c *gin.Context) {
 // @Router       /bots/{id} [put]
 // @Security     BearerAuth
 func (h *BotsHandler) UpdateBot(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	botID := c.Param("id")
 
 	var req struct {
@@ -274,7 +285,10 @@ func (h *BotsHandler) UpdateBot(c *gin.Context) {
 // @Router       /bots/{id} [delete]
 // @Security     BearerAuth
 func (h *BotsHandler) DeleteBot(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	botID := c.Param("id")
 
 	tx, err := h.db.Begin()
@@ -329,7 +343,10 @@ func (h *BotsHandler) DeleteBot(c *gin.Context) {
 // @Router       /bots/{id}/toggle [post]
 // @Security     BearerAuth
 func (h *BotsHandler) ToggleBot(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	botID := c.Param("id")
 
 	var isActive bool
@@ -362,7 +379,10 @@ func (h *BotsHandler) ToggleBot(c *gin.Context) {
 // @Router       /bots/{id}/regenerate-token [post]
 // @Security     BearerAuth
 func (h *BotsHandler) RegenerateToken(c *gin.Context) {
-	claims := c.MustGet("claims").(*auth.Claims)
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
 	botID := c.Param("id")
 
 	rawToken, tokenHash, err := generateBotToken()
