@@ -1,6 +1,5 @@
-import type { EditorConfig, LexicalNode, NodeKey, SerializedLexicalNode, Spread } from 'lexical';
-import { DecoratorNode } from 'lexical';
-import React from 'react';
+import type { EditorConfig, LexicalNode, NodeKey, SerializedLexicalNode, Spread, ElementFormatType } from 'lexical';
+import { ElementNode } from 'lexical';
 
 export type SerializedEmojiNode = Spread<
   {
@@ -10,23 +9,15 @@ export type SerializedEmojiNode = Spread<
     packId: string;
     url: string;
     name: string;
+    children: SerializedLexicalNode[];
+    direction: 'ltr' | 'rtl';
+    format: ElementFormatType;
+    indent: number;
   },
   SerializedLexicalNode
 >;
 
-function EmojiComponent({ emojiId, url, name }: { emojiId: string; url: string; name: string }) {
-  return (
-    <img
-      src={url}
-      alt={name}
-      className="inline-block h-[1.2em] w-auto align-middle mx-0.5 cursor-default"
-      title={`:${name}:`}
-      draggable={false}
-    />
-  );
-}
-
-export class EmojiNode extends DecoratorNode<React.ReactNode> {
+export class EmojiNode extends ElementNode {
   __emojiId: string;
   __packId: string;
   __url: string;
@@ -48,24 +39,26 @@ export class EmojiNode extends DecoratorNode<React.ReactNode> {
     this.__name = name;
   }
 
-  createDOM(config: EditorConfig): HTMLElement {
-    const span = document.createElement('span');
-    span.className = 'inline-flex items-center';
-    return span;
+  createDOM(_config: EditorConfig): HTMLElement {
+    const img = document.createElement('img');
+    img.src = this.__url;
+    img.alt = this.__name;
+    img.className = 'inline-block align-middle mx-0.5 cursor-default';
+    img.style.height = '1.2em';
+    img.style.width = 'auto';
+    img.style.verticalAlign = 'middle';
+    img.draggable = false;
+    return img;
   }
 
-  updateDOM(): false {
+  updateDOM(prevNode: this, dom: HTMLElement): boolean {
+    if (prevNode.__url !== this.__url) {
+      (dom as HTMLImageElement).src = this.__url;
+    }
+    if (prevNode.__name !== this.__name) {
+      (dom as HTMLImageElement).alt = this.__name;
+    }
     return false;
-  }
-
-  decorate(): React.ReactNode {
-    return (
-      <EmojiComponent
-        emojiId={this.__emojiId}
-        url={this.__url}
-        name={this.__name}
-      />
-    );
   }
 
   exportJSON(): SerializedEmojiNode {
@@ -76,6 +69,10 @@ export class EmojiNode extends DecoratorNode<React.ReactNode> {
       packId: this.__packId,
       url: this.__url,
       name: this.__name,
+      children: [],
+      direction: 'ltr',
+      format: '' as ElementFormatType,
+      indent: 0,
     };
   }
 
@@ -94,6 +91,14 @@ export class EmojiNode extends DecoratorNode<React.ReactNode> {
 
   isIsolated(): boolean {
     return true;
+  }
+
+  canInsertTextBefore(): boolean {
+    return false;
+  }
+
+  canInsertTextAfter(): boolean {
+    return false;
   }
 }
 
