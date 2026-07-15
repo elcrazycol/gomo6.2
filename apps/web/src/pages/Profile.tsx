@@ -908,11 +908,6 @@ const Profile = () => {
     }
   };
 
-  // Don't show fullscreen loader for pageLoading - let content loader handle it
-  if (!profile) {
-    return <ProfileSkeleton />;
-  }
-
   const isOwnProfile = currentUser?.id === userId;
   const isPrivate = privateProfile && privacyChecked;
   const friendshipLoaded = isMutualFriend !== null;
@@ -924,11 +919,13 @@ const Profile = () => {
     return !hidden;
   };
 
+  const showSkeleton = !profile || pageLoading;
+
   return (
     <main className="max-w-2xl mx-auto p-4">
-        {pageLoading && <ProfileSkeleton />}
-        {!pageLoading && (
-          <div className="space-y-6">
+        {showSkeleton && <ProfileSkeleton />}
+        {!showSkeleton && (
+          <div className="space-y-6 animate-in fade-in duration-300">
           {/* Private profile banner */}
           {showPrivateBanner && (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
