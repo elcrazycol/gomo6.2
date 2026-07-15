@@ -21,7 +21,14 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
   if (emoji && emojiId) {
     const url = storageUrl('emojis', emoji.image_url);
     return (
-      <NodeViewWrapper as="span" style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}>
+      <NodeViewWrapper
+        as="span"
+        style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}
+        handleDOMEvents={{
+          mousedown: (e) => { e.preventDefault(); return true; },
+          click: (e) => { e.preventDefault(); return true; },
+        }}
+      >
         <img
           src={url}
           alt={emoji.name}
@@ -33,7 +40,14 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
   }
 
   return (
-    <NodeViewWrapper as="span" style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}>
+    <NodeViewWrapper
+      as="span"
+      style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}
+      handleDOMEvents={{
+        mousedown: (e) => { e.preventDefault(); return true; },
+        click: (e) => { e.preventDefault(); return true; },
+      }}
+    >
       <span style={{ display: 'inline-block', width: '1.2em', height: '1.2em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'middle' }} />
     </NodeViewWrapper>
   );
