@@ -403,10 +403,17 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 
 	// Update conversation preview fields (trigger handles last_message_at, but not preview)
 	go func() {
-		encryptedPreview, encErr := encryptContent(truncatePreview(cleanContent))
+		var previewContent string
+		if isE2E && req.IsEncrypted {
+			// E2E: store a fixed placeholder (server can't decrypt content)
+			previewContent = "🔒 Зашифрованное сообщение"
+		} else {
+			previewContent = truncatePreview(cleanContent)
+		}
+		encryptedPreview, encErr := encryptContent(previewContent)
 		if encErr != nil {
 			log.Printf("[Messenger] encrypt preview: %v", encErr)
-			encryptedPreview = truncatePreview(cleanContent)
+			encryptedPreview = previewContent
 		}
 		_, err := h.db.Exec(`
 			UPDATE chat_conversations
@@ -447,6 +454,12 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 	}
 	if len(msg.Attachments) > 0 {
 		payload["attachments"] = msg.Attachments
+	}
+	if len(msg.Ciphertexts) > 0 {
+		payload["ciphertexts"] = msg.Ciphertexts
+	}
+	if msg.SenderDeviceID != "" {
+		payload["sender_device_id"] = msg.SenderDeviceID
 	}
 	if err := h.hub.PublishNewChatMessage(payload); err != nil {
 		log.Printf("[Messenger] WS broadcast error: %v", err)
