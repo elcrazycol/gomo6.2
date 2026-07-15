@@ -91,10 +91,11 @@ export const MessageBubble = memo(function MessageBubble({
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (isSwiping) return;
+    const el = e.currentTarget;
     const touch = e.touches[0];
     touchStartPos.current = { x: touch.clientX, y: touch.clientY };
 
-    const scrollContainer = e.currentTarget.closest(".message-scroll");
+    const scrollContainer = el.closest(".message-scroll");
 
     const handleScrollOrCancel = () => {
       clearLongPress();
@@ -107,7 +108,7 @@ export const MessageBubble = memo(function MessageBubble({
       scrollContainer?.removeEventListener("scroll", handleScrollOrCancel);
       setIsLongPressing(true);
       if (navigator.vibrate) navigator.vibrate(10);
-      e.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {
+      el.dispatchEvent(new MouseEvent("contextmenu", {
         bubbles: true, cancelable: true,
         clientX: touch.clientX, clientY: touch.clientY, view: window,
       }));
@@ -115,11 +116,11 @@ export const MessageBubble = memo(function MessageBubble({
 
     const cleanup = () => {
       scrollContainer?.removeEventListener("scroll", handleScrollOrCancel);
-      e.currentTarget.removeEventListener("touchend", cleanup);
-      e.currentTarget.removeEventListener("touchcancel", cleanup);
+      el.removeEventListener("touchend", cleanup);
+      el.removeEventListener("touchcancel", cleanup);
     };
-    e.currentTarget.addEventListener("touchend", cleanup);
-    e.currentTarget.addEventListener("touchcancel", cleanup);
+    el.addEventListener("touchend", cleanup);
+    el.addEventListener("touchcancel", cleanup);
   }, [clearLongPress, isSwiping]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {

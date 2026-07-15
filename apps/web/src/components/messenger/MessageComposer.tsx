@@ -289,7 +289,7 @@ export const MessageComposer = memo(function MessageComposer({
           </span>
         )}
       </div>
-      <button type="submit" className={`send-button${isEditing ? " is-edit" : ""}`} disabled={!canSend} aria-label={isEditing ? "Сохранить" : "Отправить"}>
+      <button type="submit" className={`send-button${isEditing ? " is-edit" : ""}`} disabled={!canSend} aria-label={isEditing ? "Сохранить" : "Отправить"} onMouseDown={(e) => e.preventDefault()}>
         {isEditing ? <Pencil size={16} /> : <SendHorizontal size={16} />}
       </button>
     </form>
