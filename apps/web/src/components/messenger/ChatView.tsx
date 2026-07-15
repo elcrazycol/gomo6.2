@@ -70,7 +70,7 @@ export const ChatView = memo(function ChatView({
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 56,
+    estimateSize: () => 62,
     overscan: 5,
   });
 

@@ -49,7 +49,6 @@ export const MessageBubble = memo(function MessageBubble({
   const [isLongPressing, setIsLongPressing] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
-  const hasTriggeredReply = useRef(false);
 
   const clearLongPress = useCallback(() => {
     if (longPressTimer.current) {
@@ -62,32 +61,24 @@ export const MessageBubble = memo(function MessageBubble({
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
   const bind = useDrag(
-    ({ movement: [mx], last, cancel, active, direction: [dx] }) => {
+    ({ movement: [mx], last, active }) => {
       if (!isTouchDevice) return;
 
       if (active) {
-        const offsetX = Math.min(0, mx);
+        const offsetX = Math.max(-120, Math.min(0, mx));
         setSwipeOffset(offsetX);
         setIsSwiping(true);
-
-        if (Math.abs(offsetX) > SWIPE_THRESHOLD && !hasTriggeredReply.current) {
-          hasTriggeredReply.current = true;
+      } else if (last) {
+        const finalOffset = Math.max(-120, Math.min(0, mx));
+        if (Math.abs(finalOffset) > SWIPE_THRESHOLD) {
           if (navigator.vibrate) navigator.vibrate(5);
-          cancel();
-          setSwipeOffset(0);
-          setIsSwiping(false);
           onReply(message);
         }
-
-        if (last) {
-          setSwipeOffset(0);
-          setIsSwiping(false);
-          hasTriggeredReply.current = false;
-        }
+        setSwipeOffset(0);
+        setIsSwiping(false);
       } else {
         setSwipeOffset(0);
         setIsSwiping(false);
-        hasTriggeredReply.current = false;
       }
     },
     {
