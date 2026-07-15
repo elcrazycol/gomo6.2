@@ -19,8 +19,7 @@ import {
 import { normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
 import { SpoilerMark } from "@/components/emoji/SpoilerMark";
 import { CustomTabExtension } from "@/components/CustomTabExtension";
-import { EmojiDecorationExtension } from "@/components/emoji/EmojiDecorationPlugin";
-import { useEmojiData } from "@/contexts/EmojiDataContext";
+import { CustomEmojiNode } from "@/components/emoji/CustomEmojiNode";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -196,7 +195,6 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 }, ref) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
-  const { allEmojis } = useEmojiData();
 
   const initialContent = useMemo(
     () => normalizeContent(contentJson, legacyContent),
@@ -223,16 +221,16 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       Placeholder.configure({ placeholder }),
       SpoilerMark,
       CustomTabExtension,
-      EmojiDecorationExtension.configure({ emojiMap: allEmojis }),
+      CustomEmojiNode,
     ],
-    [placeholder, allEmojis]
+    [placeholder]
   );
 
   const handleChange = useCallback(
     (editor: ReturnType<typeof useEditor> extends infer T ? T : never) => {
       if (!editor || !('getJSON' in editor)) return;
       const json = (editor as { getJSON: () => unknown }).getJSON();
-      const text = (editor as { getText: () => string }).getText().trimEnd() || prosemirrorToPlainText(json, "");
+      const text = prosemirrorToPlainText(json, "") || (editor as { getText: () => string }).getText().trimEnd();
       onChange({ json, text });
     },
     [onChange]
@@ -264,7 +262,10 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       editor?.chain().focus().insertContent(text).run();
     },
     insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
-      editor?.chain().focus().insertContent(`[e:${data.emojiId}]`).run();
+      editor?.chain().focus().insertContent({
+        type: 'customEmoji',
+        attrs: { emojiId: data.emojiId, url: data.url, name: data.name },
+      }).run();
     },
   }), [editor]);
 

@@ -1,4 +1,6 @@
-import { Node, mergeAttributes } from '@tiptap/core';
+import { Node, mergeAttributes, InputRule, nodePasteRule } from '@tiptap/core';
+
+const EMOJI_ID_REGEX = /\[e:([a-f0-9-]{36})\]$/;
 
 export interface CustomEmojiAttrs {
   emojiId: string | null;
@@ -75,5 +77,30 @@ export const CustomEmojiNode = Node.create({
           });
         },
     };
+  },
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: EMOJI_ID_REGEX,
+        handler: ({ state, range, match }) => {
+          const emojiId = match[1];
+          const { tr } = state;
+          tr.replaceWith(range.from, range.to, this.type.create({ emojiId }));
+        },
+      }),
+    ];
+  },
+
+  addPasteRules() {
+    return [
+      nodePasteRule({
+        find: EMOJI_ID_REGEX,
+        type: this.type,
+        getAttributes: (match) => ({
+          emojiId: match[1],
+        }),
+      }),
+    ];
   },
 });
