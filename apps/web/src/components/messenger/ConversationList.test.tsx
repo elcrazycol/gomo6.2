@@ -35,6 +35,8 @@ vi.mock("@/stores/messengerStore", () => ({
   useMessengerStore: vi.fn((selector: (s: typeof mockStore) => unknown) => {
     return selector(mockStore);
   }),
+  selectTotalUnread: (s: typeof mockStore) => typeof s.totalUnread === "function" ? s.totalUnread() : 0,
+  selectSelectedConversation: (s: typeof mockStore) => s.conversations.find((c: { id: string }) => c.id === s.selectedConversationId) ?? null,
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

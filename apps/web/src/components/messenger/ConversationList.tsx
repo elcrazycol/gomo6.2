@@ -4,7 +4,7 @@ import { MessageCircle, UserPlus, X, Plus, Lock } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
-import { useMessengerStore } from "@/stores/messengerStore";
+import { useMessengerStore, selectTotalUnread } from "@/stores/messengerStore";
 import { formatConversationDate, getInitials } from "./utils";
 import { NewChatDialog } from "./NewChatDialog";
 import type { ConversationView } from "./types";
@@ -161,9 +161,7 @@ export const ConversationList = memo(function ConversationList({
   const error = useMessengerStore((s) => s.error);
   const setError = useMessengerStore((s) => s.setError);
   const initLoading = useMessengerStore((s) => s.isInitialLoading);
-  const totalUnread = useMessengerStore((s) => s.totalUnread);
-
-  const unread = totalUnread();
+  const unread = useMessengerStore(selectTotalUnread);
   const [searchQuery, setSearchQuery] = useState("");
   const [showNewChat, setShowNewChat] = useState(false);
 
@@ -173,7 +171,8 @@ export const ConversationList = memo(function ConversationList({
     return conversations.filter(
       (c) =>
         c.other_username.toLowerCase().includes(q) ||
-        (c.other_display_name?.toLowerCase().includes(q) ?? false),
+        (c.other_display_name?.toLowerCase().includes(q) ?? false) ||
+        (c.is_group && c.group_name?.toLowerCase().includes(q)),
     );
   }, [conversations, searchQuery]);
 

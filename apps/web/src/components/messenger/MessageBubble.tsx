@@ -15,6 +15,7 @@ interface Props {
   isConsecutive: boolean;
   isPinned: boolean;
   isGroup?: boolean;
+  isNew?: boolean;
   senderName?: string;
   onEdit: (id: string, content: string) => void;
   onDelete: (id: string) => void;
@@ -33,6 +34,7 @@ export const MessageBubble = memo(function MessageBubble({
   isConsecutive,
   isPinned,
   isGroup,
+  isNew,
   senderName,
   onEdit,
   onDelete,
@@ -49,6 +51,7 @@ export const MessageBubble = memo(function MessageBubble({
   const [isLongPressing, setIsLongPressing] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const clearLongPress = useCallback(() => {
     if (longPressTimer.current) {
@@ -154,6 +157,8 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <div
       className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
+      onMouseEnter={() => !isTouchDevice && setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -174,7 +179,7 @@ export const MessageBubble = memo(function MessageBubble({
             )}
 
             <div
-              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}`}
+              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}`}
               data-message-id={message.id}
             >
               {quotedMessage && (
@@ -212,6 +217,31 @@ export const MessageBubble = memo(function MessageBubble({
                 )}
               </div>
             </div>
+
+            {/* Hover action bar (desktop only) */}
+            {!isTouchDevice && isHovered && !message.is_deleted && (
+              <div className={`msg-hover-actions${isMine ? " is-mine" : ""}`}>
+                <button type="button" onClick={() => onReply(message)} title="Ответить">
+                  <Reply size={14} />
+                </button>
+                <button type="button" onClick={() => onCopy(message.content)} title="Копировать">
+                  <Copy size={14} />
+                </button>
+                {isMine && (
+                  <button type="button" onClick={() => onEdit(message.id, message.content)} title="Редактировать">
+                    <Pencil size={14} />
+                  </button>
+                )}
+                {isMine && (
+                  <button type="button" onClick={() => onDelete(message.id)} title="Удалить" className="msg-hover-danger">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+                <button type="button" onClick={() => onTogglePin(message.id)} title={isPinned ? "Открепить" : "Закрепить"}>
+                  {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                </button>
+              </div>
+            )}
           </div>
         </ContextMenuTrigger>
 

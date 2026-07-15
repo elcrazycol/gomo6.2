@@ -482,19 +482,35 @@
 
 .swipe-reply-indicator {
   position: absolute;
-  right: -40px;
+  left: -40px;
   top: 50%;
   transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
   border-radius: 50%;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  pointer-events: none;
-  flex-shrink: 0;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  transition: opacity 0.15s;
+}
+
+.swipe-back-indicator {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  transition: opacity 0.15s;
+  z-index: 10;
 }
 
 .message-bubble {
@@ -506,6 +522,9 @@
   background: hsl(var(--card));
   overflow-wrap: anywhere;
   position: relative;
+}
+
+.message-bubble.is-new {
   animation: bubble-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
@@ -525,6 +544,57 @@
 }
 .bubble-row.is-mine .message-bubble {
   border-bottom-right-radius: 5px;
+}
+
+/* Hover action bar (desktop) */
+.msg-hover-actions {
+  position: absolute;
+  top: -36px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 8px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  opacity: 0;
+  animation: hover-actions-in 0.12s ease forwards;
+  z-index: 5;
+}
+
+@keyframes hover-actions-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.msg-hover-actions.is-mine {
+  right: auto;
+  left: 0;
+}
+
+.msg-hover-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.msg-hover-actions button:hover {
+  background: hsl(var(--muted));
+}
+
+.msg-hover-actions button.msg-hover-danger:hover {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
 }
 
 /* Consecutive message grouping */
@@ -1733,6 +1803,7 @@
     min-height: 0;
     border: 0;
     border-radius: 0;
+    overflow-x: hidden;
   }
 
   .messenger-shell {
@@ -1748,16 +1819,19 @@
   }
 
   .chat-panel {
-    display: none;
-  }
-
-  .chat-panel.is-open {
-    display: grid;
     position: fixed;
     inset: 0;
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+  }
+
+  .chat-panel.is-open {
+    transform: translateX(0);
+    pointer-events: auto;
   }
 
   .conversation-list {

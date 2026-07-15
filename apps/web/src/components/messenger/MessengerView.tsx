@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { useMessengerStore } from "@/stores/messengerStore";
+import { useMessengerStore, selectSelectedConversation } from "@/stores/messengerStore";
 import { messengerWs } from "@/services/messengerWebSocket";
 import { eventManager } from "@/services/eventManager";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
@@ -19,7 +19,6 @@ export const MessengerView = () => {
   const selectedConversationId = useMessengerStore((s) => s.selectedConversationId);
   const createConversation = useMessengerStore((s) => s.createConversation);
   const typingUsers = useMessengerStore((s) => s.typingUsers);
-  const selectedConv = useMessengerStore((s) => s.selectedConversation);
   const setError = useMessengerStore((s) => s.setError);
 
   // Refs
@@ -30,7 +29,7 @@ export const MessengerView = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  const conversation = selectedConv();
+  const conversation = useMessengerStore(selectSelectedConversation);
   const showMobileChat = Boolean(conversation) && (!isMobile || !sidebarOpen);
 
   // ChatIcon (always in header) manages store init + WS connect lifecycle.
@@ -69,22 +68,6 @@ export const MessengerView = () => {
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
-  }, []);
-
-  // ── Prevent body scroll while messenger is open ───────────────────────
-  useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const prevHtmlOverflow = html.style.overflow;
-    const prevBodyOverflow = body.style.overflow;
-
-    html.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-
-    return () => {
-      html.style.overflow = prevHtmlOverflow;
-      body.style.overflow = prevBodyOverflow;
-    };
   }, []);
 
   // ── Hide AppLayout header on mobile when chat is open ─────────────────

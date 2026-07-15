@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useDrag } from "@use-gesture/react";
 import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift, Lock } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
-import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
+import { useMessengerStore, selectSelectedConversation, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
 import { formatPresence, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
@@ -12,6 +13,14 @@ import { UserInfoPanel } from "./UserInfoPanel";
 import { E2EBanner } from "./E2EBanner";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
 import type { Attachment, MessageView, ReceiptRow } from "./types";
+
+function estimateMessageHeight(msg: MessageView): number {
+  const lines = Math.max(1, (msg.content.match(/\n/g)?.length ?? 0) + 1);
+  let height = 48 + lines * 20;
+  if (msg.parent_message_id) height += 36;
+  if (msg.attachments && msg.attachments.length > 0) height += 80;
+  return Math.min(height, 500);
+}
 
 interface Props {
   onBack: () => void;
@@ -28,7 +37,7 @@ export const ChatView = memo(function ChatView({
   typingUsername,
   onTyping,
 }: Props) {
-  const conversation = useMessengerStore((s) => s.selectedConversation());
+  const conversation = useMessengerStore(selectSelectedConversation);
   const messages = useMessengerStore((s) => s.messages);
   const isLoading = useMessengerStore((s) => s.isMessagesLoading);
   const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
@@ -56,10 +65,45 @@ export const ChatView = memo(function ChatView({
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [newMessageIds, setNewMessageIds] = useState<Set<string>>(new Set());
+  const [swipeBackOffset, setSwipeBackOffset] = useState(0);
   const shouldAutoScroll = useRef(true);
   const isScrolledUpRef = useRef(false);
+  const touchStartXRef = useRef(0);
 
   const convReceipts = receipts.get(conversation?.id ?? "") ?? [];
+
+  // Swipe-back gesture (mobile only)
+  const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+
+  const swipeBackBind = useDrag(
+    ({ movement: [mx], last, active }) => {
+      if (!isTouchDevice) return;
+      // Only activate for edge swipes from left side
+      if (touchStartXRef.current > 30) return;
+      const el = scrollContainerRef.current;
+      if (el && el.scrollTop > 5) return;
+
+      if (active) {
+        const offset = Math.max(0, Math.min(200, mx));
+        setSwipeBackOffset(offset);
+      } else if (last) {
+        if (mx > 100) {
+          if (navigator.vibrate) navigator.vibrate(5);
+          onBack();
+        }
+        setSwipeBackOffset(0);
+      } else {
+        setSwipeBackOffset(0);
+      }
+    },
+    {
+      axis: "x",
+      filterTaps: true,
+      from: () => [0, 0],
+      threshold: 10,
+    },
+  );
 
   // Virtual scroll
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -70,7 +114,7 @@ export const ChatView = memo(function ChatView({
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 62,
+    estimateSize: (index) => estimateMessageHeight(messages[index]),
     overscan: 5,
   });
 
@@ -106,12 +150,21 @@ export const ChatView = memo(function ChatView({
     requestAnimationFrame(step);
   }, []);
 
-  // Auto-scroll only when conversation changes (initial load)
+  // Auto-scroll only when conversation changes (initial load) + scroll to first unread
   useLayoutEffect(() => {
     shouldAutoScroll.current = true;
     prevItemCountRef.current = 0;
-    requestAnimationFrame(() => pinToBottom());
-  }, [conversation?.id, pinToBottom]);
+    setNewMessageIds(new Set());
+    if (conversation?.unread_count && conversation.unread_count > 0 && messages.length > 0) {
+      const idx = Math.max(0, messages.length - conversation.unread_count);
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(idx, { align: "start", behavior: "auto" });
+      });
+    } else {
+      requestAnimationFrame(() => pinToBottom());
+    }
+    composerRef.current?.focus();
+  }, [conversation?.id, pinToBottom, messages.length, conversation?.unread_count, virtualizer, composerRef]);
 
   // Sync ref with state for stable callback
   useEffect(() => { isScrolledUpRef.current = isScrolledUp; }, [isScrolledUp]);
@@ -150,15 +203,27 @@ export const ChatView = memo(function ChatView({
 
   // Auto-scroll on new messages only if user is at bottom
   useEffect(() => {
-    if (messages.length > prevItemCountRef.current && shouldAutoScroll.current) {
-      // Double rAF to ensure DOM has updated
-      requestAnimationFrame(() => requestAnimationFrame(() => pinToBottom()));
-    }
-    if (isScrolledUp && messages.length > prevItemCountRef.current) {
-      setNewMessageCount((c) => c + (messages.length - prevItemCountRef.current));
+    if (messages.length > prevItemCountRef.current) {
+      // Track newly arrived message IDs for animation gating
+      const newIds = messages.slice(prevItemCountRef.current).map((m) => m.id);
+      if (newIds.length > 0) {
+        setNewMessageIds((prev) => {
+          const next = new Set(prev);
+          for (const id of newIds) next.add(id);
+          return next;
+        });
+      }
+      if (shouldAutoScroll.current) {
+        requestAnimationFrame(() => {
+          virtualizer.scrollToIndex(messages.length - 1, { align: "end", behavior: "auto" });
+        });
+      }
+      if (isScrolledUp) {
+        setNewMessageCount((c) => c + (messages.length - prevItemCountRef.current));
+      }
     }
     prevItemCountRef.current = messages.length;
-  }, [messages.length, isScrolledUp, pinToBottom]);
+  }, [messages.length, isScrolledUp, virtualizer]);
 
   // Reset auto-scroll when viewport changes (keyboard open/close)
   useEffect(() => {
@@ -375,7 +440,22 @@ export const ChatView = memo(function ChatView({
       </div>
 
       {/* Messages */}
-      <div ref={scrollContainerRef} className="message-scroll" onScroll={handleScroll} role="log" aria-label="Сообщения" aria-live="polite">
+      <div
+        ref={scrollContainerRef}
+        className="message-scroll"
+        onScroll={handleScroll}
+        onTouchStart={(e) => { touchStartXRef.current = e.touches[0].clientX; }}
+        {...(isTouchDevice ? swipeBackBind() : {})}
+        style={swipeBackOffset > 0 ? { transform: `translateX(${swipeBackOffset}px)`, transition: "none" } : undefined}
+        role="log"
+        aria-label="Сообщения"
+        aria-live="polite"
+      >
+        {swipeBackOffset > 20 && (
+          <div className="swipe-back-indicator" style={{ opacity: Math.min(1, swipeBackOffset / 100) }}>
+            <ArrowLeft size={18} />
+          </div>
+        )}
         {error && (
           <div className="error-banner chat-error-banner">
             <span>{error}</span>
@@ -480,6 +560,7 @@ export const ChatView = memo(function ChatView({
                     isConsecutive={isConsecutive}
                     isPinned={conversation.pinned_message_id === msg.id}
                     isGroup={conversation.is_group}
+                    isNew={newMessageIds.has(msg.id)}
                     onEdit={(id, content) => handleStartEdit(id, content)}
                     onDelete={deleteMessage}
                     onTogglePin={(id) => togglePin(id)}

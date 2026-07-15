@@ -573,3 +573,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     });
   },
 }));
+
+// ─── Exported selectors (avoid creating new refs in components) ───────────
+export const selectSelectedConversation = (s: MessengerStore) =>
+  s.conversations.find((c) => c.id === s.selectedConversationId) ?? null;
+
+export const selectTotalUnread = (s: MessengerStore) =>
+  s.conversations.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);

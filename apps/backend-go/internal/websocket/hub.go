@@ -299,6 +299,13 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 			h.BroadcastToRoom(chatRoom, messageBytes)
 		}
 
+	case "member_left":
+		// Member left event carries conversation_id
+		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
+			chatRoom := fmt.Sprintf("chat_%s", conversationID)
+			h.BroadcastToRoom(chatRoom, messageBytes)
+		}
+
 	case MessageTypeNewNotification:
 		// Broadcast to specific user's notification room
 		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
