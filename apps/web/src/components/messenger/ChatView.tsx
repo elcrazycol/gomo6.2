@@ -87,6 +87,25 @@ export const ChatView = memo(function ChatView({
     });
   }, []);
 
+  const smoothScrollToBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const target = el.scrollHeight - el.clientHeight;
+    if (target <= el.scrollTop) return;
+    const start = el.scrollTop;
+    const distance = target - start;
+    const duration = 250;
+    let startTime: number | null = null;
+    const step = (ts: number) => {
+      if (!startTime) startTime = ts;
+      const progress = Math.min((ts - startTime) / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      el.scrollTop = start + distance * ease;
+      if (progress < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, []);
+
   // Auto-scroll only when conversation changes (initial load)
   useLayoutEffect(() => {
     shouldAutoScroll.current = true;
@@ -147,16 +166,18 @@ export const ChatView = memo(function ChatView({
     if (!vv) return;
     let keyboardTimer: ReturnType<typeof setTimeout>;
     const onResize = () => {
-      shouldAutoScroll.current = true;
       clearTimeout(keyboardTimer);
-      keyboardTimer = setTimeout(() => pinToBottom(), 150);
+      keyboardTimer = setTimeout(() => {
+        if (isScrolledUpRef.current) return;
+        shouldAutoScroll.current = true;
+      }, 150);
     };
     vv.addEventListener("resize", onResize);
     return () => {
       vv.removeEventListener("resize", onResize);
       clearTimeout(keyboardTimer);
     };
-  }, [pinToBottom]);
+  }, []);
 
   // Escape key to go back to conversation list
   useEffect(() => {
@@ -195,9 +216,8 @@ export const ChatView = memo(function ChatView({
 
   const handleReply = useCallback((msg: MessageView) => {
     setReplyToMessage(msg);
-    pinToBottom();
     setTimeout(() => composerRef.current?.focus(), 50);
-  }, [composerRef, pinToBottom]);
+  }, [composerRef]);
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text).catch(() => {
@@ -222,8 +242,8 @@ export const ChatView = memo(function ChatView({
     setReplyToMessage(null);
     setPendingAttachments([]);
     // Scroll after optimistic insert renders
-    setTimeout(pinToBottom, 100);
-  }, [draft, isSending, sendMessage, pinToBottom, replyToMessage, pendingAttachments]);
+    setTimeout(smoothScrollToBottom, 100);
+  }, [draft, isSending, sendMessage, smoothScrollToBottom, replyToMessage, pendingAttachments]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
     setEditingMessageId(msgId);
