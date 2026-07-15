@@ -546,50 +546,60 @@
   border-bottom-right-radius: 5px;
 }
 
-/* Hover action bar (desktop) */
+/* Hover action bar (desktop) — appears adjacent to the bubble */
 .msg-hover-actions {
   position: absolute;
-  top: -36px;
-  right: 0;
+  top: 2px;
+  left: calc(100% + 6px);
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 8px;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  opacity: 0;
-  animation: hover-actions-in 0.12s ease forwards;
+  gap: 1px;
+  padding: 3px;
+  border-radius: 10px;
+  background: hsl(var(--card) / 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border) / 0.6);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.03);
   z-index: 5;
+  opacity: 0;
+  pointer-events: none;
+  animation: hover-actions-in 0.15s ease-out forwards;
 }
 
 @keyframes hover-actions-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateX(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 .msg-hover-actions.is-mine {
-  right: auto;
-  left: 0;
+  left: auto;
+  right: calc(100% + 6px);
+  animation-name: hover-actions-in-mine;
+}
+
+@keyframes hover-actions-in-mine {
+  from { opacity: 0; transform: translateX(4px) scale(0.96); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
 .msg-hover-actions button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
   border: none;
   background: transparent;
-  color: hsl(var(--foreground));
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.12s, color 0.12s;
 }
 
 .msg-hover-actions button:hover {
   background: hsl(var(--muted));
+  color: hsl(var(--foreground));
 }
 
 .msg-hover-actions button.msg-hover-danger:hover {

@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useRef } from "react";
+import { memo, useCallback, useState, useRef, useEffect } from "react";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Lock } from "lucide-react";
 import { formatTime } from "./utils";
@@ -8,6 +8,7 @@ import type { MessageView } from "./types";
 
 const LONG_PRESS_DELAY = 400;
 const SWIPE_THRESHOLD = 80;
+const HOVER_DELAY_MS = 80;
 
 interface Props {
   message: MessageView;
@@ -47,6 +48,7 @@ export const MessageBubble = memo(function MessageBubble({
   peerDeliveredAt,
 }: Props) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
@@ -62,6 +64,36 @@ export const MessageBubble = memo(function MessageBubble({
   }, []);
 
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+
+  // Clean up hover timer on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    };
+  }, []);
+
+  const handleBubbleEnter = useCallback(() => {
+    if (isTouchDevice) return;
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setIsHovered(true), HOVER_DELAY_MS);
+  }, [isTouchDevice]);
+
+  const handleBubbleLeave = useCallback(() => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setIsHovered(false);
+  }, []);
+
+  // Keep hover alive when mouse moves from bubble to the action bar
+  const handleActionsEnter = useCallback(() => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+    setIsHovered(true);
+  }, []);
 
   const bind = useDrag(
     ({ movement: [mx], last, active }) => {
@@ -155,11 +187,7 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <div
-      className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
-      onMouseEnter={() => !isTouchDevice && setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <div className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
@@ -181,6 +209,8 @@ export const MessageBubble = memo(function MessageBubble({
             <div
               className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}`}
               data-message-id={message.id}
+              onMouseEnter={handleBubbleEnter}
+              onMouseLeave={handleBubbleLeave}
             >
               {quotedMessage && (
                 <div className="quoted-message">
@@ -216,32 +246,36 @@ export const MessageBubble = memo(function MessageBubble({
                   <span className="message-status">{getStatusIcon()}</span>
                 )}
               </div>
-            </div>
 
-            {/* Hover action bar (desktop only) */}
-            {!isTouchDevice && isHovered && !message.is_deleted && (
-              <div className={`msg-hover-actions${isMine ? " is-mine" : ""}`}>
-                <button type="button" onClick={() => onReply(message)} title="Ответить">
-                  <Reply size={14} />
-                </button>
-                <button type="button" onClick={() => onCopy(message.content)} title="Копировать">
-                  <Copy size={14} />
-                </button>
-                {isMine && (
-                  <button type="button" onClick={() => onEdit(message.id, message.content)} title="Редактировать">
-                    <Pencil size={14} />
+              {/* Hover action bar — positioned relative to .message-bubble */}
+              {!isTouchDevice && isHovered && !message.is_deleted && (
+                <div
+                  className={`msg-hover-actions${isMine ? " is-mine" : ""}`}
+                  onMouseEnter={handleActionsEnter}
+                  onMouseLeave={handleBubbleLeave}
+                >
+                  <button type="button" onClick={() => onReply(message)} title="Ответить">
+                    <Reply size={13} />
                   </button>
-                )}
-                {isMine && (
-                  <button type="button" onClick={() => onDelete(message.id)} title="Удалить" className="msg-hover-danger">
-                    <Trash2 size={14} />
+                  <button type="button" onClick={() => onCopy(message.content)} title="Копировать">
+                    <Copy size={13} />
                   </button>
-                )}
-                <button type="button" onClick={() => onTogglePin(message.id)} title={isPinned ? "Открепить" : "Закрепить"}>
-                  {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-                </button>
-              </div>
-            )}
+                  {isMine && (
+                    <button type="button" onClick={() => onEdit(message.id, message.content)} title="Редактировать">
+                      <Pencil size={13} />
+                    </button>
+                  )}
+                  {isMine && (
+                    <button type="button" onClick={() => onDelete(message.id)} title="Удалить" className="msg-hover-danger">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onTogglePin(message.id)} title={isPinned ? "Открепить" : "Закрепить"}>
+                    {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </ContextMenuTrigger>
 
