@@ -112,31 +112,33 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
     // Prevent liking your own posts/threads
     if (postAuthorId && currentUserId === postAuthorId) return;
 
+    const wasLiked = isLiked;
+    const prevCount = likesCount;
+
+    // Optimistic update
+    const newLiked = !wasLiked;
+    const newCount = newLiked ? prevCount + 1 : Math.max(0, prevCount - 1);
+    setIsLiked(newLiked);
+    setLikesCount(newCount);
+    updateLikeData(postId, isThread, newLiked, newCount);
+    onLikeChange?.(newLiked, newCount);
+
     setIsLoading(true);
     try {
-      if (isLiked) {
-        // Remove like
+      if (wasLiked) {
         const { error } = await api
           .from(isThread ? 'thread_likes' : 'post_likes')
           .delete()
           .eq(isThread ? 'thread_id' : 'post_id', postId)
           .eq('user_id', currentUserId);
 
-        if (!error) {
-          setIsLiked(false);
-          const newCount = Math.max(0, likesCount - 1);
-          setLikesCount(newCount);
-          updateLikeData(postId, isThread, false, newCount);
-          onLikeChange?.(false, newCount);
+        if (error) throw error;
 
-          // Re-check achievements after removing like
-          await checkAchievements(currentUserId, 'likes_given');
-          if (postAuthorId && postAuthorId !== currentUserId) {
-            await checkAchievements(postAuthorId, 'likes_received');
-          }
+        await checkAchievements(currentUserId, 'likes_given');
+        if (postAuthorId && postAuthorId !== currentUserId) {
+          await checkAchievements(postAuthorId, 'likes_received');
         }
       } else {
-        // Add like
         const { error } = await api
           .from(isThread ? 'thread_likes' : 'post_likes')
           .insert({
@@ -144,22 +146,20 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
             user_id: currentUserId
           });
 
-        if (!error) {
-          setIsLiked(true);
-          const newCount = likesCount + 1;
-          setLikesCount(newCount);
-          updateLikeData(postId, isThread, true, newCount);
-          onLikeChange?.(true, newCount);
+        if (error) throw error;
 
-          // Check achievements after adding like
-          await checkAchievements(currentUserId, 'likes_given');
-          if (postAuthorId && postAuthorId !== currentUserId) {
-            await checkAchievements(postAuthorId, 'likes_received');
-          }
+        await checkAchievements(currentUserId, 'likes_given');
+        if (postAuthorId && postAuthorId !== currentUserId) {
+          await checkAchievements(postAuthorId, 'likes_received');
         }
       }
     } catch (error) {
+      // Revert on error
       console.error('Error toggling like:', error);
+      setIsLiked(wasLiked);
+      setLikesCount(prevCount);
+      updateLikeData(postId, isThread, wasLiked, prevCount);
+      onLikeChange?.(wasLiked, prevCount);
     } finally {
       setIsLoading(false);
     }

@@ -896,6 +896,14 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     };
   }, []);
 
+  // Focus main content on route change for keyboard users
+  useEffect(() => {
+    const main = document.getElementById('main-content');
+    if (main && document.activeElement === document.body) {
+      main.focus({ preventScroll: true });
+    }
+  }, [location.pathname]);
+
   // Check if current page is special (no header/footer)
   const isSpecialPage = location.pathname.startsWith('/auth');
   const isMessengerPage = location.pathname.startsWith('/messages');
@@ -909,6 +917,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
 
   return (
     <div className="bg-background min-h-screen flex flex-col">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded-md focus:outline-none"
+      >
+        Перейти к основному содержимому
+      </a>
       <AchievementToastListener />
       {!hideChrome ? (
       <motion.header
@@ -1308,9 +1322,9 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         </motion.div>
       )}
 
-      <div className="flex-1 min-h-0" style={{ paddingTop: hideChrome ? 0 : contentPad }}>
+      <main id="main-content" tabIndex={-1} className="flex-1 min-h-0 outline-none" style={{ paddingTop: hideChrome ? 0 : contentPad }}>
         {children}
-      </div>
+      </main>
 
       {!hideChrome && !isMessengerPage ? (
       <div className="mt-auto" data-app-layout-footer="true">

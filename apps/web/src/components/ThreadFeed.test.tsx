@@ -147,14 +147,15 @@ describe("ThreadFeed", () => {
     // Never-resolving fetch
     mockFetch.mockImplementation(() => new Promise(() => {}));
 
-    render(
+    const { container } = render(
       <ThreadFeedComponent
         currentUserId="current-user"
         currentUsername="currentuser"
       />,
     );
 
-    expect(screen.getAllByTestId("pentagram-loader").length).toBeGreaterThanOrEqual(1);
+    // Skeleton loading state renders animated pulse divs
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
   // ─── Threads rendering ──────────────────────────────────────────────────────

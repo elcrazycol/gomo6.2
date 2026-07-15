@@ -1561,10 +1561,6 @@ const Board = () => {
                   </div>
                 </div>
               ))}
-              {/* Loader centered in viewport — only on full page load */}
-              <div className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
-                <PentagramLoader size="lg" />
-              </div>
             </>
           ) : (
             <>
@@ -1573,8 +1569,8 @@ const Board = () => {
                 <PentagramLoader size="sm" />
               </div>
             )}
-            {threads.map((thread) => (
-              isGomoRoute ? (
+                    {threads.map((thread) => (
+                      isGomoRoute ? (
                 <Card key={thread.id} className="border-border/70 bg-card/95 p-0 overflow-hidden hover:border-primary/35 transition-colors rounded-xl">
                   <div className="p-3 sm:p-5">
                     <div className="space-y-3">

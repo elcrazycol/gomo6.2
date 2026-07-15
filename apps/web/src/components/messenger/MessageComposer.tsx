@@ -278,6 +278,7 @@ export const MessageComposer = memo(function MessageComposer({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={isEditing ? "" : "Напиши сообщение..."}
+          aria-label={isEditing ? "Редактировать сообщение" : "Написать сообщение"}
           maxLength={MAX_LENGTH}
           rows={1}
           className={isEditing ? "composer-edit-input" : ""}

@@ -146,13 +146,14 @@ describe("Profile", () => {
     mockRpc.mockResolvedValue({ data: 0, error: null });
   }
 
-  it("shows pentagram loader before profile loads", () => {
+  it("shows skeleton loader before profile loads", () => {
     mockAuth.getSession.mockReturnValue(new Promise(() => {}));
     mockAuth.getUser.mockReturnValue(new Promise(() => {}));
     mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
 
-    renderWithProviders(<ProfileComponent />);
-    expect(screen.getByTestId("pentagram-loader")).toBeInTheDocument();
+    const { container } = renderWithProviders(<ProfileComponent />);
+    // Skeleton loading state renders animated pulse divs
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
   it("renders username after profile loads", async () => {

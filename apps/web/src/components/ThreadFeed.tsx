@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/integrations/api/compat";
 import { ThreadCard } from "@/components/ThreadCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
 
 interface Thread {
   id: string;
@@ -205,11 +206,7 @@ export const ThreadFeed = ({
   }, [hasMore, loadingMore, loading, loadThreads]);
 
   if (loading) {
-    return (
-      <div className="flex justify-center py-8">
-        <PentagramLoader size="lg" />
-      </div>
-    );
+    return <ThreadFeedSkeleton count={limit > 5 ? 5 : limit} />;
   }
 
   return (
