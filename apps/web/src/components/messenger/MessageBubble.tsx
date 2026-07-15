@@ -143,9 +143,16 @@ export const MessageBubble = memo(function MessageBubble({
     return <span className="status-check">✓</span>;
   };
 
+  const handleRowDoubleClick = useCallback(() => {
+    if (!isTouchDevice) onReply(message);
+  }, [isTouchDevice, onReply, message]);
+
   if (message.is_deleted) {
     return (
-      <div className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}>
+      <div
+        className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
+        onDoubleClick={handleRowDoubleClick}
+      >
         <div className="message-bubble deleted-bubble">
           <em>Сообщение удалено</em>
         </div>
@@ -154,25 +161,28 @@ export const MessageBubble = memo(function MessageBubble({
   }
 
   return (
-    <div className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div
-            className={`bubble-row-inner${isLongPressing ? " is-long-press" : ""}${isSwiping ? " is-swiping" : ""}`}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onTouchCancel={handleTouchCancel}
-            {...bind()}
-            style={{ transform: `translateX(${swipeOffset}px)`, touchAction: "pan-y" }}
-          >
-            {/* Swipe reply indicator */}
-            {swipeOffset < -20 && (
-              <div className="swipe-reply-indicator" style={{ opacity: Math.min(1, Math.abs(swipeOffset) / SWIPE_THRESHOLD) }}>
-                <Reply size={18} />
-              </div>
-            )}
+    <div
+      className={`bubble-row${isMine ? " is-mine" : ""}${isConsecutive ? " is-consecutive" : ""}`}
+      onDoubleClick={handleRowDoubleClick}
+    >
+      <div
+        className={`bubble-row-inner${isLongPressing ? " is-long-press" : ""}${isSwiping ? " is-swiping" : ""}`}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
+        {...bind()}
+        style={{ transform: `translateX(${swipeOffset}px)`, touchAction: "pan-y" }}
+      >
+        {/* Swipe reply indicator */}
+        {swipeOffset < -20 && (
+          <div className="swipe-reply-indicator" style={{ opacity: Math.min(1, Math.abs(swipeOffset) / SWIPE_THRESHOLD) }}>
+            <Reply size={18} />
+          </div>
+        )}
 
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
             <div
               className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}`}
               data-message-id={message.id}
@@ -212,34 +222,34 @@ export const MessageBubble = memo(function MessageBubble({
                 )}
               </div>
             </div>
-          </div>
-        </ContextMenuTrigger>
+          </ContextMenuTrigger>
 
-        <ContextMenuContent className="msg-context-menu">
-          <ContextMenuItem onClick={() => onReply(message)}>
-            <Reply size={14} /><span>Ответить</span>
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => onCopy(message.content)}>
-            <Copy size={14} /><span>Копировать</span>
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          {isMine && !message.is_deleted && (
-            <>
-              <ContextMenuItem onClick={() => onEdit(message.id, message.content)}>
-                <Pencil size={14} /><span>Редактировать</span>
-              </ContextMenuItem>
-              <ContextMenuItem className="msg-context-item-danger" onClick={() => onDelete(message.id)}>
-                <Trash2 size={14} /><span>Удалить</span>
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-            </>
-          )}
-          <ContextMenuItem onClick={() => onTogglePin(message.id)}>
-            {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-            <span>{isPinned ? "Открепить" : "Закрепить"}</span>
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+          <ContextMenuContent className="msg-context-menu">
+            <ContextMenuItem onClick={() => onReply(message)}>
+              <Reply size={14} /><span>Ответить</span>
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => onCopy(message.content)}>
+              <Copy size={14} /><span>Копировать</span>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            {isMine && !message.is_deleted && (
+              <>
+                <ContextMenuItem onClick={() => onEdit(message.id, message.content)}>
+                  <Pencil size={14} /><span>Редактировать</span>
+                </ContextMenuItem>
+                <ContextMenuItem className="msg-context-item-danger" onClick={() => onDelete(message.id)}>
+                  <Trash2 size={14} /><span>Удалить</span>
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+              </>
+            )}
+            <ContextMenuItem onClick={() => onTogglePin(message.id)}>
+              {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+              <span>{isPinned ? "Открепить" : "Закрепить"}</span>
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      </div>
     </div>
   );
 });
