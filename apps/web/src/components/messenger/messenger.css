@@ -458,6 +458,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
+  margin-bottom: 4px;
 }
 
 .bubble-row.is-mine {
@@ -472,6 +473,7 @@
   width: 100%;
   min-width: 0;
   position: relative;
+  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .bubble-row-inner.is-swiping {
