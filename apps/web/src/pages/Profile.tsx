@@ -16,6 +16,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
+import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
 import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -909,11 +910,7 @@ const Profile = () => {
 
   // Don't show fullscreen loader for pageLoading - let content loader handle it
   if (!profile) {
-    return (
-      <div className="bg-background flex items-center justify-center min-h-screen">
-        <PentagramLoader size="lg" />
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   const isOwnProfile = currentUser?.id === userId;
@@ -929,11 +926,7 @@ const Profile = () => {
 
   return (
     <main className="max-w-2xl mx-auto p-4">
-        {pageLoading && (
-          <div className="flex items-center justify-center py-20">
-            <PentagramLoader size="lg" />
-          </div>
-        )}
+        {pageLoading && <ProfileSkeleton />}
         {!pageLoading && (
           <div className="space-y-6">
           {/* Private profile banner */}

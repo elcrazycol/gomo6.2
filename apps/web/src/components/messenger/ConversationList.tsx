@@ -1,4 +1,5 @@
-import { memo, useCallback, useState, useMemo } from "react";
+import { memo, useCallback, useState, useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { MessageCircle, UserPlus, X, Plus, Lock } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
@@ -84,6 +85,70 @@ const ConversationCard = memo(function ConversationCard({
   );
 });
 
+const ConversationVirtualList = memo(function ConversationVirtualList({
+  conversations,
+  selectedId,
+  onSelect,
+}: {
+  conversations: ConversationView[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: conversations.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 72,
+    overscan: 5,
+  });
+
+  if (conversations.length <= 20) {
+    return (
+      <>
+        {conversations.map((conv) => (
+          <ConversationCard
+            key={conv.id}
+            conversation={conv}
+            isSelected={conv.id === selectedId}
+            onSelect={() => onSelect(conv.id)}
+          />
+        ))}
+      </>
+    );
+  }
+
+  return (
+    <div ref={parentRef} style={{ overflow: 'auto', flex: 1 }}>
+      <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const conv = conversations[virtualRow.index];
+          return (
+            <div
+              key={conv.id}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <ConversationCard
+                conversation={conv}
+                isSelected={conv.id === selectedId}
+                onSelect={() => onSelect(conv.id)}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 export const ConversationList = memo(function ConversationList({
   onStartChat,
   onSelectConversation,
@@ -157,7 +222,7 @@ export const ConversationList = memo(function ConversationList({
         </div>
       )}
 
-      <div className="conversation-list">
+      <div className="conversation-list" role="navigation" aria-label="Диалоги">
         {conversations.length > 3 && (
           <div style={{ padding: "0 0 4px" }}>
             <input
@@ -207,14 +272,11 @@ export const ConversationList = memo(function ConversationList({
           </div>
         )}
 
-        {filteredConversations.map((conv) => (
-          <ConversationCard
-            key={conv.id}
-            conversation={conv}
-            isSelected={conv.id === selectedId}
-            onSelect={() => handleSelect(conv.id)}
-          />
-        ))}
+        <ConversationVirtualList
+          conversations={filteredConversations}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+        />
       </div>
     </>
   );

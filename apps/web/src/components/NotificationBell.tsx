@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,13 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const init = useNotificationStore((s) => s.init);
   const markAsRead = useNotificationStore((s) => s.markAsRead);
+  const prevCountRef = useRef(unreadCount);
+  const announcement = useMemo(() => {
+    const diff = unreadCount - prevCountRef.current;
+    prevCountRef.current = unreadCount;
+    if (diff > 0) return `Новое уведомление${diff > 1 ? ` (${diff})` : ''}`;
+    return '';
+  }, [unreadCount]);
 
   useEffect(() => {
     init(userId);
@@ -28,6 +35,9 @@ export const NotificationBell = ({ userId }: { userId: string }) => {
 
   return (
     <div className="relative">
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
       <Button
         variant="ghost"
         size="sm"

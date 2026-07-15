@@ -354,7 +354,7 @@ export const ChatView = memo(function ChatView({
       </div>
 
       {/* Messages */}
-      <div ref={scrollContainerRef} className="message-scroll" onScroll={handleScroll}>
+      <div ref={scrollContainerRef} className="message-scroll" onScroll={handleScroll} role="log" aria-label="Сообщения" aria-live="polite">
         {error && (
           <div className="error-banner chat-error-banner">
             <span>{error}</span>
