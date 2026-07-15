@@ -195,8 +195,9 @@ export const ChatView = memo(function ChatView({
 
   const handleReply = useCallback((msg: MessageView) => {
     setReplyToMessage(msg);
+    pinToBottom();
     setTimeout(() => composerRef.current?.focus(), 50);
-  }, [composerRef]);
+  }, [composerRef, pinToBottom]);
 
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text).catch(() => {
