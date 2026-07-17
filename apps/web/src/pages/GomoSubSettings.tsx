@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, Settings, Plus, Trash2, GripVertical, Hash, Shield, Lock, Eye, EyeOff, Users, Link, Copy, Calendar, Infinity as InfinityIcon, Clock } from "lucide-react";
+import { Loader2, Save, Settings, Plus, Trash2, GripVertical, Hash, Shield, Lock, Eye, EyeOff, Users, Link, Copy, Calendar, Infinity as InfinityIcon, Clock, Download } from "lucide-react";
 import { toast } from "sonner";
 import { renderPreviewContent } from "@/utils/emojiUtils";
 
@@ -201,6 +201,37 @@ const GomoSubSettings = () => {
 
   const handleSave = async () => { if (!isOwner) return; if (!form.name.trim()) { toast.error("Название обязательно"); return; } if (!form.description.trim()) { toast.error("Описание обязательно"); return; } setSaving(true); const updateData: Record<string, unknown> = { name: form.name.trim(), description: form.description.trim(), gomosub_avatar_url: form.gomosub_avatar_url || null, cover_image_url: form.cover_image_url || null, gomosub_tags: form.gomosub_tags }; if (rulesChanged) { updateData.rules_markdown = rulesPreview || null; } const { error } = await api.from("boards").update(updateData).eq("id", form.id); setSaving(false); if (error) { toast.error((error as { message?: string }).message || "Не удалось сохранить"); return; } if (rulesChanged) { setOriginalRulesMarkdown(rulesPreview || null); } toast.success("Настройки g-саба сохранены"); };
 
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    if (!form.id) return;
+    setExporting(true);
+    try {
+      const { data: { session } } = await api.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`/api/v1/boards/${form.id}/backup/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gomosub-${slug}-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Архив скачан");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Ошибка экспорта");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (loading) return <div className="max-w-4xl mx-auto p-6 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
   return (
@@ -285,7 +316,7 @@ const GomoSubSettings = () => {
             </div>
           )}
           {activeTab === "general" && boardVisibility === "public" && (<div className="rounded-lg border border-border p-3 bg-muted/30"><div className="text-xs text-muted-foreground mb-2">Превью правил</div>{renderPreviewContent(rulesPreview, "g-settings-rules")}</div>)}
-          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between"><Button variant="outline" onClick={() => navigate(`/g/${slug}`)}>К g-сабу</Button><Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}<Save className="w-4 h-4 mr-2" />Сохранить</Button></div>
+          <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between"><Button variant="outline" onClick={() => navigate(`/g/${slug}`)}>К g-сабу</Button><div className="flex gap-2">{isOwner && <Button variant="outline" onClick={handleExport} disabled={exporting}>{exporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}Экспорт</Button>}<Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}<Save className="w-4 h-4 mr-2" />Сохранить</Button></div></div>
         </CardContent>
       </Card>
     </div>
