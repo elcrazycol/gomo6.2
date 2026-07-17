@@ -909,11 +909,12 @@ func ensureGhostUserTx(tx *sql.Tx) (string, error) {
 	}
 
 	ghostID = uuid.New().String()
+	walletAddr := "GM6-" + ghostID[:8]
 	_, err = tx.Exec(`
-		INSERT INTO users (id, username, email, password_hash, display_name, is_anonymous, bio, domain, created_at, updated_at)
-		VALUES ($1, '_ghost', '_ghost@internal', '!', '[Удалённый профиль]', true, 'Профиль был удалён или не найден при импорте', 'localhost:8080', NOW(), NOW())
+		INSERT INTO users (id, username, email, password_hash, display_name, is_anonymous, bio, domain, wallet_address, created_at, updated_at)
+		VALUES ($1, '_ghost', '_ghost@internal', '!', '[Удалённый профиль]', true, 'Профиль был удалён или не найден при импорте', 'localhost:8080', $2, NOW(), NOW())
 		ON CONFLICT (username) DO NOTHING
-	`, ghostID)
+	`, ghostID, walletAddr)
 	if err != nil {
 		return "", fmt.Errorf("insert ghost user: %w", err)
 	}
