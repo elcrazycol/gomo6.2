@@ -208,7 +208,7 @@ func (h *BackupHandler) Export(c *gin.Context) {
 
 // ── Import ────────────────────────────────────────────────────────────────
 
-// Import — POST /api/v1/boards/:id/backup/import
+// Import — POST /api/v1/boards/backup/import
 func (h *BackupHandler) Import(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -240,41 +240,61 @@ func (h *BackupHandler) Import(c *gin.Context) {
 
 	tr := tar.NewReader(gzReader)
 
-	// Parse all JSON entries first
 	archiveData, fileEntries, err := parseTarArchive(tr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(fmt.Sprintf("Failed to parse archive: %v", err)))
 		return
 	}
 
-	manifest, ok := archiveData["backup-manifest.json"].(map[string]interface{})
-	if !ok {
+	if _, ok := archiveData["backup-manifest.json"].(map[string]interface{}); !ok {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid archive: missing manifest"))
 		return
 	}
-	_ = manifest // version check could go here
-
 	boardData, ok := archiveData["board.json"].(map[string]interface{})
 	if !ok {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid archive: missing board.json"))
 		return
 	}
 
-	// Start transaction
-	tx, err := h.db.Begin()
+	result, err := h.runImport(c.Request.Context(), userClaims.UserID, archiveData)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to start transaction"))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	_ = boardData
+
+	if h.storage != nil && len(fileEntries) > 0 {
+		go h.uploadImportedFiles(result.boardID, fileEntries)
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{
+		"board_id":   result.boardID,
+		"board_slug": result.slug,
+		"name":       result.name,
+	}))
+}
+
+type importResult struct {
+	boardID string
+	slug    string
+	name    string
+}
+
+func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiveData map[string]interface{}) (*importResult, error) {
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// 1. Ensure ghost user exists
-	ghostID := ensureGhostUser(tx)
+	ghostID, err := ensureGhostUserTx(tx)
+	if err != nil {
+		return nil, fmt.Errorf("ghost user: %w", err)
+	}
 
-	// 2. Create board with new UUID
+	boardData := archiveData["board.json"].(map[string]interface{})
 	newBoardID := uuid.New().String()
-	_ = ghostID // used implicitly via user mapping
-
 	slug := jsonStr(boardData, "slug")
 	name := jsonStr(boardData, "name")
 	description := jsonStrPtr(boardData, "description")
@@ -288,20 +308,18 @@ func (h *BackupHandler) Import(c *gin.Context) {
 	gomosubTags := jsonRaw(boardData, "gomosub_tags")
 	rulesMarkdown := jsonStrPtr(boardData, "rules_markdown")
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO boards (id, slug, name, description, is_gomosub, is_rules_board, owner_id, visibility, gomosub_avatar_url, cover_image_url, gomosub_tags, rules_markdown)
 		VALUES ($1, $2, $3, $4, $5, false, $6, $7, $8, $9, $10, $11)
-	`, newBoardID, slug+"-import", name, description, isGomosub, userClaims.UserID, visibility, gomosubAvatarURL, coverImageURL, gomosubTags, rulesMarkdown)
+	`, newBoardID, slug+"-import", name, description, isGomosub, importerID, visibility, gomosubAvatarURL, coverImageURL, gomosubTags, rulesMarkdown)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to create board: %v", err)))
-		return
+		return nil, fmt.Errorf("create board: %w", err)
 	}
 
-	// Build user mapping: old user_id -> local user_id
-	userMapping := buildUserMapping(tx, archiveData, userClaims.UserID, ghostID)
+	userMapping := buildUserMapping(tx, archiveData, importerID, ghostID)
 
-	// 3. Channels
-	channelMapping := make(map[string]string) // old -> new
+	// Channels
+	channelMapping := make(map[string]string)
 	if channels, ok := archiveData["channels.json"].([]interface{}); ok {
 		for _, ch := range channels {
 			chMap, ok := ch.(map[string]interface{})
@@ -311,22 +329,19 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			oldID := jsonStr(chMap, "id")
 			newID := uuid.New().String()
 			channelMapping[oldID] = newID
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO channels (id, board_id, slug, name, description, category, sort_order, is_private)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			`, newID, newBoardID, jsonStr(chMap, "slug"), jsonStr(chMap, "name"),
 				jsonStrPtr(chMap, "description"), jsonStrPtr(chMap, "category"),
-				jsonInt(chMap, "sort_order"), jsonBool(chMap, "is_private"))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to import channel: %v", err)))
-				return
+				jsonInt(chMap, "sort_order"), jsonBool(chMap, "is_private")); err != nil {
+				return nil, fmt.Errorf("import channel %q: %w", jsonStr(chMap, "slug"), err)
 			}
 		}
 	}
 
-	// 4. Roles
-	roleMapping := make(map[string]string) // old -> new
+	// Roles
+	roleMapping := make(map[string]string)
 	if roles, ok := archiveData["roles.json"].([]interface{}); ok {
 		for _, r := range roles {
 			rMap, ok := r.(map[string]interface{})
@@ -336,20 +351,17 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			oldID := jsonStr(rMap, "id")
 			newID := uuid.New().String()
 			roleMapping[oldID] = newID
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO gomosub_roles (id, board_id, name, color, position, permissions)
 				VALUES ($1, $2, $3, $4, $5, $6)
 			`, newID, newBoardID, jsonStr(rMap, "name"), jsonStr(rMap, "color"),
-				jsonInt(rMap, "position"), jsonRaw(rMap, "permissions"))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to import role: %v", err)))
-				return
+				jsonInt(rMap, "position"), jsonRaw(rMap, "permissions")); err != nil {
+				return nil, fmt.Errorf("import role %q: %w", jsonStr(rMap, "name"), err)
 			}
 		}
 	}
 
-	// 5. Channel permissions
+	// Channel permissions
 	if perms, ok := archiveData["channel_permissions.json"].([]interface{}); ok {
 		for _, p := range perms {
 			pMap, ok := p.(map[string]interface{})
@@ -361,20 +373,17 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			if newChannelID == "" || newRoleID == "" {
 				continue
 			}
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO channel_permissions (id, channel_id, role_id, can_read, can_write)
 				VALUES ($1, $2, $3, $4, $5)
 			`, uuid.New().String(), newChannelID, newRoleID,
-				jsonBool(pMap, "can_read"), jsonBool(pMap, "can_write"))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to import channel permission: %v", err)))
-				return
+				jsonBool(pMap, "can_read"), jsonBool(pMap, "can_write")); err != nil {
+				log.Printf("backup import: channel_permission: %v", err)
 			}
 		}
 	}
 
-	// 6. Memberships
+	// Memberships
 	if mems, ok := archiveData["memberships.json"].([]interface{}); ok {
 		for _, m := range mems {
 			mMap, ok := m.(map[string]interface{})
@@ -390,19 +399,17 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			if role == "" {
 				role = "member"
 			}
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO gomosub_memberships (user_id, board_id, role)
 				VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
-			`, localUserID, newBoardID, role)
-			if err != nil {
-				log.Printf("backup import: membership insert: %v", err)
+			`, localUserID, newBoardID, role); err != nil {
+				log.Printf("backup import: membership: %v", err)
 			}
 		}
 	}
 
-	// 7. Threads (with mapping)
-	threadMapping := make(map[string]string) // old -> new
+	// Threads
+	threadMapping := make(map[string]string)
 	if threads, ok := archiveData["threads.json"].([]interface{}); ok {
 		for _, th := range threads {
 			thMap, ok := th.(map[string]interface{})
@@ -419,27 +426,23 @@ func (h *BackupHandler) Import(c *gin.Context) {
 					channelID = &chNew
 				}
 			}
-
 			userID := mapUserID(userMapping, jsonStrPtr(thMap, "user_id"), ghostID)
 
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO threads (id, board_id, channel_id, user_id, title, content, content_json, image_url, image_urls, attachments, tags, post_count, server_domain, created_at, updated_at, is_remote)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			`, newID, newBoardID, channelID, userID,
 				jsonStr(thMap, "title"), jsonStr(thMap, "content"), jsonRaw(thMap, "content_json"),
 				jsonStrPtr(thMap, "image_url"), jsonRaw(thMap, "image_urls"), jsonRaw(thMap, "attachments"),
 				jsonRaw(thMap, "tags"), jsonInt(thMap, "post_count"), jsonStr(thMap, "server_domain"),
-				jsonTime(thMap, "created_at"), jsonTime(thMap, "updated_at"), jsonBool(thMap, "is_remote"))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to import thread: %v", err)))
-				return
+				jsonTime(thMap, "created_at"), jsonTime(thMap, "updated_at"), jsonBool(thMap, "is_remote")); err != nil {
+				return nil, fmt.Errorf("import thread: %w", err)
 			}
 		}
 	}
 
-	// 8. Posts — two-pass for reply_to
+	// Posts — two-pass for reply_to
 	type postImport struct {
-		oldID   string
 		newID   string
 		replyTo *string
 	}
@@ -447,7 +450,6 @@ func (h *BackupHandler) Import(c *gin.Context) {
 	postMapping := make(map[string]string)
 
 	if allPosts, ok := archiveData["posts.json"].([]interface{}); ok {
-		// Pass 1: insert all posts with reply_to = NULL
 		for _, p := range allPosts {
 			pMap, ok := p.(map[string]interface{})
 			if !ok {
@@ -461,28 +463,24 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			if newThreadID == "" {
 				continue
 			}
-
 			userID := mapUserID(userMapping, jsonStrPtr(pMap, "user_id"), ghostID)
 
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO posts (id, thread_id, user_id, content, content_json, image_url, image_urls, attachments, reply_to, is_private, private_recipient_id, server_domain, created_at, is_remote)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $12, $13)
 			`, newID, newThreadID, userID,
 				jsonStr(pMap, "content"), jsonRaw(pMap, "content_json"),
 				jsonStrPtr(pMap, "image_url"), jsonRaw(pMap, "image_urls"), jsonRaw(pMap, "attachments"),
 				jsonBool(pMap, "is_private"), jsonStrPtr(pMap, "private_recipient_id"),
-				jsonStr(pMap, "server_domain"), jsonTime(pMap, "created_at"), jsonBool(pMap, "is_remote"))
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to import post: %v", err)))
-				return
+				jsonStr(pMap, "server_domain"), jsonTime(pMap, "created_at"), jsonBool(pMap, "is_remote")); err != nil {
+				return nil, fmt.Errorf("import post: %w", err)
 			}
 
 			if rt := jsonStrPtr(pMap, "reply_to"); rt != nil {
-				posts = append(posts, postImport{oldID: oldID, newID: newID, replyTo: rt})
+				posts = append(posts, postImport{newID: newID, replyTo: rt})
 			}
 		}
 
-		// Pass 2: update reply_to
 		for _, pi := range posts {
 			if pi.replyTo == nil {
 				continue
@@ -491,14 +489,13 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			if newReplyTo == "" {
 				continue
 			}
-			_, err = tx.Exec(`UPDATE posts SET reply_to = $1 WHERE id = $2`, newReplyTo, pi.newID)
-			if err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE posts SET reply_to = $1 WHERE id = $2`, newReplyTo, pi.newID); err != nil {
 				log.Printf("backup import: update reply_to: %v", err)
 			}
 		}
 	}
 
-	// 9. Thread likes
+	// Thread likes
 	if likes, ok := archiveData["thread_likes.json"].([]interface{}); ok {
 		for _, l := range likes {
 			lMap, ok := l.(map[string]interface{})
@@ -510,18 +507,16 @@ func (h *BackupHandler) Import(c *gin.Context) {
 				continue
 			}
 			userID := mapUserID(userMapping, jsonStrPtr(lMap, "user_id"), ghostID)
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO thread_likes (id, thread_id, user_id, created_at)
 				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
-			`, uuid.New().String(), newThreadID, userID, jsonTime(lMap, "created_at"))
-			if err != nil {
+			`, uuid.New().String(), newThreadID, userID, jsonTime(lMap, "created_at")); err != nil {
 				log.Printf("backup import: thread_like: %v", err)
 			}
 		}
 	}
 
-	// 10. Post likes
+	// Post likes
 	if likes, ok := archiveData["post_likes.json"].([]interface{}); ok {
 		for _, l := range likes {
 			lMap, ok := l.(map[string]interface{})
@@ -533,18 +528,16 @@ func (h *BackupHandler) Import(c *gin.Context) {
 				continue
 			}
 			userID := mapUserID(userMapping, jsonStrPtr(lMap, "user_id"), ghostID)
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO post_likes (id, post_id, user_id, created_at)
 				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
-			`, uuid.New().String(), newPostID, userID, jsonTime(lMap, "created_at"))
-			if err != nil {
+			`, uuid.New().String(), newPostID, userID, jsonTime(lMap, "created_at")); err != nil {
 				log.Printf("backup import: post_like: %v", err)
 			}
 		}
 	}
 
-	// 11. Polls
+	// Polls
 	pollMapping := make(map[string]string)
 	if polls, ok := archiveData["polls.json"].([]interface{}); ok {
 		for _, p := range polls {
@@ -560,19 +553,17 @@ func (h *BackupHandler) Import(c *gin.Context) {
 			if newThreadID == "" {
 				continue
 			}
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO polls (id, thread_id, question, options, allow_multiple, show_results, allow_change_vote)
 				VALUES ($1, $2, $3, $4, $5, $6, $7)
 			`, newID, newThreadID, jsonStr(pMap, "question"), jsonRaw(pMap, "options"),
-				jsonBool(pMap, "allow_multiple"), jsonBool(pMap, "show_results"), jsonBool(pMap, "allow_change_vote"))
-			if err != nil {
+				jsonBool(pMap, "allow_multiple"), jsonBool(pMap, "show_results"), jsonBool(pMap, "allow_change_vote")); err != nil {
 				log.Printf("backup import: poll: %v", err)
 			}
 		}
 	}
 
-	// 12. Poll votes
+	// Poll votes
 	if votes, ok := archiveData["poll_votes.json"].([]interface{}); ok {
 		for _, v := range votes {
 			vMap, ok := v.(map[string]interface{})
@@ -584,33 +575,20 @@ func (h *BackupHandler) Import(c *gin.Context) {
 				continue
 			}
 			userID := mapUserID(userMapping, jsonStrPtr(vMap, "user_id"), ghostID)
-
-			_, err = tx.Exec(`
+			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO poll_votes (id, poll_id, user_id, option_id, created_at)
 				VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
-			`, uuid.New().String(), newPollID, userID, jsonStrPtr(vMap, "option_id"), jsonTime(vMap, "created_at"))
-			if err != nil {
+			`, uuid.New().String(), newPollID, userID, jsonStrPtr(vMap, "option_id"), jsonTime(vMap, "created_at")); err != nil {
 				log.Printf("backup import: poll_vote: %v", err)
 			}
 		}
 	}
 
-	// Commit transaction
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("Failed to commit: %v", err)))
-		return
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 
-	// Upload files to S3 (after commit)
-	if h.storage != nil && len(fileEntries) > 0 {
-		go h.uploadImportedFiles(newBoardID, fileEntries)
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(map[string]string{
-		"board_id":   newBoardID,
-		"board_slug": slug + "-import",
-		"name":       name,
-	}))
+	return &importResult{boardID: newBoardID, slug: slug + "-import", name: name}, nil
 }
 
 // ── ImportInfo ────────────────────────────────────────────────────────────
@@ -920,22 +898,31 @@ func (h *BackupHandler) uploadImportedFiles(newBoardID string, fileEntries []fil
 	}
 }
 
-func ensureGhostUser(tx *sql.Tx) string {
+func ensureGhostUserTx(tx *sql.Tx) (string, error) {
 	var ghostID string
 	err := tx.QueryRow(`SELECT id FROM users WHERE username = '_ghost'`).Scan(&ghostID)
 	if err == nil {
-		return ghostID
+		return ghostID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", fmt.Errorf("query ghost user: %w", err)
 	}
 
 	ghostID = uuid.New().String()
-	_, _ = tx.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO users (id, username, display_name, is_anonymous, bio, created_at, updated_at)
 		VALUES ($1, '_ghost', '[Удалённый профиль]', true, 'Профиль был удалён или не найден при импорте', NOW(), NOW())
 		ON CONFLICT (username) DO NOTHING
 	`, ghostID)
+	if err != nil {
+		return "", fmt.Errorf("insert ghost user: %w", err)
+	}
 	// Re-read in case of race
-	_ = tx.QueryRow(`SELECT id FROM users WHERE username = '_ghost'`).Scan(&ghostID)
-	return ghostID
+	err = tx.QueryRow(`SELECT id FROM users WHERE username = '_ghost'`).Scan(&ghostID)
+	if err != nil {
+		return "", fmt.Errorf("re-read ghost user: %w", err)
+	}
+	return ghostID, nil
 }
 
 func buildUserMapping(tx *sql.Tx, archiveData map[string]interface{}, importerID, ghostID string) map[string]string {

@@ -542,6 +542,12 @@ const GomoSubCreate = () => {
                 };
                 input.click();
               }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files[0];
+                if (file) handleImportFileSelect(file);
+              }}
             >
               {importLoading ? (
                 <Loader2 className="w-8 h-8 mx-auto animate-spin text-muted-foreground" />
