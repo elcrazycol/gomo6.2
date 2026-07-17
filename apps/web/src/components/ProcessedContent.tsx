@@ -267,37 +267,41 @@ export const ProcessedContent = ({
 
   // If processed content is empty (completely hidden)
   if (!visibilityResult.processedContent || visibilityResult.processedContent.trim() === '') {
-    if (visibilityResult.hiddenReason === 'seeusers' && visibleUsernames.length > 0) {
-      // Content visible only for specific users
-      return (
-        <span className="text-muted-foreground italic">
-          Скрытый контент для{' '}
-          {visibleUsernames.map((username, idx) => (
-            <span key={`${username}-${idx}`}>
-              <MentionLink username={username} />
-              {idx < visibleUsernames.length - 1 && ', '}
-            </span>
-          ))}
-        </span>
-      );
-    } else if (visibilityResult.hiddenReason === 'nousers' && hiddenUsernames.length > 0) {
-      // Content hidden from specific users
-      return (
-        <span className="text-muted-foreground italic">
-          Скрытый контент от:{' '}
-          {hiddenUsernames.map((username, idx) => (
-            <span key={`${username}-${idx}`}>
-              <MentionLink username={username} />
-              {idx < hiddenUsernames.length - 1 && ', '}
-            </span>
-          ))}
-        </span>
-      );
-    } else if (visibilityResult.hiddenReason === 'adm') {
-      return <span className="text-muted-foreground italic">Скрытый контент</span>;
-    } else {
-      return <span className="text-muted-foreground italic">Скрытый контент</span>;
+    // Only show "Скрытый контент" when there's an actual visibility restriction
+    if (visibilityResult.hiddenReason) {
+      if (visibilityResult.hiddenReason === 'seeusers' && visibleUsernames.length > 0) {
+        return (
+          <span className="text-muted-foreground italic">
+            Скрытый контент для{' '}
+            {visibleUsernames.map((username, idx) => (
+              <span key={`${username}-${idx}`}>
+                <MentionLink username={username} />
+                {idx < visibleUsernames.length - 1 && ', '}
+              </span>
+            ))}
+          </span>
+        );
+      } else if (visibilityResult.hiddenReason === 'nousers' && hiddenUsernames.length > 0) {
+        return (
+          <span className="text-muted-foreground italic">
+            Скрытый контент от:{' '}
+            {hiddenUsernames.map((username, idx) => (
+              <span key={`${username}-${idx}`}>
+                <MentionLink username={username} />
+                {idx < hiddenUsernames.length - 1 && ', '}
+              </span>
+            ))}
+          </span>
+        );
+      } else {
+        return <span className="text-muted-foreground italic">Скрытый контент</span>;
+      }
     }
+    // No hidden reason and empty plain text — try rich content rendering
+    if (contentJson) {
+      return <RichContentRenderer contentJson={contentJson} />;
+    }
+    return null;
   }
 
 
