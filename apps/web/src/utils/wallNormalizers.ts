@@ -1,4 +1,5 @@
 import { lexicalJsonToPlainText } from "@/utils/lexicalContent";
+import { prosemirrorToPlainText } from "@/utils/contentConverter";
 import type { AttachmentMeta } from "@/types/forum";
 import { safeDate } from "@/utils/safeDate";
 
@@ -91,7 +92,7 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
   const contentStr = comment?.content as string | undefined;
   const content = typeof contentStr === "string" && contentStr.trim().length > 0
     ? contentStr
-    : lexicalJsonToPlainText(contentJson, "");
+    : prosemirrorToPlainText(contentJson, "") || lexicalJsonToPlainText(contentJson, "");
 
   return {
     id: comment.id as string,

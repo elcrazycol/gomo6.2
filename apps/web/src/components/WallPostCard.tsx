@@ -29,7 +29,7 @@ import {
   normalizeAttachments, isInteractiveTarget, getWallPostPath,
 } from "@/utils/wallNormalizers";
 import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
-import { lexicalJsonToPlainText, normalizeLexicalContent } from "@/utils/lexicalContent";
+import { normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
 
 interface WallPostCardProps {
@@ -207,8 +207,8 @@ export const WallPostCard = ({
 
   const handleSubmitComment = async () => {
     if (!currentUserId || isSubmittingComment) return;
-    const normalizedCommentJson = normalizeLexicalContent(commentJson, commentText);
-    const normalizedCommentText = lexicalJsonToPlainText(normalizedCommentJson, commentText);
+    const normalizedCommentJson = normalizeContent(commentJson, commentText);
+    const normalizedCommentText = prosemirrorToPlainText(normalizedCommentJson, "") || commentText;
     if (!normalizedCommentText.trim()) {
       toast.error("Напишите комментарий");
       return;
@@ -384,7 +384,7 @@ export const WallPostCard = ({
   const handleStartCommentEdit = (comment: WallComment) => {
     setEditingCommentId(comment.id);
     setEditingCommentText(comment.content || "");
-    setEditingCommentJson(normalizeLexicalContent(comment.content_json, comment.content || ""));
+    setEditingCommentJson(comment.content_json ?? null);
     setEditingCommentResetKey((prev) => prev + 1);
   };
 
@@ -397,8 +397,8 @@ export const WallPostCard = ({
 
   const handleSaveCommentEdit = async () => {
     if (!editingCommentId || isSavingCommentEdit) return;
-    const normalizedEditJson = normalizeLexicalContent(editingCommentJson, editingCommentText);
-    const normalizedEditText = lexicalJsonToPlainText(normalizedEditJson, editingCommentText);
+    const normalizedEditJson = normalizeContent(editingCommentJson, editingCommentText);
+    const normalizedEditText = prosemirrorToPlainText(normalizedEditJson, "") || editingCommentText;
     if (!normalizedEditText.trim()) {
       toast.error("Напишите комментарий");
       return;
