@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { storageUrl, uploadFile } from "@/utils/storage";
-import { Loader2, CheckCircle2, XCircle, Plus } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Plus, Upload } from "lucide-react";
 
 const RESERVED_SLUGS = [
   "b", "pol", "a", "v", "mu", "fit", "d", "tv", "co", "int",
@@ -47,6 +47,12 @@ const GomoSubCreate = () => {
   const [forbiddenRules, setForbiddenRules] = useState<string[]>([""]);
   const [garma, setGarma] = useState<number>(0);
   const [profileCreatedAt, setProfileCreatedAt] = useState<string | null>(null);
+
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importInfo, setImportInfo] = useState<Record<string, unknown> | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
 
   const garmaOk = useMemo(() => garma >= 10, [garma]);
   const ageOk = useMemo(() => {
@@ -126,6 +132,61 @@ const GomoSubCreate = () => {
       const next = prev.filter((_, i) => i !== index);
       return next.length ? next : [""];
     });
+  };
+
+  const handleImportFileSelect = async (file: File) => {
+    setImportFile(file);
+    setImportInfo(null);
+    setImportLoading(true);
+    try {
+      const { data: { session } } = await api.auth.getSession();
+      const token = session?.access_token;
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/v1/boards/import/info", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success) {
+        setImportInfo(data.data);
+      } else {
+        toast.error(data.error || "Не удалось прочитать архив");
+      }
+    } catch (e) {
+      toast.error("Ошибка чтения архива");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    try {
+      const { data: { session } } = await api.auth.getSession();
+      const token = session?.access_token;
+      const formData = new FormData();
+      formData.append("file", importFile);
+      const res = await fetch("/api/v1/boards/backup/import", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      const importResult = await res.json();
+      if (importResult.success) {
+        toast.success("G-саб импортирован");
+        setShowImportDialog(false);
+        navigate(`/g/${importResult.data.board_slug}`);
+      } else {
+        toast.error(importResult.error || "Ошибка импорта");
+      }
+    } catch (e) {
+      toast.error("Ошибка импорта");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const uploadSingleImage = async (file: File, kind: "avatar" | "cover") => {
@@ -259,6 +320,13 @@ const GomoSubCreate = () => {
                   <Button onClick={() => setStep("form")} disabled={!canProceed}>
                     Перейти к созданию
                   </Button>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Или{" "}
+                  <button onClick={() => setShowImportDialog(true)} className="text-primary hover:underline inline-flex items-center gap-1">
+                    <Upload className="w-3 h-3" />
+                    импортировать g-sub из архива
+                  </button>
                 </div>
               </div>
             </CardContent>
@@ -449,6 +517,69 @@ const GomoSubCreate = () => {
             <Badge variant={guideRead ? "default" : "outline"} className="cursor-pointer" onClick={() => setGuideRead((prev) => !prev)}>
               {guideRead ? "Прочитано" : "Отметить как прочитано"}
             </Badge>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Импорт g-sub из архива</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Загрузите tar.gz архив, экспортированный из другого g-саба. Будет создана новая копия с вашим аккаунтом владельцем.
+            </p>
+            <div
+              className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".tar.gz,.tgz";
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0];
+                  if (file) handleImportFileSelect(file);
+                };
+                input.click();
+              }}
+            >
+              {importLoading ? (
+                <Loader2 className="w-8 h-8 mx-auto animate-spin text-muted-foreground" />
+              ) : importFile ? (
+                <div className="space-y-2">
+                  <Upload className="w-8 h-8 mx-auto text-primary" />
+                  <p className="text-sm font-medium">{importFile.name}</p>
+                  <p className="text-xs text-muted-foreground">{(importFile.size / 1024 / 1024).toFixed(1)} MB</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Upload className="w-8 h-8 mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Нажмите или перетащите .tar.gz файл</p>
+                </div>
+              )}
+            </div>
+
+            {importInfo && (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
+                <div className="font-medium text-sm">{String(importInfo.board_name || importInfo.board_slug)}</div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                  <div>Тредов: <span className="text-foreground">{String(importInfo.thread_count)}</span></div>
+                  <div>Постов: <span className="text-foreground">{String(importInfo.post_count)}</span></div>
+                  <div>Участников: <span className="text-foreground">{String(importInfo.member_count)}</span></div>
+                  <div>Каналов: <span className="text-foreground">{String(importInfo.channel_count)}</span></div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setShowImportDialog(false); setImportFile(null); setImportInfo(null); }}>
+                Отмена
+              </Button>
+              <Button onClick={handleImport} disabled={!importFile || !importInfo || importing}>
+                {importing && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Импортировать
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

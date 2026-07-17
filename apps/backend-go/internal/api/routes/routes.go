@@ -119,6 +119,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		storageHandler = storageHandlers.NewStorageHandler(storageClient)
 	}
 
+	backupHandler := handlers.NewBackupHandler(db)
+	backupHandler.SetStorage(storageClient)
+
 	// WebSocket handler disabled for now
 	// wsHandler := handlers.NewWebSocketHandler(wsHub)
 
@@ -338,6 +341,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			protected.PUT("/posts", postsHandler.UpdatePost)
 			protected.DELETE("/threads", threadsHandler.DeleteThread)
 			protected.DELETE("/posts", postsHandler.DeletePost)
+
+			protected.GET("/boards/:id/backup/export", backupHandler.Export)
+			protected.POST("/boards/backup/import", backupHandler.Import)
+			protected.POST("/boards/import/info", backupHandler.ImportInfo)
 
 			// Likes
 			protected.POST("/threads/:id/like", likesHandler.LikeThread)
