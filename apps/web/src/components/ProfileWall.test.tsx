@@ -864,6 +864,7 @@ describe("ProfileWall", () => {
   it("opens comments section when clicking 'Комментировать'", async () => {
     setupApiMocks({
       posts: [createMockPost()],
+      comments: [],
     });
 
     render(
@@ -1435,7 +1436,7 @@ describe("ProfileWall", () => {
       expect(screen.getByText("Delete this")).toBeInTheDocument();
     });
 
-    const deleteCommentButton = screen.getByTitle("Удалить комментарий");
+    const deleteCommentButton = screen.getByTitle("Удалить");
     await userEvent.click(deleteCommentButton);
 
     await waitFor(() => {

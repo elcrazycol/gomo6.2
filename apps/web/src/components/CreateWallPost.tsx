@@ -8,7 +8,7 @@ import type { AttachmentMeta } from "@/types/forum";
 import { api } from "@/integrations/api/compat";
 import { ImageIcon, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
-import { EMPTY_EDITOR_STATE } from "@/utils/lexicalContent";
+import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import type { WallPost } from "@/utils/wallNormalizers";
 
 interface CreateWallPostProps {

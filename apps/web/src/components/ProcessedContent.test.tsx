@@ -19,10 +19,6 @@ vi.mock("@/utils/contentVisibility", () => ({
   VisibilityResult: {},
 }));
 
-vi.mock("@/utils/lexicalContent", () => ({
-  isLegacyVisibilityContent: () => false,
-}));
-
 vi.mock("@/utils/bbcodePlugins", () => ({
   renderBbCode: (text: string) => text,
 }));

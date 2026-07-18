@@ -5,7 +5,6 @@ import { processVisibilityTags, VisibilityResult } from "@/utils/contentVisibili
 import { MentionLink } from "./MentionLink";
 import { renderBbCode } from "@/utils/bbcodePlugins";
 import { RichContentRenderer } from "./RichContentRenderer";
-import { isLegacyVisibilityContent } from "@/utils/lexicalContent";
 import { useUserColor } from "@/hooks/useUserColor";
 
 interface ProcessedContentProps {
@@ -101,9 +100,9 @@ export const ProcessedContent = ({
   }, [content, currentUserId, isAdmin, currentUsername, postAuthorId, authorUsername]);
 
   const renderContent = (text: string) => {
-    // Process special markers first (before BB code parsing)
-    if (contentJson && !isLegacyVisibilityContent(text)) {
-      return <RichContentRenderer contentJson={contentJson} />;
+    if (contentJson) {
+      const richResult = <RichContentRenderer contentJson={contentJson} />;
+      if (richResult) return richResult;
     }
 
     const elements: React.ReactNode[] = [];
