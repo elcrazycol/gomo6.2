@@ -91,9 +91,10 @@ export const normalizeWallPostRecord = (post: Record<string, unknown>, currentUs
 export const normalizeWallComment = (comment: Record<string, unknown>): WallComment => {
   const contentJson = comment?.content_json ?? null;
   const contentStr = comment?.content as string | undefined;
-  const content = typeof contentStr === "string" && contentStr.trim().length > 0
-    ? contentStr
-    : prosemirrorToPlainText(contentJson, "") || lexicalJsonToPlainText(contentJson, "");
+
+  const fromJson = prosemirrorToPlainText(contentJson, "") || lexicalJsonToPlainText(contentJson, "");
+  const hasJsonContent = fromJson.trim().length > 0 && fromJson !== "\u200b";
+  const content = hasJsonContent ? fromJson : (contentStr || "");
 
   return {
     id: comment.id as string,

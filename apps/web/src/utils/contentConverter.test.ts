@@ -284,8 +284,12 @@ describe("normalizeContent", () => {
     expect(result?.type).toBe("doc");
   });
 
-  it("returns null for unrecognized input", () => {
-    expect(normalizeContent("just text")).toBeNull();
+  it("returns null for non-string non-object input", () => {
     expect(normalizeContent(42)).toBeNull();
+  });
+
+  it("converts plain text string to ProseMirror doc", () => {
+    const result = normalizeContent("just text");
+    expect(result?.type).toBe("doc");
   });
 });

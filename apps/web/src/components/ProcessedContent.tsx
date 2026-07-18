@@ -301,7 +301,10 @@ export const ProcessedContent = ({
     if (contentJson) {
       return <RichContentRenderer contentJson={contentJson} />;
     }
-    return null;
+    if (content.trim()) {
+      return <div className="whitespace-pre-wrap text-sm sm:text-base break-words">{renderContent(content)}</div>;
+    }
+    return <span className="text-muted-foreground italic">Пустой комментарий</span>;
   }
 
 
