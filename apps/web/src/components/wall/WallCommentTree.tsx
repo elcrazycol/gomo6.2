@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
-import { WallCommentTreeContext, MAX_COMMENT_DEPTH } from "./WallCommentContext";
+import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
@@ -295,7 +295,7 @@ export const WallCommentTree = ({
     <WallCommentTreeContext.Provider value={contextValue}>
       <div className="space-y-3 border-t border-border/60 pt-4">
         {currentUserId && (
-          <div className="space-y-2 border border-border/60 bg-muted/[0.16] p-3">
+          <div className="space-y-2 rounded-lg border border-border/50 bg-muted/10 p-3">
             <WallCommentComposer
               placeholder="Напишите комментарий"
               onSubmit={submitTopLevel}
@@ -308,33 +308,44 @@ export const WallCommentTree = ({
                 setEditorStates((prev) => ({ ...prev, "top-level": { json, text } }));
               }}
             />
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs text-muted-foreground">
-                {comments.length > 0 ? `${comments.length} комментариев` : "Пока без комментариев"}
-              </div>
-            </div>
           </div>
         )}
 
         {loading ? (
-          <div className="py-3 text-sm text-muted-foreground">Загружаем комментарии…</div>
-        ) : rootComments.length === 0 ? (
-          <div className="py-3 text-sm text-muted-foreground">Тут пока пусто, но это можно исправить.</div>
-        ) : (
-          <div className="space-y-0">
-            {rootComments.map((comment) => {
-              const children = tree.get(comment.id) || [];
-              return (
-                <WallCommentNode
-                  key={comment.id}
-                  comment={comment}
-                  children={children}
-                  tree={tree}
-                  depth={0}
-                />
-              );
-            })}
+          <div className="space-y-3 py-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-start gap-2.5">
+                <div className="h-7 w-7 animate-pulse rounded-full bg-muted sm:h-8 sm:w-8" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
           </div>
+        ) : rootComments.length === 0 ? (
+          <div className="py-3 text-center text-sm text-muted-foreground">Тут пока пусто, но это можно исправить.</div>
+        ) : (
+          <>
+            <div className="text-xs text-muted-foreground">
+              {comments.length} {comments.length === 1 ? "комментарий" : comments.length < 5 ? "комментария" : "комментариев"}
+            </div>
+            <div className="space-y-0">
+              {rootComments.map((comment) => {
+                const children = tree.get(comment.id) || [];
+                return (
+                  <WallCommentNode
+                    key={comment.id}
+                    comment={comment}
+                    children={children}
+                    tree={tree}
+                    depth={0}
+                  />
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </WallCommentTreeContext.Provider>

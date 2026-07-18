@@ -884,7 +884,7 @@ describe("ProfileWall", () => {
     await userEvent.click(screen.getByText("Комментировать"));
 
     await waitFor(() => {
-      expect(screen.getByText("Пока без комментариев")).toBeInTheDocument();
+      expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
   });
 

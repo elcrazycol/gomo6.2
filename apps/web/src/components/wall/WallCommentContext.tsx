@@ -3,6 +3,19 @@ import type { WallComment } from "@/utils/wallNormalizers";
 
 export const MAX_COMMENT_DEPTH = 6;
 
+const THREAD_COLORS = [
+  "hsl(142, 70%, 35%)",
+  "hsl(217, 70%, 55%)",
+  "hsl(280, 60%, 50%)",
+  "hsl(30, 80%, 50%)",
+  "hsl(350, 65%, 50%)",
+  "hsl(180, 55%, 40%)",
+  "hsl(60, 50%, 45%)",
+];
+
+export const getThreadColor = (depth: number): string =>
+  THREAD_COLORS[depth % THREAD_COLORS.length];
+
 interface EditorState {
   json: unknown;
   text: string;
