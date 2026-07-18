@@ -845,7 +845,7 @@ const CommentNodeList = ({
                     <Reply className="h-3.5 w-3.5" />
                   </Button>
                 )}
-                {(currentUserId === comment.user_id || currentUserId === postUserId) && (
+                {(currentUserId && (currentUserId === comment.user_id || currentUserId === postUserId)) && (
                   <>
                     {currentUserId === comment.user_id && (
                       <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onStartEdit(comment)} title="Редактировать комментарий">
