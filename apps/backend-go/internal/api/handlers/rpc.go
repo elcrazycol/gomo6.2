@@ -173,6 +173,8 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 		return
 	}
 
+	middleware.InvalidateCacheForWallPostPin(h.redis, postID, userID)
+
 	c.JSON(http.StatusOK, models.SuccessResponse(true))
 }
 
