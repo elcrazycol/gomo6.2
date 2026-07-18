@@ -1,7 +1,5 @@
-import { lexicalJsonToPlainText } from "@/utils/lexicalContent";
 import { prosemirrorToPlainText } from "@/utils/contentConverter";
 import type { AttachmentMeta } from "@/types/forum";
-import { safeDate } from "@/utils/safeDate";
 
 export interface WallPost {
   id: string;
@@ -92,7 +90,7 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
   const contentJson = comment?.content_json ?? null;
   const contentStr = comment?.content as string | undefined;
 
-  const fromJson = prosemirrorToPlainText(contentJson, "") || lexicalJsonToPlainText(contentJson, "");
+  const fromJson = prosemirrorToPlainText(contentJson, "");
   const hasJsonContent = fromJson.trim().length > 0 && fromJson !== "\u200b";
   const content = hasJsonContent ? fromJson : (contentStr || "");
 

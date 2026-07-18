@@ -9,17 +9,6 @@ import {
   type WallPost,
 } from "./wallNormalizers";
 
-vi.mock("@/utils/lexicalContent", () => ({
-  lexicalJsonToPlainText: (json: unknown, fallback: string) => {
-    if (!json || typeof json !== "object") return fallback;
-    const root = (json as any).root;
-    if (root?.children?.[0]?.children?.[0]?.text) {
-      return root.children[0].children[0].text;
-    }
-    return fallback;
-  },
-}));
-
 vi.mock("@/utils/safeDate", () => ({
   safeDate: (d: string) => new Date(d),
 }));
@@ -158,7 +147,7 @@ describe("normalizeWallComment", () => {
       post_id: "p1",
       user_id: "u1",
       content: "",
-      content_json: { root: { children: [{ children: [{ text: "from json" }] }] } },
+      content_json: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "from json" }] }] },
       created_at: "2025-01-01T00:00:00Z",
       updated_at: "2025-01-01T00:00:00Z",
       author: { username: "eve", is_anonymous: false },

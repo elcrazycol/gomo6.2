@@ -1,5 +1,4 @@
-import { renderLexicalContent } from "@/utils/lexicalContent";
-import { isProsemirrorJson, lexicalToProsemirror } from "@/utils/contentConverter";
+import { isProsemirrorJson } from "@/utils/contentConverter";
 import { ProseMirrorRenderer } from "@/components/ProseMirrorRenderer";
 
 interface RichContentRendererProps {
@@ -19,16 +18,5 @@ export const RichContentRenderer = ({ contentJson }: RichContentRendererProps) =
     );
   }
 
-  const prosemirror = lexicalToProsemirror(contentJson);
-  if (prosemirror) {
-    return (
-      <div className={richDisplayClassName}>
-        <ProseMirrorRenderer json={prosemirror} />
-      </div>
-    );
-  }
-
-  return (
-    <div className={richDisplayClassName}>{renderLexicalContent(contentJson)}</div>
-  );
+  return null;
 };
