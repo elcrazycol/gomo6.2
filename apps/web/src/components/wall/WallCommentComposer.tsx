@@ -50,7 +50,7 @@ export const WallCommentComposer = ({
           type="button"
           size="sm"
           onClick={onSubmit}
-          disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim())}
+          disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim()) || text.trim() === "\u200b"}
         >
           {isSubmitting ? (
             <>
