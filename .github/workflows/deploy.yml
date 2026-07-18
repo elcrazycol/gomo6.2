@@ -110,11 +110,11 @@ jobs:
             git reset --hard origin/main
             # Login to ghcr.io
             [ -n "${{ secrets.GHCR_PAT }}" ] && \
-              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u scramble22 --password-stdin || true
+              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin || true
             # Pull all images in parallel, then restart once
             echo "Pulling images..."
             for img in gomo6-backend gomo6-web gomo6-docs gomo6-dev-dashboard; do
-              docker pull "ghcr.io/scramble22/${img}:latest" &
+              docker pull "ghcr.io/${{ github.repository_owner }}/${img}:latest" &
             done
             wait
             echo "All images pulled. Restarting..."
