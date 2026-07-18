@@ -194,6 +194,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   onSubmit,
 }, ref) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const lastSetContentRef = useRef<unknown>(null);
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
 
   const initialContent = useMemo(
@@ -251,10 +252,11 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   });
 
   useEffect(() => {
-    if (editor && initialContent) {
+    if (editor && initialContent && lastSetContentRef.current !== initialContent) {
       editor.commands.setContent(initialContent);
+      lastSetContentRef.current = initialContent;
     }
-  }, [composerKey]);
+  }, [editor, initialContent, composerKey]);
 
   useImperativeHandle(ref, () => ({
     focus: () => editor?.commands.focus(),

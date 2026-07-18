@@ -61,7 +61,7 @@ describe("messengerApi", () => {
         "/api/v1/messenger/conversations",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ user_id: "u2" }),
+          body: JSON.stringify({ user_id: "u2", is_e2e: false }),
         }),
       );
     });

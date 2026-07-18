@@ -213,17 +213,54 @@ export const isLexicalJson = (value: unknown): boolean => {
   return root?.type === "root" && Array.isArray(root?.children);
 };
 
+const isEmptyProsemirrorNode = (node: Record<string, unknown>): boolean => {
+  if (node.type === "text") {
+    const text = (node.text as string) || "";
+    return text.trim().length === 0 || text === "\u200b";
+  }
+  if (node.type === "hardBreak") return true;
+  if (node.type === "customEmoji") return false;
+  if (node.type === "paragraph") {
+    const content = node.content as Record<string, unknown>[] | undefined;
+    if (!Array.isArray(content) || content.length === 0) return true;
+    return content.every((child) => isEmptyProsemirrorNode(child));
+  }
+  const content = node.content as Record<string, unknown>[] | undefined;
+  if (!Array.isArray(content)) return false;
+  return content.every((child) => isEmptyProsemirrorNode(child));
+};
+
+export const isEmptyProsemirror = (value: unknown): boolean => {
+  if (!isProsemirrorJson(value)) return false;
+  const content = (value as { content?: Record<string, unknown>[] }).content;
+  if (!Array.isArray(content) || content.length === 0) return true;
+  return content.every((node) => isEmptyProsemirrorNode(node));
+};
+
 export const normalizeContent = (contentJson: unknown, legacyContent?: string | null): ProsemirrorNode | null => {
+  const hasLegacyContent = typeof legacyContent === "string" && legacyContent.trim().length > 0;
+
   if (contentJson === null || contentJson === undefined) {
-    return null;
+    if (!hasLegacyContent) return null;
+    return legacyContentToProsemirrorJson(legacyContent);
   }
 
   if (isProsemirrorJson(contentJson)) {
+    if (isEmptyProsemirror(contentJson) && hasLegacyContent) {
+      return legacyContentToProsemirrorJson(legacyContent);
+    }
     return contentJson as ProsemirrorNode;
   }
 
   if (isLexicalJson(contentJson)) {
-    return lexicalToProsemirror(contentJson);
+    const converted = lexicalToProsemirror(contentJson);
+    if (converted && !isEmptyProsemirror(converted)) {
+      return converted;
+    }
+    if (hasLegacyContent) {
+      return legacyContentToProsemirrorJson(legacyContent);
+    }
+    return converted;
   }
 
   if (typeof contentJson === "string") {
@@ -231,12 +268,33 @@ export const normalizeContent = (contentJson: unknown, legacyContent?: string | 
     if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
       try {
         const parsed = JSON.parse(trimmed);
-        if (isProsemirrorJson(parsed)) return parsed;
-        if (isLexicalJson(parsed)) return lexicalToProsemirror(parsed);
+        if (isProsemirrorJson(parsed)) {
+          if (isEmptyProsemirror(parsed) && hasLegacyContent) {
+            return legacyContentToProsemirrorJson(legacyContent);
+          }
+          return parsed;
+        }
+        if (isLexicalJson(parsed)) {
+          const converted = lexicalToProsemirror(parsed);
+          if (converted && !isEmptyProsemirror(converted)) {
+            return converted;
+          }
+          if (hasLegacyContent) {
+            return legacyContentToProsemirrorJson(legacyContent);
+          }
+          return converted;
+        }
       } catch {
         // not JSON
       }
     }
+    if (trimmed.length > 0) {
+      return legacyContentToProsemirrorJson(trimmed);
+    }
+  }
+
+  if (hasLegacyContent) {
+    return legacyContentToProsemirrorJson(legacyContent);
   }
 
   return null;
