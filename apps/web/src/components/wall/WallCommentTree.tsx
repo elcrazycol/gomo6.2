@@ -5,6 +5,7 @@ import { WallCommentTreeContext, MAX_COMMENT_DEPTH } from "./WallCommentContext"
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
+import { prosemirrorToPlainText } from "@/utils/contentConverter";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { normalizeWallComment } from "@/utils/wallNormalizers";
 
@@ -109,12 +110,22 @@ export const WallCommentTree = ({
     setEditorStates((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const isBlank = (t: string) => !t || t.trim().length === 0 || /^\u200b+$/.test(t.trim());
+  const isBlank = (t: unknown) => {
+    if (t == null) return true;
+    const s = String(t);
+    return s.trim().length === 0 || /^\u200b+$/.test(s.trim());
+  };
 
   const submitTopLevel = useCallback(async () => {
     if (!currentUserId || isSubmitting["top-level"]) return;
     const normalizedJson = editorStates["top-level"] || { json: topLevelJson, text: topLevelText };
-    if (isBlank(normalizedJson.text)) {
+    const rawText = String(normalizedJson.text ?? topLevelText ?? "");
+    if (isBlank(rawText)) {
+      toast.error("Напишите комментарий");
+      return;
+    }
+    const normalizedText = prosemirrorToPlainText(normalizedJson.json, "") || rawText;
+    if (isBlank(normalizedText)) {
       toast.error("Напишите комментарий");
       return;
     }
@@ -125,7 +136,7 @@ export const WallCommentTree = ({
         .insert({
           post_id: postId,
           user_id: currentUserId,
-          content: normalizedJson.text,
+          content: normalizedText,
           content_json: normalizedJson.json,
         });
       if (error) throw error;
