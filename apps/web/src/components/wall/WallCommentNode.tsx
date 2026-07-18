@@ -94,12 +94,13 @@ export const WallCommentNode = ({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="h-7 w-7"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => (isReplying ? cancelReply() : startReply(comment.id))}
                 title="Ответить"
               >
-                <Reply className="h-3.5 w-3.5" />
+                <Reply className="h-4 w-4" />
+                Ответить
               </Button>
             )}
             {canEdit && (
@@ -111,7 +112,7 @@ export const WallCommentNode = ({
                 onClick={() => (isEditing ? cancelEdit() : startEdit(comment))}
                 title="Редактировать"
               >
-                <Edit3 className="h-3.5 w-3.5" />
+                <Edit3 className="h-4 w-4" />
               </Button>
             )}
             {canDelete && (
@@ -125,9 +126,9 @@ export const WallCommentNode = ({
                 title="Удалить"
               >
                 {isSubmitting[`delete:${comment.id}`] ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-4 w-4" />
                 )}
               </Button>
             )}

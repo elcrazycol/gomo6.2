@@ -109,10 +109,12 @@ export const WallCommentTree = ({
     setEditorStates((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const isBlank = (t: string) => !t || t.trim().length === 0 || /^\u200b+$/.test(t.trim());
+
   const submitTopLevel = useCallback(async () => {
     if (!currentUserId || isSubmitting["top-level"]) return;
     const normalizedJson = editorStates["top-level"] || { json: topLevelJson, text: topLevelText };
-    if (!normalizedJson.text.trim()) {
+    if (isBlank(normalizedJson.text)) {
       toast.error("Напишите комментарий");
       return;
     }
@@ -148,7 +150,7 @@ export const WallCommentTree = ({
     if (!currentUserId) return;
     const stateKey = `reply:${parentId}`;
     const state = editorStates[stateKey];
-    if (!state?.text.trim()) {
+    if (!state || isBlank(state.text)) {
       toast.error("Напишите ответ");
       return;
     }
@@ -184,7 +186,7 @@ export const WallCommentTree = ({
     if (!currentUserId) return;
     const stateKey = `edit:${commentId}`;
     const state = editorStates[stateKey];
-    if (!state?.text.trim()) {
+    if (!state || isBlank(state.text)) {
       toast.error("Напишите комментарий");
       return;
     }
