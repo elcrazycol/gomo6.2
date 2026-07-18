@@ -31,6 +31,7 @@ export interface WallComment {
   id: string;
   post_id: string;
   user_id: string;
+  parent_id?: string | null;
   content: string | null;
   content_json?: unknown;
   created_at: string;
@@ -98,6 +99,7 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
     id: comment.id as string,
     post_id: comment.post_id as string,
     user_id: comment.user_id as string,
+    parent_id: (comment.parent_id as string | null) ?? null,
     content,
     content_json: contentJson,
     created_at: (comment.created_at as string | null | undefined) || new Date().toISOString(),

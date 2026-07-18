@@ -202,6 +202,17 @@ func InvalidateCacheForWallPost(redisClient *redis.Client, postID string) {
 	cache.InvalidateForWallPost(redisClient, postID, "")
 }
 
+// InvalidateCacheForWallPostPin invalidates cache when a wall post is pinned/unpinned
+func InvalidateCacheForWallPostPin(redisClient *redis.Client, postID string, userID string) {
+	patterns := []string{
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*%s*", postID),
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID),
+	}
+	for _, pattern := range patterns {
+		cache.InvalidateByPattern(redisClient, pattern)
+	}
+}
+
 // InvalidateCacheForPost invalidates cache for a specific post
 func InvalidateCacheForPost(redisClient *redis.Client, postID string, threadID string) {
 	// Use wildcard patterns to invalidate ALL queries for this post and its thread

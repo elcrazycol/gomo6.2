@@ -52,7 +52,7 @@ LEFT JOIN users u ON u.id = p.author_id
 // handleProfileWallPostCommentsGet — GET comments with author.
 func (h *UniversalHandler) handleProfileWallPostCommentsGet(c *gin.Context) {
 	query := `
-SELECT c.id, c.post_id, c.user_id, c.content, c.content_json, c.created_at, c.updated_at,
+SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
@@ -203,7 +203,7 @@ WHERE p.id = $1`
 
 func (h *UniversalHandler) fetchProfileWallCommentWithAuthor(id string) (map[string]interface{}, error) {
 	q := `
-SELECT c.id, c.post_id, c.user_id, c.content, c.content_json, c.created_at, c.updated_at,
+SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id

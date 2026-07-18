@@ -6,7 +6,7 @@ import { api } from "@/integrations/api/compat";
 import { toast } from "sonner";
 import {
   Copy, Edit3, Heart, Loader2, MessageCircle, Pin, PinOff,
-  Repeat2, Send, Share2, Trash2,
+  Repeat2, Reply, Send, Share2, Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -92,6 +92,12 @@ export const WallPostCard = ({
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isSavingCommentEdit, setIsSavingCommentEdit] = useState(false);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+  const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replyJson, setReplyJson] = useState<unknown>(EMPTY_EDITOR_STATE);
+  const [replyResetKey, setReplyResetKey] = useState(0);
+  const [isSubmittingReply, setIsSubmittingReply] = useState(false);
+  const [collapsedCommentIds, setCollapsedCommentIds] = useState<Set<string>>(new Set());
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -106,7 +112,7 @@ export const WallPostCard = ({
       setCommentsLoading(true);
       const { data, error } = await api
         .from("profile_wall_post_comments")
-        .select(`\n          id,\n          post_id,\n          user_id,\n          content,\n          content_json,\n          created_at,\n          updated_at,\n          author:profiles!user_id (\n            username,\n            is_anonymous,\n            avatar_url\n          )\n        `)
+        .select(`\n          id,\n          post_id,\n          user_id,\n          parent_id,\n          content,\n          content_json,\n          created_at,\n          updated_at,\n          author:profiles!user_id (\n            username,\n            is_anonymous,\n            avatar_url\n          )\n        `)
         .eq("post_id", post.id)
         .order("created_at", { ascending: true });
 
@@ -119,6 +125,16 @@ export const WallPostCard = ({
       setCommentsLoading(false);
     }
   }, [post.id]);
+
+  const commentTree = useMemo(() => {
+    const byParent = new Map<string | null, WallComment[]>();
+    for (const c of comments) {
+      const key = c.parent_id || null;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(c);
+    }
+    return byParent;
+  }, [comments]);
 
   useEffect(() => {
     if (!forceCommentsOpen || commentsOpen) return;
@@ -235,6 +251,40 @@ export const WallPostCard = ({
       toast.error("Не удалось отправить комментарий");
     } finally {
       setIsSubmittingComment(false);
+    }
+  };
+
+  const handleSubmitReply = async (parentId: string) => {
+    if (!currentUserId || isSubmittingReply) return;
+    const normalizedReplyJson = normalizeContent(replyJson, replyText);
+    const normalizedReplyText = prosemirrorToPlainText(normalizedReplyJson, "") || replyText;
+    if (!normalizedReplyText.trim()) {
+      toast.error("Напишите ответ");
+      return;
+    }
+    setIsSubmittingReply(true);
+    try {
+      const { error } = await api
+        .from("profile_wall_post_comments")
+        .insert({
+          post_id: post.id,
+          user_id: currentUserId,
+          parent_id: parentId,
+          content: normalizedReplyText,
+          content_json: normalizedReplyJson,
+        });
+      if (error) throw error;
+      await loadComments();
+      setCommentsCount((prev) => prev + 1);
+      setReplyingToCommentId(null);
+      setReplyText("");
+      setReplyJson(EMPTY_EDITOR_STATE);
+      setReplyResetKey((prev) => prev + 1);
+    } catch (error) {
+      console.error("Error creating reply:", error);
+      toast.error("Не удалось отправить ответ");
+    } finally {
+      setIsSubmittingReply(false);
     }
   };
 
@@ -431,10 +481,14 @@ export const WallPostCard = ({
         .delete()
         .eq("id", commentId);
       if (error) throw error;
-      setComments((prev) => prev.filter((comment) => comment.id !== commentId));
-      setCommentsCount((prev) => Math.max(0, prev - 1));
+      await loadComments();
       if (editingCommentId === commentId) {
         handleCancelCommentEdit();
+      }
+      if (replyingToCommentId === commentId) {
+        setReplyingToCommentId(null);
+        setReplyText("");
+        setReplyJson(EMPTY_EDITOR_STATE);
       }
       toast.success("Комментарий удалён");
     } catch (error) {
@@ -592,61 +646,36 @@ export const WallPostCard = ({
             ) : comments.length === 0 ? (
               <div className="py-3 text-sm text-muted-foreground">Тут пока пусто, но это можно исправить.</div>
             ) : (
-              <div className="space-y-3">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="border border-border/60 bg-background p-3">
-                    <div className="mb-2 flex items-start justify-between gap-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <UserBadge userId={comment.user_id} username={comment.author.username} displayName={comment.author.display_name} isAnonymous={comment.author.is_anonymous} disableLink={false} />
-                        <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
-                        </span>
-                      </div>
-                      {(currentUserId === comment.user_id || currentUserId === post.user_id) && (
-                        <div className="flex items-center gap-1">
-                          {currentUserId === comment.user_id && (
-                            <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleStartCommentEdit(comment)} title="Редактировать комментарий">
-                              <Edit3 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          <Button
-                            type="button" variant="ghost" size="icon"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => handleDeleteComment(comment.id)}
-                            disabled={deletingCommentId === comment.id}
-                            title="Удалить комментарий"
-                          >
-                            {deletingCommentId === comment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    {editingCommentId === comment.id ? (
-                      <div className="space-y-3">
-                        <GomoRichEditor
-                          resetKey={editingCommentResetKey}
-                          contentJson={editingCommentJson}
-                          legacyContent={editingCommentText}
-                          onChange={({ json, text }) => { setEditingCommentJson(json); setEditingCommentText(text); }}
-                          onSubmit={handleSaveCommentEdit}
-                          placeholder="Измените комментарий"
-                          minHeightClassName="min-h-[84px]"
-                        />
-                        <div className="flex justify-end gap-2">
-                          <Button type="button" variant="outline" onClick={handleCancelCommentEdit}>Отмена</Button>
-                          <Button type="button" onClick={handleSaveCommentEdit} disabled={isSavingCommentEdit}>
-                            {isSavingCommentEdit ? (<><Loader2 className="h-4 w-4 animate-spin" />Сохраняем</>) : "Сохранить"}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="break-words text-sm leading-6 sm:text-[15px]">
-                        <ProcessedContent content={comment.content || ""} contentJson={comment.content_json as unknown} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <CommentNodeList
+                comments={commentTree.get(null) || []}
+                commentTree={commentTree}
+                depth={0}
+                currentUserId={currentUserId}
+                postUserId={post.user_id}
+                currentUsername={currentUsername}
+                editingCommentId={editingCommentId}
+                editingCommentText={editingCommentText}
+                editingCommentJson={editingCommentJson}
+                editingCommentResetKey={editingCommentResetKey}
+                isSavingCommentEdit={isSavingCommentEdit}
+                deletingCommentId={deletingCommentId}
+                replyingToCommentId={replyingToCommentId}
+                replyText={replyText}
+                replyJson={replyJson}
+                replyResetKey={replyResetKey}
+                isSubmittingReply={isSubmittingReply}
+                collapsedCommentIds={collapsedCommentIds}
+                onStartEdit={handleStartCommentEdit}
+                onCancelEdit={handleCancelCommentEdit}
+                onSaveEdit={handleSaveCommentEdit}
+                onEditChange={({ json, text }) => { setEditingCommentJson(json); setEditingCommentText(text); }}
+                onDelete={handleDeleteComment}
+                onReply={setReplyingToCommentId}
+                onReplyChange={({ json, text }) => { setReplyJson(json); setReplyText(text); }}
+                onSubmitReply={handleSubmitReply}
+                onCancelReply={() => { setReplyingToCommentId(null); setReplyText(""); setReplyJson(EMPTY_EDITOR_STATE); }}
+                onToggleCollapse={(id) => setCollapsedCommentIds((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
+              />
             )}
           </div>
         )}
@@ -714,5 +743,208 @@ export const WallPostCard = ({
         </DialogContent>
       </Dialog>
     </Card>
+  );
+};
+
+const MAX_COMMENT_DEPTH = 6;
+
+interface CommentNodeListProps {
+  comments: WallComment[];
+  commentTree: Map<string | null, WallComment[]>;
+  depth: number;
+  currentUserId: string | null;
+  postUserId: string;
+  currentUsername: string;
+  editingCommentId: string | null;
+  editingCommentText: string;
+  editingCommentJson: unknown;
+  editingCommentResetKey: number;
+  isSavingCommentEdit: boolean;
+  deletingCommentId: string | null;
+  replyingToCommentId: string | null;
+  replyText: string;
+  replyJson: unknown;
+  replyResetKey: number;
+  isSubmittingReply: boolean;
+  collapsedCommentIds: Set<string>;
+  onStartEdit: (comment: WallComment) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  onEditChange: (v: { json: unknown; text: string }) => void;
+  onDelete: (id: string) => void;
+  onReply: (id: string | null) => void;
+  onReplyChange: (v: { json: unknown; text: string }) => void;
+  onSubmitReply: (parentId: string) => void;
+  onCancelReply: () => void;
+  onToggleCollapse: (id: string) => void;
+}
+
+const CommentNodeList = ({
+  comments,
+  commentTree,
+  depth,
+  currentUserId,
+  postUserId,
+  currentUsername,
+  editingCommentId,
+  editingCommentText,
+  editingCommentJson,
+  editingCommentResetKey,
+  isSavingCommentEdit,
+  deletingCommentId,
+  replyingToCommentId,
+  replyText,
+  replyJson,
+  replyResetKey,
+  isSubmittingReply,
+  collapsedCommentIds,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onEditChange,
+  onDelete,
+  onReply,
+  onReplyChange,
+  onSubmitReply,
+  onCancelReply,
+  onToggleCollapse,
+}: CommentNodeListProps) => {
+  if (comments.length === 0) return null;
+
+  return (
+    <div className={depth > 0 ? "xs:ml-2 md:ml-4 border-l-2 border-border/40 xs:pl-2 md:pl-3" : "space-y-3"}>
+      {comments.map((comment) => {
+        const children = commentTree.get(comment.id) || [];
+        const hasChildren = children.length > 0;
+        const isCollapsed = collapsedCommentIds.has(comment.id);
+        const isEditing = editingCommentId === comment.id;
+        const isReplying = replyingToCommentId === comment.id;
+        const canReply = depth < MAX_COMMENT_DEPTH;
+
+        return (
+          <div key={comment.id} className={depth > 0 ? "py-2" : "border border-border/60 bg-background p-3"}>
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <UserBadge userId={comment.user_id} username={comment.author.username} displayName={comment.author.display_name} isAnonymous={comment.author.is_anonymous} disableLink={false} />
+                <span className="text-xs text-muted-foreground">
+                  {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
+                </span>
+                {hasChildren && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => onToggleCollapse(comment.id)}
+                  >
+                    {isCollapsed ? `Показать ответы (${children.length})` : `Свернуть`}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                {canReply && currentUserId && (
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onReply(isReplying ? null : comment.id)} title="Ответить">
+                    <Reply className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {(currentUserId === comment.user_id || currentUserId === postUserId) && (
+                  <>
+                    {currentUserId === comment.user_id && (
+                      <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => onStartEdit(comment)} title="Редактировать комментарий">
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      type="button" variant="ghost" size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => onDelete(comment.id)}
+                      disabled={deletingCommentId === comment.id}
+                      title="Удалить комментарий"
+                    >
+                      {deletingCommentId === comment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {isEditing ? (
+              <div className="space-y-3">
+                <GomoRichEditor
+                  resetKey={editingCommentResetKey}
+                  contentJson={editingCommentJson}
+                  legacyContent={editingCommentText}
+                  onChange={onEditChange}
+                  onSubmit={onSaveEdit}
+                  placeholder="Измените комментарий"
+                  minHeightClassName="min-h-[84px]"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={onCancelEdit}>Отмена</Button>
+                  <Button type="button" onClick={onSaveEdit} disabled={isSavingCommentEdit}>
+                    {isSavingCommentEdit ? (<><Loader2 className="h-4 w-4 animate-spin" />Сохраняем</>) : "Сохранить"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="break-words text-sm leading-6 sm:text-[15px]">
+                <ProcessedContent content={comment.content || ""} contentJson={comment.content_json as unknown} currentUserId={currentUserId} isAdmin={false} currentUsername={currentUsername} />
+              </div>
+            )}
+
+            {isReplying && currentUserId && (
+              <div className="mt-3 space-y-2 border border-border/60 bg-muted/[0.16] p-3">
+                <GomoRichEditor
+                  resetKey={replyResetKey}
+                  contentJson={replyJson}
+                  legacyContent={replyText}
+                  onChange={onReplyChange}
+                  onSubmit={() => onSubmitReply(comment.id)}
+                  placeholder="Напишите ответ"
+                  minHeightClassName="min-h-[60px]"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={onCancelReply}>Отмена</Button>
+                  <Button type="button" size="sm" onClick={() => onSubmitReply(comment.id)} disabled={isSubmittingReply || replyText.trim().length === 0}>
+                    {isSubmittingReply ? (<><Loader2 className="h-3 w-3 animate-spin" />Отправляем</>) : (<><Send className="h-3 w-3" />Ответить</>)}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!isCollapsed && (
+              <CommentNodeList
+                comments={children}
+                commentTree={commentTree}
+                depth={depth + 1}
+                currentUserId={currentUserId}
+                postUserId={postUserId}
+                currentUsername={currentUsername}
+                editingCommentId={editingCommentId}
+                editingCommentText={editingCommentText}
+                editingCommentJson={editingCommentJson}
+                editingCommentResetKey={editingCommentResetKey}
+                isSavingCommentEdit={isSavingCommentEdit}
+                deletingCommentId={deletingCommentId}
+                replyingToCommentId={replyingToCommentId}
+                replyText={replyText}
+                replyJson={replyJson}
+                replyResetKey={replyResetKey}
+                isSubmittingReply={isSubmittingReply}
+                collapsedCommentIds={collapsedCommentIds}
+                onStartEdit={onStartEdit}
+                onCancelEdit={onCancelEdit}
+                onSaveEdit={onSaveEdit}
+                onEditChange={onEditChange}
+                onDelete={onDelete}
+                onReply={onReply}
+                onReplyChange={onReplyChange}
+                onSubmitReply={onSubmitReply}
+                onCancelReply={onCancelReply}
+                onToggleCollapse={onToggleCollapse}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 };
