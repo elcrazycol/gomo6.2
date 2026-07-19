@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -626,8 +627,9 @@ func (h *Hub) CheckOrigin(r *http.Request) bool {
 	}
 
 	// Check if origin is in allowed list
+	trimmedOrigin := strings.TrimRight(origin, "/")
 	for _, allowed := range h.allowedOrigins {
-		if origin == allowed {
+		if trimmedOrigin == strings.TrimRight(allowed, "/") {
 			return true
 		}
 	}

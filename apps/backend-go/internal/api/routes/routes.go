@@ -298,6 +298,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.Any("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
 		rest.Any("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 
+		rest.Any("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
+		rest.Any("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
+
 		rest.Any("/gomosub_invites", universalHandler.HandleTableRequest)
 		rest.Any("/gomosub_invites/*path", universalHandler.HandleTableRequest)
 
