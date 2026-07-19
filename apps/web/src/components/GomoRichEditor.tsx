@@ -211,6 +211,8 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         code: false,
         horizontalRule: false,
         dropcursor: false,
+        link: false,
+        underline: false,
       }),
       Underline,
       Link.configure({

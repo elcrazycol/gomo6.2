@@ -82,6 +82,7 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		"profile_wall_post_comments":   true,
 		"profile_wall_post_likes":      true,
 		"profile_wall_post_reposts":    true,
+		"profile_wall_comment_likes":   true,
 		"gomosub_rules_acceptance":     true,
 		"reports":                      true,
 		"user_bans":                    true,
