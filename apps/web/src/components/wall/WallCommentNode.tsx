@@ -121,12 +121,19 @@ export const WallCommentNode = ({
           aria-label={isCollapsed ? "Развернуть ветку" : "Свернуть ветку"}
           className="absolute bottom-0 left-0 top-0 z-10 w-4 cursor-pointer sm:w-5"
           style={{
-            borderLeft: `2px solid ${threadColor}`,
-            opacity: isCollapsed ? 1 : 0.4,
-            transition: "opacity 150ms ease",
+            borderLeft: `3px solid ${threadColor}`,
+            opacity: isCollapsed ? 1 : 0.7,
+            transition: "opacity 150ms ease, border-color 150ms ease",
+            borderRadius: "2px",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = isCollapsed ? "1" : "0.4"; }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = "1";
+            e.currentTarget.style.borderLeftColor = "rgba(128,128,128,0.55)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = isCollapsed ? "1" : "0.7";
+            e.currentTarget.style.borderLeftColor = threadColor;
+          }}
           onClick={() => toggleCollapse(comment.id)}
         />
       )}
@@ -329,8 +336,7 @@ export const WallCommentNode = ({
         {isCollapsed && hasChildren && (
           <button
             type="button"
-            className="ml-2 mt-1 text-xs font-medium hover:underline"
-            style={{ color: threadColor }}
+            className="ml-2 mt-1 text-xs font-medium text-muted-foreground hover:underline"
             onClick={() => toggleCollapse(comment.id)}
           >
             Показать {children.length} {children.length === 1 ? "ответ" : "ответов"}
