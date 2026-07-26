@@ -13,6 +13,8 @@ import (
 	"io"
 	"log"
 	"os"
+
+	"github.com/gomo6/backend/internal/crypto"
 )
 
 // ─── AES-256-GCM field-level encryption for messenger content ──────────────
@@ -39,9 +41,9 @@ func loadEncryptionKey() {
 		log.Printf("[Messenger] WARNING: MESSENGER_ENCRYPTION_KEY not set — encryption disabled")
 		return
 	}
-	k := []byte(key)
-	if len(k) != 32 {
-		log.Fatalf("[Messenger] FATAL: MESSENGER_ENCRYPTION_KEY must be exactly 32 bytes, got %d. Generate with: openssl rand -hex 32", len(k))
+	k, err := crypto.ParseMessengerKey(key)
+	if err != nil {
+		log.Fatalf("[Messenger] FATAL: invalid MESSENGER_ENCRYPTION_KEY: %v. Generate with: openssl rand -hex 32", err)
 	}
 	messengerEncryptionKey = k
 }

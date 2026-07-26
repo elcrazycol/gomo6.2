@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gomo6/backend/internal/crypto"
+
 	_ "github.com/lib/pq"
 )
 
@@ -36,9 +38,9 @@ func main() {
 	if keyHex == "" {
 		log.Fatal("MESSENGER_ENCRYPTION_KEY is required")
 	}
-	key := []byte(keyHex)
-	if len(key) != 32 {
-		log.Fatalf("MESSENGER_ENCRYPTION_KEY must be exactly 32 bytes, got %d", len(key))
+	key, err := crypto.ParseMessengerKey(keyHex)
+	if err != nil {
+		log.Fatalf("invalid MESSENGER_ENCRYPTION_KEY: %v", err)
 	}
 
 	db, err := sql.Open("postgres", dbURL)

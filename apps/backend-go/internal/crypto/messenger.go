@@ -15,6 +15,26 @@ import (
 	"sync"
 )
 
+// ParseMessengerKey parses the messenger encryption key from either a raw
+// 32-byte string or a 64-character hex-encoded string (as produced by
+// `openssl rand -hex 32`). It returns the decoded 32-byte key.
+func ParseMessengerKey(key string) ([]byte, error) {
+	if len(key) == 64 {
+		decoded, err := hex.DecodeString(key)
+		if err == nil && len(decoded) == 32 {
+			return decoded, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid hex key: %w", err)
+		}
+		return nil, fmt.Errorf("invalid hex key length after decode: %d", len(decoded))
+	}
+	if len(key) == 32 {
+		return []byte(key), nil
+	}
+	return nil, fmt.Errorf("key must be exactly 32 bytes or 64 hex chars, got %d", len(key))
+}
+
 // Messenger encryption provides AES-256-GCM field-level encryption for messenger content.
 // The master key is loaded from MESSENGER_ENCRYPTION_KEY env var.
 // Per-conversation keys are derived via HMAC-SHA256.
@@ -35,9 +55,9 @@ func Init() {
 		if key == "" {
 			log.Fatalf("[Crypto] FATAL: MESSENGER_ENCRYPTION_KEY is required. Generate with: openssl rand -hex 32")
 		}
-		k := []byte(key)
-		if len(k) != 32 {
-			log.Fatalf("[Crypto] FATAL: MESSENGER_ENCRYPTION_KEY must be exactly 32 bytes, got %d", len(k))
+		k, err := ParseMessengerKey(key)
+		if err != nil {
+			log.Fatalf("[Crypto] FATAL: invalid MESSENGER_ENCRYPTION_KEY: %v", err)
 		}
 		masterKey = k
 	})
