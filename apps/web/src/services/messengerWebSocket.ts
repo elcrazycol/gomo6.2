@@ -50,8 +50,17 @@ class MessengerWebSocket {
     );
   }
 
+  private getMessageData(msg: WebSocketMessage): Record<string, unknown> | null {
+    if (!msg.data) {
+      console.warn(`[Messenger WS] Received ${msg.type} without data`, msg);
+      return null;
+    }
+    return msg.data as Record<string, unknown>;
+  }
+
   private handleNewChatMessage(msg: WebSocketMessage): void {
-    const data = msg.data as Record<string, unknown>;
+    const data = this.getMessageData(msg);
+    if (!data) return;
     const store = useMessengerStore.getState();
     const isMine = store.me?.id === data.sender_user_id;
 
@@ -119,7 +128,8 @@ class MessengerWebSocket {
   }
 
   private handleMessageEdited(msg: WebSocketMessage): void {
-    const data = msg.data as Record<string, unknown>;
+    const data = this.getMessageData(msg);
+    if (!data) return;
     useMessengerStore.getState().updateMessage(data.id as string, {
       content: data.content as string,
       is_edited: true,
@@ -128,12 +138,14 @@ class MessengerWebSocket {
   }
 
   private handleMessageDeleted(msg: WebSocketMessage): void {
-    const data = msg.data as Record<string, unknown>;
+    const data = this.getMessageData(msg);
+    if (!data) return;
     useMessengerStore.getState().removeMessage(data.id as string);
   }
 
   private handleReadReceipt(msg: WebSocketMessage): void {
-    const data = msg.data as Record<string, unknown>;
+    const data = this.getMessageData(msg);
+    if (!data) return;
     const convId = data.conversation_id as string;
     if (convId) {
       useMessengerStore.getState().loadReceipts(convId);
@@ -141,7 +153,8 @@ class MessengerWebSocket {
   }
 
   private handleTyping(msg: WebSocketMessage): void {
-    const d = msg.data as Record<string, unknown>;
+    const d = this.getMessageData(msg);
+    if (!d) return;
     useMessengerStore.getState().setTyping(
       d.user_id as string,
       (d.username as string) ?? "",
@@ -150,12 +163,14 @@ class MessengerWebSocket {
   }
 
   private handleUserOnline(msg: WebSocketMessage): void {
-    const data = msg.data as Record<string, unknown>;
+    const data = this.getMessageData(msg);
+    if (!data) return;
     useMessengerStore.getState().setUserOnline(data.user_id as string, true);
   }
 
   private handleUserOffline(msg: WebSocketMessage): void {
-    const data = msg.data as Record<string, unknown>;
+    const data = this.getMessageData(msg);
+    if (!data) return;
     useMessengerStore.getState().setUserOnline(data.user_id as string, false);
   }
 

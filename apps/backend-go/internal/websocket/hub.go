@@ -291,11 +291,14 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 			if enc, ok := payload["encrypted_content"].(string); ok && enc != "" {
 				if decrypted, err := crypto.DecryptMaster(enc); err == nil {
 					payload["content"] = decrypted
-				}
-				delete(payload, "encrypted_content")
-				// Re-marshal with decrypted content
-				if newData, err := json.Marshal(event); err == nil {
-					messageBytes = newData
+					delete(payload, "encrypted_content")
+					// Re-marshal payload into the WebSocket message data field
+					if newData, err := json.Marshal(payload); err == nil {
+						message.Data = newData
+						if newMessageBytes, err := json.Marshal(message); err == nil {
+							messageBytes = newMessageBytes
+						}
+					}
 				}
 			}
 		}
@@ -313,10 +316,14 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 			if enc, ok := payload["encrypted_content"].(string); ok && enc != "" {
 				if decrypted, err := crypto.DecryptMaster(enc); err == nil {
 					payload["content"] = decrypted
-				}
-				delete(payload, "encrypted_content")
-				if newData, err := json.Marshal(event); err == nil {
-					messageBytes = newData
+					delete(payload, "encrypted_content")
+					// Re-marshal payload into the WebSocket message data field
+					if newData, err := json.Marshal(payload); err == nil {
+						message.Data = newData
+						if newMessageBytes, err := json.Marshal(message); err == nil {
+							messageBytes = newMessageBytes
+						}
+					}
 				}
 			}
 		}
