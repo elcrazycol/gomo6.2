@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -285,6 +286,19 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		}
 
 	case MessageTypeNewChatMessage:
+		// Decrypt encrypted_content before broadcasting to WebSocket clients
+		if payload, ok := event.Payload.(map[string]interface{}); ok {
+			if enc, ok := payload["encrypted_content"].(string); ok && enc != "" {
+				if decrypted, err := crypto.DecryptMaster(enc); err == nil {
+					payload["content"] = decrypted
+				}
+				delete(payload, "encrypted_content")
+				// Re-marshal with decrypted content
+				if newData, err := json.Marshal(event); err == nil {
+					messageBytes = newData
+				}
+			}
+		}
 		// Extract conversation_id from payload for chat broadcasting
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
@@ -293,8 +307,26 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 			go h.autoSubscribeBotsToChat(conversationID, chatRoom)
 		}
 
-	case MessageTypeMessageEdited, MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping:
-		// These messenger events carry conversation_id in their payload
+	case MessageTypeMessageEdited:
+		// Decrypt encrypted_content before broadcasting
+		if payload, ok := event.Payload.(map[string]interface{}); ok {
+			if enc, ok := payload["encrypted_content"].(string); ok && enc != "" {
+				if decrypted, err := crypto.DecryptMaster(enc); err == nil {
+					payload["content"] = decrypted
+				}
+				delete(payload, "encrypted_content")
+				if newData, err := json.Marshal(event); err == nil {
+					messageBytes = newData
+				}
+			}
+		}
+		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
+			chatRoom := fmt.Sprintf("chat_%s", conversationID)
+			h.BroadcastToRoom(chatRoom, messageBytes)
+		}
+
+	case MessageTypeMessageDeleted, MessageTypeReadReceipt, MessageTypeChatTyping:
+		// These events don't carry encrypted content
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
 			h.BroadcastToRoom(chatRoom, messageBytes)

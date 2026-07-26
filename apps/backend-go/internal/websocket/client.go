@@ -273,6 +273,14 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
 
 	log.Printf("[WebSocket] Authenticated user: %s (%s)", c.Username, c.UserID)
+
+	// Set RLS session variable for defense-in-depth.
+	// WebSocket handlers also check membership via isMemberOfConversation(),
+	// but this adds database-level protection.
+	if c.Hub.db != nil {
+		c.Hub.db.Exec("SELECT set_config('app.current_user_id', $1, true)", c.UserID)
+	}
+
 	return nil
 }
 

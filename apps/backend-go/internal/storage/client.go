@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+	"github.com/gomo6/backend/internal/crypto"
 )
 
 type FileInfo struct {
@@ -250,6 +251,29 @@ func (s *StorageClient) UploadFile(bucket, key string, data []byte, contentType 
 		LastModified: time.Now().UTC(),
 		ContentType:  contentType,
 	}, nil
+}
+
+// UploadFileEncrypted encrypts data before storing. Used for messenger attachments.
+func (s *StorageClient) UploadFileEncrypted(bucket, key string, data []byte, contentType string) (*FileInfo, error) {
+	encrypted, err := crypto.EncryptBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt attachment: %w", err)
+	}
+	return s.UploadFile(bucket, key, encrypted, contentType)
+}
+
+// GetFileEncrypted downloads and decrypts an object. Used for messenger attachments.
+func (s *StorageClient) GetFileEncrypted(bucket, key string) ([]byte, string, error) {
+	data, contentType, err := s.GetFile(bucket, key)
+	if err != nil {
+		return nil, "", err
+	}
+	decrypted, err := crypto.DecryptBytes(data)
+	if err != nil {
+		// Fallback: return as-is (may be unencrypted legacy file)
+		return data, contentType, nil
+	}
+	return decrypted, contentType, nil
 }
 
 // GetObject streams an object from Garage (no presign, no extra HTTP hop).

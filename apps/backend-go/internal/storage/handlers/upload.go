@@ -133,7 +133,13 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		contentType = "application/octet-stream"
 	}
 
-	fileInfo, err := h.client.UploadFile(bucket, key, data, contentType)
+	// Encrypt messenger attachments at rest
+	var fileInfo *storage.FileInfo
+	if bucket == "uploads" {
+		fileInfo, err = h.client.UploadFileEncrypted(bucket, key, data, contentType)
+	} else {
+		fileInfo, err = h.client.UploadFile(bucket, key, data, contentType)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
@@ -154,7 +160,15 @@ func (h *StorageHandler) DownloadFile(c *gin.Context) {
 		return
 	}
 
-	data, contentType, err := h.client.GetFile(bucket, key)
+	// Decrypt messenger attachments
+	var data []byte
+	var contentType string
+	var err error
+	if bucket == "uploads" {
+		data, contentType, err = h.client.GetFileEncrypted(bucket, key)
+	} else {
+		data, contentType, err = h.client.GetFile(bucket, key)
+	}
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("File not found"))
 		return

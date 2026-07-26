@@ -80,7 +80,11 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			conv.LastMessageAt = &lastMsgAt.String
 		}
 		if preview.Valid {
-			decrypted, err := decryptContent(preview.String)
+			// Try per-conversation key first, fall back to master key
+			decrypted, err := decryptContentForConversation(conv.ID, preview.String)
+			if err != nil {
+				decrypted, err = decryptContent(preview.String)
+			}
 			if err == nil {
 				conv.LastMessagePreview = &decrypted
 			} else {

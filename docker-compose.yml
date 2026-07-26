@@ -28,12 +28,12 @@ services:
   # ── Cache ─────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     volumes:
       - redis_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -153,8 +153,9 @@ services:
       retries: 5
     environment:
       DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET:-dev-auto-generated-each-restart}
+      MESSENGER_ENCRYPTION_KEY: ${MESSENGER_ENCRYPTION_KEY:?MESSENGER_ENCRYPTION_KEY is required — generate with: openssl rand -hex 32}
       SERVER_DOMAIN: ${DOMAIN:-localhost}
       DOMAIN: ${DOMAIN:-localhost}
       FEDERATION_KEY: ${FEDERATION_KEY:-your-federation-key-change-in-production}

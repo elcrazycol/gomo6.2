@@ -326,6 +326,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Protected endpoints
 		protected := rest.Group("")
 		protected.Use(middleware.AuthCacheMiddleware(authService, redis))
+		protected.Use(middleware.RLSSetConfigMiddleware(db))
 		{
 
 			protected.POST("/profiles", func(c *gin.Context) {
