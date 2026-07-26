@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
@@ -240,11 +241,15 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 		log.Printf("[Gifts] find/create conversation error: %v", err)
 		return
 	}
+	if convID == "" {
+		log.Printf("[Gifts] empty conversation ID; skipping messenger message for gift %s", giftRecordID)
+		return
+	}
 
 	giftContent := fmt.Sprintf("__GIFT__:%s:%s:%s", giftID, giftName, giftImageURL)
 	clientID := fmt.Sprintf("gift_%s", giftRecordID)
 
-	encryptedContent, err := encryptContent(giftContent)
+	encryptedContent, err := encryptContentForConversation(convID, giftContent)
 	if err != nil {
 		log.Printf("[Gifts] encrypt gift message error: %v", err)
 		return
@@ -272,12 +277,17 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 		log.Printf("[Gifts] update conversation preview error: %v", err)
 	}
 
+	if encryptedContent == "" {
+		log.Printf("[Gifts] gift message content encryption produced empty payload; skipping WebSocket broadcast")
+		return
+	}
+
 	sentAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := h.hub.PublishNewChatMessage(gin.H{
-		"id":              msgID,
-		"conversation_id": convID,
+		"id":                msgID,
+		"conversation_id":   convID,
 		"sender_user_id":  senderID,
-		"content":         giftContent,
+		"encrypted_content": encryptedContent,
 		"is_edited":       false,
 		"is_deleted":      false,
 		"edited_at":       nil,
@@ -327,7 +337,7 @@ func (h *GiftsHandler) findOrCreateConversationLegacy(user1, user2 string) (stri
 		if err != nil {
 			return "", err
 		}
-		err = tx.QueryRow(`INSERT INTO chat_conversations DEFAULT VALUES RETURNING id`).Scan(&convID)
+		err = tx.QueryRow(`INSERT INTO chat_conversations (is_e2e, encryption_key_version) VALUES (false, $1) RETURNING id`, crypto.KeyVersionHKDF).Scan(&convID)
 		if err != nil {
 			tx.Rollback()
 			continue

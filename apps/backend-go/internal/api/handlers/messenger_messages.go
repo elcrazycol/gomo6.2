@@ -70,8 +70,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
 				m.edited_at, m.sent_at, m.client_id,
 				CASE WHEN m.ciphertexts IS NOT NULL THEN m.ciphertexts::text ELSE NULL END,
-				COALESCE(m.sender_device_id, ''),
-				COALESCE(m.content_hmac, '')
+				COALESCE(m.sender_device_id, '')
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1 AND m.sent_at < (
@@ -86,8 +85,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
 				m.edited_at, m.sent_at, m.client_id,
 				CASE WHEN m.ciphertexts IS NOT NULL THEN m.ciphertexts::text ELSE NULL END,
-				COALESCE(m.sender_device_id, ''),
-				COALESCE(m.content_hmac, '')
+				COALESCE(m.sender_device_id, '')
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1
@@ -110,14 +108,12 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		var isDeleted bool
 		var ciphertextsRaw sql.NullString
 		var senderDeviceID string
-		var storedHMAC string
 
 		if err := rows.Scan(
 			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
 			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
 			&ciphertextsRaw, &senderDeviceID,
-			&storedHMAC,
 		); err != nil {
 			serverError(c, "scan message row", err)
 			return
@@ -138,11 +134,6 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			}
 			if decErr == nil {
 				msg.Content = decrypted
-				// Verify HMAC integrity if stored
-				if storedHMAC != "" && !verifyHMAC(decrypted, storedHMAC) {
-					log.Printf("[Messenger] HMAC mismatch for message %s — possible tampering", msg.ID)
-					msg.Content = "[integrity check failed]"
-				}
 			} else {
 				msg.Content = encryptedContent
 			}
@@ -249,7 +240,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			serverError(c, "marshal ciphertexts", err)
 			return
 		}
-		encryptedContent, err = encryptContent(ciphertextsJSON)
+		encryptedContent, err = encryptContentForConversation(conversationID, ciphertextsJSON)
 		if err != nil {
 			serverError(c, "encrypt ciphertexts", err)
 			return
@@ -303,17 +294,15 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	msg.EncryptedContent = encryptedContent // preserve for Redis broadcast
 	var parentID, editedAt sql.NullString
 	var senderDeviceID, ciphertextsRaw sql.NullString
-	// Compute HMAC for integrity verification
-	contentHMAC := computeHMAC(cleanContent)
 	err = tx.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id, ciphertexts, sender_device_id, content_hmac)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id, ciphertexts, sender_device_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, conversation_id, sender_user_id, parent_message_id,
 			content, is_edited, is_deleted, edited_at, sent_at, client_id,
 			CASE WHEN ciphertexts IS NOT NULL THEN ciphertexts::text ELSE NULL END,
 			sender_device_id
 	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID,
-		nullJSONB(req.Ciphertexts), nullString(req.SenderDeviceID), contentHMAC).Scan(
+		nullJSONB(req.Ciphertexts), nullString(req.SenderDeviceID)).Scan(
 		&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
@@ -341,7 +330,7 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 				serverError(c, "fetch duplicate message", err2)
 				return
 			}
-			decryptMessageContent(&msg)
+			decryptMessageContent(conversationID, &msg)
 			if parentID.Valid {
 				msg.ParentMessageID = &parentID.String
 			}
@@ -559,7 +548,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string) {
 	// Encrypt content before Redis broadcast
-	encrypted, err := encryptContent(newContent)
+	encrypted, err := encryptContentForConversation(conversationID, newContent)
 	if err != nil {
 		log.Printf("[Messenger] encrypt edit broadcast: %v", err)
 		encrypted = newContent // fallback (should not happen with mandatory key)

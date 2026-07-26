@@ -286,21 +286,8 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		}
 
 	case MessageTypeNewChatMessage:
-		// Decrypt encrypted_content before broadcasting to WebSocket clients
 		if payload, ok := event.Payload.(map[string]interface{}); ok {
-			if enc, ok := payload["encrypted_content"].(string); ok && enc != "" {
-				if decrypted, err := crypto.DecryptMaster(enc); err == nil {
-					payload["content"] = decrypted
-					delete(payload, "encrypted_content")
-					// Re-marshal payload into the WebSocket message data field
-					if newData, err := json.Marshal(payload); err == nil {
-						message.Data = newData
-						if newMessageBytes, err := json.Marshal(message); err == nil {
-							messageBytes = newMessageBytes
-						}
-					}
-				}
-			}
+			messageBytes = decryptChatPayloadForBroadcast(payload, message, messageBytes, event.Type)
 		}
 		// Extract conversation_id from payload for chat broadcasting
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
@@ -311,21 +298,8 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		}
 
 	case MessageTypeMessageEdited:
-		// Decrypt encrypted_content before broadcasting
 		if payload, ok := event.Payload.(map[string]interface{}); ok {
-			if enc, ok := payload["encrypted_content"].(string); ok && enc != "" {
-				if decrypted, err := crypto.DecryptMaster(enc); err == nil {
-					payload["content"] = decrypted
-					delete(payload, "encrypted_content")
-					// Re-marshal payload into the WebSocket message data field
-					if newData, err := json.Marshal(payload); err == nil {
-						message.Data = newData
-						if newMessageBytes, err := json.Marshal(message); err == nil {
-							messageBytes = newMessageBytes
-						}
-					}
-				}
-			}
+			messageBytes = decryptChatPayloadForBroadcast(payload, message, messageBytes, event.Type)
 		}
 		if conversationID := extractRoomID(event.Payload, "conversation_id"); conversationID != "" {
 			chatRoom := fmt.Sprintf("chat_%s", conversationID)
@@ -368,6 +342,44 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		// Broadcast to all clients for unknown types
 		h.broadcast <- messageBytes
 	}
+}
+
+// decryptChatPayloadForBroadcast tries to decrypt a chat payload's
+// encrypted_content using the per-conversation key, falling back to the master
+// key for legacy messages. It returns updated message bytes (with the decrypted
+// content) when decryption succeeds, otherwise it returns the original bytes.
+func decryptChatPayloadForBroadcast(payload map[string]interface{}, message Message, messageBytes []byte, eventType string) []byte {
+	enc, ok := payload["encrypted_content"].(string)
+	if !ok || enc == "" {
+		return messageBytes
+	}
+
+	conversationID := extractRoomID(payload, "conversation_id")
+	if conversationID == "" {
+		log.Printf("[WebSocket] WARNING: encrypted %s missing conversation_id, falling back to master key decryption", eventType)
+	}
+
+	decrypted := ""
+	var err error
+	if conversationID != "" {
+		decrypted, err = crypto.DecryptForConversation(conversationID, enc)
+	}
+	if err != nil {
+		decrypted, err = crypto.DecryptMaster(enc)
+	}
+	if err != nil {
+		return messageBytes
+	}
+
+	payload["content"] = decrypted
+	delete(payload, "encrypted_content")
+	if newData, err := json.Marshal(payload); err == nil {
+		message.Data = newData
+		if newMessageBytes, err := json.Marshal(message); err == nil {
+			return newMessageBytes
+		}
+	}
+	return messageBytes
 }
 
 // extractRoomID extracts a room ID from event payload

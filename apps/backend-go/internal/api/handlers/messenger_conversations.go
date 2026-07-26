@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 )
@@ -296,10 +297,10 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 	// Create conversation
 	var convID string
 	err := h.db.QueryRow(`
-		INSERT INTO chat_conversations (is_group, group_name, created_by)
-		VALUES (true, $1, $2)
+		INSERT INTO chat_conversations (is_group, group_name, created_by, encryption_key_version)
+		VALUES (true, $1, $2, $3)
 		RETURNING id
-	`, name, claims.UserID).Scan(&convID)
+	`, name, claims.UserID, crypto.KeyVersionHKDF).Scan(&convID)
 	if err != nil {
 		serverError(c, "create group", err)
 		return

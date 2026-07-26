@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
@@ -237,9 +238,16 @@ func GenerateClientID() string {
 }
 
 // decryptMessageContent decrypts a single message's content if encrypted.
-func decryptMessageContent(msg *MessageResponse) {
+// Tries the per-conversation key first, then falls back to the master key for
+// legacy messages written before per-conversation encryption was introduced.
+func decryptMessageContent(conversationID string, msg *MessageResponse) {
 	if msg.Content != "" && !msg.IsDeleted {
-		decrypted, err := decryptContent(msg.Content)
+		decrypted, err := decryptContentForConversation(conversationID, msg.Content)
+		if err == nil {
+			msg.Content = decrypted
+			return
+		}
+		decrypted, err = decryptContent(msg.Content)
 		if err == nil {
 			msg.Content = decrypted
 		}
@@ -287,7 +295,7 @@ func (h *MessengerHandler) findOrCreateConversationLegacy(user1, user2 string, i
 		if err != nil {
 			return "", err
 		}
-		err = tx.QueryRow(`INSERT INTO chat_conversations (is_e2e) VALUES ($1) RETURNING id`, isE2E).Scan(&convID)
+		err = tx.QueryRow(`INSERT INTO chat_conversations (is_e2e, encryption_key_version) VALUES ($1, $2) RETURNING id`, isE2E, crypto.KeyVersionHKDF).Scan(&convID)
 		if err != nil {
 			tx.Rollback()
 			continue

@@ -445,7 +445,7 @@ func ReadID3v2Tags(r io.ReadSeeker) (Metadata, error) {
 
 var id3v2genreRe = regexp.MustCompile(`(.*[^(]|.* |^)\(([0-9]+)\) *(.*)$`)
 
-// id3v2genre parse a id3v2 genre tag and expand the numeric genres
+//  id3v2genre parse a id3v2 genre tag and expand the numeric genres
 func id3v2genre(genre string) string {
 	c := true
 	for c {

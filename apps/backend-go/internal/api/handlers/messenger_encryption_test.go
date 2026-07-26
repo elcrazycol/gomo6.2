@@ -43,17 +43,17 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "Hello, World! Привет мир! 🎉"
-	encrypted, err := encryptContent(plaintext)
+	encrypted, err := crypto.EncryptMaster(plaintext)
 	if err != nil {
-		t.Fatalf("encryptContent failed: %v", err)
+		t.Fatalf("crypto.EncryptMaster failed: %v", err)
 	}
 	if encrypted == plaintext {
 		t.Fatal("encrypted text should differ from plaintext")
 	}
 
-	decrypted, err := decryptContent(encrypted)
+	decrypted, err := crypto.DecryptMaster(encrypted)
 	if err != nil {
-		t.Fatalf("decryptContent failed: %v", err)
+		t.Fatalf("crypto.DecryptMaster failed: %v", err)
 	}
 	if decrypted != plaintext {
 		t.Errorf("decrypted %q, want %q", decrypted, plaintext)
@@ -104,17 +104,17 @@ func TestEncryptWithHexKey(t *testing.T) {
 	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "hex key test"
-	encrypted, err := encryptContent(plaintext)
+	encrypted, err := crypto.EncryptMaster(plaintext)
 	if err != nil {
-		t.Fatalf("encryptContent failed: %v", err)
+		t.Fatalf("crypto.EncryptMaster failed: %v", err)
 	}
 	if encrypted == plaintext {
 		t.Fatal("encrypted text should differ from plaintext")
 	}
 
-	decrypted, err := decryptContent(encrypted)
+	decrypted, err := crypto.DecryptMaster(encrypted)
 	if err != nil {
-		t.Fatalf("decryptContent failed: %v", err)
+		t.Fatalf("crypto.DecryptMaster failed: %v", err)
 	}
 	if decrypted != plaintext {
 		t.Errorf("decrypted %q, want %q", decrypted, plaintext)
@@ -127,12 +127,12 @@ func TestEncryptWithoutKey(t *testing.T) {
 	initEncryptionKey()
 
 	plaintext := "plaintext message"
-	_, err := encryptContent(plaintext)
+	_, err := crypto.EncryptMaster(plaintext)
 	// With mandatory key, encryption should fail if key is nil
 	// (the key is set by init() from the package, so we need to unset it after)
 	// This test verifies the function doesn't panic
 	if err == nil && messengerEncryptionKey == nil {
-		t.Log("encryptContent without key returned no error (key loaded from env)")
+		t.Log("crypto.EncryptMaster without key returned no error (key loaded from env)")
 	}
 }
 
@@ -141,15 +141,15 @@ func TestDecryptWithoutKey(t *testing.T) {
 	os.Unsetenv("ENCRYPTION_KEY")
 	initEncryptionKey()
 
-	// When key is nil, decryptContent returns error
-	result, err := decryptContent("some data")
+	// When key is nil, crypto.DecryptMaster returns error
+	result, err := crypto.DecryptMaster("some data")
 	if messengerEncryptionKey == nil {
 		if err == nil {
 			t.Error("without key, should return error")
 		}
 	} else {
 		if err != nil {
-			t.Logf("decryptContent with key returned error: %v", err)
+			t.Logf("crypto.DecryptMaster with key returned error: %v", err)
 		}
 		_ = result
 	}
@@ -160,9 +160,9 @@ func TestDecryptEmptyString(t *testing.T) {
 	os.Unsetenv("ENCRYPTION_KEY")
 	initEncryptionKey()
 
-	result, err := decryptContent("")
+	result, err := crypto.DecryptMaster("")
 	if err != nil {
-		t.Fatalf("decryptContent failed: %v", err)
+		t.Fatalf("crypto.DecryptMaster failed: %v", err)
 	}
 	if result != "" {
 		t.Errorf("empty string should return empty, got %q", result)
@@ -178,7 +178,7 @@ func TestDecryptNonEncryptedData(t *testing.T) {
 	defer func() { messengerEncryptionKey = nil }()
 
 	// With mandatory key, non-encrypted data returns error (not passthrough)
-	_, err := decryptContent("short")
+	_, err := crypto.DecryptMaster("short")
 	if err == nil {
 		t.Error("non-encrypted data should return error, not passthrough")
 	}
@@ -193,9 +193,9 @@ func TestEncryptWithFallbackKey(t *testing.T) {
 	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "fallback key test"
-	encrypted, err := encryptContent(plaintext)
+	encrypted, err := crypto.EncryptMaster(plaintext)
 	if err != nil {
-		t.Fatalf("encryptContent failed: %v", err)
+		t.Fatalf("crypto.EncryptMaster failed: %v", err)
 	}
 	if encrypted == plaintext {
 		t.Fatal("encrypted text should differ from plaintext")
@@ -210,14 +210,14 @@ func TestEncryptKeyPadding(t *testing.T) {
 	defer func() { messengerEncryptionKey = nil }()
 
 	plaintext := "pad test"
-	encrypted, err := encryptContent(plaintext)
+	encrypted, err := crypto.EncryptMaster(plaintext)
 	if err != nil {
-		t.Fatalf("encryptContent failed: %v", err)
+		t.Fatalf("crypto.EncryptMaster failed: %v", err)
 	}
 
-	decrypted, err := decryptContent(encrypted)
+	decrypted, err := crypto.DecryptMaster(encrypted)
 	if err != nil {
-		t.Fatalf("decryptContent failed: %v", err)
+		t.Fatalf("crypto.DecryptMaster failed: %v", err)
 	}
 	if decrypted != plaintext {
 		t.Errorf("decrypted %q, want %q", decrypted, plaintext)
@@ -240,14 +240,14 @@ func TestEncryptDecryptMultipleMessages(t *testing.T) {
 		"Unicode: привет мир 🎉",
 	}
 	for i, msg := range messages {
-		enc, err := encryptContent(msg)
+		enc, err := crypto.EncryptMaster(msg)
 		if err != nil {
 			t.Fatalf("encrypt[%d] failed: %v", i, err)
 		}
 		if msg != "" && enc == msg {
 			t.Errorf("encrypt[%d]: encrypted same as plaintext", i)
 		}
-		dec, err := decryptContent(enc)
+		dec, err := crypto.DecryptMaster(enc)
 		if err != nil {
 			t.Fatalf("decrypt[%d] failed: %v", i, err)
 		}
@@ -265,8 +265,8 @@ func TestEncryptDifferentNonces(t *testing.T) {
 	initEncryptionKey()
 	defer func() { messengerEncryptionKey = nil }()
 
-	enc1, _ := encryptContent("same message")
-	enc2, _ := encryptContent("same message")
+	enc1, _ := crypto.EncryptMaster("same message")
+	enc2, _ := crypto.EncryptMaster("same message")
 	if enc1 == enc2 {
 		t.Error("two encryptions of same text should produce different ciphertexts (random nonce)")
 	}

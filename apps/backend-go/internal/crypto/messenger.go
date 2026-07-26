@@ -13,6 +13,8 @@ import (
 	"log"
 	"os"
 	"sync"
+
+	"golang.org/x/crypto/hkdf"
 )
 
 // ParseMessengerKey parses the messenger encryption key from either a raw
@@ -37,12 +39,25 @@ func ParseMessengerKey(key string) ([]byte, error) {
 
 // Messenger encryption provides AES-256-GCM field-level encryption for messenger content.
 // The master key is loaded from MESSENGER_ENCRYPTION_KEY env var.
-// Per-conversation keys are derived via HMAC-SHA256.
+// Per-conversation keys are derived via HMAC-SHA256 (legacy) or HKDF (v2).
 
 var (
 	masterKey     []byte
 	masterKeyOnce sync.Once
 )
+
+// Key derivation versions.
+const (
+	// KeyVersionLegacy uses the original HMAC-SHA256 derivation.
+	// Kept for decrypting existing messages.
+	KeyVersionLegacy = 1
+	// KeyVersionHKDF uses RFC-5869 HKDF-SHA256 for deriving per-conversation keys.
+	KeyVersionHKDF = 2
+)
+
+// hkdfKeyCache caches derived per-conversation keys to avoid recomputing HKDF.
+// Only v2 keys are cached; legacy keys are cheap to compute.
+var hkdfKeyCache sync.Map // key: "convID", value: []byte
 
 // Init loads the master encryption key from environment.
 // Must be called once at startup. Fatal if key is missing or wrong length.
@@ -69,14 +84,45 @@ func GetMasterKey() []byte {
 	return masterKey
 }
 
-// DeriveConversationKey derives a unique 32-byte AES key for a conversation
-// using HMAC-SHA256 from the master key + conversation ID.
-func DeriveConversationKey(conversationID string) []byte {
+// DeriveConversationKey derives a 32-byte key for a conversation using the
+// requested KDF version. New encryption always uses KeyVersionHKDF; legacy
+// messages can still be decrypted with KeyVersionLegacy.
+func DeriveConversationKey(version int, conversationID string) []byte {
+	switch version {
+	case KeyVersionHKDF:
+		return deriveConversationKeyHKDF(conversationID)
+	default:
+		return deriveConversationKeyLegacy(conversationID)
+	}
+}
+
+func deriveConversationKeyLegacy(conversationID string) []byte {
 	mac := hmac.New(sha256.New, GetMasterKey())
 	mac.Write([]byte("gomo6-messenger-v1"))
 	mac.Write([]byte(conversationID))
 	mac.Write([]byte{0x01})
 	return mac.Sum(nil)
+}
+
+func deriveConversationKeyHKDF(conversationID string) []byte {
+	if cached, ok := hkdfKeyCache.Load(conversationID); ok {
+		return cached.([]byte)
+	}
+
+	salt := []byte("gomo6-messenger-hkdf-v2")
+	info := []byte(conversationID)
+	r := hkdf.New(sha256.New, GetMasterKey(), salt, info)
+	key := make([]byte, 32)
+	if _, err := io.ReadFull(r, key); err != nil {
+		// HKDF-Extract/Expand with SHA-256 cannot fail in practice for 32 bytes,
+		// but if it ever does, fall back to the legacy derivation so we don't
+		// lose data. Log loudly because this should be investigated.
+		log.Printf("[Crypto] FATAL: HKDF key derivation failed for conversation %s: %v", conversationID, err)
+		return deriveConversationKeyLegacy(conversationID)
+	}
+
+	hkdfKeyCache.Store(conversationID, key)
+	return key
 }
 
 // Encrypt encrypts plaintext using AES-256-GCM with the given key.
@@ -136,26 +182,20 @@ func DecryptMaster(encoded string) (string, error) {
 	return Decrypt(GetMasterKey(), encoded)
 }
 
-// EncryptForConversation encrypts using a per-conversation key.
+// EncryptForConversation encrypts using the current v2 per-conversation key (HKDF).
 func EncryptForConversation(conversationID, plaintext string) (string, error) {
-	return Encrypt(DeriveConversationKey(conversationID), plaintext)
+	return Encrypt(DeriveConversationKey(KeyVersionHKDF, conversationID), plaintext)
 }
 
-// DecryptForConversation decrypts using a per-conversation key.
+// DecryptForConversation decrypts using the per-conversation key.
+// It tries the modern HKDF key first, then falls back to the legacy HMAC key
+// for messages written before the HKDF migration.
 func DecryptForConversation(conversationID, encoded string) (string, error) {
-	return Decrypt(DeriveConversationKey(conversationID), encoded)
-}
-
-// ComputeHMAC computes HMAC-SHA256 over plaintext using the master key.
-func ComputeHMAC(plaintext string) string {
-	mac := hmac.New(sha256.New, GetMasterKey())
-	mac.Write([]byte(plaintext))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// VerifyHMAC checks if the HMAC matches the plaintext.
-func VerifyHMAC(plaintext, expectedHMAC string) bool {
-	return ComputeHMAC(plaintext) == expectedHMAC
+	decrypted, err := Decrypt(DeriveConversationKey(KeyVersionHKDF, conversationID), encoded)
+	if err == nil {
+		return decrypted, nil
+	}
+	return Decrypt(DeriveConversationKey(KeyVersionLegacy, conversationID), encoded)
 }
 
 // EncryptBytes encrypts raw bytes using AES-256-GCM with the master key.

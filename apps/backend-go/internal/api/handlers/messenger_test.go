@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -203,25 +204,21 @@ func TestGenerateClientID(t *testing.T) {
 }
 
 func TestEncryptDecrypt(t *testing.T) {
-	// Save original key and restore
-	origKey := messengerEncryptionKey
-	defer func() { messengerEncryptionKey = origKey }()
-
-	// Set a test key (must be exactly 32 bytes for AES-256)
-	messengerEncryptionKey = []byte("test-key-exactly-32-bytes-here!!")
+	// Use a local 32-byte key so the test does not depend on the process env var.
+	key := []byte("test-key-exactly-32-bytes-here!!")
 
 	plaintext := "Hello, secure world!"
-	encrypted, err := encryptContent(plaintext)
+	encrypted, err := crypto.Encrypt(key, plaintext)
 	if err != nil {
-		t.Fatalf("encryptContent failed: %v", err)
+		t.Fatalf("crypto.Encrypt failed: %v", err)
 	}
 	if encrypted == plaintext {
 		t.Fatal("encrypted content should differ from plaintext")
 	}
 
-	decrypted, err := decryptContent(encrypted)
+	decrypted, err := crypto.Decrypt(key, encrypted)
 	if err != nil {
-		t.Fatalf("decryptContent failed: %v", err)
+		t.Fatalf("crypto.Decrypt failed: %v", err)
 	}
 	if decrypted != plaintext {
 		t.Fatalf("decrypt mismatch: got %q, want %q", decrypted, plaintext)
@@ -229,22 +226,16 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 func TestEncryptDecrypt_NoKey(t *testing.T) {
-	origKey := messengerEncryptionKey
-	defer func() { messengerEncryptionKey = origKey }()
-
-	messengerEncryptionKey = nil
-
 	plaintext := "unencrypted"
-	// With mandatory key, encrypt without key should return error
-	_, err := encryptContent(plaintext)
-	// Either error or empty result (key was loaded from env by init())
-	if err != nil {
-		t.Logf("encryptContent without key returned error: %v", err)
+	// Encrypt without a key should return an error.
+	_, err := crypto.Encrypt(nil, plaintext)
+	if err == nil {
+		t.Error("crypto.Encrypt without key should return error")
 	}
 
-	// Decrypt without key should return error
-	_, err = decryptContent("somedata")
+	// Decrypt without a key should also return an error.
+	_, err = crypto.Decrypt(nil, "somedata")
 	if err == nil {
-		t.Log("decryptContent without key returned no error (key loaded from env)")
+		t.Error("crypto.Decrypt without key should return error")
 	}
 }
