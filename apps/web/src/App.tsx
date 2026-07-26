@@ -1,4 +1,4 @@
-import { useEffect, lazy } from "react";
+import { useEffect, lazy, type ComponentType } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner, toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,50 +14,98 @@ import { ProfileCacheProvider } from "@/contexts/ProfileCacheContext";
 import { LikesCacheProvider } from "@/contexts/LikesCacheContext";
 import { EmojiDataProvider } from "@/contexts/EmojiDataContext";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
+import { logClientError } from "@/lib/logging";
+
+// Helper: load a page with retry. If a dynamic chunk fails (stale
+// deployment, network blip, ad blocker), reload the page once to fetch
+// the latest index.html + chunks.
+const lazyWithRetry = (
+  factory: () => Promise<{ default: ComponentType<any> }>
+) => {
+  return lazy(async () => {
+    try {
+      const module = await factory();
+      // Chunk loaded successfully: clear any stale-reload flag.
+      try {
+        window.sessionStorage.removeItem('gomo6-chunk-reload-tried');
+      } catch {
+        // ignore
+      }
+      return module;
+    } catch (error) {
+      logClientError(error, 'dynamic_import_failed', {
+        href: window.location.href,
+      });
+
+      const hasRetried = (() => {
+        try {
+          return window.sessionStorage.getItem('gomo6-chunk-reload-tried') === 'true';
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!hasRetried) {
+        try {
+          window.sessionStorage.setItem('gomo6-chunk-reload-tried', 'true');
+        } catch {
+          // ignore
+        }
+        // Force the browser to fetch the latest app version.
+        window.location.reload();
+        // Keep Suspense alive while the page reloads.
+        return new Promise<T>(() => {});
+      }
+
+      // Second failure in a row — propagate so the error boundary can show UI.
+      throw error;
+    }
+  });
+};
 
 // Lazy load pages for better performance
-const Index = lazy(() => import("./pages/Index"));
-const CreateThread = lazy(() => import("./pages/CreateThread"));
-const CreateGomoThread = lazy(() => import("./pages/CreateGomoThread"));
-const Auth = lazy(() => import("./pages/Auth"));
-const Board = lazy(() => import("./pages/Board"));
-const Thread = lazy(() => import("./pages/Thread"));
-const Profile = lazy(() => import("./pages/Profile"));
-const WallPost = lazy(() => import("./pages/WallPost"));
-const Moderation = lazy(() => import("./pages/Moderation"));
-const ModerationPosts = lazy(() => import("./pages/ModerationPosts"));
-const EmojiModeration = lazy(() => import("./pages/EmojiModeration"));
-const EmojiCreate = lazy(() => import("./pages/EmojiCreate"));
-const EmojiEdit = lazy(() => import("./pages/EmojiEdit"));
-const EmojiEditForm = lazy(() => import("./pages/EmojiEditForm"));
-const EmojiPacks = lazy(() => import("./pages/EmojiPacks"));
-const EmojiPackDetail = lazy(() => import("./pages/EmojiPackDetail"));
-const EmojiPackCreate = lazy(() => import("./pages/EmojiPackCreate"));
-const EmojiPackEdit = lazy(() => import("./pages/EmojiPackEdit"));
-const EmojiMyPacks = lazy(() => import("./pages/EmojiMyPacks"));
-const Messages = lazy(() => import("./pages/Messages"));
-const Settings = lazy(() => import("./pages/Settings"));
-const CustomProfile = lazy(() => import("./pages/settings/CustomProfile"));
-const Placeholders = lazy(() => import("./pages/settings/Placeholders"));
-const GomoSubs = lazy(() => import("./pages/GomoSubs"));
-const GomoSubCreate = lazy(() => import("./pages/GomoSubCreate"));
-const GomoSubSettings = lazy(() => import("./pages/GomoSubSettings"));
-const GomoSubJoin = lazy(() => import("./pages/GomoSubJoin"));
-const SearchResults = lazy(() => import("./pages/SearchResults"));
-const Stats = lazy(() => import("./pages/Stats"));
-const Wallet = lazy(() => import("./pages/Wallet"));
-const Notify = lazy(() => import("./pages/Notify"));
-const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
-const Achievements = lazy(() => import("./pages/Achievements"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+const Index = lazyWithRetry(() => import("./pages/Index"));
+const CreateThread = lazyWithRetry(() => import("./pages/CreateThread"));
+const CreateGomoThread = lazyWithRetry(() => import("./pages/CreateGomoThread"));
+const Auth = lazyWithRetry(() => import("./pages/Auth"));
+const Board = lazyWithRetry(() => import("./pages/Board"));
+const Thread = lazyWithRetry(() => import("./pages/Thread"));
+const Profile = lazyWithRetry(() => import("./pages/Profile"));
+const WallPost = lazyWithRetry(() => import("./pages/WallPost"));
+const Moderation = lazyWithRetry(() => import("./pages/Moderation"));
+const ModerationPosts = lazyWithRetry(() => import("./pages/ModerationPosts"));
+const EmojiModeration = lazyWithRetry(() => import("./pages/EmojiModeration"));
+const EmojiCreate = lazyWithRetry(() => import("./pages/EmojiCreate"));
+const EmojiEdit = lazyWithRetry(() => import("./pages/EmojiEdit"));
+const EmojiEditForm = lazyWithRetry(() => import("./pages/EmojiEditForm"));
+const EmojiPacks = lazyWithRetry(() => import("./pages/EmojiPacks"));
+const EmojiPackDetail = lazyWithRetry(() => import("./pages/EmojiPackDetail"));
+const EmojiPackCreate = lazyWithRetry(() => import("./pages/EmojiPackCreate"));
+const EmojiPackEdit = lazyWithRetry(() => import("./pages/EmojiPackEdit"));
+const EmojiMyPacks = lazyWithRetry(() => import("./pages/EmojiMyPacks"));
+const Messages = lazyWithRetry(() => import("./pages/Messages"));
+const Settings = lazyWithRetry(() => import("./pages/Settings"));
+const CustomProfile = lazyWithRetry(() => import("./pages/settings/CustomProfile"));
+const Placeholders = lazyWithRetry(() => import("./pages/settings/Placeholders"));
+const GomoSubs = lazyWithRetry(() => import("./pages/GomoSubs"));
+const GomoSubCreate = lazyWithRetry(() => import("./pages/GomoSubCreate"));
+const GomoSubSettings = lazyWithRetry(() => import("./pages/GomoSubSettings"));
+const GomoSubJoin = lazyWithRetry(() => import("./pages/GomoSubJoin"));
+const SearchResults = lazyWithRetry(() => import("./pages/SearchResults"));
+const Stats = lazyWithRetry(() => import("./pages/Stats"));
+const Wallet = lazyWithRetry(() => import("./pages/Wallet"));
+const Notify = lazyWithRetry(() => import("./pages/Notify"));
+const OAuthConsent = lazyWithRetry(() => import("./pages/OAuthConsent"));
+const Achievements = lazyWithRetry(() => import("./pages/Achievements"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 
 // Prefetch critical routes on app start
 const prefetchRoutes = () => {
   // Prefetch main routes after initial load
   setTimeout(() => {
-    import("./pages/Auth");
-    import("./pages/Settings");
-    import("./pages/Profile");
+    import("./pages/Auth").catch(() => {});
+    import("./pages/Settings").catch(() => {});
+    import("./pages/Profile").catch(() => {});
   }, 2000);
 };
 

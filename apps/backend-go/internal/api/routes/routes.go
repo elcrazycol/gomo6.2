@@ -122,6 +122,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	backupHandler := handlers.NewBackupHandler(db)
 	backupHandler.SetStorage(storageClient)
 
+	// Client-side error reporting handler
+	clientErrorsHandler := handlers.NewClientErrorsHandler(db)
+
 	// WebSocket handler disabled for now
 	// wsHandler := handlers.NewWebSocketHandler(wsHub)
 
@@ -226,6 +229,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/gift_catalog", giftsHandler.GetGiftCatalog)
 		// User gifts (public)
 		rest.GET("/user_gifts", giftsHandler.GetUserGifts)
+		// Client-side JavaScript error reporting (public, rate-limited)
+		rest.POST("/client-errors", clientErrorsHandler.ReportClientError)
 
 		// Drops packages (public)
 		rest.GET("/drops/packages", dropsHandler.GetDropsPackages)
