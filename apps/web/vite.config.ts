@@ -76,6 +76,10 @@ export default defineConfig(() => ({
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Don't intercept backend routes with the SPA shell; Caddy proxies
+        // /oauth/* and /api/* to the Go backend, and serving index.html for
+        // them causes the SPA's own 404 page to be returned.
+        navigateFallbackDenylist: [/^\/api\//, /^\/oauth\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\/api\/v1\/messenger\/conversations$/,

@@ -3,12 +3,14 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/oauth"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type DevDashboardHandler struct {
@@ -88,24 +90,39 @@ func SeedDevDashboardApp(db *sql.DB) {
 		systemDomain = "localhost:8080"
 	}
 
+	// Generate a random wallet address for the system user (required NOT NULL).
+	// The system user is never intended to log in, so the password is random.
+	walletAddr := fmt.Sprintf("GM6-%s-%s", randomHex(4), randomHex(4))
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(randomHex(32)), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("SeedDevDashboardApp: failed to hash system user password: %v", err)
+		return
+	}
+
 	// First ensure a system user exists to satisfy the owner_id FK constraint
-	_, _ = db.Exec(`
-		INSERT INTO users (id, username, email, password_hash, domain)
-		VALUES ($1, $2, $3, $4, $5)
+	_, err = db.Exec(`
+		INSERT INTO users (id, username, email, password_hash, domain, wallet_address)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO UPDATE SET
 			username = EXCLUDED.username,
 			email = EXCLUDED.email,
-			domain = EXCLUDED.domain
+			domain = EXCLUDED.domain,
+			wallet_address = EXCLUDED.wallet_address
 	`,
 		systemUserID,
 		"__system__",
 		"system@gomo6.local",
-		"",
+		string(hashedPassword),
 		systemDomain,
+		walletAddr,
 	)
+	if err != nil {
+		log.Printf("SeedDevDashboardApp: failed to seed system user: %v", err)
+		return
+	}
 
 	// Create or update the dev-dashboard as a system app (public client with PKCE)
-	_, err := db.Exec(`
+	_, err = db.Exec(`
 		INSERT INTO oauth_applications 
 			(owner_id, name, description, client_id, client_secret_hash, redirect_uris, allowed_scopes, is_confidential, logo_url, homepage_url, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
@@ -134,6 +151,7 @@ func SeedDevDashboardApp(db *sql.DB) {
 	)
 
 	if err != nil {
+		log.Printf("SeedDevDashboardApp: failed to seed dev-dashboard OAuth app: %v", err)
 		return
 	}
 }
