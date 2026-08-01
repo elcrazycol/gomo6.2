@@ -58,7 +58,10 @@ export const MessengerView = () => {
   useEffect(() => {
     if (!selectedConversationId) return;
     eventManager.subscribeConversation(selectedConversationId);
-    return () => { eventManager.unsubscribeConversation(selectedConversationId); };
+    return () => {
+      messengerWs.stopTyping(selectedConversationId);
+      eventManager.unsubscribeConversation(selectedConversationId);
+    };
   }, [selectedConversationId]);
 
   // ── Mobile detection ──────────────────────────────────────────────────

@@ -5,9 +5,17 @@ import { wsService, type WebSocketMessage } from "@/services/websocket";
 // No connection management. Transport is handled by wsService + eventManager.
 // This module only registers handlers that update the messenger store.
 
+const TYPING_HEARTBEAT_MS = 3000;
+
+type TypingState = {
+  active: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
 class MessengerWebSocket {
   private handlersUnsub: (() => void)[] = [];
   private initialized = false;
+  private typingStates = new Map<string, TypingState>();
 
   connect(): void {
     if (this.initialized) return;
@@ -18,10 +26,44 @@ class MessengerWebSocket {
   disconnect(): void {
     for (const unsub of this.handlersUnsub) unsub();
     this.handlersUnsub = [];
+    for (const conversationId of [...this.typingStates.keys()]) this.stopTyping(conversationId);
     this.initialized = false;
   }
 
   sendTyping(conversationId: string, isTyping: boolean): void {
+    if (!conversationId) return;
+    const state = this.typingStates.get(conversationId) ?? { active: false, timer: null };
+
+    if (!isTyping) {
+      if (state.timer) clearTimeout(state.timer);
+      this.typingStates.delete(conversationId);
+      if (state.active) this.sendTypingEvent(conversationId, false);
+      return;
+    }
+
+    if (!state.active) {
+      state.active = true;
+      this.sendTypingEvent(conversationId, true);
+    }
+    this.scheduleTypingHeartbeat(conversationId, state);
+    this.typingStates.set(conversationId, state);
+  }
+
+  stopTyping(conversationId: string): void {
+    this.sendTyping(conversationId, false);
+  }
+
+  private scheduleTypingHeartbeat(conversationId: string, state: TypingState): void {
+    if (state.timer) return;
+    state.timer = setTimeout(() => {
+      state.timer = null;
+      if (!this.typingStates.has(conversationId) || !state.active) return;
+      this.sendTypingEvent(conversationId, true);
+      this.scheduleTypingHeartbeat(conversationId, state);
+    }, TYPING_HEARTBEAT_MS);
+  }
+
+  private sendTypingEvent(conversationId: string, isTyping: boolean): void {
     wsService.sendRaw({
       type: "chat_typing",
       room: `chat_${conversationId}`,

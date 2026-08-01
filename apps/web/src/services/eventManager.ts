@@ -19,6 +19,7 @@ class EventManager {
   // Store callbacks
   private onNotificationCountUpdate: ((count: number) => void) | null = null;
   private onMessengerCountUpdate: ((conversations: Array<{ id: string; unread_count: number }>) => void) | null = null;
+  private onMessengerReconnect: (() => void) | null = null;
 
   get connected(): boolean {
     return wsService.connected;
@@ -35,6 +36,7 @@ class EventManager {
     // Listen for WS lifecycle events
     this.wsUnsubs.push(
       wsService.on("connected", this.handleConnected),
+      wsService.on("disconnected", this.handleDisconnected),
     );
 
     // Bridge wsService "new_notification" events to eventManager handlers
@@ -67,6 +69,7 @@ class EventManager {
     this.subscribedConversations.clear();
     this.onNotificationCountUpdate = null;
     this.onMessengerCountUpdate = null;
+    this.onMessengerReconnect = null;
     this.userId = null;
     this.initialized = false;
     this.disconnectTimestamp = null;
@@ -110,8 +113,10 @@ class EventManager {
 
   setMessengerCallbacks(opts: {
     onCountUpdate?: (conversations: Array<{ id: string; unread_count: number }>) => void;
+    onReconnect?: () => void;
   }): void {
     if (opts.onCountUpdate) this.onMessengerCountUpdate = opts.onCountUpdate;
+    if (opts.onReconnect) this.onMessengerReconnect = opts.onReconnect;
   }
 
   // ── Initial sync trigger ───────────────────────────────────────────────────
@@ -122,6 +127,11 @@ class EventManager {
   }
 
   // ── Internal: WS lifecycle ────────────────────────────────────────────────
+
+  private handleDisconnected = (): void => {
+    this.disconnectTimestamp ??= Date.now();
+    this.startPolling();
+  };
 
   private handleConnected = (): void => {
     this.stopPolling();
@@ -139,7 +149,12 @@ class EventManager {
     // Recovery: refetch missed data
     const timeDisconnected = this.disconnectTimestamp ? Date.now() - this.disconnectTimestamp : 0;
     const forceFullRefetch = timeDisconnected > 60000;
-    this.syncAll(forceFullRefetch);
+    void this.syncAll(forceFullRefetch).then(() => {
+      // The current conversation is refreshed after the connection is restored.
+      // The API has no event cursor yet, so this full active-chat fetch is the
+      // authoritative gap recovery path and avoids inventing a client cursor.
+      this.onMessengerReconnect?.();
+    });
     this.disconnectTimestamp = null;
   };
 

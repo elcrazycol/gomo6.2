@@ -2,6 +2,28 @@ import { create } from "zustand";
 import type { Attachment, ConversationView, MessageView, TypingUser, ReceiptRow } from "@/components/messenger/types";
 import { messengerApi } from "@/services/messengerApi";
 import { eventManager } from "@/services/eventManager";
+import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
+
+let messageLoadGeneration = 0;
+let loadMoreRequestGeneration = 0;
+
+function persistMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
+  if (!ownerId) return;
+  void saveCachedMessages(ownerId, conversationId, messages);
+}
+
+function canApplyMessageLoad(ownerId: string | null, conversationId: string, generation: number): boolean {
+  const state = useMessengerStore.getState();
+  const selected = state.selectedConversationId;
+  return generation === messageLoadGeneration
+    && state.me?.id === ownerId
+    && (selected === null || selected === conversationId);
+}
+
+function cacheCurrentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
+  if (messages.length > 0) persistMessages(ownerId, conversationId, messages);
+}
+
 
 // ─── Batched markDelivered/markRead ─────────────────────────────────────────
 // Instead of hitting the API on every message, we queue the latest message ID
@@ -195,6 +217,13 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           });
           useMessengerStore.setState({ conversations: updated as ConversationView[] });
         },
+        onReconnect: () => {
+          const activeConversationId = useMessengerStore.getState().selectedConversationId;
+          if (activeConversationId) {
+            void useMessengerStore.getState().loadMessages(activeConversationId);
+            void useMessengerStore.getState().loadReceipts(activeConversationId);
+          }
+        },
       });
 
       // Trigger initial sync now that all callbacks are registered
@@ -223,12 +252,34 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   // ── Load messages ─────────────────────────────────────────────────────
   loadMessages: async (conversationId: string) => {
+    const generation = ++messageLoadGeneration;
+    let hasCachedMessages = false;
+    const ownerId = get().me?.id ?? null;
     set({ isMessagesLoading: true, error: null });
+
+    // Render the last local snapshot first. The network request below still
+    // runs immediately and remains authoritative when it succeeds.
+    try {
+      const cached = ownerId ? await loadCachedMessages(ownerId, conversationId) : null;
+      if (cached && cached.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
+        hasCachedMessages = true;
+        set({ messages: cached, hasMoreMessages: cached.length >= 50 });
+      }
+    } catch {
+      // IndexedDB is an optional optimization; never block the network path.
+    }
+
     try {
       const msgs = await messengerApi.getMessages(conversationId);
+      if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       set({ messages: msgs, isMessagesLoading: false, hasMoreMessages: msgs.length >= 50 });
-    } catch (e) {
-      set({ error: "Не удалось загрузить сообщения", isMessagesLoading: false });
+      persistMessages(ownerId, conversationId, msgs);
+    } catch {
+      if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
+      set({
+        error: hasCachedMessages ? null : "Не удалось загрузить сообщения",
+        isMessagesLoading: false,
+      });
     }
   },
 
@@ -236,22 +287,37 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   loadMoreMessages: async (conversationId: string) => {
     const { messages, isLoadingMore } = get();
     if (isLoadingMore || messages.length === 0) return;
+    const generation = messageLoadGeneration;
+    const requestGeneration = ++loadMoreRequestGeneration;
+    const ownerId = get().me?.id ?? null;
 
     const oldest = messages[0];
     set({ isLoadingMore: true });
     try {
       const older = await messengerApi.getMessages(conversationId, oldest.id);
+      if (!canApplyMessageLoad(ownerId, conversationId, generation)) {
+        if (requestGeneration === loadMoreRequestGeneration) {
+          set({ isLoadingMore: false });
+        }
+        return;
+      }
       if (older.length === 0) {
         set({ hasMoreMessages: false, isLoadingMore: false });
         return;
       }
-      set((s) => ({
-        messages: [...older, ...s.messages],
-        hasMoreMessages: older.length >= 50,
-        isLoadingMore: false,
-      }));
+      set((s) => {
+        const messages = [...older, ...s.messages];
+        cacheCurrentMessages(ownerId, conversationId, messages);
+        return {
+          messages,
+          hasMoreMessages: older.length >= 50,
+          isLoadingMore: false,
+        };
+      });
     } catch {
-      set({ isLoadingMore: false });
+      if (requestGeneration === loadMoreRequestGeneration) {
+        set({ isLoadingMore: false });
+      }
     }
   },
 
@@ -312,6 +378,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
           };
           conversations = [updated, ...s.conversations.filter((c) => c.id !== selectedConversationId)];
         }
+        cacheCurrentMessages(s.me?.id ?? null, selectedConversationId, messages);
         return { messages, conversations, isSending: false };
       });
       return msg.id;
@@ -445,6 +512,10 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
 
   // ── Local actions ─────────────────────────────────────────────────────
   selectConversation: (id) => {
+    // Invalidate in-flight cache/network responses before switching so a slow
+    // previous conversation can never overwrite the newly selected one.
+    messageLoadGeneration++;
+    loadMoreRequestGeneration++;
     // Flush pending reads/delivered before switching so DB stays in sync
     flushPending();
     // Clear messages immediately to prevent stale messages from previous conversation
@@ -461,24 +532,33 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     set((s) => {
       // Dedup
       if (s.messages.some((m) => m.id === message.id || m.client_id === message.client_id)) return s;
-      return {
-        messages: [...s.messages, message].sort(
-          (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
-        ),
-      };
+      // Events for another conversation update its preview, but must never
+      // leak into the currently visible message list.
+      if (s.selectedConversationId && s.selectedConversationId !== message.conversation_id) return s;
+      const messages = [...s.messages, message].sort(
+        (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
+      );
+      cacheCurrentMessages(s.me?.id ?? null, message.conversation_id, messages);
+      return { messages };
     });
   },
 
   updateMessage: (id, updates) => {
-    set((s) => ({
-      messages: s.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-    }));
+    set((s) => {
+      const messages = s.messages.map((m) => (m.id === id ? { ...m, ...updates } : m));
+      const changed = messages.some((m, index) => m !== s.messages[index]);
+      if (changed && s.selectedConversationId) cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
+      return { messages };
+    });
   },
 
   removeMessage: (id) => {
-    set((s) => ({
-      messages: s.messages.map((m) => (m.id === id ? { ...m, is_deleted: true, content: "" } : m)),
-    }));
+    set((s) => {
+      const messages = s.messages.map((m) => (m.id === id ? { ...m, is_deleted: true, content: "" } : m));
+      const changed = messages.some((m, index) => m !== s.messages[index]);
+      if (changed && s.selectedConversationId) cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
+      return { messages };
+    });
   },
 
   setTyping: (userId, username, isTyping) => {

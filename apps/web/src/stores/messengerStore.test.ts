@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useMessengerStore } from "./messengerStore";
 import { messengerApi } from "@/services/messengerApi";
+import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import type { ConversationView, MessageView } from "@/components/messenger/types";
 
 // Mute the API module so we control responses
+vi.mock("@/utils/messengerCache", () => ({
+  loadCachedMessages: vi.fn().mockResolvedValue(null),
+  saveCachedMessages: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/services/messengerApi", () => ({
   messengerApi: {
     getMyProfile: vi.fn(),
@@ -64,6 +70,8 @@ function mockMsg(overrides: Partial<MessageView> = {}): MessageView {
 describe("messengerStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(loadCachedMessages).mockResolvedValue(null);
+    vi.mocked(saveCachedMessages).mockResolvedValue(undefined);
     // Reset store to initial state
     useMessengerStore.setState({
       me: null,
@@ -115,9 +123,23 @@ describe("messengerStore", () => {
   });
 
   describe("loadMessages", () => {
+    it("renders cached messages before the network response", async () => {
+      const cached = [mockMsg({ id: "cached-1", content: "Offline copy" })];
+      vi.mocked(loadCachedMessages).mockResolvedValue(cached);
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([mockMsg({ id: "fresh-1", content: "Fresh copy" })]);
+
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      await useMessengerStore.getState().loadMessages("conv-1");
+
+      expect(loadCachedMessages).toHaveBeenCalledWith("u1", "conv-1");
+      expect(useMessengerStore.getState().messages[0].id).toBe("fresh-1");
+      expect(saveCachedMessages).toHaveBeenCalledWith("u1", "conv-1", expect.any(Array));
+    });
+
     it("loads messages and sets loading state", async () => {
       vi.mocked(messengerApi.getMessages).mockResolvedValue([mockMsg(), mockMsg({ id: "msg-2" })]);
 
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
       await useMessengerStore.getState().loadMessages("conv-1");
 
       const state = useMessengerStore.getState();
@@ -128,6 +150,7 @@ describe("messengerStore", () => {
     it("sets error on failure", async () => {
       vi.mocked(messengerApi.getMessages).mockRejectedValue(new Error("fail"));
 
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
       await useMessengerStore.getState().loadMessages("conv-1");
 
       expect(useMessengerStore.getState().error).toBe("Не удалось загрузить сообщения");

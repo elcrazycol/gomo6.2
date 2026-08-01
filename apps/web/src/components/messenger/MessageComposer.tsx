@@ -4,7 +4,7 @@ import type { Attachment, MessageView } from "./types";
 import { messengerApi } from "@/services/messengerApi";
 
 const MAX_LENGTH = 4000;
-const TYPING_DEBOUNCE_MS = 500;
+const TYPING_DEBOUNCE_MS = 1000;
 
 interface Props {
   draft: string;
