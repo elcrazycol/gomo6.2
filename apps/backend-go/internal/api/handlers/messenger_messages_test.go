@@ -291,8 +291,11 @@ func TestEditMessage_Success(t *testing.T) {
 	body := EditMessageRequest{Content: "Edited content"}
 	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
-	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$1, is_edited = true, edited_at = NOW\(\).*WHERE id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
-		WithArgs(sqlmock.AnyArg(), testMsg1, testUser1).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs(testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE chat_messages.*SET content = \$4, is_edited = true, edited_at = NOW\(\).*WHERE id = \$1 AND conversation_id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
+		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.EditMessage(c)
@@ -345,8 +348,11 @@ func TestEditMessage_NotFound(t *testing.T) {
 	body := EditMessageRequest{Content: "Edited content"}
 	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000999", body, claims, map[string]string{"id": testConv1, "msgId": testMsg999})
 
-	mock.ExpectExec(`UPDATE chat_messages.*SET content.*WHERE id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
-		WithArgs(sqlmock.AnyArg(), testMsg999, testUser1).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs(testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE chat_messages.*SET content.*WHERE id = \$1 AND conversation_id = \$2 AND sender_user_id = \$3 AND is_deleted = false`).
+		WithArgs(testMsg999, testConv1, testUser1, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	handler.EditMessage(c)
@@ -375,8 +381,11 @@ func TestEditMessage_DBError(t *testing.T) {
 	body := EditMessageRequest{Content: "Edited content"}
 	c, w := newPUTContext("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages/20000000-0000-0000-0000-000000000001", body, claims, map[string]string{"id": testConv1, "msgId": testMsg1})
 
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs(testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec(`UPDATE chat_messages.*`).
-		WithArgs(sqlmock.AnyArg(), testMsg1, testUser1).
+		WithArgs(testMsg1, testConv1, testUser1, sqlmock.AnyArg()).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.EditMessage(c)

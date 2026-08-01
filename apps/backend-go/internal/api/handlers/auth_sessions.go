@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/redis/go-redis/v9"
 )
@@ -244,6 +245,7 @@ func (h *AuthHandler) DeleteSession(c *gin.Context) {
 	}
 
 	h.deleteSession(claims.UserID, sessionID)
+	middleware.InvalidateAuthCache(h.redis, claims.UserID)
 
 	if isCurrent && claims.ExpiresAt != nil {
 		h.authService.BlacklistToken(claims.ID, claims.ExpiresAt.Time)
@@ -285,6 +287,7 @@ func (h *AuthHandler) DeleteAllOtherSessions(c *gin.Context) {
 	if currentSessionID == "" {
 		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
 		h.authService.RevokeAllRefreshTokens(claims.UserID)
+		middleware.InvalidateAuthCache(h.redis, claims.UserID)
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": 0}))
 		return
 	}
@@ -296,6 +299,8 @@ func (h *AuthHandler) DeleteAllOtherSessions(c *gin.Context) {
 		return
 	}
 	deleted, _ := result.RowsAffected()
+
+	middleware.InvalidateAuthCache(h.redis, claims.UserID)
 
 	if h.redis != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

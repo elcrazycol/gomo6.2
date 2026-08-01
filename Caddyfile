@@ -91,6 +91,22 @@
 			}
 		}
 		# Storage: reads → Garage (direct), writes → backend
+		# Messenger uploads are private: send them to Go, which checks
+		# chat_members before reading from Garage. This must precede the
+		# generic public Garage website proxy below.
+		@privateStorageGet {
+			method GET HEAD
+			path_regexp private_storage_read ^/storage/v1/object/uploads/(.+)$
+		}
+		handle @privateStorageGet {
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
+		}
+
 		@storageGet {
 			method GET HEAD
 			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
@@ -193,6 +209,22 @@
 		# path_regexp captures bucket (group 1) and key (group 2) from the URL.
 		# Host header is rewritten to <bucket>.storage.garage.localhost so Garage
 		# resolves the correct bucket in virtual-hosted style.
+		# Messenger uploads are private: send them to Go, which checks
+		# chat_members before reading from Garage. This must precede the
+		# generic public Garage website proxy below.
+		@privateStorageGet {
+			method GET HEAD
+			path_regexp private_storage_read ^/storage/v1/object/uploads/(.+)$
+		}
+		handle @privateStorageGet {
+			reverse_proxy backend:8080 {
+				transport http {
+					dial_timeout 5s
+					write_timeout 30s
+				}
+			}
+		}
+
 		@storageGet {
 			method GET HEAD
 			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$

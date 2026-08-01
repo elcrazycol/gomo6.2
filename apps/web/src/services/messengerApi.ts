@@ -156,7 +156,8 @@ export const messengerApi = {
   // ── File upload ──────────────────────────────────────────────────────
   async uploadFile(file: File): Promise<{ path: string }> {
     const ext = file.name.split(".").pop() || "bin";
-    const key = `messenger/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const profile = await this.getMyProfile();
+    const key = `${profile.id}/messenger/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
     return uploadFile("uploads", key, file);
   },
 

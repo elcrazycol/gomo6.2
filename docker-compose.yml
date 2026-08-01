@@ -126,7 +126,16 @@ services:
           else
             echo "ERROR: bucket allow failed for $$bucket"
           fi
-          if $$G bucket website --allow "$$bucket" 2>&1; then
+          # The uploads bucket is private. It is served only through the
+          # authenticated Go proxy, never through Garage's website endpoint.
+          if [ "$$bucket" = "uploads" ]; then
+            if $$G bucket website --deny "$$bucket" 2>&1; then
+              echo "  => website access disabled for $$bucket"
+            else
+              echo "ERROR: could not disable website access for $$bucket"
+              exit 1
+            fi
+          elif $$G bucket website --allow "$$bucket" 2>&1; then
             echo "  => website access enabled for $$bucket"
           else
             echo "WARNING: could not enable website access for $$bucket"
@@ -187,6 +196,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      garage-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # ── Frontend: Main Web App ────────────────────────────────────────────────

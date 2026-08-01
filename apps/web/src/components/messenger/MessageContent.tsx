@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Users, MessageSquare, ArrowRight, FileText, Image as ImageIcon, Mic, Video } from "lucide-react";
@@ -325,8 +325,47 @@ function getAttachmentIcon(type: Attachment["type"]) {
   }
 }
 
+function useAuthenticatedAttachmentUrl(attachment: Attachment): string | null {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    const sourceUrl = storageUrl("uploads", attachment.url);
+    const token = localStorage.getItem("auth_token");
+
+    if (!sourceUrl || !token) {
+      setObjectUrl(null);
+      return () => undefined;
+    }
+
+    void fetch(sourceUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        createdUrl = URL.createObjectURL(blob);
+        setObjectUrl(createdUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setObjectUrl(null);
+      });
+
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [attachment.url]);
+
+  return objectUrl;
+}
+
 function AttachmentView({ attachment }: { attachment: Attachment }) {
-  const url = storageUrl("uploads", attachment.url);
+  const url = useAuthenticatedAttachmentUrl(attachment);
 
   if (attachment.type === "image" && url) {
     return (

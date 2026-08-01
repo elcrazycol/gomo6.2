@@ -270,10 +270,34 @@ func (s *StorageClient) GetFileEncrypted(bucket, key string) ([]byte, string, er
 	}
 	decrypted, err := crypto.DecryptBytes(data)
 	if err != nil {
-		// Fallback: return as-is (may be unencrypted legacy file)
+		// Objects uploaded before attachment encryption are still readable.
+		// Log the fallback so malformed/new ciphertext is observable instead of
+		// silently looking like a valid download.
+		log.Printf("storage: serving legacy/plain attachment %s/%s after decrypt failure: %v", bucket, key, err)
 		return data, contentType, nil
 	}
 	return decrypted, contentType, nil
+}
+
+// ObjectExists checks that an object exists without downloading its body.
+func (s *StorageClient) ObjectExists(ctx context.Context, bucket, key string) (bool, error) {
+	if !IsAllowedBucket(bucket) {
+		return false, fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	if err := ValidateObjectKey(key); err != nil {
+		return false, err
+	}
+	_, err := s.s3.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		if IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // GetObject streams an object from Garage (no presign, no extra HTTP hop).

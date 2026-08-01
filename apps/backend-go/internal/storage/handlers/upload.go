@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"crypto/md5"
+	"database/sql"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gomo6/backend/internal/auth"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/gin-gonic/gin"
@@ -21,10 +24,18 @@ const maxUploadBytes = 10 * 1024 * 1024
 
 type StorageHandler struct {
 	client *storage.StorageClient
+	db     *sql.DB
 }
 
-func NewStorageHandler(client *storage.StorageClient) *StorageHandler {
-	return &StorageHandler{client: client}
+// db is optional for compatibility with validation-only tests. Production
+// callers pass it so private messenger objects can be authorized by message
+// membership before any bytes leave Garage.
+func NewStorageHandler(client *storage.StorageClient, db ...*sql.DB) *StorageHandler {
+	var database *sql.DB
+	if len(db) > 0 {
+		database = db[0]
+	}
+	return &StorageHandler{client: client, db: database}
 }
 
 // readUploadFile reads and validates a single file from multipart form.
@@ -133,6 +144,19 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		contentType = "application/octet-stream"
 	}
 
+	// Messenger attachment keys are user-owned namespaces. The ownership
+	// prefix is checked again when a message is sent and when the object is
+	// served; an authenticated user cannot upload under another user's prefix.
+	if bucket == "uploads" {
+		claims, ok := c.Get("claims")
+		userClaims, claimsOK := claims.(*auth.Claims)
+		if !ok || !claimsOK || userClaims == nil || userClaims.UserID == "" ||
+			!strings.HasPrefix(key, userClaims.UserID+"/messenger/") {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Invalid attachment key"))
+			return
+		}
+	}
+
 	// Encrypt messenger attachments at rest
 	var fileInfo *storage.FileInfo
 	if bucket == "uploads" {
@@ -178,12 +202,44 @@ func (h *StorageHandler) DownloadFile(c *gin.Context) {
 }
 
 func (h *StorageHandler) DeleteFile(c *gin.Context) {
-	bucket := c.Param("bucket")
-	key := c.Param("key")
+	bucket := strings.TrimSpace(c.Param("bucket"))
+	key := strings.TrimPrefix(c.Param("key"), "/")
 
 	if bucket == "" || key == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
 		return
+	}
+	if !storage.IsAllowedBucket(bucket) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket not allowed"))
+		return
+	}
+	if err := storage.ValidateObjectKey(key); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid object key"))
+		return
+	}
+
+	// Messenger uploads are private and may only be deleted by the sender of
+	// an attachment row. Authentication alone is not sufficient: object keys
+	// are guessable enough to make an unauthorised DELETE dangerous.
+	if bucket == "uploads" {
+		claimsValue, exists := c.Get("claims")
+		claims, claimsOK := claimsValue.(*auth.Claims)
+		if !exists || !claimsOK || claims == nil || claims.UserID == "" || h.db == nil {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		var owned bool
+		err := h.db.QueryRowContext(c.Request.Context(), `
+			SELECT EXISTS(
+				SELECT 1
+				FROM message_attachments a
+				JOIN chat_messages m ON m.id = a.message_id
+				WHERE a.url = $1 AND m.sender_user_id = $2
+			)`, key, claims.UserID).Scan(&owned)
+		if err != nil || !owned {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
 	}
 
 	if err := h.client.DeleteFile(bucket, key); err != nil {
@@ -238,6 +294,50 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 		return
 	}
 
+	// uploads is a private messenger bucket. The URL is intentionally a Go
+	// proxy, not a public Garage website object. Membership is checked against
+	// the attachment row, so knowing a key is never sufficient for access.
+	if bucket == "uploads" {
+		claimsValue, exists := c.Get("claims")
+		claims, claimsOK := claimsValue.(*auth.Claims)
+		if !exists || !claimsOK || claims == nil || claims.UserID == "" || h.db == nil {
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		var allowed bool
+		err := h.db.QueryRowContext(c.Request.Context(), `
+			SELECT EXISTS(
+				SELECT 1
+				FROM message_attachments a
+				JOIN chat_messages m ON m.id = a.message_id
+				JOIN chat_members cm ON cm.conversation_id = m.conversation_id
+				WHERE a.url = $1 AND cm.user_id = $2
+			)`, key, claims.UserID).Scan(&allowed)
+		if err != nil || !allowed {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
+	}
+
+	// Encrypted messenger objects must be downloaded and decrypted before
+	// returning bytes. Range requests cannot be applied to ciphertext safely,
+	// so uploads use the normal full-object path.
+	if bucket == "uploads" {
+		data, contentType, err := h.client.GetFileEncrypted(bucket, key)
+		if err != nil {
+			if storage.IsNotFound(err) {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Object not found"))
+			} else {
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to load object"))
+			}
+			return
+		}
+		c.Header("Cache-Control", "private, no-store")
+		c.Header("Content-Disposition", "inline")
+		c.Data(http.StatusOK, contentType, data)
+		return
+	}
+
 	// Parse Range header for partial content support
 	rangeHeader := c.GetHeader("Range")
 	var rangeStart, rangeEnd *int64
@@ -287,7 +387,11 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 		c.Header("ETag", aws.ToString(out.ETag))
 	}
 	c.Header("Accept-Ranges", "bytes")
-	c.Header("Cache-Control", "public, max-age=3600")
+	if bucket == "uploads" {
+		c.Header("Cache-Control", "private, no-store")
+	} else {
+		c.Header("Cache-Control", "public, max-age=3600")
+	}
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 	c.Header("Access-Control-Allow-Headers", "Content-Type, Range")

@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useRef, type KeyboardEvent, type RefObjec
 import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic } from "lucide-react";
 import type { Attachment, MessageView } from "./types";
 import { messengerApi } from "@/services/messengerApi";
-import { storageUrl } from "@/utils/storage";
 
 const MAX_LENGTH = 4000;
 const TYPING_DEBOUNCE_MS = 500;
@@ -237,11 +236,7 @@ export const MessageComposer = memo(function MessageComposer({
         <div className="composer-attachments-preview">
           {pendingAttachments.map((att, i) => (
             <div key={i} className="composer-attachment-chip">
-              {att.type === "image" && att.url ? (
-                <img src={storageUrl("uploads", att.url) || undefined} alt={att.name} className="composer-attachment-thumb" />
-              ) : (
-                <span className="composer-attachment-icon">{getAttachmentIcon(att.type)}</span>
-              )}
+              <span className="composer-attachment-icon">{getAttachmentIcon(att.type)}</span>
               <span className="composer-attachment-name">{att.name}</span>
               <span className="composer-attachment-size">{formatFileSize(att.size)}</span>
               <button type="button" className="composer-attachment-remove" onClick={() => handleRemoveAttachment(i)} aria-label="Удалить">

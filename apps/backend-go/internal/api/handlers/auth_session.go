@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -51,6 +52,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		// failed (potential token theft). "Not found" is benign (already used, expired).
 		if !errors.Is(err, auth.ErrRefreshTokenNotFound) {
 			h.authService.RevokeAllRefreshTokens(claims.UserID)
+			middleware.InvalidateAuthCache(h.redis, claims.UserID)
 			// Also clean up all sessions from DB
 			h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
 		}
@@ -96,6 +98,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 	// Revoke all refresh tokens for this user
 	h.authService.RevokeAllRefreshTokens(claims.UserID)
+	middleware.InvalidateAuthCache(h.redis, claims.UserID)
 
 	// Delete all sessions from DB
 	h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)

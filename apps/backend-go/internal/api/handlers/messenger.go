@@ -14,6 +14,7 @@ import (
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
 )
@@ -147,16 +148,18 @@ type GroupMemberResponse struct {
 // Content is encrypted at rest with AES-256-GCM (when MESSENGER_ENCRYPTION_KEY is set).
 // Security: TLS in transit, encryption at rest, RLS on tables, plaintext-only content filter.
 type MessengerHandler struct {
-	db    *sql.DB
-	hub   *websocket.Hub
-	redis *redis.Client
+	db      *sql.DB
+	hub     *websocket.Hub
+	redis   *redis.Client
+	storage *storage.StorageClient
 }
 
 func NewMessengerHandler(db *sql.DB, hub *websocket.Hub) *MessengerHandler {
 	return &MessengerHandler{db: db, hub: hub}
 }
 
-func (h *MessengerHandler) SetRedis(r *redis.Client) { h.redis = r }
+func (h *MessengerHandler) SetRedis(r *redis.Client)            { h.redis = r }
+func (h *MessengerHandler) SetStorage(s *storage.StorageClient) { h.storage = s }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

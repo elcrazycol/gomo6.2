@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
 )
 
@@ -238,6 +240,16 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
+	// Validate attachment ownership and object existence before inserting the
+	// message. This prevents a failed attachment check from leaving a message
+	// row behind in a middleware-owned transaction.
+	if len(req.Attachments) > 0 {
+		if err := h.validateAttachments(c, claims.UserID, req.Attachments); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+	}
+
 	// Use the request-scoped transaction supplied by middleware. The fallback
 	// transaction is only for direct handler tests/legacy callers.
 	tx, ownsTx, err := h.txFor(c)
@@ -298,7 +310,8 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Insert attachments
+	// Persist only attachment references that were validated before the message
+	// insert. A client cannot attach an arbitrary URL or another user's key.
 	if len(req.Attachments) > 0 {
 		if err := h.insertAttachments(tx, msg.ID, req.Attachments); err != nil {
 			serverError(c, "insert attachments", err)
@@ -446,12 +459,24 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
-	// Only sender can edit, and message must not be deleted
+	// Membership is checked explicitly before the update. The UPDATE repeats
+	// membership-relevant message predicates, so a user cannot edit across a
+	// conversation boundary even if a message ID is guessed.
+	member, err := h.isMember(c, conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "check edit membership", err)
+		return
+	}
+	if !member {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this conversation"))
+		return
+	}
+
 	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
-		SET content = $1, is_edited = true, edited_at = NOW()
-		WHERE id = $2 AND sender_user_id = $3 AND is_deleted = false
-	`, encryptedContent, messageID, claims.UserID)
+		SET content = $4, is_edited = true, edited_at = NOW()
+		WHERE id = $1 AND conversation_id = $2 AND sender_user_id = $3 AND is_deleted = false
+	`, messageID, conversationID, claims.UserID, encryptedContent)
 	if err != nil {
 		serverError(c, "edit message", err)
 		return
@@ -605,6 +630,35 @@ func (h *MessengerHandler) getAttachmentsByMessageIDs(c *gin.Context, messageIDs
 		result[msgID] = append(result[msgID], att)
 	}
 	return result, nil
+}
+
+func (h *MessengerHandler) validateAttachments(c *gin.Context, userID string, attachments []AttachmentInput) error {
+	if len(attachments) > 10 {
+		return fmt.Errorf("too many attachments")
+	}
+	if h.storage == nil {
+		return fmt.Errorf("attachment storage unavailable")
+	}
+	for _, att := range attachments {
+		if att.Size <= 0 || att.Size > 10*1024*1024 {
+			return fmt.Errorf("invalid attachment size")
+		}
+		if att.URL == "" || strings.Contains(att.URL, "://") ||
+			!strings.HasPrefix(att.URL, userID+"/messenger/") {
+			return fmt.Errorf("attachment is not owned by the sender")
+		}
+		if err := storage.ValidateObjectKey(att.URL); err != nil {
+			return fmt.Errorf("invalid attachment URL")
+		}
+		exists, err := h.storage.ObjectExists(c.Request.Context(), "uploads", att.URL)
+		if err != nil {
+			return fmt.Errorf("attachment validation failed")
+		}
+		if !exists {
+			return fmt.Errorf("attachment not found")
+		}
+	}
+	return nil
 }
 
 // insertAttachments inserts attachments for a message in a transaction

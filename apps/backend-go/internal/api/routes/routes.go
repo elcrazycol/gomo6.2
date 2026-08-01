@@ -115,8 +115,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		log.Printf("Warning: failed to initialize storage client: %v", err)
 		storageHandler = nil
 	} else {
-		storageHandler = storageHandlers.NewStorageHandler(storageClient)
+		storageHandler = storageHandlers.NewStorageHandler(storageClient, db)
 	}
+	messengerHandler.SetStorage(storageClient)
 
 	backupHandler := handlers.NewBackupHandler(db)
 	backupHandler.SetStorage(storageClient)

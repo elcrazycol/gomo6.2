@@ -230,8 +230,13 @@ func (a *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	}
 
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		// Check blacklist (if Redis is available)
-		if a.isTokenBlacklisted(claims.ID) {
+		// Check blacklist (if Redis is available). A Redis failure must not turn
+		// token validation into an implicit allow: revocation is security-critical.
+		blacklisted, blacklistErr := a.tokenBlacklistStatus(claims.ID)
+		if blacklistErr != nil {
+			return nil, fmt.Errorf("token revocation check failed: %w", blacklistErr)
+		}
+		if blacklisted {
 			return nil, fmt.Errorf("token has been revoked")
 		}
 		return claims, nil
@@ -258,14 +263,24 @@ func (a *AuthService) BlacklistToken(jti string, expiresAt time.Time) {
 	a.redis.Set(ctx, key, "1", ttl)
 }
 
-func (a *AuthService) isTokenBlacklisted(jti string) bool {
+func (a *AuthService) tokenBlacklistStatus(jti string) (bool, error) {
 	if a.redis == nil || jti == "" {
-		return false
+		return false, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	val, err := a.redis.Get(ctx, fmt.Sprintf("blacklist:%s", jti)).Result()
-	return err == nil && val != ""
+	exists, err := a.redis.Exists(ctx, fmt.Sprintf("blacklist:%s", jti)).Result()
+	if err != nil {
+		return false, err
+	}
+	return exists > 0, nil
+}
+
+// isTokenBlacklisted is kept as a small boolean helper for internal callers and
+// tests. ValidateToken uses tokenBlacklistStatus so Redis errors fail closed.
+func (a *AuthService) isTokenBlacklisted(jti string) bool {
+	blacklisted, err := a.tokenBlacklistStatus(jti)
+	return err == nil && blacklisted
 }
