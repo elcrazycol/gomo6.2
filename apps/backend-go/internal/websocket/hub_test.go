@@ -1049,4 +1049,101 @@ func containsStr(s, substr string) bool {
 	return false
 }
 
+// TestHub_SlowClientsStress verifies that repeatedly broadcasting to clients
+// that never drain their buffers removes them promptly and leaves every room
+// index clean. Run with -race to exercise the close/send synchronization.
+func TestHub_SlowClientsStress(t *testing.T) {
+	hub := NewHub(nil, nil)
+	go hub.Run()
+	defer hub.Stop()
+
+	const clientCount = 32
+	clients := make([]*Client, 0, clientCount)
+	for i := 0; i < clientCount; i++ {
+		client := &Client{
+			Hub:      hub,
+			Send:     make(chan []byte, 2),
+			UserID:   "slow-user",
+			Username: "slow",
+			Rooms:    make(map[string]bool),
+		}
+		client.Send <- []byte("already queued")
+		client.Send <- []byte("still queued")
+		hub.SubscribeToRoom(client, "slow-room")
+		hub.register <- client
+		deadline := time.Now().Add(time.Second)
+		for {
+			hub.mu.RLock()
+			_, registered := hub.clients[client]
+			hub.mu.RUnlock()
+			if registered {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("client %d was not registered", i)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		clients = append(clients, client)
+	}
+
+	// Exercise the shared broadcast channel handled by Hub.Run.
+	hub.broadcast <- []byte("overflow-all")
+	deadline := time.Now().Add(time.Second)
+	for {
+		hub.mu.RLock()
+		registered := len(hub.clients)
+		hub.mu.RUnlock()
+		if registered == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("shared broadcast did not remove slow clients: %d remain", registered)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Exercise the room-specific path with a separately registered slow client.
+	roomClient := &Client{
+		Hub:      hub,
+		Send:     make(chan []byte, 1),
+		UserID:   "slow-room-user",
+		Username: "slow-room",
+		Rooms:    make(map[string]bool),
+	}
+	roomClient.Send <- []byte("queued")
+	hub.SubscribeToRoom(roomClient, "slow-room")
+	hub.register <- roomClient
+	deadline = time.Now().Add(time.Second)
+	for {
+		hub.mu.RLock()
+		_, registered := hub.clients[roomClient]
+		hub.mu.RUnlock()
+		if registered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("room client was not registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	hub.BroadcastToRoom("slow-room", []byte("overflow-room"))
+	hub.BroadcastToRoom("slow-room", []byte("after-cleanup"))
+
+	hub.mu.RLock()
+	remaining := len(hub.rooms["slow-room"])
+	registered := len(hub.clients)
+	hub.mu.RUnlock()
+	if remaining != 0 || registered != 0 {
+		t.Fatalf("slow clients were not fully removed: room=%d clients=%d", remaining, registered)
+	}
+
+	for _, client := range clients {
+		for range client.Send {
+		}
+	}
+	for range roomClient.Send {
+	}
+}
+
 // precommit_test: this comment is here to test the pre-commit hook

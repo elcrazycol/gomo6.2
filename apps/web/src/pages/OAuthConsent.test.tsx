@@ -36,7 +36,19 @@ vi.mock("sonner", () => ({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const mockAppInfo = {
+interface MockAppInfo {
+  client_id: string;
+  name: string;
+  description: string;
+  logo_url: string;
+  homepage_url: string;
+  allowed_scopes: string[];
+  redirect_uris?: string[];
+  scope_descriptions: Record<string, string>;
+  scope_labels: Record<string, string>;
+}
+
+const mockAppInfo: MockAppInfo = {
   client_id: "app-1",
   name: "Test App",
   description: "A test OAuth application",
@@ -214,6 +226,30 @@ describe("OAuthConsent", () => {
       expect(screen.getByText(/Будет перенаправлено на/)).toBeInTheDocument();
       expect(screen.getAllByText("example.com").length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it("warns when requested redirect_uri is not registered", async () => {
+    mockAppInfo.redirect_uris = ["https://other.example.com/callback"];
+
+    renderComponent(
+      "?client_id=app-1&redirect_uri=https://gomo6.wtf/oauth2/callback/generic",
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Запрошенный redirect URI не зарегистрирован/),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Зарегистрированные redirect URI/)).toBeInTheDocument();
+    expect(
+      screen.getByText("https://other.example.com/callback"),
+    ).toBeInTheDocument();
+    // The requested (non-registered) URI is shown too
+    expect(
+      screen.getByText("https://gomo6.wtf/oauth2/callback/generic"),
+    ).toBeInTheDocument();
+
+    delete mockAppInfo.redirect_uris;
   });
 
   it("shows user info when logged in", async () => {

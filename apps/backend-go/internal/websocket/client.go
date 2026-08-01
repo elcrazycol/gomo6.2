@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gomo6/backend/internal/auth"
@@ -45,13 +46,43 @@ type Client struct {
 	authenticated bool
 	authService   *auth.AuthService
 	failedSends   int
+	sendMu        sync.RWMutex
+	closeOnce     sync.Once
+}
+
+// trySend serializes sends with closeSend so a concurrent disconnect can never
+// panic with "send on closed channel".
+func (c *Client) trySend(message []byte) bool {
+	c.sendMu.RLock()
+	defer c.sendMu.RUnlock()
+	select {
+	case c.Send <- message:
+		return true
+	default:
+		return false
+	}
+}
+
+// closeSend closes the client channel exactly once. All hub removals must use
+// this method rather than closing Send directly.
+func (c *Client) closeSend() {
+	c.closeOnce.Do(func() {
+		c.sendMu.Lock()
+		close(c.Send)
+		c.sendMu.Unlock()
+	})
 }
 
 // readPump pumps messages from the WebSocket connection to the hub
 func (c *Client) readPump() {
 	defer func() {
-		c.Hub.unregister <- c
-		c.Conn.Close()
+		// A stopped hub no longer receives lifecycle events. Do not strand the
+		// reader goroutine trying to send on an abandoned unregister channel.
+		select {
+		case c.Hub.unregister <- c:
+		case <-c.Hub.ctx.Done():
+		}
+		_ = c.Conn.Close()
 	}()
 
 	c.Conn.SetReadLimit(maxMessageSize)
@@ -100,7 +131,7 @@ func (c *Client) readPump() {
 				Timestamp: time.Now().Unix(),
 			}
 			if msgBytes, err := json.Marshal(connMsg); err == nil {
-				c.Send <- msgBytes
+				c.trySend(msgBytes)
 			}
 
 			// Auto-subscribe to notification room
@@ -199,10 +230,7 @@ func (c *Client) readPump() {
 			}
 
 			if msgBytes, err := json.Marshal(pongMsg); err == nil {
-				select {
-				case c.Send <- msgBytes:
-				default:
-				}
+				c.trySend(msgBytes)
 			}
 
 		default:
@@ -232,10 +260,9 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 			 WHERE b.token_hash = $1 AND b.is_active = true`, tokenHash,
 		).Scan(&botID, &ownerID, &userID, &username)
 		if err == nil {
+			c.Hub.mu.Lock()
 			c.UserID = userID
 			c.Username = username
-
-			c.Hub.mu.Lock()
 			c.Hub.presence[c.UserID] = c
 			c.Hub.mu.Unlock()
 
@@ -257,14 +284,14 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 		return fmt.Errorf("invalid token")
 	}
 
+	// Add identity and presence atomically so Hub lifecycle code never reads
+	// partially-authenticated client fields.
+	c.Hub.mu.Lock()
 	c.UserID = claims.UserID
 	c.Username = claims.Username
 	if c.Username == "" {
 		c.Username = claims.UserID[:8]
 	}
-
-	// Add to presence map now that we have a UserID
-	c.Hub.mu.Lock()
 	c.Hub.presence[c.UserID] = c
 	c.Hub.mu.Unlock()
 
@@ -367,11 +394,7 @@ func (c *Client) sendConfirmation(messageType string, room string) {
 	}
 
 	if msgBytes, err := json.Marshal(confirmation); err == nil {
-		select {
-		case c.Send <- msgBytes:
-		default:
-			// Send buffer full
-		}
+		c.trySend(msgBytes)
 	}
 }
 
@@ -439,7 +462,20 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, authService *auth
 		authService:   authService,
 	}
 
-	client.Hub.register <- client
+	select {
+	case client.Hub.register <- client:
+	case <-client.Hub.ctx.Done():
+		client.closeSend()
+		_ = client.Conn.Close()
+		return
+	}
+	// Run may have accepted the registration concurrently with Stop. Do not
+	// start pumps for a client after shutdown has begun.
+	if client.Hub.ctx.Err() != nil {
+		client.closeSend()
+		_ = client.Conn.Close()
+		return
+	}
 
 	// Start goroutines for reading and writing.
 	// The client must authenticate within authTimeout or be disconnected.

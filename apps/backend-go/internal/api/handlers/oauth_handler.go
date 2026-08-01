@@ -77,9 +77,10 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 	// Validate redirect URI
 	if !isValidRedirectURI(app.RedirectURIs, req.RedirectURI) {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             oauth.ErrorInvalidRequest,
-			"error_description": "redirect_uri is not registered for this application",
-			"state":             req.State,
+			"error":                    oauth.ErrorInvalidRequest,
+			"error_description":        "redirect_uri is not registered for this application",
+			"state":                    req.State,
+			"registered_redirect_uris": app.RedirectURIs,
 		})
 		return
 	}
@@ -423,6 +424,7 @@ func (h *OAuthHandler) AppInfo(c *gin.Context) {
 		"logo_url":           app.LogoURL,
 		"homepage_url":       app.HomepageURL,
 		"allowed_scopes":     app.AllowedScopes,
+		"redirect_uris":      app.RedirectURIs,
 		"scope_descriptions": oauth.ScopeDescriptions,
 		"scope_labels":       oauth.ScopeLabels,
 	})

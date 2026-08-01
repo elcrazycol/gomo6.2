@@ -1,7 +1,5 @@
 import { useMessengerStore, queueMarkDelivered, queueMarkRead } from "@/stores/messengerStore";
 import { wsService, type WebSocketMessage } from "@/services/websocket";
-import { receiveE2EMessage, getDeviceId } from "@/services/e2e/e2eManager";
-import type { CiphertextEntry } from "@/components/messenger/types";
 
 // ─── Messenger WebSocket — event handlers for chat-specific WS events ───────
 // No connection management. Transport is handled by wsService + eventManager.
@@ -64,34 +62,7 @@ class MessengerWebSocket {
     const store = useMessengerStore.getState();
     const isMine = store.me?.id === data.sender_user_id;
 
-    const ciphertexts = data.ciphertexts as CiphertextEntry[] | undefined;
-    const content = data.content as string;
-
-    // Decrypt E2E messages from others
-    if (ciphertexts && ciphertexts.length > 0 && !isMine) {
-      const myDeviceId = getDeviceId();
-      receiveE2EMessage(ciphertexts, myDeviceId, data.sender_user_id as string, data.sender_device_id as string | undefined)
-        .then((plaintext) => {
-          if (plaintext) {
-            // Update the already-added message with decrypted content
-            store.updateMessage(data.id as string, { content: plaintext });
-            store.updateConversationFromWs(data.conversation_id as string, {
-              last_message_at: data.sent_at as string,
-              last_message_preview: plaintext.slice(0, 80),
-              last_message_sender_id: data.sender_user_id as string,
-            }, true);
-          } else {
-            store.updateMessage(data.id as string, {
-              content: "[зашифровано — ключи недоступны]",
-            });
-          }
-        })
-        .catch(() => {
-          store.updateMessage(data.id as string, {
-            content: "[зашифровано — ключи недоступны]",
-          });
-        });
-    }
+    const content = (data.content as string) ?? "";
 
     const message = {
       id: data.id as string,
@@ -112,9 +83,7 @@ class MessengerWebSocket {
 
     store.updateConversationFromWs(data.conversation_id as string, {
       last_message_at: data.sent_at as string,
-      last_message_preview: ciphertexts && ciphertexts.length > 0 && !isMine
-        ? "🔒 Зашифрованное сообщение"
-        : (data.content as string)?.slice(0, 80) ?? "",
+      last_message_preview: content.slice(0, 80),
       last_message_sender_id: data.sender_user_id as string,
     }, !isMine);
 

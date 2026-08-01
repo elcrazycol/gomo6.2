@@ -1,6 +1,6 @@
 import { memo, useCallback, useState, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MessageCircle, UserPlus, X, Plus, Lock } from "lucide-react";
+import { MessageCircle, UserPlus, X, Plus } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -63,9 +63,6 @@ const ConversationCard = memo(function ConversationCard({
                 disableLink
                 disableHoverCard
               />
-            )}
-            {conversation.is_e2e && (
-              <span title="E2E зашифрован"><Lock className="w-3 h-3 text-green-500 ml-1 flex-shrink-0" /></span>
             )}
           </div>
           <span className="conversation-time">

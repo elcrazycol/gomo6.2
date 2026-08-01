@@ -22,14 +22,13 @@ func TestListConversations_Success(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted",
-		"is_group", "group_name", "group_avatar_url", "member_count",
-		"is_e2e",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "member_count",
+
 		"other_id", "other_username", "other_display_name",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at",
 	}).
-		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, nil, nil, 2, false, testUser2, "alice", "Alice", nil, 1001, true, nil).
-		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, nil, nil, 2, false, testUser3, "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
+		AddRow(testConv1, now, "Hello!", testUser2, nil, now, 3, false, false, nil, nil, 2, testUser2, "alice", "Alice", nil, 1001, true, nil).
+		AddRow(testConv2, now.Add(-time.Hour), "Hey there", testUser3, nil, now, 0, false, false, nil, nil, 2, testUser3, "bob", "Bob", "avatar.jpg", 1002, false, now.Add(-time.Hour))
 
 	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*LEFT JOIN`).
 		WithArgs(testUser1).
@@ -60,9 +59,8 @@ func TestListConversations_Empty(t *testing.T) {
 	rows := sqlmock.NewRows([]string{
 		"id", "last_message_at", "last_message_preview",
 		"last_message_sender_id", "pinned_message_id", "updated_at",
-		"unread_count", "is_muted",
-		"is_group", "group_name", "group_avatar_url", "member_count",
-		"is_e2e",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "member_count",
+
 		"other_id", "other_username", "other_display_name",
 		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at",
 	})
@@ -130,8 +128,8 @@ func TestGetOrCreateConversation_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Atomic find-or-create via DB function
-	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2, \$3\)`).
-		WithArgs(testUser1, testUser2, false).
+	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
+		WithArgs(testUser1, testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow(testConv1))
 
 	handler.GetOrCreateConversation(c)
@@ -162,8 +160,8 @@ func TestGetOrCreateConversation_CreatesNew(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	// Atomic find-or-create via DB function — returns new conversation
-	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2, \$3\)`).
-		WithArgs(testUser1, testUser2, false).
+	mock.ExpectQuery(`SELECT find_or_create_conversation\(\$1, \$2\)`).
+		WithArgs(testUser1, testUser2).
 		WillReturnRows(sqlmock.NewRows([]string{"find_or_create_conversation"}).AddRow(testConv1))
 
 	handler.GetOrCreateConversation(c)

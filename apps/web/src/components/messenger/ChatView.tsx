@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDrag } from "@use-gesture/react";
-import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift, Lock } from "lucide-react";
+import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -10,7 +10,6 @@ import { formatPresence, getInitials, getUserColorClass } from "./utils";
 import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
-import { E2EBanner } from "./E2EBanner";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
 import type { Attachment, MessageView, ReceiptRow } from "./types";
 
@@ -402,7 +401,6 @@ export const ChatView = memo(function ChatView({
                 ) : (
                   <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} disableLink />
                 )}
-                {conversation.is_e2e && <span title="E2E зашифрован" className="flex-shrink-0"><Lock className="w-3 h-3 text-green-500" /></span>}
               </div>
               <p className="presence-copy">
                 {typingUsername
@@ -429,14 +427,6 @@ export const ChatView = memo(function ChatView({
           </div>
         )}
 
-        {/* E2E banner */}
-        {conversation.is_e2e && (
-          <E2EBanner
-            conversationId={conversation.id}
-            remoteUserId={conversation.other_user_id || undefined}
-            remoteUsername={conversation.other_username || undefined}
-          />
-        )}
       </div>
 
       {/* Messages */}
@@ -619,7 +609,6 @@ export const ChatView = memo(function ChatView({
         open={showUserInfo}
         onClose={() => setShowUserInfo(false)}
         conversationId={conversation.id}
-        isE2E={conversation.is_e2e}
         userId={conversation.other_user_id || undefined}
         username={conversation.other_username || undefined}
         displayName={conversation.other_display_name}

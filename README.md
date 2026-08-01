@@ -146,7 +146,7 @@ docker compose up -d
 |---|---|---|
 | `ci.yml` | push, PR | go build + gofmt + go vet + golangci-lint + govulncheck + tsc (3 apps) + eslint + build (3 apps) + gitleaks + hadolint |
 | `deploy.yml` | push to main (after green CI) | Build 4 images → push to ghcr.io → SSH to VPS → pull images → docker compose up |
-| `full-tests.yml` | daily cron or manual | Postgres + Redis services, go test -race, migrations, e2e smoke |
+| `full-tests.yml` | daily cron or manual | Postgres + Redis services, go test -race, migrations, integration smoke |
 
 ```bash
 # Local CI

@@ -286,13 +286,13 @@ func (h *GiftsHandler) sendGiftMessengerMessage(senderID, recipientID string, gi
 	if err := h.hub.PublishNewChatMessage(gin.H{
 		"id":                msgID,
 		"conversation_id":   convID,
-		"sender_user_id":  senderID,
+		"sender_user_id":    senderID,
 		"encrypted_content": encryptedContent,
-		"is_edited":       false,
-		"is_deleted":      false,
-		"edited_at":       nil,
-		"sent_at":         sentAt,
-		"client_id":       clientID,
+		"is_edited":         false,
+		"is_deleted":        false,
+		"edited_at":         nil,
+		"sent_at":           sentAt,
+		"client_id":         clientID,
 	}); err != nil {
 		log.Printf("[Gifts] WS gift message error: %v", err)
 	}
@@ -337,7 +337,7 @@ func (h *GiftsHandler) findOrCreateConversationLegacy(user1, user2 string) (stri
 		if err != nil {
 			return "", err
 		}
-		err = tx.QueryRow(`INSERT INTO chat_conversations (is_e2e, encryption_key_version) VALUES (false, $1) RETURNING id`, crypto.KeyVersionHKDF).Scan(&convID)
+		err = tx.QueryRow(`INSERT INTO chat_conversations (encryption_key_version) VALUES ($1) RETURNING id`, crypto.KeyVersionHKDF).Scan(&convID)
 		if err != nil {
 			tx.Rollback()
 			continue

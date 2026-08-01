@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
@@ -7,7 +7,6 @@ import {
   Card,
   CardContent,
   CardFooter,
-  CardHeader,
 } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { toast } from "sonner";
@@ -20,6 +19,7 @@ interface OAuthApp {
   logo_url: string;
   homepage_url: string;
   allowed_scopes: string[];
+  redirect_uris?: string[];
   scope_descriptions: Record<string, string>;
   scope_labels: Record<string, string>;
 }
@@ -37,12 +37,39 @@ const SCOPE_ICONS: Record<string, React.ReactNode> = {
   offline_access: <RefreshCw className="w-5 h-5 text-violet-500" />,
 };
 
+// Mirrors the backend isValidRedirectURI logic so the consent page warning
+// agrees with the authorize endpoint (exact match + http://localhost:* wildcard).
+function isRedirectRegistered(uri: string, registered: string[]): boolean {
+  const trimmed = uri.trim();
+  return registered.some((r) => {
+    const allowed = r.trim();
+    if (allowed === trimmed) return true;
+    return (
+      allowed === "http://localhost:*" &&
+      trimmed.startsWith("http://localhost:")
+    );
+  });
+}
+
+function safeRedirectHost(uri: string | null): string | null {
+  if (!uri) return null;
+  try {
+    return new URL(uri).host;
+  } catch {
+    return null;
+  }
+}
+
 const OAuthConsent = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [registeredRedirectUris, setRegisteredRedirectUris] = useState<string[] | null>(null);
+  // Mirror the app's registered URIs so handleAllow can read them without
+  // pulling the react-query data into the callback dependency array.
+  const appRedirectUrisRef = useRef<string[] | null>(null);
 
   const clientId = searchParams.get("client_id");
   const redirectUri = searchParams.get("redirect_uri");
@@ -116,6 +143,13 @@ const OAuthConsent = () => {
     enabled: !!clientId,
   });
 
+  useEffect(() => {
+    if (app?.redirect_uris) {
+      appRedirectUrisRef.current = app.redirect_uris;
+      setRegisteredRedirectUris(app.redirect_uris);
+    }
+  }, [app?.redirect_uris]);
+
   const handleAllow = useCallback(async () => {
     setLoading(true);
     try {
@@ -149,7 +183,12 @@ const OAuthConsent = () => {
       const data = await res.json();
 
       if (data.error) {
-        toast.error(data.error_description || "Ошибка авторизации");
+        const registered = (data.registered_redirect_uris as string[] | undefined) ?? appRedirectUrisRef.current;
+        setRegisteredRedirectUris(registered ?? null);
+        const message = registered?.length
+          ? `${data.error_description || "Ошибка авторизации"}. Зарегистрированные redirect URI: ${registered.join(", ")}`
+          : data.error_description || "Ошибка авторизации";
+        toast.error(message, { duration: 8000 });
         return;
       }
 
@@ -226,7 +265,7 @@ const OAuthConsent = () => {
     );
   }
 
-  const redirectHost = redirectUri ? new URL(redirectUri).host : null;
+  const redirectHost = safeRedirectHost(redirectUri);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-background via-background to-primary/5 p-4">
@@ -367,6 +406,32 @@ const OAuthConsent = () => {
                     {redirectHost}
                   </span>
                 </span>
+              </div>
+            )}
+
+            {/* Registered redirect URIs — shown when the requested one is not in the list */}
+            {redirectUri && registeredRedirectUris && registeredRedirectUris.length > 0 && !isRedirectRegistered(redirectUri, registeredRedirectUris) && (
+              <div className="space-y-1.5">
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+                  <Ban className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs leading-relaxed">
+                    <p className="font-medium text-amber-600 dark:text-amber-400">
+                      Запрошенный redirect URI не зарегистрирован для этого приложения
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      Приложение передало <code className="font-mono break-all">{redirectUri}</code>.
+                      Авторизация будет отклонена до тех пор, пока этот URI не будет добавлен в настройках приложения.
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground mb-1">Зарегистрированные redirect URI:</p>
+                  <ul className="space-y-0.5">
+                    {registeredRedirectUris.map((uri) => (
+                      <li key={uri} className="font-mono text-[11px] break-all">{uri}</li>
+                    ))}
+                  </ul>
+                </div>
               </div>
             )}
           </CardContent>

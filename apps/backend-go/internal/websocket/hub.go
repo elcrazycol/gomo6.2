@@ -85,6 +85,7 @@ type Hub struct {
 	rateLimiter          *RateLimiter
 	statusUpdateDebounce map[string]*time.Timer
 	statusUpdateMu       sync.Mutex
+	stopped              bool
 }
 
 // NewHub creates a new Hub with Redis integration
@@ -124,6 +125,14 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
+			if h.stopped || h.ctx.Err() != nil {
+				h.mu.Unlock()
+				client.closeSend()
+				if client.Conn != nil {
+					_ = client.Conn.Close()
+				}
+				continue
+			}
 			h.clients[client] = true
 			// Only track in presence if already authenticated (post-auth message)
 			if client.UserID != "" {
@@ -142,60 +151,77 @@ func (h *Hub) Run() {
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				delete(h.presence, client.UserID)
-
-				// Remove from all rooms
-				for room, roomClients := range h.rooms {
-					if _, ok := roomClients[client]; ok {
-						delete(roomClients, client)
-						// Clean up empty rooms
-						if len(roomClients) == 0 {
-							delete(h.rooms, room)
-						}
-					}
-				}
-
-				close(client.Send)
+			removed := h.removeClientLocked(client)
+			h.mu.Unlock()
+			if removed {
 				log.Printf("[WebSocket] Client disconnected: %s (%s)", client.Username, client.UserID)
+				go h.updateUserOnlineStatus(client.UserID, false)
+				go h.broadcastUserStatus(client.UserID, client.Username, false)
+			}
+
+		case message := <-h.broadcast:
+			// This is a write path: use Lock, never mutate clients while holding
+			// RLock. trySend/closeSend serialize channel access with disconnects.
+			h.mu.Lock()
+			for client := range h.clients {
+				if client.trySend(message) {
+					client.failedSends = 0
+					continue
+				}
+				client.failedSends++
+				// A full non-blocking buffer means this client is not keeping up.
+				// Disconnect immediately instead of retaining unbounded pressure.
+				h.removeClientLocked(client)
 			}
 			h.mu.Unlock()
 
-			// Update user offline status in database
-			go h.updateUserOnlineStatus(client.UserID, false)
-
-			// Broadcast user offline event
-			go h.broadcastUserStatus(client.UserID, client.Username, false)
-
-		case message := <-h.broadcast:
-			h.mu.RLock()
+		case <-h.ctx.Done():
+			h.mu.Lock()
 			for client := range h.clients {
-				select {
-				case client.Send <- message:
-				default:
-					// Client's send channel is full, close and remove
-					close(client.Send)
-					delete(h.clients, client)
-				}
+				h.removeClientLocked(client)
 			}
-			h.mu.RUnlock()
+			h.mu.Unlock()
+			return
 		}
 	}
 }
 
-// Stop gracefully shuts down the Hub
+// removeClientLocked removes a client from every hub index and closes its send
+// channel exactly once. The caller must hold h.mu.Lock().
+func (h *Hub) removeClientLocked(client *Client) bool {
+	if _, ok := h.clients[client]; !ok {
+		return false
+	}
+	delete(h.clients, client)
+	if current, ok := h.presence[client.UserID]; ok && current == client {
+		delete(h.presence, client.UserID)
+	}
+	for room, roomClients := range h.rooms {
+		if _, ok := roomClients[client]; !ok {
+			continue
+		}
+		delete(roomClients, client)
+		delete(client.Rooms, room)
+		if len(roomClients) == 0 {
+			delete(h.rooms, room)
+		}
+	}
+	client.closeSend()
+	if client.Conn != nil {
+		_ = client.Conn.Close()
+	}
+	return true
+}
+
+// Stop gracefully shuts down the Hub.
 func (h *Hub) Stop() {
 	h.cancel()
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
+	h.stopped = true
 	for client := range h.clients {
-		close(client.Send)
-		if client.Conn != nil {
-			client.Conn.Close()
-		}
+		h.removeClientLocked(client)
 	}
+	h.mu.Unlock()
 }
 
 // subscribeToRedis listens for messages from Redis Pub/Sub
@@ -454,6 +480,9 @@ func (h *Hub) SubscribeToRoom(client *Client, room string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if h.stopped || h.ctx.Err() != nil {
+		return
+	}
 	if h.rooms[room] == nil {
 		h.rooms[room] = make(map[*Client]bool)
 	}
@@ -483,25 +512,21 @@ func (h *Hub) UnsubscribeFromRoom(client *Client, room string) {
 
 // BroadcastToRoom sends a message to all clients in a specific room
 func (h *Hub) BroadcastToRoom(room string, message []byte) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-	if roomClients, ok := h.rooms[room]; ok {
-		for client := range roomClients {
-			select {
-			case client.Send <- message:
-				client.failedSends = 0 // Reset on success
-			default:
-				client.failedSends++
-				if client.failedSends > 10 {
-					log.Printf("[WebSocket] Client %s too many failed sends, disconnecting", client.Username)
-					close(client.Send)
-					delete(roomClients, client)
-				} else {
-					log.Printf("[WebSocket] Client %s send buffer full (%d/10)", client.Username, client.failedSends)
-				}
-			}
+	roomClients, ok := h.rooms[room]
+	if !ok {
+		return
+	}
+	for client := range roomClients {
+		if client.trySend(message) {
+			client.failedSends = 0
+			continue
 		}
+		client.failedSends++
+		log.Printf("[WebSocket] Client %s send buffer full, disconnecting", client.Username)
+		h.removeClientLocked(client)
 	}
 }
 

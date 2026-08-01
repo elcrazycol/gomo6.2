@@ -54,7 +54,7 @@ const lazyWithRetry = (
         // Force the browser to fetch the latest app version.
         window.location.reload();
         // Keep Suspense alive while the page reloads.
-        return new Promise<T>(() => {});
+        return new Promise<never>(() => {});
       }
 
       // Second failure in a row — propagate so the error boundary can show UI.

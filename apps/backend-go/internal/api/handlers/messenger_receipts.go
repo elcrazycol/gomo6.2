@@ -51,7 +51,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	}
 
 	// Verify membership
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -63,7 +63,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 
 	// Get message sent_at
 	var sentAt time.Time
-	err = h.db.QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
+	err = h.dbFor(c).QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
 		req.MessageID, conversationID,
 	).Scan(&sentAt)
 	if err != nil {
@@ -72,7 +72,7 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	}
 
 	// Single transaction: mark read + delivered + reset unread
-	tx, err := h.db.Begin()
+	tx, ownsTx, err := h.txFor(c)
 	if err != nil {
 		serverError(c, "begin tx", err)
 		return
@@ -104,15 +104,19 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		return
 	}
 
-	if err := tx.Commit(); err != nil {
-		serverError(c, "commit tx", err)
-		return
+	if ownsTx {
+		if err := tx.Commit(); err != nil {
+			serverError(c, "commit tx", err)
+			return
+		}
 	}
 
-	// Broadcast read receipt
-	if h.hub != nil {
+	queueAfterCommit(c, func() {
+		if h.hub == nil {
+			return
+		}
 		go func() {
-			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "read_receipt",
 				Payload: map[string]interface{}{
 					"conversation_id": conversationID,
@@ -120,9 +124,11 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 					"message_id":      req.MessageID,
 					"event":           "read_receipt",
 				},
-			})
+			}); err != nil {
+				// Persistence already succeeded; realtime delivery is best effort.
+			}
 		}()
-	}
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }
@@ -167,7 +173,7 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 	}
 
 	// Verify membership
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -179,7 +185,7 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 
 	// Get the message time
 	var sentAt time.Time
-	err = h.db.QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
+	err = h.dbFor(c).QueryRow("SELECT sent_at FROM chat_messages WHERE id = $1 AND conversation_id = $2",
 		req.MessageID, conversationID,
 	).Scan(&sentAt)
 	if err != nil {
@@ -188,7 +194,7 @@ func (h *MessengerHandler) MarkDelivered(c *gin.Context) {
 	}
 
 	// Mark delivered
-	_, err = h.db.Exec(`
+	_, err = h.dbFor(c).Exec(`
 		INSERT INTO chat_receipts (message_id, user_id, delivered_at)
 		SELECT m.id, $2, NOW()
 		FROM chat_messages m
@@ -228,7 +234,7 @@ func (h *MessengerHandler) GetUnreadCount(c *gin.Context) {
 	}
 
 	var count int
-	err := h.db.QueryRow(`
+	err := h.dbFor(c).QueryRow(`
 		SELECT COALESCE(SUM(unread_count), 0)
 		FROM chat_members
 		WHERE user_id = $1
@@ -271,7 +277,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 		return
 	}
 
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -308,7 +314,7 @@ func (h *MessengerHandler) GetReceipts(c *gin.Context) {
 		args = append(args, limit)
 	}
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := h.dbFor(c).Query(query, args...)
 	if err != nil {
 		serverError(c, "get receipts", err)
 		return
@@ -387,7 +393,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 	}
 
 	// Check membership
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -399,7 +405,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 
 	// Verify the message belongs to this conversation
 	var msgExists bool
-	err = h.db.QueryRow(
+	err = h.dbFor(c).QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = $1 AND conversation_id = $2 AND is_deleted = false)",
 		req.MessageID, conversationID,
 	).Scan(&msgExists)
@@ -414,7 +420,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 
 	// Get current pinned message
 	var currentPin sql.NullString
-	err = h.db.QueryRow("SELECT pinned_message_id FROM chat_conversations WHERE id = $1", conversationID).Scan(&currentPin)
+	err = h.dbFor(c).QueryRow("SELECT pinned_message_id FROM chat_conversations WHERE id = $1", conversationID).Scan(&currentPin)
 	if err != nil {
 		serverError(c, "get current pin", err)
 		return
@@ -422,7 +428,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 
 	if currentPin.Valid && currentPin.String == req.MessageID {
 		// Unpin
-		_, err = h.db.Exec("UPDATE chat_conversations SET pinned_message_id = NULL WHERE id = $1", conversationID)
+		_, err = h.dbFor(c).Exec("UPDATE chat_conversations SET pinned_message_id = NULL WHERE id = $1", conversationID)
 		if err != nil {
 			serverError(c, "unpin message", err)
 			return
@@ -430,7 +436,7 @@ func (h *MessengerHandler) TogglePin(c *gin.Context) {
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"pinned_message_id": nil}))
 	} else {
 		// Pin
-		_, err = h.db.Exec("UPDATE chat_conversations SET pinned_message_id = $2 WHERE id = $1", conversationID, req.MessageID)
+		_, err = h.dbFor(c).Exec("UPDATE chat_conversations SET pinned_message_id = $2 WHERE id = $1", conversationID, req.MessageID)
 		if err != nil {
 			serverError(c, "pin message", err)
 			return

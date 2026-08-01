@@ -29,14 +29,13 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.dbFor(c).Query(`
 		SELECT
 			c.id, c.last_message_at, c.last_message_preview,
 			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
 			cm.unread_count, cm.is_muted,
 			c.is_group, c.group_name, c.group_avatar_url,
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
-			c.is_e2e,
 			-- 1:1 fields (NULL for groups)
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
 			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
@@ -69,7 +68,6 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.UnreadCount, &conv.IsMuted,
 			&conv.IsGroup, &groupName, &groupAvatar,
 			&conv.MemberCount,
-			&conv.IsE2E,
 			&otherID, &otherUsername, &otherDisplayName,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
 		); err != nil {
@@ -168,7 +166,6 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 
 	var req struct {
 		UserID string `json:"user_id" binding:"required"`
-		IsE2E  bool   `json:"is_e2e"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_id is required"))
@@ -182,7 +179,7 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 
 	// Verify the other user exists
 	var otherExists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&otherExists)
+	err := h.dbFor(c).QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&otherExists)
 	if err != nil {
 		serverError(c, "check user exists", err)
 		return
@@ -193,7 +190,7 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	}
 
 	// Atomic find-or-create via DB function (race-safe via ON CONFLICT)
-	convID, err := h.FindOrCreateConversation(claims.UserID, req.UserID, req.IsE2E)
+	convID, err := h.FindOrCreateConversation(c, claims.UserID, req.UserID)
 	if err != nil {
 		serverError(c, "find or create conversation", err)
 		return
@@ -232,7 +229,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	}
 
 	// Check membership
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -242,7 +239,7 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 		return
 	}
 
-	result, err := h.db.Exec(
+	result, err := h.dbFor(c).Exec(
 		"DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2",
 		conversationID, claims.UserID,
 	)
@@ -257,18 +254,22 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 		return
 	}
 
-	// Broadcast leave event if hub is available
-	if h.hub != nil {
+	queueAfterCommit(c, func() {
+		if h.hub == nil {
+			return
+		}
 		go func() {
-			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "member_left",
 				Payload: map[string]interface{}{
 					"conversation_id": conversationID,
 					"user_id":         claims.UserID,
 				},
-			})
+			}); err != nil {
+				// Persistence already succeeded; realtime delivery is best effort.
+			}
 		}()
-	}
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"left": true}))
 }
@@ -296,7 +297,7 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 
 	// Create conversation
 	var convID string
-	err := h.db.QueryRow(`
+	err := h.dbFor(c).QueryRow(`
 		INSERT INTO chat_conversations (is_group, group_name, created_by, encryption_key_version)
 		VALUES (true, $1, $2, $3)
 		RETURNING id
@@ -307,7 +308,7 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 	}
 
 	// Add creator as admin
-	_, err = h.db.Exec(`
+	_, err = h.dbFor(c).Exec(`
 		INSERT INTO chat_members (conversation_id, user_id, role)
 		VALUES ($1, $2, 'admin')
 	`, convID, claims.UserID)
@@ -321,7 +322,7 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 		if !isUUID(id) || id == claims.UserID {
 			continue
 		}
-		h.db.Exec(`
+		h.dbFor(c).Exec(`
 			INSERT INTO chat_members (conversation_id, user_id, role)
 			VALUES ($1, $2, 'member')
 			ON CONFLICT (conversation_id, user_id) DO NOTHING
@@ -352,7 +353,7 @@ func (h *MessengerHandler) UpdateGroup(c *gin.Context) {
 
 	// Check if caller is admin
 	var isAdmin bool
-	err := h.db.QueryRow(`
+	err := h.dbFor(c).QueryRow(`
 		SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')
 	`, groupID, claims.UserID).Scan(&isAdmin)
 	if err != nil || !isAdmin {
@@ -367,13 +368,13 @@ func (h *MessengerHandler) UpdateGroup(c *gin.Context) {
 	}
 
 	if req.Name != nil {
-		if _, err := h.db.Exec(`UPDATE chat_conversations SET group_name = $1, updated_at = NOW() WHERE id = $2`, *req.Name, groupID); err != nil {
+		if _, err := h.dbFor(c).Exec(`UPDATE chat_conversations SET group_name = $1, updated_at = NOW() WHERE id = $2`, *req.Name, groupID); err != nil {
 			serverError(c, "update group name", err)
 			return
 		}
 	}
 	if req.AvatarURL != nil {
-		if _, err := h.db.Exec(`UPDATE chat_conversations SET group_avatar_url = $1, updated_at = NOW() WHERE id = $2`, *req.AvatarURL, groupID); err != nil {
+		if _, err := h.dbFor(c).Exec(`UPDATE chat_conversations SET group_avatar_url = $1, updated_at = NOW() WHERE id = $2`, *req.AvatarURL, groupID); err != nil {
 			serverError(c, "update group avatar", err)
 			return
 		}
@@ -405,7 +406,7 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 
 	// Check if caller is admin
 	var isAdmin bool
-	h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')`, groupID, claims.UserID).Scan(&isAdmin)
+	h.dbFor(c).QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')`, groupID, claims.UserID).Scan(&isAdmin)
 	if !isAdmin {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Only admins can add members"))
 		return
@@ -416,26 +417,30 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 		if !isUUID(id) {
 			continue
 		}
-		_, err := h.db.Exec(`INSERT INTO chat_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (conversation_id, user_id) DO NOTHING`, groupID, id)
+		_, err := h.dbFor(c).Exec(`INSERT INTO chat_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (conversation_id, user_id) DO NOTHING`, groupID, id)
 		if err == nil {
 			added++
 		}
 	}
 
-	h.db.Exec(`UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, groupID)
+	h.dbFor(c).Exec(`UPDATE chat_conversations SET updated_at = NOW() WHERE id = $1`, groupID)
 
-	// Broadcast group update to all members
-	if h.hub != nil {
+	queueAfterCommit(c, func() {
+		if h.hub == nil {
+			return
+		}
 		go func() {
-			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "group_updated",
 				Payload: map[string]interface{}{
 					"conversation_id": groupID,
 					"event":           "group_updated",
 				},
-			})
+			}); err != nil {
+				// Persistence already succeeded; realtime delivery is best effort.
+			}
 		}()
-	}
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": added}))
 }
@@ -459,7 +464,7 @@ func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
 	// Users can remove themselves, admins can remove others
 	if userID != claims.UserID {
 		var isAdmin bool
-		h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')`, groupID, claims.UserID).Scan(&isAdmin)
+		h.dbFor(c).QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2 AND role = 'admin')`, groupID, claims.UserID).Scan(&isAdmin)
 		if !isAdmin {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Only admins can remove other members"))
 			return
@@ -468,17 +473,17 @@ func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
 
 	// Check if removing last admin
 	var targetRole string
-	h.db.QueryRow(`SELECT role FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID).Scan(&targetRole)
+	h.dbFor(c).QueryRow(`SELECT role FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID).Scan(&targetRole)
 	if targetRole == "admin" {
 		var adminCount int
-		h.db.QueryRow(`SELECT COUNT(*) FROM chat_members WHERE conversation_id = $1 AND role = 'admin'`, groupID).Scan(&adminCount)
+		h.dbFor(c).QueryRow(`SELECT COUNT(*) FROM chat_members WHERE conversation_id = $1 AND role = 'admin'`, groupID).Scan(&adminCount)
 		if adminCount <= 1 {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("Cannot remove the last admin"))
 			return
 		}
 	}
 
-	h.db.Exec(`DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID)
+	h.dbFor(c).Exec(`DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"removed": true}))
 }
@@ -499,13 +504,13 @@ func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 	}
 
 	// Verify membership
-	member, err := h.isMember(groupID, claims.UserID)
+	member, err := h.isMember(c, groupID, claims.UserID)
 	if err != nil || !member {
 		c.JSON(http.StatusForbidden, models.ErrorResponse("Not a member of this group"))
 		return
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.dbFor(c).Query(`
 		SELECT
 			u.id, u.username, u.display_name, u.avatar_url,
 			cm.role, cm.joined_at,

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -43,7 +42,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	// Verify membership
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -65,12 +64,10 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 
 	var rows *sql.Rows
 	if before != "" {
-		rows, err = h.db.Query(`
+		rows, err = h.dbFor(c).Query(`
 			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id,
-				CASE WHEN m.ciphertexts IS NOT NULL THEN m.ciphertexts::text ELSE NULL END,
-				COALESCE(m.sender_device_id, '')
+				m.edited_at, m.sent_at, m.client_id
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1 AND m.sent_at < (
@@ -80,12 +77,10 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			LIMIT $3
 		`, conversationID, before, limit)
 	} else {
-		rows, err = h.db.Query(`
+		rows, err = h.dbFor(c).Query(`
 			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id,
-				CASE WHEN m.ciphertexts IS NOT NULL THEN m.ciphertexts::text ELSE NULL END,
-				COALESCE(m.sender_device_id, '')
+				m.edited_at, m.sent_at, m.client_id
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1
@@ -106,14 +101,11 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		var parentID, editedAt, senderUsername sql.NullString
 		var encryptedContent string
 		var isDeleted bool
-		var ciphertextsRaw sql.NullString
-		var senderDeviceID string
 
 		if err := rows.Scan(
 			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
 			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
-			&ciphertextsRaw, &senderDeviceID,
 		); err != nil {
 			serverError(c, "scan message row", err)
 			return
@@ -147,16 +139,6 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			msg.EditedAt = &s
 		}
 
-		// E2E ciphertexts
-		if ciphertextsRaw.Valid && ciphertextsRaw.String != "" {
-			if entries, err := unmarshalCiphertexts(ciphertextsRaw.String); err == nil {
-				msg.Ciphertexts = entries
-			}
-		}
-		if senderDeviceID != "" {
-			msg.SenderDeviceID = senderDeviceID
-		}
-
 		messages = append(messages, msg)
 	}
 
@@ -166,7 +148,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		for i, m := range messages {
 			ids[i] = m.ID
 		}
-		attMap, err := h.getAttachmentsByMessageIDs(ids)
+		attMap, err := h.getAttachmentsByMessageIDs(c, ids)
 		if err != nil {
 			serverError(c, "get attachments", err)
 			return
@@ -223,55 +205,30 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Check if conversation is E2E
-	var isE2E bool
-	err := h.db.QueryRow("SELECT COALESCE(is_e2e, false) FROM chat_conversations WHERE id = $1", conversationID).Scan(&isE2E)
+	// Regular server-encrypted message: validate plaintext before encryption.
+	cleanContent := strings.TrimSpace(req.Content)
+	if cleanContent == "" && len(req.Attachments) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
+		return
+	}
+	if cleanContent != "" {
+		if len([]rune(cleanContent)) > 4000 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
+			return
+		}
+		if hasHTML(cleanContent) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
+			return
+		}
+	}
+	encryptedContent, err := encryptContentForConversation(conversationID, cleanContent)
 	if err != nil {
-		serverError(c, "check conversation type", err)
+		serverError(c, "encrypt content", err)
 		return
 	}
 
-	// E2E messages: content is ciphertexts JSON, no client-side content validation
-	var encryptedContent string
-	var cleanContent string
-	if isE2E && req.IsEncrypted && len(req.Ciphertexts) > 0 {
-		ciphertextsJSON, err := marshalCiphertexts(req.Ciphertexts)
-		if err != nil {
-			serverError(c, "marshal ciphertexts", err)
-			return
-		}
-		encryptedContent, err = encryptContentForConversation(conversationID, ciphertextsJSON)
-		if err != nil {
-			serverError(c, "encrypt ciphertexts", err)
-			return
-		}
-	} else {
-		// Regular message: validate and encrypt content with per-conversation key
-		cleanContent = strings.TrimSpace(req.Content)
-		if cleanContent == "" && len(req.Attachments) == 0 {
-			c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
-			return
-		}
-		if cleanContent != "" {
-			if len([]rune(cleanContent)) > 4000 {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
-				return
-			}
-			if hasHTML(cleanContent) {
-				c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
-				return
-			}
-		}
-		// Use per-conversation key for new messages
-		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
-		if err != nil {
-			serverError(c, "encrypt content", err)
-			return
-		}
-	}
-
 	// Verify membership
-	member, err := h.isMember(conversationID, claims.UserID)
+	member, err := h.isMember(c, conversationID, claims.UserID)
 	if err != nil {
 		serverError(c, "check membership", err)
 		return
@@ -281,75 +238,62 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Start transaction for message + attachments
-	tx, err := h.db.Begin()
+	// Use the request-scoped transaction supplied by middleware. The fallback
+	// transaction is only for direct handler tests/legacy callers.
+	tx, ownsTx, err := h.txFor(c)
 	if err != nil {
 		serverError(c, "begin transaction", err)
 		return
 	}
-	defer tx.Rollback()
+	defer func() {
+		if ownsTx {
+			_ = tx.Rollback()
+		}
+	}()
 
-	// Insert message
+	// ON CONFLICT avoids aborting the transaction on an idempotent retry. That
+	// matters when this handler is running inside the middleware transaction:
+	// after a constraint error PostgreSQL would reject every subsequent query.
 	var msg MessageResponse
-	msg.EncryptedContent = encryptedContent // preserve for Redis broadcast
+	msg.EncryptedContent = encryptedContent
 	var parentID, editedAt sql.NullString
-	var senderDeviceID, ciphertextsRaw sql.NullString
 	err = tx.QueryRow(`
-		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id, ciphertexts, sender_device_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (conversation_id, client_id) DO NOTHING
 		RETURNING id, conversation_id, sender_user_id, parent_message_id,
-			content, is_edited, is_deleted, edited_at, sent_at, client_id,
-			CASE WHEN ciphertexts IS NOT NULL THEN ciphertexts::text ELSE NULL END,
-			sender_device_id
-	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID,
-		nullJSONB(req.Ciphertexts), nullString(req.SenderDeviceID)).Scan(
+			content, is_edited, is_deleted, edited_at, sent_at, client_id
+	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
 		&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
-		&ciphertextsRaw, &senderDeviceID,
 	)
-	if err != nil {
-		// ClientID conflict = duplicate send, return existing message
-		if strings.Contains(err.Error(), "unique_client_msg") || strings.Contains(err.Error(), "duplicate key") {
-			_ = tx.Rollback()
-			var dupCiphertextsRaw, dupSenderDeviceID sql.NullString
-			existing := h.db.QueryRow(`
-				SELECT id, conversation_id, sender_user_id, parent_message_id,
-					content, is_edited, is_deleted, edited_at, sent_at, client_id,
-					CASE WHEN ciphertexts IS NOT NULL THEN ciphertexts::text ELSE NULL END,
-					COALESCE(sender_device_id, '')
-				FROM chat_messages
-				WHERE conversation_id = $1 AND client_id = $2
-			`, conversationID, req.ClientID)
-			if err2 := existing.Scan(
-				&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
-				&msg.Content, &msg.IsEdited, &msg.IsDeleted,
-				&editedAt, &msg.SentAt, &msg.ClientID,
-				&dupCiphertextsRaw, &dupSenderDeviceID,
-			); err2 != nil {
-				serverError(c, "fetch duplicate message", err2)
-				return
-			}
+	if err == sql.ErrNoRows {
+		// Idempotent retry: read the already-persisted message in the same tx.
+		err = tx.QueryRow(`
+			SELECT id, conversation_id, sender_user_id, parent_message_id,
+				content, is_edited, is_deleted, edited_at, sent_at, client_id
+			FROM chat_messages
+			WHERE conversation_id = $1 AND client_id = $2
+		`, conversationID, req.ClientID).Scan(
+			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
+			&msg.Content, &msg.IsEdited, &msg.IsDeleted,
+			&editedAt, &msg.SentAt, &msg.ClientID,
+		)
+		if err == nil {
 			decryptMessageContent(conversationID, &msg)
 			if parentID.Valid {
 				msg.ParentMessageID = &parentID.String
 			}
-			if dupCiphertextsRaw.Valid && dupCiphertextsRaw.String != "" {
-				if entries, err := unmarshalCiphertexts(dupCiphertextsRaw.String); err == nil {
-					msg.Ciphertexts = entries
-				}
-			}
-			if dupSenderDeviceID.Valid {
-				msg.SenderDeviceID = dupSenderDeviceID.String
-			}
-			// Fetch attachments for duplicate message
-			atts, _ := h.getAttachmentsByMessageIDs([]string{msg.ID})
+			atts, _ := h.getAttachmentsByMessageIDs(c, []string{msg.ID})
 			if a, ok := atts[msg.ID]; ok {
 				msg.Attachments = a
 			}
 			c.JSON(http.StatusOK, models.SuccessResponse(msg))
 			return
 		}
+	}
+	if err != nil {
 		serverError(c, "insert message", err)
 		return
 	}
@@ -362,26 +306,8 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		}
 	}
 
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		serverError(c, "commit transaction", err)
-		return
-	}
-
-	// Decrypt content for response
-	if isE2E && req.IsEncrypted {
-		// E2E: keep ciphertexts in response, content is the encrypted payload
-		if ciphertextsRaw.Valid && ciphertextsRaw.String != "" {
-			if entries, err := unmarshalCiphertexts(ciphertextsRaw.String); err == nil {
-				msg.Ciphertexts = entries
-			}
-		}
-		if senderDeviceID.Valid {
-			msg.SenderDeviceID = senderDeviceID.String
-		}
-	} else {
-		msg.Content = cleanContent
-	}
+	// Return plaintext only after the server has persisted its ciphertext.
+	msg.Content = cleanContent
 
 	if parentID.Valid {
 		msg.ParentMessageID = &parentID.String
@@ -407,39 +333,44 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		}
 	}
 
-	// Update conversation preview fields (trigger handles last_message_at, but not preview)
-	go func() {
-		var previewContent string
-		if isE2E && req.IsEncrypted {
-			// E2E: store a fixed placeholder (server can't decrypt content)
-			previewContent = "🔒 Зашифрованное сообщение"
-		} else {
-			previewContent = truncatePreview(cleanContent)
-		}
-		encryptedPreview, encErr := encryptContentForConversation(conversationID, previewContent)
-		if encErr != nil {
-			log.Printf("[Messenger] encrypt preview: %v", encErr)
-			encryptedPreview = previewContent
-		}
-		_, err := h.db.Exec(`
-			UPDATE chat_conversations
-			SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
-			WHERE id = $3
-		`, encryptedPreview, claims.UserID, conversationID)
-		if err != nil {
-			log.Printf("[Messenger] update conversation preview: %v", err)
-		}
-	}()
-
-	// Invalidate messenger caches for this conversation
-	if h.redis != nil {
-		go invalidateMessengerCaches(h.redis, conversationID, claims.UserID)
+	// Update the preview in the same transaction as the message. This keeps
+	// the request-scoped RLS binding intact and avoids using a closed tx from a
+	// background goroutine.
+	previewContent := truncatePreview(cleanContent)
+	encryptedPreview, encErr := encryptContentForConversation(conversationID, previewContent)
+	if encErr != nil {
+		serverError(c, "encrypt preview", encErr)
+		return
+	}
+	if _, err := tx.Exec(`
+		UPDATE chat_conversations
+		SET last_message_preview = $1, last_message_sender_id = $2, updated_at = NOW()
+		WHERE id = $3
+	`, encryptedPreview, claims.UserID, conversationID); err != nil {
+		serverError(c, "update conversation preview", err)
+		return
 	}
 
-	// Broadcast via WebSocket
-	if h.hub != nil {
-		go h.broadcastNewMessage(conversationID, msg, claims)
+	// Commit only a handler-owned transaction. Route middleware commits the
+	// request-scoped transaction after the handler returns, so the preview and
+	// message are committed atomically there.
+	if ownsTx {
+		if err := tx.Commit(); err != nil {
+			serverError(c, "commit transaction", err)
+			return
+		}
 	}
+
+	// These side effects must run only after the middleware-owned transaction
+	// commits. Otherwise a client can fetch a message before PostgreSQL exposes it.
+	queueAfterCommit(c, func() {
+		if h.redis != nil {
+			go invalidateMessengerCaches(h.redis, conversationID, claims.UserID)
+		}
+		if h.hub != nil {
+			go h.broadcastNewMessage(conversationID, msg, claims)
+		}
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(msg))
 }
@@ -461,12 +392,6 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 	}
 	if len(msg.Attachments) > 0 {
 		payload["attachments"] = msg.Attachments
-	}
-	if len(msg.Ciphertexts) > 0 {
-		payload["ciphertexts"] = msg.Ciphertexts
-	}
-	if msg.SenderDeviceID != "" {
-		payload["sender_device_id"] = msg.SenderDeviceID
 	}
 	if err := h.hub.PublishNewChatMessage(payload); err != nil {
 		log.Printf("[Messenger] WS broadcast error: %v", err)
@@ -522,7 +447,7 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 	}
 
 	// Only sender can edit, and message must not be deleted
-	result, err := h.db.Exec(`
+	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
 		SET content = $1, is_edited = true, edited_at = NOW()
 		WHERE id = $2 AND sender_user_id = $3 AND is_deleted = false
@@ -538,10 +463,11 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
-	// Broadcast edit event (with decrypted content)
-	if h.hub != nil {
-		go h.broadcastMessageEdited(messageID, cleanContent, conversationID)
-	}
+	queueAfterCommit(c, func() {
+		if h.hub != nil {
+			go h.broadcastMessageEdited(messageID, cleanContent, conversationID)
+		}
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
@@ -554,11 +480,11 @@ func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversatio
 		encrypted = newContent // fallback (should not happen with mandatory key)
 	}
 	payload := map[string]interface{}{
-		"id":               msgID,
+		"id":                msgID,
 		"encrypted_content": encrypted,
-		"conversation_id":  conversationID,
-		"edited_at":        time.Now().UTC().Format(time.RFC3339),
-		"event":            "message_edited",
+		"conversation_id":   conversationID,
+		"edited_at":         time.Now().UTC().Format(time.RFC3339),
+		"event":             "message_edited",
 	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 		Type:    "message_edited",
@@ -597,7 +523,7 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 
 	// Verify user is a conversation member AND message sender
 	// This prevents users from deleting messages in conversations they're not part of
-	result, err := h.db.Exec(`
+	result, err := h.dbFor(c).Exec(`
 		UPDATE chat_messages
 		SET is_deleted = true
 		WHERE id = $1
@@ -617,25 +543,29 @@ func (h *MessengerHandler) DeleteMessage(c *gin.Context) {
 		return
 	}
 
-	// Broadcast delete event
-	if h.hub != nil {
+	queueAfterCommit(c, func() {
+		if h.hub == nil {
+			return
+		}
 		go func() {
-			h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+			if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 				Type: "message_deleted",
 				Payload: map[string]interface{}{
 					"id":              messageID,
 					"conversation_id": conversationID,
 					"event":           "message_deleted",
 				},
-			})
+			}); err != nil {
+				log.Printf("[Messenger] WS delete broadcast error: %v", err)
+			}
 		}()
-	}
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": true}))
 }
 
 // getAttachmentsByMessageIDs fetches attachments for multiple messages in one query
-func (h *MessengerHandler) getAttachmentsByMessageIDs(messageIDs []string) (map[string][]Attachment, error) {
+func (h *MessengerHandler) getAttachmentsByMessageIDs(c *gin.Context, messageIDs []string) (map[string][]Attachment, error) {
 	if len(messageIDs) == 0 {
 		return nil, nil
 	}
@@ -655,7 +585,7 @@ func (h *MessengerHandler) getAttachmentsByMessageIDs(messageIDs []string) (map[
 		ORDER BY message_id, sort_order
 	`
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := h.dbFor(c).Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -689,18 +619,6 @@ func (h *MessengerHandler) insertAttachments(tx *sql.Tx, messageID string, attac
 		}
 	}
 	return nil
-}
-
-// nullJSONB returns a driver.Value that can be NULL for JSONB columns
-func nullJSONB(entries []CiphertextEntry) interface{} {
-	if len(entries) == 0 {
-		return nil
-	}
-	b, err := json.Marshal(entries)
-	if err != nil {
-		return nil
-	}
-	return string(b)
 }
 
 // nullString returns a sql.NullString for optional string values

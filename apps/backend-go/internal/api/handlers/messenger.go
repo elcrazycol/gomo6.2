@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
-	"github.com/gomo6/backend/internal/crypto"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
@@ -52,27 +52,23 @@ type ConversationResponse struct {
 	GroupName   *string `json:"group_name"`
 	GroupAvatar *string `json:"group_avatar_url"`
 	MemberCount int     `json:"member_count"`
-	// E2E field
-	IsE2E bool `json:"is_e2e"`
 }
 
 // MessageResponse is returned to the client
 type MessageResponse struct {
-	ID               string            `json:"id"`
-	ConversationID   string            `json:"conversation_id"`
-	SenderUserID     string            `json:"sender_user_id"`
-	SenderUsername   string            `json:"sender_username,omitempty"`
-	ParentMessageID  *string           `json:"parent_message_id"`
-	Content          string            `json:"content"`
-	EncryptedContent string            `json:"-"` // not serialized to API, used for Redis broadcast
-	IsEdited         bool              `json:"is_edited"`
-	IsDeleted        bool              `json:"is_deleted"`
-	EditedAt         *string           `json:"edited_at"`
-	SentAt           string            `json:"sent_at"`
-	ClientID         string            `json:"client_id"`
-	Attachments      []Attachment      `json:"attachments,omitempty"`
-	Ciphertexts      []CiphertextEntry `json:"ciphertexts,omitempty"`
-	SenderDeviceID   string            `json:"sender_device_id,omitempty"`
+	ID               string       `json:"id"`
+	ConversationID   string       `json:"conversation_id"`
+	SenderUserID     string       `json:"sender_user_id"`
+	SenderUsername   string       `json:"sender_username,omitempty"`
+	ParentMessageID  *string      `json:"parent_message_id"`
+	Content          string       `json:"content"`
+	EncryptedContent string       `json:"-"` // not serialized to API, used for Redis broadcast
+	IsEdited         bool         `json:"is_edited"`
+	IsDeleted        bool         `json:"is_deleted"`
+	EditedAt         *string      `json:"edited_at"`
+	SentAt           string       `json:"sent_at"`
+	ClientID         string       `json:"client_id"`
+	Attachments      []Attachment `json:"attachments,omitempty"`
 }
 
 // Attachment represents a file attached to a message
@@ -93,16 +89,6 @@ type SendMessageRequest struct {
 	ClientID        string            `json:"client_id" binding:"required"`
 	ParentMessageID *string           `json:"parent_message_id"`
 	Attachments     []AttachmentInput `json:"attachments"`
-	IsEncrypted     bool              `json:"is_encrypted"`
-	Ciphertexts     []CiphertextEntry `json:"ciphertexts"`
-	SenderDeviceID  string            `json:"sender_device_id"`
-}
-
-// CiphertextEntry is a per-device encrypted payload for E2E messages
-type CiphertextEntry struct {
-	DeviceID     string `json:"device_id"`
-	EphemeralKey string `json:"ephemeral_key"`
-	Ciphertext   string `json:"ciphertext"`
 }
 
 // AttachmentInput is the attachment data sent by the client
@@ -189,8 +175,14 @@ func getClaims(c *gin.Context) *auth.Claims {
 func ensureAuth(c *gin.Context) *auth.Claims {
 	claims := getClaims(c)
 	if claims == nil || claims.UserID == "" {
-		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authentication required"))
+		c.AbortWithStatusJSON(http.StatusUnauthorized, models.ErrorResponse("Authentication required"))
 		return nil
+	}
+	if required, _ := c.Get("messenger_tx_required"); required == true {
+		if tx, ok := c.Value("messenger_tx").(*sql.Tx); !ok || tx == nil {
+			serverError(c, "missing request transaction", fmt.Errorf("messenger transaction is missing"))
+			return nil
+		}
 	}
 	return claims
 }
@@ -199,13 +191,51 @@ func ensureAuth(c *gin.Context) *auth.Claims {
 // NEVER leaks raw error messages to the client.
 func serverError(c *gin.Context, context string, err error) {
 	log.Printf("[Messenger] %s: %v", context, err)
-	c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+	_ = c.Error(err)
+	c.AbortWithStatusJSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
+}
+
+// dbExecutor is implemented by both *sql.DB and *sql.Tx. Messenger handlers
+// always use the request-scoped transaction when the route middleware provides one.
+type dbExecutor interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+}
+
+func (h *MessengerHandler) dbFor(c *gin.Context) dbExecutor {
+	if tx, ok := c.Value("messenger_tx").(*sql.Tx); ok && tx != nil {
+		return tx
+	}
+	// Direct handler tests and legacy internal callers may still exercise a
+	// handler without route middleware. Public messenger routes always set this
+	// marker, making a missing transaction fail closed instead of silently using
+	// a pooled connection without SET LOCAL.
+	if required, _ := c.Get("messenger_tx_required"); required == true {
+		return nil
+	}
+	return h.db
+}
+
+func queueAfterCommit(c *gin.Context, hook func()) {
+	middleware.QueueMessengerAfterCommit(c, hook)
+}
+
+func (h *MessengerHandler) txFor(c *gin.Context) (*sql.Tx, bool, error) {
+	if tx, ok := c.Value("messenger_tx").(*sql.Tx); ok && tx != nil {
+		return tx, false, nil
+	}
+	if required, _ := c.Get("messenger_tx_required"); required == true {
+		return nil, false, fmt.Errorf("messenger transaction is missing")
+	}
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	return tx, true, err
 }
 
 // isMember checks if a user is a member of a conversation.
-func (h *MessengerHandler) isMember(conversationID, userID string) (bool, error) {
+func (h *MessengerHandler) isMember(c *gin.Context, conversationID, userID string) (bool, error) {
 	var ok bool
-	err := h.db.QueryRow(
+	err := h.dbFor(c).QueryRow(
 		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
 		conversationID, userID,
 	).Scan(&ok)
@@ -254,63 +284,17 @@ func decryptMessageContent(conversationID string, msg *MessageResponse) {
 	}
 }
 
-// FindOrCreateConversation atomically finds or creates a 1:1 conversation between two users.
-// Uses the DB function find_or_create_conversation when available (migration 054+).
-// Falls back to Go-level retry logic if the function doesn't exist yet.
-func (h *MessengerHandler) FindOrCreateConversation(user1, user2 string, isE2E bool) (string, error) {
+// FindOrCreateConversation atomically finds or creates a regular 1:1
+// conversation. The database function is deliberately called through the
+// request-scoped executor so RLS and the user binding remain in force.
+func (h *MessengerHandler) FindOrCreateConversation(c *gin.Context, user1, user2 string) (string, error) {
 	var convID string
-	err := h.db.QueryRow("SELECT find_or_create_conversation($1, $2, $3)", user1, user2, isE2E).Scan(&convID)
-	if err == nil {
-		return convID, nil
-	}
-	// Function not found — fall back to legacy approach (migration not yet applied)
-	if !strings.Contains(err.Error(), "function") && !strings.Contains(err.Error(), "does not exist") {
+	if err := h.dbFor(c).QueryRow(
+		"SELECT find_or_create_conversation($1, $2)", user1, user2,
+	).Scan(&convID); err != nil {
 		return "", fmt.Errorf("find_or_create_conversation: %w", err)
 	}
-	log.Printf("[Messenger] find_or_create_conversation function not found, using legacy fallback")
-	return h.findOrCreateConversationLegacy(user1, user2, isE2E)
-}
-
-// findOrCreateConversationLegacy is the pre-migration fallback using Go-level retry.
-func (h *MessengerHandler) findOrCreateConversationLegacy(user1, user2 string, isE2E bool) (string, error) {
-	for attempt := 0; attempt < 3; attempt++ {
-		var convID string
-		err := h.db.QueryRow(`
-			SELECT cm1.conversation_id
-			FROM chat_members cm1
-			INNER JOIN chat_members cm2 ON cm1.conversation_id = cm2.conversation_id
-			INNER JOIN chat_conversations c ON c.id = cm1.conversation_id
-			WHERE cm1.user_id = $1 AND cm2.user_id = $2
-			  AND COALESCE(c.is_e2e, false) = $3
-			  AND (SELECT COUNT(*) FROM chat_members WHERE conversation_id = cm1.conversation_id) = 2
-			LIMIT 1
-		`, user1, user2, isE2E).Scan(&convID)
-		if err == nil {
-			return convID, nil
-		}
-		if err != sql.ErrNoRows {
-			return "", err
-		}
-		tx, err := h.db.Begin()
-		if err != nil {
-			return "", err
-		}
-		err = tx.QueryRow(`INSERT INTO chat_conversations (is_e2e, encryption_key_version) VALUES ($1, $2) RETURNING id`, isE2E, crypto.KeyVersionHKDF).Scan(&convID)
-		if err != nil {
-			tx.Rollback()
-			continue
-		}
-		_, err = tx.Exec(`INSERT INTO chat_members (conversation_id, user_id) VALUES ($1, $2), ($1, $3)`, convID, user1, user2)
-		if err != nil {
-			tx.Rollback()
-			continue
-		}
-		if err := tx.Commit(); err != nil {
-			continue
-		}
-		return convID, nil
-	}
-	return "", fmt.Errorf("failed to create conversation after retries")
+	return convID, nil
 }
 
 // truncatePreview truncates message content to 80 chars for conversation preview.
