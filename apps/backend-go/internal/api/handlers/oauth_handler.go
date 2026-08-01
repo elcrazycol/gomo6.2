@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -542,12 +543,13 @@ func (h *OAuthHandler) handleRefreshTokenGrant(c *gin.Context, req oauth.TokenRe
 }
 
 func isValidRedirectURI(allowedURIs []string, uri string) bool {
+	uri = strings.TrimSpace(uri)
 	for _, allowed := range allowedURIs {
-		if allowed == uri {
+		if strings.TrimSpace(allowed) == uri {
 			return true
 		}
 		// Allow wildcard matching for localhost ports
-		if allowed == "http://localhost:*" && stringsHasPrefix(uri, "http://localhost:") {
+		if strings.TrimSpace(allowed) == "http://localhost:*" && stringsHasPrefix(uri, "http://localhost:") {
 			return true
 		}
 	}

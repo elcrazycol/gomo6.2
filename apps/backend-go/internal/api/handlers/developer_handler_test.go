@@ -125,6 +125,9 @@ func TestCreateApp_Success(t *testing.T) {
 		}).AddRow("app-new", "user-1", "My New App", "A test app", "client-new",
 			`["http://localhost:3000/callback"]`, "{profile}", true, "", "",
 			true, time.Now(), time.Now()))
+	mock.ExpectExec(`(?s).*INSERT INTO oauth_audit_log.*`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "My New App", "app_created", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	c, w := newPOSTContext("/api/v1/developer/apps", oauth.CreateAppRequest{
 		Name:          "My New App",
@@ -225,6 +228,9 @@ func TestCreateApp_PublicClient(t *testing.T) {
 		}).AddRow("app-pub", "user-1", "Public App", "", "client-pub",
 			`["http://localhost:3000/callback"]`, "{profile}", false, "", "",
 			true, time.Now(), time.Now()))
+	mock.ExpectExec(`(?s).*INSERT INTO oauth_audit_log.*`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "Public App", "app_created", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	c, w := newPOSTContext("/api/v1/developer/apps", oauth.CreateAppRequest{
 		Name:           "Public App",
@@ -313,6 +319,30 @@ func TestGetApp_NotFound(t *testing.T) {
 // =============================================================================
 // UpdateApp tests
 // =============================================================================
+
+func TestUpdateApp_Success(t *testing.T) {
+	h, mock := setupDeveloperHandler(t)
+	claims := &auth.Claims{UserID: "user-1", Username: "testuser"}
+	updatedAt := time.Now()
+
+	mock.ExpectQuery(`(?s).*UPDATE oauth_applications SET name = \$1, updated_at = NOW\(\) WHERE id = \$2 AND owner_id = \$3 RETURNING.*`).
+		WithArgs("Renamed App", "app-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "owner_id", "name", "description", "client_id", "redirect_uris", "allowed_scopes",
+			"is_confidential", "logo_url", "homepage_url", "is_active", "created_at", "updated_at",
+		}).AddRow("app-1", "user-1", "Renamed App", "desc", "client-1", `["https://client.example/callback"]`, "{profile}", true, "", "", true, updatedAt, updatedAt))
+	mock.ExpectExec(`(?s).*INSERT INTO oauth_audit_log.*`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "Renamed App", "app_updated", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	name := "Renamed App"
+	c, w := newPUTContext("/api/v1/developer/apps/app-1", oauth.UpdateAppRequest{Name: &name}, claims, map[string]string{"id": "app-1"})
+	h.UpdateApp(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
 
 func TestUpdateApp_InvalidBody(t *testing.T) {
 	h, _ := setupDeveloperHandler(t)

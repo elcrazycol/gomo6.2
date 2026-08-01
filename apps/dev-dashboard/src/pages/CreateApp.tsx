@@ -21,7 +21,7 @@ const CreateApp = () => {
   const [isConfidential, setIsConfidential] = useState(true);
   const [scopes, setScopes] = useState<string[]>(["profile"]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ client_id: string; client_secret: string } | null>(null);
+  const [result, setResult] = useState<{ id: string; client_id: string; client_secret: string } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showSecret, setShowSecret] = useState(false);
   const [secretCopied, setSecretCopied] = useState(false);
@@ -35,6 +35,7 @@ const CreateApp = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
 
     try {
@@ -76,13 +77,20 @@ const CreateApp = () => {
         return;
       }
 
+      // Developer API responses are wrapped in { success, data }.
+      const created = data.data;
+      if (!created?.app?.id || !created.app.client_id || !created.client_secret) {
+        throw new Error("Сервер вернул неполный ответ при создании приложения");
+      }
+
       setResult({
-        client_id: data.app.client_id,
-        client_secret: data.client_secret,
+        id: created.app.id,
+        client_id: created.app.client_id,
+        client_secret: created.client_secret,
       });
       toast.success("Приложение создано!");
     } catch (err: any) {
-      toast.error("Ошибка соединения");
+      toast.error(err instanceof Error ? err.message : "Ошибка соединения");
     } finally {
       setLoading(false);
     }
@@ -208,7 +216,7 @@ const CreateApp = () => {
               Список приложений
             </Button>
             <Button
-              onClick={() => navigate(`/apps/${result.client_id}`)}
+              onClick={() => navigate(`/apps/${result.id}`)}
               className="w-full gap-2"
             >
               Настройки приложения

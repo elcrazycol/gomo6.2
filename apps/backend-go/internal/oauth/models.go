@@ -148,13 +148,14 @@ type CreateAppRequest struct {
 
 // UpdateAppRequest for developer API
 type UpdateAppRequest struct {
-	Name          *string   `json:"name"`
-	Description   *string   `json:"description"`
-	RedirectURIs  *[]string `json:"redirect_uris"`
-	AllowedScopes *[]string `json:"allowed_scopes"`
-	LogoURL       *string   `json:"logo_url"`
-	HomepageURL   *string   `json:"homepage_url"`
-	IsActive      *bool     `json:"is_active"`
+	Name           *string   `json:"name"`
+	Description    *string   `json:"description"`
+	RedirectURIs   *[]string `json:"redirect_uris"`
+	AllowedScopes  *[]string `json:"allowed_scopes"`
+	LogoURL        *string   `json:"logo_url"`
+	HomepageURL    *string   `json:"homepage_url"`
+	IsActive       *bool     `json:"is_active"`
+	IsConfidential *bool     `json:"is_confidential"`
 }
 
 // CreateAppResponse includes the client_secret (shown once)

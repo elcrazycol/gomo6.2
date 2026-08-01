@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
@@ -76,6 +78,7 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 		return
 	}
 
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("name is required"))
 		return
@@ -108,6 +111,10 @@ func (h *DeveloperHandler) CreateApp(c *gin.Context) {
 		req.HomepageURL,
 	)
 	if err != nil {
+		if oauth.IsValidationError(err) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to create application: "+err.Error()))
 		return
 	}
@@ -187,6 +194,10 @@ func (h *DeveloperHandler) UpdateApp(c *gin.Context) {
 
 	app, err := h.oauthSvc.UpdateApplication(appID, claims.UserID, &req)
 	if err != nil {
+		if oauth.IsValidationError(err) || errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to update application: "+err.Error()))
 		return
 	}

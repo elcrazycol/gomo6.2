@@ -5,7 +5,10 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -14,7 +17,7 @@ import {
   ArrowLeft, Copy, Check, RotateCcw, Trash2, Fingerprint, User, Mail,
   RefreshCw, Shield, ShieldOff, Eye, EyeOff, ExternalLink, Globe, Key,
   Calendar, Clock, AlertTriangle, Info, Settings, Activity, List,
-  ToggleLeft, ToggleRight, ShieldAlert
+  ToggleLeft, ToggleRight, ShieldAlert, Pencil, Save, X
 } from "lucide-react";
 
 interface OAuthApp {
@@ -49,6 +52,14 @@ const AppDetail = () => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editRedirectUris, setEditRedirectUris] = useState("");
+  const [editHomepageUrl, setEditHomepageUrl] = useState("");
+  const [editLogoUrl, setEditLogoUrl] = useState("");
+  const [editScopes, setEditScopes] = useState<string[]>([]);
+  const [editIsConfidential, setEditIsConfidential] = useState(true);
 
   useEffect(() => {
     api.getSession().then(({ session }) => {
@@ -107,6 +118,58 @@ const AppDetail = () => {
     },
     onError: (err: any) => toast.error(err.message || "Ошибка"),
   });
+
+  const updateMutation = useMutation({
+    mutationFn: async () => {
+      const redirectUris = editRedirectUris
+        .split("\n")
+        .map((uri) => uri.trim())
+        .filter(Boolean);
+      if (!editName.trim()) throw new Error("Название приложения обязательно");
+      if (redirectUris.length === 0) throw new Error("Добавьте хотя бы один redirect URI");
+      if (editScopes.length === 0) throw new Error("Выберите хотя бы один scope");
+
+      const res = await api.fetch(`/api/v1/developer/apps/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: editName.trim(),
+          description: editDescription,
+          redirect_uris: redirectUris,
+          allowed_scopes: editScopes,
+          logo_url: editLogoUrl.trim(),
+          homepage_url: editHomepageUrl.trim(),
+          is_confidential: editIsConfidential,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Не удалось сохранить изменения");
+      return json.data as OAuthApp;
+    },
+    onSuccess: (updatedApp) => {
+      queryClient.setQueryData(["developer-app", id], updatedApp);
+      queryClient.invalidateQueries({ queryKey: ["developer-apps"] });
+      setEditing(false);
+      toast.success("Изменения сохранены");
+    },
+    onError: (err: Error) => toast.error(err.message || "Ошибка сохранения"),
+  });
+
+  const startEditing = () => {
+    setEditName(app?.name || "");
+    setEditDescription(app?.description || "");
+    setEditRedirectUris((app?.redirect_uris || []).join("\n"));
+    setEditHomepageUrl(app?.homepage_url || "");
+    setEditLogoUrl(app?.logo_url || "");
+    setEditScopes(app?.allowed_scopes || []);
+    setEditIsConfidential(app?.is_confidential ?? true);
+    setEditing(true);
+  };
+
+  const toggleEditScope = (scope: string) => {
+    setEditScopes((current) => current.includes(scope)
+      ? current.filter((item) => item !== scope)
+      : [...current, scope]);
+  };
 
   const deleteAppMutation = useMutation({
     mutationFn: async () => {
@@ -368,33 +431,114 @@ const AppDetail = () => {
         <TabsContent value="settings" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <ExternalLink className="w-4 h-4 text-emerald-500" />
-                Redirect URIs
-              </CardTitle>
-              <CardDescription>
-                URLs для перенаправления после авторизации пользователя
-              </CardDescription>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Settings className="w-4 h-4 text-emerald-500" />
+                    Настройки приложения
+                  </CardTitle>
+                  <CardDescription>
+                    Изменяйте название, описание, redirect URI и разрешения приложения
+                  </CardDescription>
+                </div>
+                {!editing && (
+                  <Button size="sm" variant="outline" onClick={startEditing} className="gap-2 flex-shrink-0">
+                    <Pencil className="w-4 h-4" />
+                    Редактировать
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              {app.redirect_uris?.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {app.redirect_uris.map((uri, i) => (
-                    <li key={i} className="flex items-center justify-between gap-2 text-sm font-mono bg-muted/40 rounded-lg px-3.5 py-2 border border-border/40">
-                      <span className="truncate text-xs">{uri}</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0 flex-shrink-0"
-                        onClick={() => copyToClipboard(`uri-${i}`, uri)}
-                      >
-                        {copiedField === `uri-${i}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+              {editing ? (
+                <div className="space-y-5">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="edit-name">Название</Label>
+                      <Input id="edit-name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="edit-description">Описание</Label>
+                      <Input id="edit-description" value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-homepage">Сайт приложения</Label>
+                      <Input id="edit-homepage" value={editHomepageUrl} onChange={(e) => setEditHomepageUrl(e.target.value)} placeholder="https://example.com" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-logo">URL логотипа</Label>
+                      <Input id="edit-logo" value={editLogoUrl} onChange={(e) => setEditLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-redirect-uris">Redirect URIs</Label>
+                    <Textarea
+                      id="edit-redirect-uris"
+                      value={editRedirectUris}
+                      onChange={(e) => setEditRedirectUris(e.target.value)}
+                      className="min-h-[100px] font-mono text-xs"
+                      placeholder="https://example.com/callback"
+                    />
+                    <p className="text-xs text-muted-foreground">Каждый URI на новой строке. Значения сравниваются точно.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label>Разрешения (Scopes)</Label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {["openid", "profile", "email", "offline_access"].map((scope) => (
+                        <div key={scope} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`edit-scope-${scope}`}
+                            checked={editScopes.includes(scope)}
+                            onCheckedChange={() => toggleEditScope(scope)}
+                          />
+                          <Label htmlFor={`edit-scope-${scope}`} className="font-mono text-sm cursor-pointer">{scope}</Label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 rounded-lg border border-border/50 bg-muted/30 p-3">
+                    <Switch checked={editIsConfidential} onCheckedChange={setEditIsConfidential} className="mt-0.5" />
+                    <div>
+                      <Label className="cursor-pointer">Конфиденциальное приложение</Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">Требует client_secret при обмене кода на токены.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end border-t border-border/50 pt-4">
+                    <Button variant="outline" onClick={() => setEditing(false)} disabled={updateMutation.isPending} className="gap-2">
+                      <X className="w-4 h-4" /> Отмена
+                    </Button>
+                    <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending} className="gap-2">
+                      <Save className="w-4 h-4" />
+                      {updateMutation.isPending ? "Сохранение..." : "Сохранить изменения"}
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Не указаны</p>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">Redirect URIs</p>
+                    {app.redirect_uris?.length > 0 ? (
+                      <ul className="space-y-1.5">
+                        {app.redirect_uris.map((uri, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2 text-sm font-mono bg-muted/40 rounded-lg px-3.5 py-2 border border-border/40">
+                            <span className="truncate text-xs">{uri}</span>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 flex-shrink-0" onClick={() => copyToClipboard(`uri-${i}`, uri)}>
+                              {copiedField === `uri-${i}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p className="text-sm text-muted-foreground">Не указаны</p>}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                    <div><span className="text-muted-foreground">Тип: </span>{app.is_confidential ? "конфиденциальное" : "публичное"}</div>
+                    <div><span className="text-muted-foreground">Scopes: </span>{app.allowed_scopes?.join(", ") || "нет"}</div>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

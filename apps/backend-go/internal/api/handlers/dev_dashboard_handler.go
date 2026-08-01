@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
@@ -45,8 +47,15 @@ func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 
 	frontendURL := os.Getenv("DEV_DASHBOARD_URL")
 	if frontendURL == "" {
-		frontendURL = "http://dev." + domain
+		if domain == "localhost" {
+			// Vite serves the local dashboard on 3002. Keep this fallback in
+			// sync with SeedDevDashboardApp and the actual dev server origin.
+			frontendURL = "http://localhost:3002"
+		} else {
+			frontendURL = "http://dev." + domain
+		}
 	}
+	frontendURL = strings.TrimRight(frontendURL, "/")
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"client_id":         clientID,
@@ -73,16 +82,30 @@ func SeedDevDashboardApp(db *sql.DB) {
 	// Build redirect URIs from DEV_DASHBOARD_URL env var (supports both dev and production)
 	devDashboardURL := os.Getenv("DEV_DASHBOARD_URL")
 	domain := os.Getenv("DOMAIN")
-	if devDashboardURL == "" {
-		if domain == "" {
-			domain = "localhost"
-		}
-		devDashboardURL = "http://dev." + domain
-	}
 	if domain == "" {
 		domain = "localhost"
 	}
-	redirectURIs := fmt.Sprintf(`["%s/callback","http://dev.%s/callback"]`, devDashboardURL, domain)
+	if devDashboardURL == "" {
+		if domain == "localhost" {
+			devDashboardURL = "http://localhost:3002"
+		} else {
+			devDashboardURL = "http://dev." + domain
+		}
+	}
+	devDashboardURL = strings.TrimRight(devDashboardURL, "/")
+
+	redirectURIsList := []string{devDashboardURL + "/callback"}
+	// Keep the conventional dev.localhost alias registered for local setups,
+	// while production remains limited to the explicitly configured URL.
+	if domain == "localhost" {
+		redirectURIsList = append(redirectURIsList, "http://dev.localhost:3002/callback")
+	}
+	redirectURIsJSON, err := json.Marshal(redirectURIsList)
+	if err != nil {
+		log.Printf("SeedDevDashboardApp: failed to encode redirect URIs: %v", err)
+		return
+	}
+	redirectURIs := string(redirectURIsJSON)
 
 	systemUserID := "00000000-0000-0000-0000-000000000000"
 	systemDomain := os.Getenv("DOMAIN")

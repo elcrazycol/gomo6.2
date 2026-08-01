@@ -8,12 +8,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 // ─── Client Registration ────────────────────────────────────────────────────
+
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }
+
+func IsValidationError(err error) bool {
+	var validationErr *ValidationError
+	return errors.As(err, &validationErr)
+}
+
+func validationError(format string, args ...interface{}) error {
+	return &ValidationError{Message: fmt.Sprintf(format, args...)}
+}
 
 // GenerateClientID generates a cryptographically random client ID
 func (s *OAuthService) GenerateClientID() string {
@@ -52,6 +68,11 @@ func (s *OAuthService) VerifyClientSecret(secret, hash string) bool {
 
 // CreateApplication creates a new OAuth application
 func (s *OAuthService) CreateApplication(ownerID, name, description string, redirectURIs []string, allowedScopes []string, isConfidential bool, logoURL, homepageURL string) (*OAuthApplication, string, error) {
+	redirectURIs, err := normalizeRedirectURIs(redirectURIs)
+	if err != nil {
+		return nil, "", validationError("%v", err)
+	}
+
 	clientID := s.GenerateClientID()
 	clientSecret := s.GenerateClientSecret()
 
@@ -63,7 +84,7 @@ func (s *OAuthService) CreateApplication(ownerID, name, description string, redi
 	// Validate scopes
 	for _, scope := range allowedScopes {
 		if !isValidScope(scope) {
-			return nil, "", fmt.Errorf("invalid scope: %s", scope)
+			return nil, "", validationError("invalid scope: %s", scope)
 		}
 	}
 
@@ -213,8 +234,12 @@ func (s *OAuthService) UpdateApplication(id, ownerID string, req *UpdateAppReque
 	argIdx := 1
 
 	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			return nil, validationError("name is required")
+		}
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
-		args = append(args, *req.Name)
+		args = append(args, name)
 		argIdx++
 	}
 	if req.Description != nil {
@@ -223,12 +248,24 @@ func (s *OAuthService) UpdateApplication(id, ownerID string, req *UpdateAppReque
 		argIdx++
 	}
 	if req.RedirectURIs != nil {
-		urisJSON, _ := json.Marshal(*req.RedirectURIs)
+		redirectURIs, err := normalizeRedirectURIs(*req.RedirectURIs)
+		if err != nil {
+			return nil, err
+		}
+		urisJSON, _ := json.Marshal(redirectURIs)
 		setClauses = append(setClauses, fmt.Sprintf("redirect_uris = $%d", argIdx))
 		args = append(args, string(urisJSON))
 		argIdx++
 	}
 	if req.AllowedScopes != nil {
+		if len(*req.AllowedScopes) == 0 {
+			return nil, validationError("at least one scope is required")
+		}
+		for _, scope := range *req.AllowedScopes {
+			if !isValidScope(scope) {
+				return nil, validationError("invalid scope: %s", scope)
+			}
+		}
 		scopesArray := fmt.Sprintf("{%s}", strings.Join(*req.AllowedScopes, ","))
 		setClauses = append(setClauses, fmt.Sprintf("allowed_scopes = $%d", argIdx))
 		args = append(args, scopesArray)
@@ -247,6 +284,11 @@ func (s *OAuthService) UpdateApplication(id, ownerID string, req *UpdateAppReque
 	if req.IsActive != nil {
 		setClauses = append(setClauses, fmt.Sprintf("is_active = $%d", argIdx))
 		args = append(args, *req.IsActive)
+		argIdx++
+	}
+	if req.IsConfidential != nil {
+		setClauses = append(setClauses, fmt.Sprintf("is_confidential = $%d", argIdx))
+		args = append(args, *req.IsConfidential)
 		argIdx++
 	}
 
@@ -285,6 +327,31 @@ func (s *OAuthService) UpdateApplication(id, ownerID string, req *UpdateAppReque
 	}
 
 	return &app, nil
+}
+
+func normalizeRedirectURIs(redirectURIs []string) ([]string, error) {
+	if len(redirectURIs) == 0 {
+		return nil, validationError("at least one redirect URI is required")
+	}
+
+	result := make([]string, 0, len(redirectURIs))
+	seen := make(map[string]struct{}, len(redirectURIs))
+	for _, rawURI := range redirectURIs {
+		uri := strings.TrimSpace(rawURI)
+		parsed, err := url.Parse(uri)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Fragment != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return nil, validationError("invalid redirect URI: %q", rawURI)
+		}
+		if _, exists := seen[uri]; exists {
+			continue
+		}
+		seen[uri] = struct{}{}
+		result = append(result, uri)
+	}
+	if len(result) == 0 {
+		return nil, validationError("at least one redirect URI is required")
+	}
+	return result, nil
 }
 
 // RegenerateClientSecret generates a new client secret for an app

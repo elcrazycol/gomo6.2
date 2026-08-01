@@ -63,8 +63,13 @@ export const api = {
 
     const response = await fetch(url, { ...options, headers });
 
-    // If 401, try refreshing token once
-    if (response.status === 401 && token) {
+    // Never replay non-idempotent requests automatically: a stale-token retry
+    // could submit a create/update request twice if the first response is lost.
+    const method = (options.method || "GET").toUpperCase();
+    const canRetry = method === "GET" || method === "HEAD" || method === "OPTIONS";
+
+    // If 401, try refreshing safe requests once
+    if (response.status === 401 && token && canRetry) {
       const newToken = await refreshAccessToken();
       if (newToken) {
         headers["Authorization"] = `Bearer ${newToken}`;
