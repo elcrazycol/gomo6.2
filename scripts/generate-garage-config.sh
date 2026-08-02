@@ -44,8 +44,8 @@ tmp_file="$(mktemp "$output_dir/.garage.toml.tmp.XXXXXX")"
 trap 'rm -f "$tmp_file"' EXIT
 umask 077
 sed \
-    -e "s/__REMOVED_GARAGE_SECRET__/$GARAGE_RPC_SECRET/g" \
-    -e "s/__REMOVED_GARAGE_SECRET__/$GARAGE_ADMIN_TOKEN/g" \
+    -e "s/__GARAGE_RPC_SECRET__/$GARAGE_RPC_SECRET/g" \
+    -e "s/__GARAGE_ADMIN_TOKEN__/$GARAGE_ADMIN_TOKEN/g" \
     "$TEMPLATE_FILE" > "$tmp_file"
 chmod 600 "$tmp_file"
 # Write through cat (not mv) so the destination inode is preserved. The

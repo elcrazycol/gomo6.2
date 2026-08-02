@@ -6,7 +6,7 @@ compression_level = 1
 
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "127.0.0.1:3901"
-rpc_secret = "__REMOVED_GARAGE_SECRET__"
+rpc_secret = "__GARAGE_RPC_SECRET__"
 
 [s3_api]
 s3_region = "garage"
@@ -15,7 +15,7 @@ root_domain = ".s3.garage.localhost"
 
 [admin]
 api_bind_addr = "[::]:3903"
-admin_token = "__REMOVED_GARAGE_SECRET__"
+admin_token = "__GARAGE_ADMIN_TOKEN__"
 
 [s3_web]
 bind_addr = "0.0.0.0:3902"
