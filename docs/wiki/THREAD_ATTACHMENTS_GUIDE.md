@@ -6,22 +6,23 @@ This document describes how attachments (images, audio, video, files) work in th
 ## Architecture
 
 ### Data Flow
-1. **Frontend Upload**: Files are uploaded directly to Garage S3 via presigned URLs
+1. **Frontend Upload**: Browser sends the file to the backend (`POST /storage/v1/upload`), backend uploads to Garage S3 server-side (no browser-facing presigned URLs / CORS)
 2. **Backend API**: Post creation goes through Go backend (`POST /rest/v1/posts`)
 3. **Database**: Attachments stored as JSONB in `posts.attachments` column
-4. **Display**: Frontend renders attachments from post data
+4. **Display**: Frontend renders attachments via the Go proxy `/storage/v1/object/<bucket>/<key>` (bucket `uploads` requires auth)
 
 ### Key Components
 
 #### Frontend (`apps/web/src/`)
 - `pages/Thread.tsx` - Main thread page, handles post creation
-- `utils/mediaUpload.ts` - File upload logic with presigned URLs
+- `utils/mediaUpload.ts` - File upload logic (server-side upload)
+- `utils/storage.ts` - URL helpers for `/storage/v1/object/...`
 - `components/ThreadAttachmentUpload.tsx` - Attachment UI component
 
 #### Backend (`apps/backend-go/`)
 - `internal/api/handlers/posts.go` - Post CRUD handlers
 - `internal/models/models.go` - Post and AttachmentMeta structs
-- `internal/storage/handlers/upload.go` - Presigned URL generation
+- `internal/storage/handlers/upload.go` - Server-side upload to Garage (`UploadFileWithKey`); old `presign-upload` replaced by this flow
 
 #### Database
 - `posts` table with `attachments JSONB` column
@@ -74,11 +75,12 @@ This document describes how attachments (images, audio, video, files) work in th
 
 1. User selects file in `ThreadAttachmentUpload.tsx`
 2. `mediaUpload.ts` calls `uploadAttachments()`:
-   - Gets presigned URL from backend: `POST /storage/v1/presign-upload`
-   - Uploads file directly to Garage S3 via PUT request
-   - Returns attachment metadata with S3 key
+   - `POST /storage/v1/upload` (multipart, with `Authorization` header) — backend streams the file to Garage S3 (`UploadFileWithKey`)
+   - Backend returns attachment metadata with the S3 key (`/storage/v1/object/<bucket>/<key>`)
 3. Attachment metadata stored in component state
 4. On post submit, attachments included in POST body
+
+> The previous flow (`POST /storage/v1/presign-upload` + direct browser PUT to Garage) was **removed**: browser-facing presigned URLs leaked the S3 endpoint and required CORS. All files now go through the authenticated Go proxy.
 
 ### 3. Database Schema
 
@@ -240,9 +242,10 @@ const postData = data.data || data;
 - `/apps/web/src/utils/mediaUpload.ts` (uploadAttachments)
 
 ### Configuration
-- `/apps/backend-go/garage.toml` - S3 binding configuration
-- `/apps/backend-go/garage-nginx-proxy.conf` - Proxy settings
-- `/apps/backend-go/docker-compose.yml` - Service orchestration
+- `/apps/backend-go/garage.toml` - **шаблон** S3-конфига (плейсхолдеры `__GARAGE_RPC_SECRET__` / `__GARAGE_ADMIN_TOKEN__`, секретов в Git нет)
+- `scripts/generate-garage-config.sh` - рендер runtime `.garage.toml` из `.env` (mode 600)
+- `apps/backend-go/garage-nginx-proxy.conf` - Proxy settings
+- `docker-compose.yml` - Service orchestration (порты Garage/DB/Redis наружу не публикуются)
 
 ## Debugging Commands
 
@@ -256,14 +259,14 @@ docker exec backend-go-postgres-1 psql -U gomo6 -d gomo6 -c "SELECT id, attachme
 # Check backend logs for attachment processing
 docker logs backend-go-backend-1 --tail 50 | grep -i "attachments\|createpost"
 
-# Verify S3/Garage is accessible
-curl http://localhost:3900/content
+# Verify S3/Garage is accessible (from inside the docker network)
+docker compose exec garage curl -s http://localhost:3900/health || true
 
-# Test presign endpoint
-curl -X POST http://localhost:8080/storage/v1/presign-upload \
-  -H "Content-Type: application/json" \
+# Test server-side upload endpoint
+curl -X POST http://localhost:8080/storage/v1/upload \
   -H "Authorization: Bearer <token>" \
-  -d '{"bucket":"content","key":"test.jpg","content_type":"image/jpeg"}'
+  -F "file=@test.jpg" \
+  -F "bucket=uploads"
 ```
 
 ## Migration from Direct Supabase to Backend API

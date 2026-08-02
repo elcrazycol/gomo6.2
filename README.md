@@ -135,6 +135,12 @@ FEDERATION_KEY=<generate: openssl rand -hex 16>
 ENVIRONMENT=production
 ALLOWED_ORIGINS=https://your-domain.com,http://your-domain.com
 EOF
+
+# Fill remaining required secrets (JWT/FEDERATION are kept, others are generated)
+bash scripts/generate-keys.sh --quiet .env
+# Render the Garage runtime config from .env (required by docker-compose)
+bash scripts/generate-garage-config.sh .env
+
 docker compose up -d
 ```
 
@@ -166,10 +172,14 @@ docker compose up -d
 | `MESSENGER_ENCRYPTION_KEY` | yes | AES-256 key for server-side message encryption |
 | `REDIS_PASSWORD` | yes | Redis authentication password |
 | `POSTGRES_PASSWORD` | yes | PostgreSQL authentication password |
+| `GARAGE_RPC_SECRET` | yes (compose) | Internal Garage RPC secret (rotated via `generate-keys.sh --rotate-garage`) |
+| `GARAGE_ADMIN_TOKEN` | yes (compose) | Garage admin API token |
 | `ENVIRONMENT` | no | `production` or `development` |
 | `ALLOWED_ORIGINS` | no | CORS allowed origins (comma-separated) |
 
 > All other variables (`DATABASE_URL`, `REDIS_URL`, `GARAGE_S3_*`, `WEBAUTHN_*`, etc.) are configured in `docker-compose.yml` and do not require manual setup.
+>
+> Garage secrets (`GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`) are **never committed**. `scripts/generate-keys.sh` adds them to `.env` (mode 600), and `scripts/generate-garage-config.sh` renders the runtime `.garage.toml` from them before `docker compose up`.
 >
 > Never commit `.env` to version control.
 
@@ -177,15 +187,17 @@ docker compose up -d
 
 ## Documentation
 
+All guides live in [docs/wiki/](docs/wiki/):
+
 - [CHANGELOG.md](CHANGELOG.md) — release history
-- [DEPLOYMENT.md](DEPLOYMENT.md) — VPS deployment guide
-- [DOCKER_SETUP.md](DOCKER_SETUP.md) — Docker deployment with Caddy
-- [OAUTH_API.md](OAUTH_API.md) — OAuth 2.0 API reference
-- [BOT_SYSTEM_ARCHITECTURE.md](BOT_SYSTEM_ARCHITECTURE.md) — bot system architecture
-- [BOT_EXAMPLES.md](BOT_EXAMPLES.md) — Lua bot examples
-- [MESSENGER_SECURITY.md](MESSENGER_SECURITY.md) — messenger security
-- [docs/REALTIME_WEBSOCKET_PATTERN.md](docs/REALTIME_WEBSOCKET_PATTERN.md) — WebSocket patterns
-- [docs/THREAD_ATTACHMENTS_GUIDE.md](docs/THREAD_ATTACHMENTS_GUIDE.md) — attachments guide
+- [DEPLOYMENT.md](docs/wiki/DEPLOYMENT.md) — VPS deployment guide
+- [DOCKER_SETUP.md](docs/wiki/DOCKER_SETUP.md) — Docker deployment with Caddy
+- [OAUTH_API.md](docs/wiki/OAUTH_API.md) — OAuth 2.0 API reference
+- [BOT_SYSTEM_ARCHITECTURE.md](docs/wiki/BOT_SYSTEM_ARCHITECTURE.md) — bot system architecture
+- [BOT_EXAMPLES.md](docs/wiki/BOT_EXAMPLES.md) — Lua bot examples
+- [MESSENGER_SECURITY.md](docs/wiki/MESSENGER_SECURITY.md) — messenger security
+- [REALTIME_WEBSOCKET_PATTERN.md](docs/wiki/REALTIME_WEBSOCKET_PATTERN.md) — WebSocket patterns
+- [THREAD_ATTACHMENTS_GUIDE.md](docs/wiki/THREAD_ATTACHMENTS_GUIDE.md) — attachments guide
 
 ---
 

@@ -13,7 +13,7 @@
                        ┌──────────────────────────────┐
                        │     Caddy (:80 / :443)        │
                        │   Auto HTTPS (Let's Encrypt)  │
-                       │   + S3 CORS proxy (/s3/*)    │
+                       │   + HSTS / CSP headers        │
                        └──────┬───────┬───────┬────────┘
                               │       │       │
               ┌───────────────┘       │       └───────────────┐
@@ -36,7 +36,8 @@
                    │
                    ▼
     ┌─────────────────────────────────────────────────────────────────┐
-    │  Garage S3 (:3900)  ←  Caddy /s3/*  (CORS, prefix stripped)    │
+    │  Garage S3 (:3900)  ←  backend proxy /storage/v1/object/*  │
+    │      (внутренняя сеть Docker, порты наружу не публикуются)   │
     └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -101,7 +102,9 @@ docker compose up -d
 | `/ws/*`             | WebSocket (авто-upgrade)                  |
 | `/.well-known/*`    | Federation / ActivityPub                  |
 | `/storage/*`        | Хранилище (внутренний API)                |
-| `/s3/*`             | S3 presigned URLs (CORS proxy к Garage)    |
+| `/storage/v1/object/*` | Файлы через Go-прокси: бакет `uploads` требует аутентификацию (приватный), остальные — публичные |
+
+> Прежний прямой Caddy-прокси `/s3/*` и presigned URLs **удалены**: все файлы отдаются через Go-прокси `/storage/v1/object/:bucket/:key` с проверкой прав доступа. Публикация портов Garage (`3900`, `3902`, `3903`), PostgreSQL (`5432`) и Redis (`6379`) наружу закрыта — они доступны только во внутренней сети Docker.
 
 ## 🛠️ Полезные команды
 
@@ -113,8 +116,8 @@ docker compose ps
 
 # Health checks
 curl http://localhost:8080/health          # бекенд
-curl http://localhost/s3/                   # Garage S3 через Caddy
 curl http://localhost/docs/                # документация
+# Файлы: curl http://localhost/storage/v1/object/uploads/... (с токеном)
 ```
 
 ### Логи
@@ -156,9 +159,13 @@ docker compose down -v
 ```
 gomo6/
 ├── docker-compose.yml          # Основной compose-файл
-├── Caddyfile                   # Конфиг Caddy reverse proxy
+├── Caddyfile                   # Конфиг Caddy reverse proxy (CSP/HSTS в @production)
 ├── .env                        # Переменные окружения (создать из .env.docker)
 ├── .env.docker                 # Пример .env
+├── .garage.toml                # Рендерится из .env скриптом generate-garage-config.sh (НЕ в git)
+├── scripts/
+│   ├── generate-garage-config.sh   # Генерирует .garage.toml из GARAGE_RPC_SECRET/GARAGE_ADMIN_TOKEN
+│   └── generate-keys.sh            # Генерация секретов, флаг --rotate-garage для ротации Garage
 ├── .dockerignore               # Исключения из Docker контекста
 ├── apps/
 │   ├── web/
@@ -180,8 +187,10 @@ gomo6/
 - [ ] Сгенерировать `JWT_SECRET`: `openssl rand -hex 32`
 - [ ] Указать `DOMAIN=example.com` в `.env`
 - [ ] Указать `FEDERATION_KEY` (уникальный ключ для ActivityPub)
+- [ ] Заполнить остальные секреты: `bash scripts/generate-keys.sh --quiet .env`
+- [ ] Отрендерить конфиг Garage: `bash scripts/generate-garage-config.sh .env` (создаст `.garage.toml`, mode 600)
 - [ ] Проверить, что DNS A-запись указывает на сервер
-- [ ] Открыть порты 80 и 443 в файрволе
+- [ ] Открыть только порты 22, 80 и 443 в файрволе (все внутренние порты закрыты)
 - [ ] Настроить бэкапы PostgreSQL: `docker compose exec postgres pg_dump -U gomo6 gomo6 > backup.sql`
 
 ## 🐛 Troubleshooting

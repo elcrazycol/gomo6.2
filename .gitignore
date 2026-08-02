@@ -35,6 +35,9 @@ dist-ssr
 .garage.toml
 .garage.toml.tmp.*
 
+# Local IDE/extension workspace state
+.mimocode/
+
 # Test coverage
 *.out
 coverage/

@@ -67,9 +67,10 @@
 
 **Аутентификация:**
 - WebSocket соединения требуют JWT токен
-- Токен передаётся через query параметр `?token=...`
-- ⚠️ Токен в URL может попасть в access-логи reverse proxy
+- Токен передаётся через заголовок `Authorization: Bearer <token>` (или Secure Cookie) — **не** через query string
+- `RejectQueryTokenMiddleware` глобально возвращает `400` на любой `?token=...`, чтобы токены никогда не попадали в URL и access-логи reverse proxy
 - Проверка токена через `AuthMiddleware` до вызова `HandleWebSocket`
+- **Pre-auth лимит:** до аутентификации действует лимит 20 попыток upgrade на IP в минуту (`PreAuthLimiter`), после исчерпания — соединение отклоняется (fails closed)
 
 **CORS защита:**
 - `CheckOrigin` проверяет источник WebSocket соединения
@@ -231,10 +232,12 @@ JWT_SECRET=$(openssl rand -base64 32)
 ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
-5. **Настройте CSP заголовки:**
-```nginx
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://yourdomain.com;";
+5. **CSP и HSTS заголовки** — конфигурация отслеживается в `Caddyfile` (matcher `@production`):
 ```
+header @production Strict-Transport-Security "max-age=31536000; includeSubDomains"
+header @production Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://mcaptcha.{$DOMAIN}; script-src 'self' blob: https://mcaptcha.{$DOMAIN}; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' wss:; font-src 'self'; media-src 'self' blob:;"
+```
+CSP задаётся **без** `unsafe-eval`; `connect-src` ограничен собственным доменом и `wss:`; `frame-src` разрешает только self + mcaptcha (капча).
 
 6. **Включите rate limiting на уровне reverse proxy:**
 ```nginx

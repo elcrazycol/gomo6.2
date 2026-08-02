@@ -347,6 +347,8 @@ docker compose up -d --build
 | `MESSENGER_ENCRYPTION_KEY` | — | AES-256 ключ серверного шифрования сообщений |
 | `REDIS_PASSWORD` | — | Пароль Redis |
 | `POSTGRES_PASSWORD` | — | Пароль PostgreSQL |
+| `GARAGE_RPC_SECRET` | — | Внутренний RPC-секрет Garage (генерируется, ротация `--rotate-garage`) |
+| `GARAGE_ADMIN_TOKEN` | — | Токен admin API Garage (генерируется) |
 | `ENVIRONMENT` | `production` | Окружение (`production` / `development`) |
 | `ALLOWED_ORIGINS` | auto | CORS origins (через запятую) |
 | `WEBAUTHN_RP_ID` | `$DOMAIN` | WebAuthn Relying Party ID (домен без схемы/порта) |
@@ -355,7 +357,13 @@ docker compose up -d --build
 | `DATABASE_URL` | auto | Строка подключения к PostgreSQL |
 | `REDIS_URL` | auto | Строка подключения к Redis |
 
-Обязательные production-секреты (`JWT_SECRET`, `FEDERATION_KEY`, `MESSENGER_ENCRYPTION_KEY`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`) можно безопасно заполнить командой `./scripts/generate-keys.sh --quiet .env`. Непустые значения сохраняются; не используйте `--force` без осознанной ротации ключей.
+Обязательные production-секреты (`JWT_SECRET`, `FEDERATION_KEY`, `MESSENGER_ENCRYPTION_KEY`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`, `GARAGE_RPC_SECRET`, `GARAGE_ADMIN_TOKEN`) можно безопасно заполнить командой `./scripts/generate-keys.sh --quiet .env`. Непустые значения сохраняются; не используйте `--force` без осознанной ротации ключей.
+
+> ⚠️ **Garage-секреты никогда не коммитьте.** `apps/backend-go/garage.toml` в Git — это шаблон с плейсхолдерами. Перед каждым `docker compose up` обязателен рендер runtime-конфига:
+> ```bash
+> bash scripts/generate-garage-config.sh .env   # создаёт .garage.toml (mode 600)
+> ```
+> Этот шаг выполняется автоматически в `deploy.yml`, `deploy.sh` и `scripts/deploy-vps.sh`. Ротация только Garage-ключей: `bash scripts/generate-keys.sh --rotate-garage --quiet .env` (не трогает JWT/сессии пользователей).
 
 ---
 
@@ -589,7 +597,8 @@ gomo6.2/
 ├── docker-compose.yml          # Основной compose-файл (все сервисы)
 ├── Caddyfile                   # Конфигурация Caddy reverse proxy (subdomain routing)
 ├── .env                        # Переменные окружения (создаётся вручную)
-├── DEPLOYMENT.md               # Этот файл
+├── .garage.toml                # Рендер Garage-конфига (генерируется, в Git не хранится)
+├── docs/wiki/                  # Документация (этот файл и остальные гайды)
 ├── apps/
 │   ├── web/                    # Основной сайт (DOMAIN)
 │   │   ├── Dockerfile          # Vite → nginx
@@ -603,7 +612,7 @@ gomo6.2/
 │   └── backend-go/             # Go API сервер
 │       ├── Dockerfile
 │       ├── migrations/         # SQL-миграции
-│       └── garage.toml         # Конфиг Garage S3
+│       └── garage.toml         # Шаблон Garage S3 (плейсхолдеры, без секретов)
 ```
 
 ---
