@@ -108,6 +108,7 @@ class MessengerWebSocket {
 
     const message = {
       id: data.id as string,
+      event_id: typeof data.event_id === "string" ? data.event_id : typeof data.event_id === "number" ? String(data.event_id) : undefined,
       conversation_id: data.conversation_id as string,
       sender_user_id: data.sender_user_id as string,
       sender_username: (data.sender_username as string) ?? "",

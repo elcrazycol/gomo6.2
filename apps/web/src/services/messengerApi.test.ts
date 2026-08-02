@@ -83,6 +83,15 @@ describe("messengerApi", () => {
         expect.any(Object),
       );
     });
+
+    it("passes since_event_id query param", async () => {
+      mockFetch([]);
+      await messengerApi.getMessages("conv-1", undefined, "42");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/v1/messenger/conversations/conv-1/messages?since_event_id=42",
+        expect.any(Object),
+      );
+    });
   });
 
   describe("sendMessage", () => {

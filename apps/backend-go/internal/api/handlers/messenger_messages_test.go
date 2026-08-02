@@ -25,14 +25,14 @@ func TestGetMessages_Success(t *testing.T) {
 
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
-		"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
+		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
 		"content", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
 	}).
-		AddRow(testMsg2, testConv1, testUser2, "bob", nil, "Hi!", false, false, nil, now.Add(time.Minute), "c2").
-		AddRow(testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", false, false, nil, now, "c1")
+		AddRow(int64(2), testMsg2, testConv1, testUser2, "bob", nil, "Hi!", false, false, nil, now.Add(time.Minute), "c2").
+		AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "Hello!", false, false, nil, now, "c1")
 
-	mock.ExpectQuery(`SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
+	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
 		WithArgs(testConv1, 50).
 		WillReturnRows(msgRows)
 
@@ -73,12 +73,12 @@ func TestGetMessages_WithBefore(t *testing.T) {
 
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
-		"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
+		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
 		"content", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow(testMsg3, testConv1, testUser1, "testuser", nil, "Third", false, false, nil, now, "c3")
+	}).AddRow(int64(3), testMsg3, testConv1, testUser1, "testuser", nil, "Third", false, false, nil, now, "c3")
 
-	mock.ExpectQuery(`SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
+	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1 AND m.sent_at < \(.*SELECT sent_at FROM chat_messages WHERE id = \$2.*ORDER BY m.sent_at DESC.*LIMIT \$3`).
 		WithArgs(testConv1, testMsg5, 10).
 		WillReturnRows(msgRows)
 
@@ -123,9 +123,9 @@ func TestGetMessages_Empty(t *testing.T) {
 		WithArgs(testConv1, testUser1).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	mock.ExpectQuery(`SELECT m.id, m.conversation_id.*FROM chat_messages m.*`).
+	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id.*FROM chat_messages m.*`).
 		WithArgs(testConv1, 50).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id", "content", "is_edited", "is_deleted", "edited_at", "sent_at", "client_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id", "content", "is_edited", "is_deleted", "edited_at", "sent_at", "client_id"}))
 
 	handler.GetMessages(c)
 
@@ -172,10 +172,10 @@ func TestSendMessage_Success(t *testing.T) {
 
 	now := time.Now()
 	msgRows := sqlmock.NewRows([]string{
-		"id", "conversation_id", "sender_user_id", "parent_message_id",
+		"event_id", "id", "conversation_id", "sender_user_id", "parent_message_id",
 		"content", "is_edited", "is_deleted",
 		"edited_at", "sent_at", "client_id",
-	}).AddRow("20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, "Hello, world!", false, false, nil, now, testClientID1)
+	}).AddRow(int64(10), "20000000-0000-0000-0000-000000000010", testConv1, testUser1, nil, "Hello, world!", false, false, nil, now, testClientID1)
 
 	mock.ExpectQuery(`INSERT INTO chat_messages \(conversation_id, sender_user_id, content, client_id, parent_message_id\).*ON CONFLICT \(conversation_id, client_id\) DO NOTHING.*RETURNING`).
 		WithArgs(testConv1, testUser1, sqlmock.AnyArg(), testClientID1, nil).

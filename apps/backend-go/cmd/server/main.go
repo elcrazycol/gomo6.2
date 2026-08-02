@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"sync/atomic"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/gomo6/backend/internal/config"
 	"github.com/gomo6/backend/internal/database"
 	"github.com/gomo6/backend/internal/integrations"
+	"github.com/gomo6/backend/internal/metrics"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/joho/godotenv"
@@ -135,8 +135,10 @@ func main() {
 
 	routes.SetupRoutes(router, db, redisClient, wsHub)
 
-	// pprof for memory profiling
-	router.GET("/debug/pprof/*pprof", gin.WrapH(http.DefaultServeMux))
+	// Metrics are disabled unless METRICS_TOKEN is configured. pprof is not
+	// mounted on the public API; use an explicitly isolated admin process when
+	// profiling is required.
+	router.GET("/metrics", gin.WrapH(metrics.Handler(metrics.Messenger)))
 
 	// Atomically swap in Gin — all non-/health requests now go to Gin
 	primaryHandler.Store(router)

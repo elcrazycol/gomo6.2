@@ -57,7 +57,9 @@ type ConversationResponse struct {
 
 // MessageResponse is returned to the client
 type MessageResponse struct {
-	ID               string       `json:"id"`
+	ID string `json:"id"`
+	// EventID is serialized as a decimal string so JavaScript clients never lose precision on BIGINT cursors.
+	EventID          string       `json:"event_id"`
 	ConversationID   string       `json:"conversation_id"`
 	SenderUserID     string       `json:"sender_user_id"`
 	SenderUsername   string       `json:"sender_username,omitempty"`

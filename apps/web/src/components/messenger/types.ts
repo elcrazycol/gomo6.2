@@ -35,6 +35,8 @@ export type ConversationView = {
 
 export type MessageView = {
   id: string;
+  /** Monotonic PostgreSQL BIGINT cursor serialized as a decimal string. */
+  event_id?: string;
   conversation_id: string;
   sender_user_id: string;
   sender_username?: string;

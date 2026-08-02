@@ -27,6 +27,7 @@ import (
 // @Param        id path string true "Conversation ID"
 // @Param        limit  query int    false "Max results (1-100)" default(50)
 // @Param        before query string false "Cursor: get messages before this message ID"
+// @Param        since_event_id query string false "Decimal BIGINT cursor; return messages after this monotonic event cursor"
 // @Success      200 {object} models.APIResponse
 // @Failure      403 {object} models.APIResponse
 // @Router       /messenger/conversations/{id}/messages [get]
@@ -54,9 +55,25 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
-	// Pagination
+	// Pagination and reconnect delta cursor. The two cursor modes are
+	// deliberately mutually exclusive so a reconnect cannot silently turn into
+	// an unrelated backwards page.
 	limit := 50
 	before := c.Query("before")
+	sinceEventRaw := c.Query("since_event_id")
+	if before != "" && sinceEventRaw != "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("before and since_event_id cannot be combined"))
+		return
+	}
+	var sinceEventID int64
+	if sinceEventRaw != "" {
+		var parseErr error
+		sinceEventID, parseErr = strconv.ParseInt(sinceEventRaw, 10, 64)
+		if parseErr != nil || sinceEventID < 0 {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid since_event_id"))
+			return
+		}
+	}
 
 	if l := c.Query("limit"); l != "" {
 		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
@@ -65,9 +82,20 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 	}
 
 	var rows *sql.Rows
-	if before != "" {
+	if sinceEventRaw != "" {
 		rows, err = h.dbFor(c).Query(`
-			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
+			SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
+				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
+				m.edited_at, m.sent_at, m.client_id
+			FROM chat_messages m
+			LEFT JOIN users u ON u.id = m.sender_user_id
+			WHERE m.conversation_id = $1 AND m.event_id > $2
+			ORDER BY m.event_id ASC
+			LIMIT $3
+		`, conversationID, sinceEventID, limit)
+	} else if before != "" {
+		rows, err = h.dbFor(c).Query(`
+			SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
 				m.edited_at, m.sent_at, m.client_id
 			FROM chat_messages m
@@ -80,7 +108,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		`, conversationID, before, limit)
 	} else {
 		rows, err = h.dbFor(c).Query(`
-			SELECT m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
+			SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
 				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
 				m.edited_at, m.sent_at, m.client_id
 			FROM chat_messages m
@@ -105,7 +133,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		var isDeleted bool
 
 		if err := rows.Scan(
-			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
+			&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
 			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
 		); err != nil {
@@ -162,9 +190,12 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		}
 	}
 
-	// Reverse to oldest-first order
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
+	// Backward pages are returned by sent_at DESC and must be reversed. Delta
+	// pages are already event_id ASC so they can be appended directly.
+	if sinceEventRaw == "" {
+		for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+			messages[i], messages[j] = messages[j], messages[i]
+		}
 	}
 
 	if messages == nil {
@@ -273,22 +304,22 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		INSERT INTO chat_messages (conversation_id, sender_user_id, content, client_id, parent_message_id)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (conversation_id, client_id) DO NOTHING
-		RETURNING id, conversation_id, sender_user_id, parent_message_id,
+		RETURNING event_id, id, conversation_id, sender_user_id, parent_message_id,
 			content, is_edited, is_deleted, edited_at, sent_at, client_id
 	`, conversationID, claims.UserID, encryptedContent, req.ClientID, req.ParentMessageID).Scan(
-		&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
+		&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 		&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 		&editedAt, &msg.SentAt, &msg.ClientID,
 	)
 	if err == sql.ErrNoRows {
 		// Idempotent retry: read the already-persisted message in the same tx.
 		err = tx.QueryRow(`
-			SELECT id, conversation_id, sender_user_id, parent_message_id,
+			SELECT event_id, id, conversation_id, sender_user_id, parent_message_id,
 				content, is_edited, is_deleted, edited_at, sent_at, client_id
 			FROM chat_messages
 			WHERE conversation_id = $1 AND client_id = $2
 		`, conversationID, req.ClientID).Scan(
-			&msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
+			&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &parentID,
 			&msg.Content, &msg.IsEdited, &msg.IsDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
 		)
@@ -392,6 +423,7 @@ func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageRespons
 	// Broadcast encrypted content, not decrypted — Redis sees ciphertext only
 	payload := gin.H{
 		"id":                msg.ID,
+		"event_id":          msg.EventID,
 		"conversation_id":   msg.ConversationID,
 		"sender_user_id":    msg.SenderUserID,
 		"parent_message_id": msg.ParentMessageID,

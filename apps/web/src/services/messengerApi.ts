@@ -77,9 +77,12 @@ export const messengerApi = {
   },
 
   // ── Messages ──────────────────────────────────────────────────────────
-  async getMessages(conversationId: string, before?: string): Promise<MessageView[]> {
-    const params = before ? `?before=${before}` : "";
-    return req<MessageView[]>(`/conversations/${conversationId}/messages${params}`);
+  async getMessages(conversationId: string, before?: string, sinceEventId?: string): Promise<MessageView[]> {
+    const params = new URLSearchParams();
+    if (before) params.set("before", before);
+    if (sinceEventId !== undefined) params.set("since_event_id", String(sinceEventId));
+    const query = params.toString();
+    return req<MessageView[]>(`/conversations/${conversationId}/messages${query ? `?${query}` : ""}`);
   },
 
   async sendMessage(

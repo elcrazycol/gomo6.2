@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/metrics"
 )
 
 const (
@@ -147,6 +148,7 @@ func MessengerTransactionMiddleware(db *sql.DB) gin.HandlerFunc {
 
 		tx, err := db.BeginTx(c.Request.Context(), nil)
 		if err != nil {
+			metrics.Messenger.RecordDBTxError()
 			log.Printf("[RLS] begin messenger transaction failed for %s: %v", claims.UserID, err)
 			c.AbortWithStatusJSON(500, gin.H{"error": "Internal server error"})
 			return
@@ -156,6 +158,7 @@ func MessengerTransactionMiddleware(db *sql.DB) gin.HandlerFunc {
 		if _, err := tx.ExecContext(c.Request.Context(),
 			"SELECT set_config('app.current_user_id', $1, true)", claims.UserID,
 		); err != nil {
+			metrics.Messenger.RecordDBTxError()
 			log.Printf("[RLS] set_config failed for %s: %v", claims.UserID, err)
 			c.AbortWithStatusJSON(500, gin.H{"error": "Internal server error"})
 			return
@@ -180,6 +183,7 @@ func MessengerTransactionMiddleware(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		if err := tx.Commit(); err != nil {
+			metrics.Messenger.RecordDBTxError()
 			discardMessengerAfterCommit(c)
 			log.Printf("[RLS] commit messenger transaction failed for %s: %v", claims.UserID, err)
 			writeMessengerCommitError(originalWriter)

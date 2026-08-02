@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/crypto"
+	"github.com/gomo6/backend/internal/metrics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -134,6 +135,7 @@ func (h *Hub) Run() {
 				continue
 			}
 			h.clients[client] = true
+			metrics.Messenger.WSConnected()
 			// Only track in presence if already authenticated (post-auth message)
 			if client.UserID != "" {
 				h.presence[client.UserID] = client
@@ -160,6 +162,7 @@ func (h *Hub) Run() {
 			}
 
 		case message := <-h.broadcast:
+			broadcastStarted := time.Now()
 			// This is a write path: use Lock, never mutate clients while holding
 			// RLock. trySend/closeSend serialize channel access with disconnects.
 			h.mu.Lock()
@@ -174,6 +177,7 @@ func (h *Hub) Run() {
 				h.removeClientLocked(client)
 			}
 			h.mu.Unlock()
+			metrics.Messenger.RecordBroadcast(time.Since(broadcastStarted))
 
 		case <-h.ctx.Done():
 			h.mu.Lock()
@@ -193,6 +197,7 @@ func (h *Hub) removeClientLocked(client *Client) bool {
 		return false
 	}
 	delete(h.clients, client)
+	metrics.Messenger.WSDisconnected()
 	if current, ok := h.presence[client.UserID]; ok && current == client {
 		delete(h.presence, client.UserID)
 	}
@@ -512,6 +517,8 @@ func (h *Hub) UnsubscribeFromRoom(client *Client, room string) {
 
 // BroadcastToRoom sends a message to all clients in a specific room
 func (h *Hub) BroadcastToRoom(room string, message []byte) {
+	started := time.Now()
+	defer func() { metrics.Messenger.RecordBroadcast(time.Since(started)) }()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
