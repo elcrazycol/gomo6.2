@@ -1,0 +1,68 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# trivy.yml — Trivy (Aqua Security, open source) + авто-создание Issues
+#
+# Что делает:
+#   • Сканирует весь репозиторий: зависимости (go.mod / go.sum / package-lock),
+#     секреты и мисконфиги (в т.ч. Dockerfile, docker-compose).
+#   • Результаты — в Security → Code scanning (SARIF).
+#   • На каждую уязвимость CRITICAL/HIGH создаётся Issue (метка security/trivy),
+#     исправленные закрываются автоматически.
+#
+# Цена: 100% бесплатно (open source); расходует только минуты GitHub Actions.
+#
+# Триггеры: push в main · еженедельно (пн 03:00 UTC) · вручную.
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Trivy → Issues
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: write          # кэш БД уязвимостей Trivy
+  contents: read
+  security-events: write  # загрузка SARIF в Security → Code scanning
+  issues: write           # создание / закрытие Issues
+
+jobs:
+  scan:
+    name: Trivy (fs scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig  # уязвимости + секреты + мисконфиги
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true             # без патча → не шумим (можно убрать)
+          limit-severities-for-sarif: true # чтобы severity-фильтр действовал в SARIF
+          format: sarif
+          output: trivy-results.sarif
+          skip-dirs: apps/backend-go/vendor # зависимости и так в go.mod/go.sum
+          timeout: 10m
+          hide-progress: true
+
+      # Issues создаём ДО загрузки SARIF: на приватных репозиториях без
+      # Advanced Security загрузка в Security tab падает, но Issues должны жить.
+      - name: Уязвимости → Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/sarif-to-issues.sh trivy-results.sarif security/trivy Trivy
+
+      - name: Upload SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        continue-on-error: true   # не критично — Issues уже созданы выше
+        with:
+          sarif_file: trivy-results.sarif

@@ -1,0 +1,111 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# codeql-issues.yml — CodeQL (семантический анализ кода) + авто-создание Issues
+#
+# Что делает:
+#   • Ищет уязвимости в собственном коде: SQL-инъекции, XSS, утечки секретов,
+#     небезопасный код и т.д. (набор запросов security-and-quality).
+#   • Результаты попадают в Security → Code scanning.
+#   • На каждую находку автоматически создаётся Issue (метка security/codeql),
+#     а когда уязвимость исправлена — Issue закрывается сам.
+#
+# Цена: бесплатно для публичных репозиториев; для приватных требуется
+# GitHub Advanced Security.
+#
+# Триггеры: push в main · PR · еженедельно (пн 03:00 UTC) · вручную.
+# Issues создаются только вне PR (push / schedule / manual), чтобы не спамить.
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: CodeQL → Issues
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: write          # кэш CodeQL + upload/download артефактов
+  contents: read
+  security-events: write  # загрузка SARIF в Security → Code scanning
+  issues: write           # создание / закрытие Issues
+
+jobs:
+  ##############################################################################
+  # Анализ кода: Go + JavaScript/TypeScript
+  ##############################################################################
+  analyze:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild   # Go — компилируемый, нужна сборка
+          - language: javascript-typescript
+            build-mode: none        # JS/TS — сборка не нужна
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go (для autobuild)
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache-dependency-path: apps/backend-go/go.sum
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+          config: |
+            paths-ignore:
+              - '**/vendor/**'
+              - '**/node_modules/**'
+              - '**/dist/**'
+              - '**/coverage/**'
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          output: sarif-results   # SARIF кладём сюда (по умолчанию ../results)
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ##############################################################################
+  # Находки → Issues (отдельный job — видит SARIF всех языков сразу)
+  ##############################################################################
+  issues:
+    name: Create issues
+    needs: analyze
+    if: github.event_name != 'pull_request'   # в PR Issues не создаём
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4    # нужен scripts/sarif-to-issues.sh
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: codeql-sarif-*
+          path: sarif-all
+          merge-multiple: true
+
+      - name: Уязвимости → Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/sarif-to-issues.sh sarif-all security/codeql CodeQL
