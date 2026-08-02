@@ -28,6 +28,9 @@ func TestNewHandler(t *testing.T) {
 	if handler.authService != nil {
 		t.Error("authService should be nil when nil passed")
 	}
+	if handler.authService == nil && handler.preAuthLimiter == nil {
+		t.Error("preAuthLimiter should default to a non-nil limiter")
+	}
 }
 
 // =============================================================================

@@ -126,7 +126,7 @@ func tryValidateAndCache(authService *auth.AuthService, redisClient *redis.Clien
 	}
 
 	if redisClient != nil {
-		if claimsJSON, marshalErr := json.Marshal(claims); marshalErr == nil && claims.ID != "" {
+		if claims.ID != "" {
 			versionCtx, versionCancel := context.WithTimeout(c.Request.Context(), authRedisTimeout)
 			version, versionErr := redisClient.Get(versionCtx, fmt.Sprintf(authCacheVersion, claims.UserID)).Result()
 			versionCancel()
@@ -139,7 +139,6 @@ func tryValidateAndCache(authService *auth.AuthService, redisClient *redis.Clien
 			if cacheMarshalErr != nil {
 				return abortAuthDependency(c)
 			}
-			claimsJSON = cacheValue
 			cacheTTL := authCacheTTL
 			if remaining := time.Until(claims.ExpiresAt.Time); remaining < cacheTTL {
 				cacheTTL = remaining
@@ -147,7 +146,7 @@ func tryValidateAndCache(authService *auth.AuthService, redisClient *redis.Clien
 			if cacheTTL > 0 {
 				ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second)
 				pipe := redisClient.Pipeline()
-				pipe.Set(ctx, cacheKey, claimsJSON, cacheTTL)
+				pipe.Set(ctx, cacheKey, cacheValue, cacheTTL)
 				pipe.SAdd(ctx, fmt.Sprintf(authCacheUserKey, claims.UserID), cacheKey)
 				pipe.Expire(ctx, fmt.Sprintf(authCacheUserKey, claims.UserID), cacheTTL)
 				_, _ = pipe.Exec(ctx)
