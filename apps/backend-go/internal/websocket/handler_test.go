@@ -64,8 +64,11 @@ func TestHandleWebSocket_NoAuthRequired(t *testing.T) {
 
 func TestPreAuthLimiter_BoundsAttemptsPerIP(t *testing.T) {
 	limiter := NewPreAuthLimiter(2, time.Minute)
-	if !limiter.Allow("198.51.100.10") || !limiter.Allow("198.51.100.10") {
-		t.Fatal("first two attempts should be admitted")
+	if !limiter.Allow("198.51.100.10") {
+		t.Fatal("first attempt should be admitted")
+	}
+	if !limiter.Allow("198.51.100.10") {
+		t.Fatal("second attempt from the same IP should be admitted")
 	}
 	if limiter.Allow("198.51.100.10") {
 		t.Fatal("third attempt from the same IP should be rejected")
