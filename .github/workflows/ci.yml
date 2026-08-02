@@ -38,7 +38,8 @@ jobs:
         run: go build ./...
 
       - name: Format check (gofmt)
-        run: test -z "$(gofmt -l .)" || (echo "Files not gofmt'd:" && gofmt -l . && exit 1)
+        # Vendor is never formatted by us (third-party, pinned by go mod vendor).
+        run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))" || (echo "Files not gofmt'd:" && gofmt -l $(find . -name '*.go' -not -path './vendor/*') && exit 1)
 
       - name: Vet
         run: go vet ./...
