@@ -110,7 +110,8 @@
 
 		@storageGet {
 			method GET HEAD
-			path_regexp storage_read ^/storage/v1/object/(?!uploads/)([^/]+)/(.+)$
+			not path /storage/v1/object/uploads/*
+			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
 		}
 		handle @storageGet {
 			route {
@@ -228,7 +229,8 @@
 
 		@storageGet {
 			method GET HEAD
-			path_regexp storage_read ^/storage/v1/object/(?!uploads/)([^/]+)/(.+)$
+			not path /storage/v1/object/uploads/*
+			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
 		}
 		handle @storageGet {
 			route {
