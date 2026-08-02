@@ -170,7 +170,10 @@ DOMAIN=your-domain.ru
 JWT_SECRET=$(openssl rand -hex 32)
 
 # Ключ федерации (для ActivityPub)
-FEDERATION_KEY=$(openssl rand -hex 32)
+FEDERATION_KEY=$(openssl rand -hex 16)
+
+# Сгенерировать остальные обязательные секреты (сохраняет существующие)
+./scripts/generate-keys.sh --quiet .env
 
 # Окружение
 ENVIRONMENT=production
@@ -341,6 +344,9 @@ docker compose up -d --build
 | `DOMAIN` | `localhost` | Домен сайта. **Автоматически** строит поддомены `docs.*`, `dev.*` |
 | `JWT_SECRET` | — | Секретный ключ для JWT-токенов |
 | `FEDERATION_KEY` | — | Ключ для ActivityPub-федерации |
+| `MESSENGER_ENCRYPTION_KEY` | — | AES-256 ключ серверного шифрования сообщений |
+| `REDIS_PASSWORD` | — | Пароль Redis |
+| `POSTGRES_PASSWORD` | — | Пароль PostgreSQL |
 | `ENVIRONMENT` | `production` | Окружение (`production` / `development`) |
 | `ALLOWED_ORIGINS` | auto | CORS origins (через запятую) |
 | `WEBAUTHN_RP_ID` | `$DOMAIN` | WebAuthn Relying Party ID (домен без схемы/порта) |
@@ -349,7 +355,7 @@ docker compose up -d --build
 | `DATABASE_URL` | auto | Строка подключения к PostgreSQL |
 | `REDIS_URL` | auto | Строка подключения к Redis |
 
-Большинство переменных имеют разумные значения по умолчанию в `docker-compose.yml`. Обязательно задать нужно только **`DOMAIN`** — от него магическим образом работают все три поддомена.
+Обязательные production-секреты (`JWT_SECRET`, `FEDERATION_KEY`, `MESSENGER_ENCRYPTION_KEY`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`) можно безопасно заполнить командой `./scripts/generate-keys.sh --quiet .env`. Непустые значения сохраняются; не используйте `--force` без осознанной ротации ключей.
 
 ---
 

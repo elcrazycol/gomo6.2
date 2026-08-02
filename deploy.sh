@@ -293,19 +293,16 @@ create_env() {
         ALLOWED_ORIGINS="http://localhost,http://docs.localhost,http://dev.localhost"
     else
         ALLOWED_ORIGINS="https://${DOMAIN},http://${DOMAIN},https://docs.${DOMAIN},http://docs.${DOMAIN},https://dev.${DOMAIN},http://dev.${DOMAIN}"
-    fi
-
-    # Спрашиваем подтверждение, если .env уже существует
+    fi    # Never overwrite an existing production .env here. It contains the
+    # active JWT, messenger, Redis, and database credentials; replacing it
+    # would invalidate sessions or disconnect persistent services.
     if [ -f .env ]; then
-        printf "${YELLOW}.env уже существует. Перезаписать? (Y/n):${NC} "
-        read -r overwrite
-        case "$overwrite" in
-            [nN]|[nN][oO]) info ".env оставлен без изменений"; return ;;
-            *) : ;;
-        esac
+        info ".env уже существует — сохраняю его и дополняю только отсутствующие секреты"            "$SCRIPT_DIR/scripts/generate-keys.sh" --quiet .env
+            return
     fi
 
     cat > .env << ENVEOF
+
 # =============================================================================
 # Gomo6 — Production Configuration
 # =============================================================================
@@ -329,7 +326,15 @@ ENVEOF
     # Защищаем файл с секретами
     chmod 600 .env
 
-    log ".env файл создан (chmod 600)"
+    # Compose also requires Redis, messenger, and PostgreSQL credentials. Fill
+    # any omitted values without rotating the JWT/federation keys above.
+    if [ -x "$SCRIPT_DIR/scripts/generate-keys.sh" ]; then
+        "$SCRIPT_DIR/scripts/generate-keys.sh" --quiet .env
+    else
+        "$SCRIPT_DIR/scripts/generate-keys.sh" --quiet .env
+    fi
+
+    log ".env файл создан и дополнен обязательными секретами (chmod 600)"
     info "Важные секреты (сохраните их надёжно!):"
     info "  JWT_SECRET=${JWT_SECRET}"
     info "  FEDERATION_KEY=${FEDERATION_KEY}"

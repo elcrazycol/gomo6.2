@@ -163,6 +163,9 @@ docker compose up -d
 | `DOMAIN` | yes (prod) | Main domain (`gomo6.wtf`) |
 | `JWT_SECRET` | yes | JWT signing secret |
 | `FEDERATION_KEY` | yes | ActivityPub federation key |
+| `MESSENGER_ENCRYPTION_KEY` | yes | AES-256 key for server-side message encryption |
+| `REDIS_PASSWORD` | yes | Redis authentication password |
+| `POSTGRES_PASSWORD` | yes | PostgreSQL authentication password |
 | `ENVIRONMENT` | no | `production` or `development` |
 | `ALLOWED_ORIGINS` | no | CORS allowed origins (comma-separated) |
 
