@@ -280,48 +280,37 @@ func TestAuthCacheMiddleware_ExpiredToken(t *testing.T) {
 	}
 }
 
-func TestAuthCacheMiddleware_QueryToken_Valid(t *testing.T) {
+func TestAuthCacheMiddleware_QueryToken_Rejected(t *testing.T) {
 	svc := auth.NewAuthService()
 	token, err := svc.GenerateToken("user-456", "bob", "gomo6.wtf")
 	if err != nil {
 		t.Fatalf("GenerateToken failed: %v", err)
 	}
 
-	// WebSocket-style: token in query string, no Authorization header
-	c, w := newCacheTestContext("GET", "/ws?token="+token)
-
+	c, w := newCacheTestContext("GET", "/api/test?token="+token)
 	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for valid query token, got %d", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for query token, got %d", w.Code)
 	}
-
-	claimsInterface, exists := c.Get("claims")
-	if !exists {
-		t.Fatal("claims not set for query token")
-	}
-	claims := claimsInterface.(*auth.Claims)
-	if claims.UserID != "user-456" {
-		t.Errorf("expected UserID 'user-456', got %q", claims.UserID)
+	if _, exists := c.Get("claims"); exists {
+		t.Fatal("claims must not be set for query token")
 	}
 }
 
-func TestAuthCacheMiddleware_QueryToken_Invalid(t *testing.T) {
+func TestAuthCacheMiddleware_QueryToken_Invalid_Rejected(t *testing.T) {
 	svc := auth.NewAuthService()
 
-	c, w := newCacheTestContext("GET", "/ws?token=garbage")
-
+	c, w := newCacheTestContext("GET", "/api/test?token=garbage")
 	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for invalid query token, got %d", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for query token, got %d", w.Code)
 	}
-
-	_, exists := c.Get("claims")
-	if exists {
-		t.Error("claims should not be set for invalid token")
+	if _, exists := c.Get("claims"); exists {
+		t.Error("claims should not be set for query token")
 	}
 }
 
@@ -359,9 +348,9 @@ func TestAuthCacheMiddleware_WebSocketUpgrade_Unauthorized(t *testing.T) {
 	}
 }
 
-// TestAuthCacheMiddleware_WebSocketUpgrade_InvalidToken verifies that a WebSocket
-// upgrade with a garbage query token is rejected with 401 and empty body.
-func TestAuthCacheMiddleware_WebSocketUpgrade_InvalidToken(t *testing.T) {
+// Query tokens are rejected before any upgrade/auth handling, including a
+// request that happens to carry WebSocket headers.
+func TestAuthCacheMiddleware_WebSocketUpgrade_QueryTokenRejected(t *testing.T) {
 	svc := auth.NewAuthService()
 
 	c, w := newCacheTestContext("GET", "/ws?token=garbage.token.here")
@@ -370,18 +359,8 @@ func TestAuthCacheMiddleware_WebSocketUpgrade_InvalidToken(t *testing.T) {
 	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for WebSocket upgrade with invalid token, got %d", w.Code)
-	}
-
-	body := w.Body.String()
-	if body != "" {
-		t.Errorf("expected empty body for WebSocket abort, got %q", body)
-	}
-
-	_, exists := c.Get("claims")
-	if exists {
-		t.Error("claims should not be set for invalid token")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for WebSocket query token, got %d", w.Code)
 	}
 }
 
@@ -415,13 +394,8 @@ func TestAuthCacheMiddleware_WebSocketUpgrade_ExpiredToken(t *testing.T) {
 	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for WebSocket upgrade with expired token, got %d", w.Code)
-	}
-
-	body := w.Body.String()
-	if body != "" {
-		t.Errorf("expected empty body for WebSocket abort, got %q", body)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for WebSocket query token, got %d", w.Code)
 	}
 
 	_, exists := c.Get("claims")
@@ -435,19 +409,17 @@ func TestAuthCacheMiddleware_BearerPriorityOverQuery(t *testing.T) {
 	bearerToken, _ := svc.GenerateToken("user-bearer", "alice", "gomo6.wtf")
 	queryToken, _ := svc.GenerateToken("user-query", "bob", "gomo6.wtf")
 
-	// Both Bearer and query token present — Bearer should win
-	c, w := newCacheTestContext("GET", "/ws?token="+queryToken)
+	// A query token is rejected even when a valid Bearer token is present.
+	c, w := newCacheTestContext("GET", "/api/test?token="+queryToken)
 	c.Request.Header.Set("Authorization", "Bearer "+bearerToken)
 
 	middleware := AuthCacheMiddleware(svc, nil)
 	middleware(c)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 when both tokens present, got %d", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 when query token is present, got %d", w.Code)
 	}
-
-	claims := c.MustGet("claims").(*auth.Claims)
-	if claims.UserID != "user-bearer" {
-		t.Errorf("expected Bearer UserID 'user-bearer' to take priority, got %q", claims.UserID)
+	if _, exists := c.Get("claims"); exists {
+		t.Fatal("claims must not be set when query token is present")
 	}
 }

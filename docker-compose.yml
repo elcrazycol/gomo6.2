@@ -2,8 +2,10 @@
 # Gomo6 — Production Docker Deployment
 # =============================================================================
 # Usage:
-#   1. Set DOMAIN in .env (or export DOMAIN=example.com)
-#   2. docker compose up -d
+#   1. Set DOMAIN and Garage credentials in .env
+#   2. Run scripts/generate-keys.sh --quiet .env
+#   3. Run scripts/generate-garage-config.sh .env
+#   4. docker compose up -d
 #
 # For local dev without a domain, Caddy will serve on http://localhost
 # =============================================================================
@@ -44,7 +46,8 @@ services:
     volumes:
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
-      - ./apps/backend-go/garage.toml:/etc/garage.toml:ro
+      # Generated locally from .env; never commit this rendered file.
+      - ./.garage.toml:/etc/garage.toml:ro
     command: ["/garage", "-c", "/etc/garage.toml", "server"]
     restart: unless-stopped
 

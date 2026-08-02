@@ -32,6 +32,8 @@ dist-ssr
 
 # Keys / secrets
 *.key
+.garage.toml
+.garage.toml.tmp.*
 
 # Test coverage
 *.out

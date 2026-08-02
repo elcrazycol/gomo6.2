@@ -128,7 +128,20 @@ func main() {
 
 	// ── Setup Gin router ────────────────────────────────────────────────
 	router := gin.New()
+	// Only trust headers from local/Docker reverse proxies. This keeps
+	// ClientIP-based rate limits (including the pre-auth WebSocket limiter)
+	// from being bypassed with a spoofed X-Forwarded-For, while still
+	// resolving the real client IP for compose networks (172.16/12, 10/8,
+	// 192.168/16) and host-local dev proxies. The backend is not exposed
+	// directly, so these private ranges cannot be reached by external peers.
+	if err := router.SetTrustedProxies([]string{
+		"127.0.0.1", "::1",
+		"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+	}); err != nil {
+		log.Fatal("Failed to configure trusted proxies:", err)
+	}
 	router.Use(gin.Recovery())
+	router.Use(middleware.RejectQueryTokenMiddleware())
 	router.Use(middleware.CORS(cfg.AllowedOrigins))
 	router.Use(middleware.Logger())
 	router.Use(middleware.ErrorHandler())

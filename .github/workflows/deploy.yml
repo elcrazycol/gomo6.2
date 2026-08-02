@@ -105,13 +105,15 @@ jobs:
               [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
             done
             [ "${PWD##*/}" = "gomo6.2" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
-            # Pull latest code
-            git fetch origin main
+            # Pull latest code. --force tolerates history rewrites (secret
+            # scrubbing); a plain fetch would silently keep the old tip.
+            git fetch --force origin main
             git reset --hard origin/main
             # Fill any missing required secrets without rotating existing ones.
             # This must run before Compose interpolation; .env is never printed.
             [ -f .env ] || { echo "Missing production .env on VPS"; exit 1; }
             bash scripts/generate-keys.sh --quiet .env
+            bash scripts/generate-garage-config.sh .env
             # Login to ghcr.io
             [ -n "${{ secrets.GHCR_PAT }}" ] && \
               echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin || true

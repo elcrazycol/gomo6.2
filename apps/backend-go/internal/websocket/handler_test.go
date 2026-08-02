@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -55,6 +56,30 @@ func TestHandleWebSocket_NoAuthRequired(t *testing.T) {
 	// The handler should have attempted the upgrade (no 401 rejection)
 	if w.Code == http.StatusUnauthorized {
 		t.Error("HandleWebSocket should NOT return 401 — auth is deferred to first WS message")
+	}
+}
+
+func TestPreAuthLimiter_BoundsAttemptsPerIP(t *testing.T) {
+	limiter := NewPreAuthLimiter(2, time.Minute)
+	if !limiter.Allow("198.51.100.10") || !limiter.Allow("198.51.100.10") {
+		t.Fatal("first two attempts should be admitted")
+	}
+	if limiter.Allow("198.51.100.10") {
+		t.Fatal("third attempt from the same IP should be rejected")
+	}
+	if !limiter.Allow("198.51.100.11") {
+		t.Fatal("a different IP should have an independent budget")
+	}
+}
+
+func TestPreAuthLimiter_ResetsAfterWindow(t *testing.T) {
+	limiter := NewPreAuthLimiter(1, 10*time.Millisecond)
+	if !limiter.Allow("198.51.100.12") || limiter.Allow("198.51.100.12") {
+		t.Fatal("limiter should reject the second attempt in the window")
+	}
+	time.Sleep(15 * time.Millisecond)
+	if !limiter.Allow("198.51.100.12") {
+		t.Fatal("limiter should reset after the window")
 	}
 }
 

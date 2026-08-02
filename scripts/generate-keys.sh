@@ -7,6 +7,7 @@
 #   ./scripts/generate-keys.sh --dry-run    # print without writing
 #   ./scripts/generate-keys.sh --quiet      # write without printing secret summary
 #   ./scripts/generate-keys.sh --force      # regenerate every key (dangerous)
+#   ./scripts/generate-keys.sh --rotate-garage # rotate only Garage credentials
 #
 # Existing non-empty keys in .env are preserved. Missing or empty required
 # values are generated, including POSTGRES_PASSWORD required by Compose.
@@ -24,6 +25,7 @@ NC='\033[0m'
 # ── Args ────────────────────────────────────────────────────────────────────
 DRY_RUN=false
 FORCE=false
+ROTATE_GARAGE=false
 QUIET=false
 ENV_FILE=".env"
 
@@ -31,6 +33,7 @@ for arg in "$@"; do
     case "$arg" in
         --dry-run)  DRY_RUN=true ;;
         --force)    FORCE=true ;;
+        --rotate-garage) ROTATE_GARAGE=true ;;
         --quiet)    QUIET=true ;;
         --help|-h)
             echo "Usage: $0 [--dry-run] [--quiet] [--force] [.env-file]"
@@ -38,8 +41,9 @@ for arg in "$@"; do
             echo "Options:"
             echo "  --dry-run   Print the resulting file without writing"
             echo "  --quiet     Write without printing secret values or progress"
-            echo "  --force     Regenerate ALL keys (invalidates existing sessions)"
-            echo "  .env-file   Target file (default: .env)"
+            echo "  --force          Regenerate ALL keys (invalidates existing sessions)"
+            echo "  --rotate-garage  Regenerate only Garage RPC/admin credentials"
+            echo "  .env-file        Target file (default: .env)"
             exit 0
             ;;
         --*)        echo "Unknown option: $arg" >&2; exit 1 ;;
@@ -62,6 +66,8 @@ JWT_SECRET=$(gen_hex 32)
 FEDERATION_KEY=$(gen_hex 16)
 MESSENGER_ENCRYPTION_KEY=$(gen_hex 32)
 REDIS_PASSWORD=$(gen_hex 16)
+GARAGE_RPC_SECRET=$(gen_hex 32)
+GARAGE_ADMIN_TOKEN=$(gen_hex 32)
 
 # If this is an existing Docker deployment and .env lost the database secret,
 # preserve the password with which the running PostgreSQL container was
@@ -150,6 +156,10 @@ REDIS_PASSWORD=${REDIS_PASSWORD}
 
 # ── PostgreSQL ──────────────────────────────────────────────────────────────
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+
+# ── Garage internal credentials ────────────────────────────────────────────
+GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET}
+GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
 "
 fi
 
@@ -158,10 +168,11 @@ fi
 set_or_add() {
     local key=$1
     local value=$2
+    local garage_key=${3:-false}
     local existing
     existing=$(printf '%s\n' "$CONTENT" | awk -F= -v key="$key" '$0 ~ "^" key "=" {sub(/^[^=]*=/, ""); print; exit}')
 
-    if [ "$FORCE" = true ] || [ -z "$existing" ]; then
+    if [ "$FORCE" = true ] || [ -z "$existing" ] || { [ "$ROTATE_GARAGE" = true ] && [ "$garage_key" = true ]; }; then
         if printf '%s\n' "$CONTENT" | grep -q "^${key}="; then
             CONTENT=$(printf '%s\n' "$CONTENT" | awk -v key="$key" -v value="$value" '
                 $0 ~ ("^" key "=") { if (!replaced) { print key "=" value; replaced=1 }; next }
@@ -184,6 +195,8 @@ set_or_add "FEDERATION_KEY" "$FEDERATION_KEY"
 set_or_add "MESSENGER_ENCRYPTION_KEY" "$MESSENGER_ENCRYPTION_KEY"
 set_or_add "REDIS_PASSWORD" "$REDIS_PASSWORD"
 set_or_add "POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"
+set_or_add "GARAGE_RPC_SECRET" "$GARAGE_RPC_SECRET" true
+set_or_add "GARAGE_ADMIN_TOKEN" "$GARAGE_ADMIN_TOKEN" true
 set_or_add "DOMAIN" "localhost"
 set_or_add "ENVIRONMENT" "production"
 

@@ -297,8 +297,10 @@ create_env() {
     # active JWT, messenger, Redis, and database credentials; replacing it
     # would invalidate sessions or disconnect persistent services.
     if [ -f .env ]; then
-        info ".env уже существует — сохраняю его и дополняю только отсутствующие секреты"            "$SCRIPT_DIR/scripts/generate-keys.sh" --quiet .env
-            return
+        info ".env уже существует — сохраняю его и дополняю только отсутствующие секреты"
+        "$SCRIPT_DIR/scripts/generate-keys.sh" --quiet .env
+        "$SCRIPT_DIR/scripts/generate-garage-config.sh" .env
+        return
     fi
 
     cat > .env << ENVEOF
@@ -333,6 +335,7 @@ ENVEOF
     else
         "$SCRIPT_DIR/scripts/generate-keys.sh" --quiet .env
     fi
+    "$SCRIPT_DIR/scripts/generate-garage-config.sh" .env
 
     log ".env файл создан и дополнен обязательными секретами (chmod 600)"
     info "Важные секреты (сохраните их надёжно!):"

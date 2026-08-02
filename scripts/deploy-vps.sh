@@ -20,6 +20,13 @@ fi
 [ -n "$PROJECT_DIR" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
 cd "$PROJECT_DIR"
 
+# Render Garage credentials from the private .env before Compose reads mounts.
+bash scripts/generate-keys.sh --quiet .env
+bash scripts/generate-garage-config.sh .env
+
+auto_generated_config=.garage.toml
+[ -f "$auto_generated_config" ] || { echo "ERROR: Garage runtime config was not generated"; exit 1; }
+
 GIT_COMMIT=$(git rev-parse --short HEAD)
 echo "=== Deploy started: $GIT_COMMIT ==="
 

@@ -31,6 +31,13 @@ type cachedClaims struct {
 // Cached claims are never trusted without checking expiry and the live blacklist.
 func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Reject query-string credentials before evaluating any other credential.
+		// Even an ignored token is still exposed to URL logs and history.
+		if _, present := c.GetQuery("token"); present {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Query-string tokens are not supported; use Authorization or a secure cookie"})
+			return
+		}
+
 		// BotAuthMiddleware may provide database-backed bot claims rather than a
 		// JWT. Human claims must still be revalidated here so expiry, blacklist,
 		// and auth-cache generation checks cannot be bypassed by an earlier
@@ -60,10 +67,6 @@ func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Clien
 			if tryValidateAndCache(authService, redisClient, c, rawToken) {
 				return
 			}
-		}
-
-		if token := c.Query("token"); token != "" && tryValidateAndCache(authService, redisClient, c, token) {
-			return
 		}
 
 		if c.GetHeader("Upgrade") == "websocket" {
