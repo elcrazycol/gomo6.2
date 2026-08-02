@@ -29,8 +29,7 @@
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "default-src 'self'; script-src 'self' blob: 'unsafe-eval' https://integrate.depay.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' data: wss: https: https://integrate.depay.com https://api.depay.com; font-src 'self'; media-src 'self' blob:;"
+		Referrer-Policy "strict-origin-when-cross-origin"		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' blob: https://integrate.depay.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' wss: https://integrate.depay.com https://api.depay.com; font-src 'self'; media-src 'self' blob:;"
 	}
 
 	# ── Logging ────────────────────────────────────────────────────────────
@@ -90,10 +89,8 @@
 				}
 			}
 		}
-		# Storage: reads → Garage (direct), writes → backend
-		# Messenger uploads are private: send them to Go, which checks
-		# chat_members before reading from Garage. This must precede the
-		# generic public Garage website proxy below.
+		# Messenger uploads are private and always go through the authenticated Go proxy.
+		# Keep this handler before the generic public bucket proxy.
 		@privateStorageGet {
 			method GET HEAD
 			path_regexp private_storage_read ^/storage/v1/object/uploads/(.+)$
@@ -109,7 +106,7 @@
 
 		@storageGet {
 			method GET HEAD
-			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
+			path_regexp storage_read ^/storage/v1/object/(?!uploads/)([^/]+)/(.+)$
 		}
 		handle @storageGet {
 			route {
@@ -227,7 +224,7 @@
 
 		@storageGet {
 			method GET HEAD
-			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
+			path_regexp storage_read ^/storage/v1/object/(?!uploads/)([^/]+)/(.+)$
 		}
 		handle @storageGet {
 			route {

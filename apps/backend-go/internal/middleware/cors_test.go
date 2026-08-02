@@ -27,7 +27,7 @@ func TestCORS_SetsHeaders(t *testing.T) {
 	if w.Header().Get("Access-Control-Allow-Methods") != "GET, POST, PUT, DELETE, OPTIONS" {
 		t.Errorf("expected Access-Control-Allow-Methods header, got %q", w.Header().Get("Access-Control-Allow-Methods"))
 	}
-	if w.Header().Get("Access-Control-Allow-Headers") != "Origin, Content-Type, Accept, Authorization" {
+	if w.Header().Get("Access-Control-Allow-Headers") != "Origin, Content-Type, Accept, Authorization, X-CSRF-Token" {
 		t.Errorf("expected Access-Control-Allow-Headers header, got %q", w.Header().Get("Access-Control-Allow-Headers"))
 	}
 }

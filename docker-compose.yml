@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: gomo6
       POSTGRES_USER: gomo6
-      POSTGRES_PASSWORD: gomo6password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -41,9 +41,6 @@ services:
   # ── Object Storage (Garage S3) ────────────────────────────────────────────
   garage:
     image: dxflrs/garage:v2.3.0
-    ports:
-      - "3900:3900"
-      - "3902:3902"
     volumes:
       - garage_meta:/var/lib/garage/meta
       - garage_data:/var/lib/garage/data
@@ -58,8 +55,6 @@ services:
         condition: service_started
     network_mode: service:garage
     pid: service:garage
-    environment:
-      GARAGE_ADMIN_TOKEN: __REMOVED_GARAGE_SECRET__
     restart: "no"
     volumes:
       - garage_keys:/garage-keys
@@ -150,8 +145,9 @@ services:
     build:
       context: ./apps/backend-go
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
+    # Backend is reachable only through Caddy on the Docker network.
+    # Do not publish 8080: direct access would bypass proxy routing and
+    # perimeter controls around private storage endpoints.
     volumes:
       - garage_keys:/garage-keys:ro
     healthcheck:
@@ -161,13 +157,13 @@ services:
       start_period: 30s
       retries: 5
     environment:
-      DATABASE_URL: postgres://gomo6:gomo6password@postgres:5432/gomo6?sslmode=disable
+      DATABASE_URL: postgres://gomo6:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/gomo6?sslmode=disable
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      JWT_SECRET: ${JWT_SECRET:-dev-auto-generated-each-restart}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       MESSENGER_ENCRYPTION_KEY: ${MESSENGER_ENCRYPTION_KEY:?Set MESSENGER_ENCRYPTION_KEY in .env}
       SERVER_DOMAIN: ${DOMAIN:-localhost}
       DOMAIN: ${DOMAIN:-localhost}
-      FEDERATION_KEY: ${FEDERATION_KEY:-your-federation-key-change-in-production}
+      FEDERATION_KEY: ${FEDERATION_KEY:?FEDERATION_KEY is required}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://${DOMAIN:-localhost},http://localhost,http://localhost:5173,http://localhost:8081,http://docs.${DOMAIN:-localhost},http://dev.${DOMAIN:-localhost},https://docs.${DOMAIN:-localhost},https://dev.${DOMAIN:-localhost}}
       # WebAuthn / Passkeys

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -137,7 +138,7 @@ func TestTryRespondProfileWallEnriched_NonWallTable(t *testing.T) {
 func TestTryRespondProfileWallEnriched_MissingID(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "viewer"})
 	result := map[string]interface{}{"title": "no id here"}
 	enriched := h.tryRespondProfileWallEnriched(c, "profile_wall_posts", result)
 	_ = mock
@@ -151,7 +152,7 @@ func TestTryRespondProfileWallEnriched_MissingID(t *testing.T) {
 func TestTryRespondProfileWallEnriched_PostDBError(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "viewer"})
 	result := map[string]interface{}{"id": "post123"}
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.id = \$1`).
@@ -180,7 +181,7 @@ func TestTryRespondProfileWallEnriched_PostDBError(t *testing.T) {
 func TestTryRespondProfileWallEnriched_PostSuccess(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "viewer"})
 	result := map[string]interface{}{"id": "post123"}
 
 	authorJSON := `{"username": "testuser", "avatar_url": null}`
@@ -222,7 +223,7 @@ func TestTryRespondProfileWallEnriched_PostSuccess(t *testing.T) {
 func TestTryRespondProfileWallEnriched_CommentSuccess(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, &auth.Claims{UserID: "viewer"})
 	result := map[string]interface{}{"id": "comm123"}
 
 	authorJSON := `{"username": "commenter", "is_anonymous": true}`
@@ -262,7 +263,7 @@ func TestHandleProfileWallPostsGet_EmptyResult(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -282,12 +283,12 @@ func TestHandleProfileWallPostsGet_WithFilterAndLimit(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.user_id = \$1.*LIMIT 5`).
-		WithArgs("u1").
+		WithArgs("u1", "viewer").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "Post 1", "Content 1", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`).
 			AddRow("post2", "u1", "u1", "Post 2", "Content 2", "2025-01-02T00:00:00Z", "2025-01-02T00:00:00Z", true, 1, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1&limit=5", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.u1&limit=5", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -312,11 +313,11 @@ func TestHandleProfileWallPostsGet_WithIsPinnedFilterAndOrder(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.is_pinned = \$1.*ORDER BY "p"."pinned_order" ASC`).
-		WithArgs("true").
+		WithArgs("true", "viewer").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("pin1", "u1", "u1", "Pinned 1", "Content", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", true, 1, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?is_pinned=eq.true&order=pinned_order.asc", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?is_pinned=eq.true&order=pinned_order.asc", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -330,7 +331,7 @@ func TestHandleProfileWallPostsGet_DBError(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*`).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 500 {
@@ -342,11 +343,11 @@ func TestHandleProfileWallPostsGet_WithNotEqFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE NOT \(p\.is_pinned = \$1\).*`).
-		WithArgs("true").
+		WithArgs("true", "viewer").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post3", "u1", "u1", "Unpinned", "Content", "2025-01-03T00:00:00Z", "2025-01-03T00:00:00Z", false, nil, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?is_pinned=not.eq.true", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?is_pinned=not.eq.true", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -358,12 +359,12 @@ func TestHandleProfileWallPostsGet_WithOrFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE \(p\.user_id = \$1 OR p\.user_id = \$2\).*`).
-		WithArgs("u1", "u2").
+		WithArgs("u1", "u2", "viewer").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "From u1", "", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`).
 			AddRow("post2", "u2", "u2", "From u2", "", "2025-01-02T00:00:00Z", "2025-01-02T00:00:00Z", false, nil, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?or=(user_id.eq.u1,user_id.eq.u2)", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?or=(user_id.eq.u1,user_id.eq.u2)", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -377,12 +378,12 @@ func TestHandleProfileWallCommentsGet_WithFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE c\.post_id = \$1`).
-		WithArgs("post1").
+		WithArgs("post1", "viewer").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "created_at", "updated_at", "author"}).
 			AddRow("c1", "post1", "u2", "Nice!", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", `{}`).
 			AddRow("c2", "post1", "u3", "Thanks!", "2025-01-02T00:00:00Z", "2025-01-02T00:00:00Z", `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments?post_id=eq.post1", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments?post_id=eq.post1", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -396,7 +397,7 @@ func TestHandleProfileWallCommentsGet_Empty(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "created_at", "updated_at", "author"}))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -410,7 +411,7 @@ func TestHandleProfileWallCommentsGet_DBError(t *testing.T) {
 	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*`).
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, &auth.Claims{UserID: "viewer"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 500 {

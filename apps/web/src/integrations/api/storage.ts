@@ -1,13 +1,13 @@
 // Storage module — api.storage.from() compatibility backed by S3-compatible Go backend
 import { uploadFile, getPublicUrl, removeFile } from '@/utils/storage';
+import { apiClient } from './client';
 
 export const storage = {
   from: (bucket: string) => {
-    const token = localStorage.getItem('auth_token') || undefined;
     return {
       upload: async (path: string, file: File, _options?: Record<string, unknown>) => {
         try {
-          const result = await uploadFile(bucket, path, file, token);
+          const result = await uploadFile(bucket, path, file, apiClient.getToken() || undefined);
           return { data: { path: result.path }, error: null };
         } catch (error) {
           return { data: null, error: { message: (error as Error).message } };
@@ -18,7 +18,7 @@ export const storage = {
       }),
       remove: async (paths: string[]) => {
         try {
-          await Promise.all(paths.map((p) => removeFile(bucket, p, token)));
+          await Promise.all(paths.map((p) => removeFile(bucket, p, apiClient.getToken() || undefined)));
           return { data: null, error: null };
         } catch (error) {
           return { data: null, error: { message: (error as Error).message } };

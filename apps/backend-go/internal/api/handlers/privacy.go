@@ -88,3 +88,26 @@ func CanViewUserContent(db *sql.DB, viewerID, targetUserID string) (bool, error)
 	}
 	return !shouldFilter, nil
 }
+
+// CanViewUserAchievements applies both profile visibility and the dedicated
+// private_hide_achievements setting. A visible profile does not implicitly
+// make the user's achievement history public.
+func CanViewUserAchievements(db *sql.DB, viewerID, targetUserID string) (bool, error) {
+	settings, err := GetPrivacySettings(db, targetUserID)
+	if err != nil {
+		return false, err
+	}
+	if viewerID == targetUserID {
+		return true, nil
+	}
+	if settings.PrivateHideAchievements {
+		return false, nil
+	}
+	if !settings.PrivateProfile {
+		return true, nil
+	}
+	if viewerID == "" {
+		return false, nil
+	}
+	return IsMutualFriend(db, viewerID, targetUserID)
+}

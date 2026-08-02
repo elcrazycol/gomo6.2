@@ -182,6 +182,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 
 	query := "SELECT * FROM " + tableName
 	var args []interface{}
+	forcedUserID := genericReadScopeUser(c, tableName)
 
 	// Build WHERE clause from query parameters
 	var clauses []string
@@ -202,6 +203,13 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 				argIndex = nextIndex
 			}
 		}
+	}
+
+	// OR conditions: or=col.eq.value,col2.ilike.%term%
+	if forcedUserID != "" {
+		clauses = append(clauses, "user_id = $"+strconv.Itoa(argIndex))
+		args = append(args, forcedUserID)
+		argIndex++
 	}
 
 	// OR conditions: or=col.eq.value,col2.ilike.%term%

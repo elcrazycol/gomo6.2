@@ -79,6 +79,23 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			clauses = append(clauses, "("+strings.Join(orClauses, " OR ")+")")
 		}
 	}
+	// Always bind the result set to the authenticated user or to the explicitly
+	// requested profile. The generic compatibility endpoint must never allow a
+	// caller to omit user_id and enumerate every user's achievements.
+	claimsValue, claimsExists := c.Get("claims")
+	claims, claimsOK := claimsValue.(*auth.Claims)
+	if !claimsExists || !claimsOK || claims == nil || claims.UserID == "" {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	viewerID := claims.UserID
+	targetUserID := strings.TrimPrefix(c.Query("user_id"), "eq.")
+	if targetUserID == "" {
+		targetUserID = viewerID
+	}
+	clauses = append(clauses, "ua.user_id = $"+strconv.Itoa(argIndex))
+	args = append(args, targetUserID)
+	argIndex++
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
@@ -86,13 +103,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	// Private profile: hide achievements from non-friends
 	if userID := c.Query("user_id"); userID != "" {
 		uid := strings.TrimPrefix(userID, "eq.")
-		var viewerID string
-		if claims, exists := c.Get("claims"); exists {
-			if uc, ok := claims.(*auth.Claims); ok {
-				viewerID = uc.UserID
-			}
-		}
-		canView, err := CanViewUserContent(h.db, viewerID, uid)
+		canView, err := CanViewUserAchievements(h.db, viewerID, uid)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 			return

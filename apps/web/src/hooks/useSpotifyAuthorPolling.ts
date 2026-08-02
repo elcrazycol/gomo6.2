@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { apiClient } from "@/integrations/api/client";
 
 /**
  * Polls GET /api/v1/integrations/spotify/me/state every 10 seconds.
@@ -10,25 +11,16 @@ import { useEffect } from "react";
  */
 export function useSpotifyAuthorPolling() {
   useEffect(() => {
-    const token = localStorage.getItem("auth_token");
-    if (!token) return;
+    if (!apiClient.getToken() && !apiClient.getCSRFToken()) return;
 
     let active = true;
 
     const poll = async () => {
       if (!active) return;
       try {
-        const res = await fetch("/api/v1/integrations/spotify/me/state", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        await apiClient.request("/api/v1/integrations/spotify/me/state");
         // Response triggers WS publish on backend if state changed.
         // We don't need the data here — visitors receive it via WebSocket.
-        if (res.status === 401) {
-          // Token expired — stop polling, let auth handle it
-          active = false;
-          return;
-        }
-        void res.json(); // consume body, result comes via WS to visitors
       } catch {
         // Silent fail — will retry on next tick
       }

@@ -24,29 +24,15 @@ const profileWallAuthorJSON = `COALESCE(
 
 // handleProfileWallPostsGet — GET /profile_wall_posts with nested author (users join).
 func (h *UniversalHandler) handleProfileWallPostsGet(c *gin.Context) {
-	// Private profile: block wall posts from non-friends
-	if targetUserID := c.Query("user_id"); targetUserID != "" {
-		var viewerID string
-		if claims, exists := c.Get("claims"); exists {
-			if uc, ok := claims.(*auth.Claims); ok {
-				viewerID = uc.UserID
-			}
-		}
-		shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, targetUserID)
-		if err == nil && shouldFilter && ps.PrivateHideWall {
-			c.JSON(http.StatusOK, models.SuccessResponse([]interface{}{}))
-			return
-		}
-	}
-
 	query := `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
        ` + profileWallAuthorJSON + `
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
+LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 `
-	h.profileWallFinishSelectQuery(c, query, "p", 1)
+	h.profileWallFinishSelectQuery(c, query, "p", 1, "p.user_id", "ps")
 }
 
 // handleProfileWallPostCommentsGet — GET comments with author.
@@ -56,11 +42,20 @@ SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.cre
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
+LEFT JOIN profile_wall_posts wp ON wp.id = c.post_id
+LEFT JOIN privacy_settings ps ON ps.user_id = wp.user_id
 `
-	h.profileWallFinishSelectQuery(c, query, "c", 1)
+	h.profileWallFinishSelectQuery(c, query, "c", 1, "wp.user_id", "ps")
 }
 
-func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int) {
+func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuery, tableAlias string, argIndex int, ownerColumn, privacyAlias string) {
+	claimsValue, exists := c.Get("claims")
+	claims, ok := claimsValue.(*auth.Claims)
+	if !exists || !ok || claims == nil || claims.UserID == "" {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+
 	var args []interface{}
 	ai := argIndex
 	var clauses []string
@@ -100,6 +95,19 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 			clauses = append(clauses, "("+strings.Join(orClauses, " OR ")+")")
 		}
 	}
+
+	// The route is authenticated in production. Apply the same visibility
+	// predicate to every row, including repost lookups that do not carry a
+	// user_id filter, so private walls cannot be enumerated by post ID.
+	viewerArg := "$" + strconv.Itoa(ai)
+	clauses = append(clauses, "("+
+		ownerColumn+" = "+viewerArg+
+		" OR COALESCE("+privacyAlias+".private_profile, false) = false"+
+		" OR COALESCE("+privacyAlias+".private_hide_wall, false) = false"+
+		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
+	args = append(args, claims.UserID)
+	ai++
+
 	query := baseQuery
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")

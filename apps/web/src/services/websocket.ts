@@ -3,6 +3,8 @@
 
 // Relative WebSocket URL (works through Vite proxy in dev, Caddy in Docker).
 // Override with VITE_WS_URL for custom setups.
+import { apiClient } from "@/integrations/api/client";
+
 const WS_BASE_URL = import.meta.env.VITE_WS_URL || '/ws';
 
 // Ensure URL has correct format
@@ -92,11 +94,13 @@ class WebSocketService {
     });
   }
 
-  /**
-   * Get auth token from localStorage
-   */
+  /** Legacy bearer token injected by API clients; browser sessions use cookies. */
   private getToken(): string | null {
-    return localStorage.getItem('auth_token');
+    return apiClient.getToken();
+  }
+
+  private hasCookieSession(): boolean {
+    return document.cookie.split('; ').some((part) => part.startsWith('gomo6_csrf='));
   }
 
   /**
@@ -119,7 +123,7 @@ class WebSocketService {
 
     try {
       const token = this.getToken();
-      if (!token) {
+      if (!token && !this.hasCookieSession()) {
         this.isConnecting = false;
         return;
       }
@@ -153,11 +157,14 @@ class WebSocketService {
     // Start ping interval
     this.startPing();
 
-    // Send auth token as first message
+    // Send auth as the first message. With browser cookie auth the token is
+    // intentionally omitted; the backend reads the HttpOnly access cookie.
     const token = this.getToken();
-    if (token) {
-      this.send({ type: 'auth' as WebSocketMessageType, data: { token }, timestamp: Date.now() });
-    }
+    this.send({
+      type: 'auth' as WebSocketMessageType,
+      data: token ? { token } : {},
+      timestamp: Date.now(),
+    });
     // DON'T resubscribe here — wait for 'connected' event from server
   }
 
@@ -201,8 +208,9 @@ class WebSocketService {
    * Schedule reconnection with exponential backoff
    */
   private scheduleReconnect(): void {
-    // Don't reconnect if there's no valid token
-    if (!this.getToken()) return;
+    // Browser sessions use an HttpOnly access cookie; the readable CSRF
+    // cookie is only a session-presence hint for reconnect scheduling.
+    if (!this.getToken() && !this.hasCookieSession()) return;
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       return;
@@ -331,7 +339,7 @@ class WebSocketService {
    */
   subscribeToThread(threadId: string): void {
     if (threadId) {
-      this.subscribe(threadId);
+      this.subscribe(`thread_${threadId}`);
     }
   }
 

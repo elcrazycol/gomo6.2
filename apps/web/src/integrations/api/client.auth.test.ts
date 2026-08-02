@@ -65,7 +65,7 @@ describe("ApiClient auth methods", () => {
       );
       expect(result.token).toBe("test-token");
       expect(result.user.username).toBe("newuser");
-      expect(localStorage.getItem("auth_token")).toBe("test-token");
+      expect(apiClient.getToken()).toBe("test-token");
     });
 
     it("throws on error response", async () => {
@@ -110,7 +110,7 @@ describe("ApiClient auth methods", () => {
         }),
       );
       expect(result.token).toBe("full-token");
-      expect(localStorage.getItem("auth_token")).toBe("full-token");
+      expect(apiClient.getToken()).toBe("full-token");
     });
 
     it("passes device_id when provided", async () => {
@@ -145,7 +145,7 @@ describe("ApiClient auth methods", () => {
       expect(result.needs_2fa).toBe(true);
       expect(result.token).toBe("partial-token");
       // Token should NOT be saved when 2FA is needed
-      expect(localStorage.getItem("auth_token")).toBeNull();
+      expect(apiClient.getToken()).toBeNull();
     });
   });
 
@@ -194,20 +194,20 @@ describe("ApiClient auth methods", () => {
       const result = await apiClient.getCurrentUser();
 
       expect(result).toBeNull();
-      expect(localStorage.getItem("auth_token")).toBeNull();
+      expect(apiClient.getToken()).toBeNull();
     });
   });
 
   // ─── logout ─────────────────────────────────────────────────────────────────
 
   describe("logout", () => {
-    it("clears the token", () => {
+    it("clears the token", async () => {
       apiClient.setToken("test-token");
-      expect(localStorage.getItem("auth_token")).toBe("test-token");
+      expect(apiClient.getToken()).toBe("test-token");
 
-      apiClient.logout();
+      await apiClient.logout();
 
-      expect(localStorage.getItem("auth_token")).toBeNull();
+      expect(apiClient.getToken()).toBeNull();
     });
   });
 
@@ -218,7 +218,7 @@ describe("ApiClient auth methods", () => {
       apiClient.setToken("my-token");
 
       expect(apiClient.getToken()).toBe("my-token");
-      expect(localStorage.getItem("auth_token")).toBe("my-token");
+      expect(apiClient.getToken()).toBe("my-token");
     });
 
     it("clearToken removes from localStorage and getToken returns null", () => {
@@ -226,13 +226,11 @@ describe("ApiClient auth methods", () => {
       apiClient.clearToken();
 
       expect(apiClient.getToken()).toBeNull();
-      expect(localStorage.getItem("auth_token")).toBeNull();
+      expect(apiClient.getToken()).toBeNull();
     });
 
-    it("constructor loads existing token from localStorage", () => {
-      // The apiClient singleton was created at import time.
-      // After beforeEach clears localStorage + clearToken(), getToken returns null.
-      // This verifies the constructor loaded whatever was present at module init.
+    it("does not load auth tokens from localStorage", () => {
+      // Browser sessions are restored through HttpOnly cookies, not Web Storage.
       expect(apiClient.getToken()).toBeNull();
     });
   });
@@ -269,7 +267,7 @@ describe("ApiClient auth methods", () => {
         }),
       );
       expect(result.token).toBe("full-token");
-      expect(localStorage.getItem("auth_token")).toBe("full-token");
+      expect(apiClient.getToken()).toBe("full-token");
     });
 
     it("does not include trust_device when false", async () => {

@@ -70,15 +70,9 @@ class ApiClient {
   private refreshPromise: Promise<string | null> | null = null;
 
   constructor() {
-    // Load tokens from localStorage on init
-    this.token = localStorage.getItem('auth_token');
-    this.refreshToken = localStorage.getItem('auth_refresh_token');
-    if (this.token) {
-      const payload = decodeJwtPayload(this.token);
-      if (payload?.exp && typeof payload.exp === 'number') {
-        this.tokenExpiresAt = payload.exp * 1000; // JWT exp is in seconds
-      }
-    }
+    // Browser auth is restored from HttpOnly cookies by the backend. Access and
+    // refresh tokens are kept only in memory when an API client explicitly needs
+    // the legacy Bearer compatibility path.
   }
 
   setToken(token: string) {
@@ -88,10 +82,8 @@ class ApiClient {
   setTokens(accessToken: string, refreshToken: string | null) {
     this.token = accessToken;
     this.refreshToken = refreshToken || null;
-    localStorage.setItem('auth_token', accessToken);
-    if (refreshToken) {
-      localStorage.setItem('auth_refresh_token', refreshToken);
-    }
+    // Never persist access or refresh tokens in Web Storage. The backend also
+    // sets HttpOnly cookies for browser sessions.
     const payload = decodeJwtPayload(accessToken);
     this.tokenExpiresAt = (payload?.exp && typeof payload.exp === 'number') ? payload.exp * 1000 : null;
   }
@@ -119,21 +111,34 @@ class ApiClient {
     return this.refreshToken;
   }
 
-  /** Try to refresh the access token using the stored refresh token. */
+  getCSRFToken(): string | null {
+    if (typeof document === 'undefined') return null;
+    const value = document.cookie.split('; ').find((part) => part.startsWith('gomo6_csrf='));
+    return value ? decodeURIComponent(value.slice('gomo6_csrf='.length)) : null;
+  }
+
+  /** Try to refresh the access token using the HttpOnly refresh cookie or legacy token. */
   async tryRefreshToken(): Promise<string | null> {
+    // If there is neither a legacy token nor a browser session hint, avoid a
+    // pointless network request. The refresh token itself is HttpOnly, while
+    // the CSRF cookie is the deliberately readable session hint.
+    if (!this.refreshToken && !this.getCSRFToken()) return null;
+
     // Deduplicate concurrent refresh attempts
     if (this.refreshPromise) return this.refreshPromise;
 
     this.refreshPromise = (async () => {
       try {
-        if (!this.refreshToken) return null;
+        const csrf = this.getCSRFToken();
         const res = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
-            ...(this.token && { Authorization: `Bearer ${this.token}` }),
+            ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+            ...(this.token && this.refreshToken ? { Authorization: `Bearer ${this.token}` } : {}),
           },
-          body: JSON.stringify({ refresh_token: this.refreshToken }),
+          body: JSON.stringify(this.refreshToken ? { refresh_token: this.refreshToken } : {}),
         });
         if (!res.ok) return null;
         const json = await res.json();
@@ -166,15 +171,18 @@ class ApiClient {
 
     const doFetch = async (): Promise<ApiResponse<T>> => {
       const url = `${API_BASE_URL}${endpoint}`;
+      const csrf = this.getCSRFToken();
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...(this.token && { 'Authorization': `Bearer ${this.token}` }),
+        ...(csrf && options.method && options.method !== 'GET' && options.method !== 'HEAD' ? { 'X-CSRF-Token': csrf } : {}),
         ...(options.headers as Record<string, string> || {}),
       };
 
       const response = await fetch(url, {
         ...options,
         headers,
+        credentials: 'include',
       });
 
       // Check if response is JSON
@@ -203,17 +211,17 @@ class ApiClient {
       return data;
     };
 
+    const hadAuth = Boolean(this.token || this.getCSRFToken());
     try {
       return await doFetch();
     } catch (error) {
       const err = error as Error & { status?: number };
-      // On 401, try refreshing the token and retry once (only for authenticated requests)
-      if (err.status === 401 && this.token) {
-        if (this.refreshToken) {
-          const newToken = await this.tryRefreshToken();
-          if (newToken) {
-            return await doFetch();
-          }
+      // A public login/register request must surface its own 401. Refresh is
+      // only meaningful when this request already had a browser or bearer session.
+      if (err.status === 401 && hadAuth) {
+        const newToken = await this.tryRefreshToken();
+        if (newToken) {
+          return await doFetch();
         }
         // No refresh token or refresh failed — force logout
         this.clearTokens();
@@ -306,12 +314,13 @@ class ApiClient {
   private currentUserCacheTime = 0;
 
   async getCurrentUser(): Promise<User | null> {
-    if (!this.token) { this.cachedUser = null; return null; }
 
     // Deduplicate concurrent calls and cache for 30s
     if (this.currentUserPromise && Date.now() - this.currentUserCacheTime < 30000) {
       return this.currentUserPromise;
     }
+
+    if (!this.token && !this.getCSRFToken()) return null;
 
     this.currentUserCacheTime = Date.now();
     this.currentUserPromise = (async () => {
@@ -335,8 +344,29 @@ class ApiClient {
     return this.currentUserPromise;
   }
 
-  logout() {
-    this.clearTokens();
+  async logout(): Promise<void> {
+    // Re-establish an access token when a browser refreshed the page and only
+    // the HttpOnly refresh cookie remains. This lets the backend revoke the
+    // session instead of merely deleting client-side state.
+    if (!this.token && this.getCSRFToken()) {
+      await this.tryRefreshToken();
+    }
+
+    try {
+      const csrf = this.getCSRFToken();
+      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+        },
+      });
+    } finally {
+      this.clearTokens();
+      window.dispatchEvent(new CustomEvent('auth:expired'));
+    }
   }
 
   async updatePassword(password: string): Promise<void> {

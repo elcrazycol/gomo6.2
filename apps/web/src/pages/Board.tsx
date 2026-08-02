@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -665,12 +666,15 @@ const Board = () => {
     const rulesVersion = board.rules_updated_at || "v1";
 
     if (user?.id) {
-      const token = localStorage.getItem('auth_token');
+      const token = apiClient.getToken();
+      const csrf = apiClient.getCSRFToken();
       const response = await fetch('/api/v1/gomosub_rules_acceptance', {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
         },
         body: JSON.stringify({
           user_id: user.id,
@@ -710,12 +714,15 @@ const Board = () => {
 
     setMembershipLoading(true);
     const authHeaders: Record<string, string> = {};
-    const token = localStorage.getItem('auth_token');
+    const token = apiClient.getToken();
+    const csrf = apiClient.getCSRFToken();
     if (token) authHeaders['Authorization'] = `Bearer ${token}`;
+    if (csrf) authHeaders['X-CSRF-Token'] = csrf;
 
     if (isJoined) {
       const response = await fetch(`/api/v1/gomosub_memberships?board_id=eq.${board.id}&user_id=eq.${user.id}`, {
         method: 'DELETE',
+        credentials: 'include',
         headers: authHeaders,
       });
       const result = await response.json();
@@ -732,6 +739,7 @@ const Board = () => {
 
     const response = await fetch('/api/v1/gomosub_memberships', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ board_id: board.id, user_id: user.id }),
     });

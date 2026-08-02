@@ -50,7 +50,7 @@ export function useSession() {
       if (!user) return null;
       return {
         user,
-        access_token: localStorage.getItem('auth_token'),
+        access_token: apiClient.getToken(),
       };
     },
     staleTime: 5 * 60 * 1000,

@@ -51,6 +51,7 @@ const (
 	RedisChannelStatus        = "realtime:status"
 	RedisChannelNotifications = "realtime:notifications"
 	RedisChannelSpotify       = "realtime:spotify"
+	RedisChannelUserRevoke    = "user:revoke"
 )
 
 // Message represents a WebSocket message
@@ -236,7 +237,7 @@ func (h *Hub) subscribeToRedis() {
 		return
 	}
 
-	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify)
+	pubsub := h.redis.Subscribe(h.ctx, RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications, RedisChannelSpotify, RedisChannelUserRevoke)
 	defer pubsub.Close()
 
 	log.Println("[WebSocket] Subscribed to Redis channels:", RedisChannelPosts, RedisChannelThreads, RedisChannelLikes, RedisChannelWall, RedisChannelChat, RedisChannelStatus, RedisChannelNotifications)
@@ -253,6 +254,10 @@ func (h *Hub) subscribeToRedis() {
 			if msg == nil {
 				continue
 			}
+			if msg.Channel == RedisChannelUserRevoke {
+				h.disconnectUser(msg.Payload)
+				continue
+			}
 
 			var event RealtimeEvent
 			if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
@@ -263,6 +268,22 @@ func (h *Hub) subscribeToRedis() {
 			h.handleRedisEvent(event)
 		}
 	}
+}
+
+// disconnectUser closes every local WebSocket owned by a revoked user.
+// The hub lock protects all indexes; Client.closeSend is idempotent.
+func (h *Hub) disconnectUser(userID string) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return
+	}
+	h.mu.Lock()
+	for client := range h.clients {
+		if client.UserID == userID {
+			h.removeClientLocked(client)
+		}
+	}
+	h.mu.Unlock()
 }
 
 // handleRedisEvent processes events from Redis and broadcasts to clients
@@ -290,7 +311,7 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 	case MessageTypeNewPost, MessageTypeNewReply:
 		// Extract thread_id from payload for room-based broadcasting
 		if roomID := extractRoomID(event.Payload, "thread_id"); roomID != "" {
-			h.BroadcastToRoom(roomID, messageBytes)
+			h.BroadcastToRoom(fmt.Sprintf("thread_%s", roomID), messageBytes)
 		}
 		// Also broadcast to global feed room
 		h.BroadcastToRoom("feed", messageBytes)
@@ -306,7 +327,7 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 	case MessageTypeLike, MessageTypeUnlike:
 		// Broadcast to relevant thread room
 		if roomID := extractRoomID(event.Payload, "thread_id"); roomID != "" {
-			h.BroadcastToRoom(roomID, messageBytes)
+			h.BroadcastToRoom(fmt.Sprintf("thread_%s", roomID), messageBytes)
 		}
 
 	case MessageTypeNewWallPost, MessageTypeUpdateWallPost, MessageTypeDeleteWallPost:
@@ -478,6 +499,43 @@ func (h *Hub) isMemberOfConversation(userID, conversationID string) bool {
 		return false
 	}
 	return ok
+}
+
+// canAccessRoom is the single authorization gate for client-requested rooms.
+// Public realtime rooms remain intentionally narrow; user-specific and chat
+// rooms are always bound to the authenticated identity.
+func (h *Hub) canAccessRoom(userID, room string) bool {
+	room = strings.TrimSpace(room)
+	if room == "" || userID == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(room, "notifications_"):
+		return strings.TrimPrefix(room, "notifications_") == userID
+	case strings.HasPrefix(room, "chat_"):
+		conversationID := strings.TrimPrefix(room, "chat_")
+		return conversationID != "" && h.isMemberOfConversation(userID, conversationID)
+	case room == "feed":
+		return true
+	case strings.HasPrefix(room, "profile_wall_"), strings.HasPrefix(room, "profile_now_playing_"):
+		return true
+	default:
+		// Thread/board rooms are public realtime content, but arbitrary room
+		// names must not become an implicit broadcast subscription primitive.
+		return isPublicRoom(room)
+	}
+}
+
+func isPublicRoom(room string) bool {
+	if room == "" {
+		return false
+	}
+	for _, prefix := range []string{"board_", "thread_"} {
+		if strings.HasPrefix(room, prefix) && len(strings.TrimPrefix(room, prefix)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // SubscribeToRoom adds a client to a room

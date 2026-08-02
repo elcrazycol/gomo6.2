@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Users, MessageSquare, ArrowRight, FileText, Image as ImageIcon, Mic, Video } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/integrations/api/compat";
+import { apiClient } from "@/integrations/api/client";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
@@ -332,15 +333,18 @@ function useAuthenticatedAttachmentUrl(attachment: Attachment): string | null {
     let cancelled = false;
     let createdUrl: string | null = null;
     const sourceUrl = storageUrl("uploads", attachment.url);
-    const token = localStorage.getItem("auth_token");
+    const token = apiClient.getToken();
 
-    if (!sourceUrl || !token) {
+    if (!sourceUrl || (!token && !apiClient.getCSRFToken())) {
       setObjectUrl(null);
       return () => undefined;
     }
 
     void fetch(sourceUrl, {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     })
       .then((response) => {
         if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);

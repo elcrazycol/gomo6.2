@@ -35,15 +35,11 @@ export const apiAuth = {
   },
   signOut: async () => {
     useNotificationStore.getState().cleanup();
-    apiClient.logout();
+    await apiClient.logout();
     return { error: null };
   },
   getUser: async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        return { data: { user: null }, error: null };
-      }
       const user = await apiClient.getCurrentUser();
       return { data: { user }, error: null };
     } catch (_e) {
@@ -52,11 +48,8 @@ export const apiAuth = {
   },
   getSession: async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        return { data: { session: null }, error: null };
-      }
       const user = await apiClient.getCurrentUser();
+      const token = apiClient.getToken();
       return { data: { session: user ? { user, access_token: token } : null }, error: null };
     } catch (_e) {
       return { data: { session: null }, error: null };

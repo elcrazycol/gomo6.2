@@ -111,6 +111,11 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		}
 	}
 
+	if c.Request.Method == http.MethodGet && genericReadDeniedTable(tableName) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Generic access to this table is disabled"))
+		return
+	}
+
 	switch c.Request.Method {
 	case "GET":
 		h.handleGet(c, tableName)
@@ -123,6 +128,45 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 	default:
 		c.JSON(http.StatusMethodNotAllowed, models.ErrorResponse("Method not allowed"))
 	}
+}
+
+// genericReadDeniedTable lists tables whose contents are too sensitive for the
+// compatibility CRUD surface. They must be exposed only through explicit,
+// business-authorized handlers.
+func genericReadDeniedTable(table string) bool {
+	switch table {
+	case "reports", "user_bans":
+		return true
+	default:
+		return false
+	}
+}
+
+// genericReadScopeUser returns the authenticated user ID for tables where the
+// compatibility read endpoint must be user-scoped. An unscoped table is left
+// untouched so public-ish compatibility queries (channels, roles, etc.) keep
+// their existing semantics.
+func genericReadScopeUser(c *gin.Context, table string) string {
+	needsScope := false
+	switch table {
+	case "user_roles", "gomosub_memberships", "user_session_time",
+		"user_achievements", "user_terms_acceptance", "profile_customization",
+		"user_placeholders", "poll_votes", "thread_subscriptions",
+		"privacy_settings", "user_daily_visits", "thread_custom_message_visits",
+		"profile_wall_posts", "profile_wall_post_likes", "profile_wall_post_reposts",
+		"profile_wall_comment_likes", "gomosub_rules_acceptance",
+		"user_settings_changes", "user_emoji_subscriptions":
+		needsScope = true
+	}
+	if !needsScope {
+		return ""
+	}
+	claimsValue, ok := c.Get("claims")
+	claims, ok := claimsValue.(*auth.Claims)
+	if !ok || claims == nil {
+		return ""
+	}
+	return claims.UserID
 }
 
 // ─── Filter Helpers ─────────────────────────────────────────────────────────

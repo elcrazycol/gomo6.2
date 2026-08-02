@@ -3,6 +3,7 @@
 
 import { wsService, type WebSocketMessage, type WebSocketMessageType } from "./websocket";
 import { messengerApi } from "./messengerApi";
+import { apiClient } from "@/integrations/api/client";
 
 type MessageHandler = (message: WebSocketMessage) => void;
 
@@ -164,15 +165,11 @@ class EventManager {
     this.lastSyncTime = Date.now();
 
     try {
-      const notifResp = await fetch(
+      const notifResp = await apiClient.request<{ unread_count: number }>(
         `/api/v1/notifications/unread-count`,
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
-        }
       );
-      if (notifResp.ok) {
-        const notifData = await notifResp.json();
-        const count = notifData?.data?.unread_count ?? 0;
+      if (notifResp) {
+        const count = (notifResp.data as { unread_count?: number } | null)?.unread_count ?? 0;
         this.onNotificationCountUpdate?.(count);
       }
     } catch {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gomo6/backend/internal/auth"
 )
 
 // ─── HandleTableRequest ──────────────────────────────────────────────────────
@@ -231,11 +232,12 @@ func TestUniversalGet_UserAchievements(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	// The actual query is a complex JOIN - use (?s).* to match the full structure
-	mock.ExpectQuery(`(?s).*SELECT ua\.id, ua\.user_id.*FROM user_achievements ua.*LEFT JOIN achievements a.*`).
+	mock.ExpectQuery(`(?s).*SELECT ua\.id, ua\.user_id.*FROM user_achievements ua.*LEFT JOIN achievements a.*WHERE ua\.user_id = \$1`).
+		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "achievement_id", "unlocked_at", "level", "is_pinned", "pinned_order", "achievements"}).
 			AddRow("1", "u1", "ach1", "2025-01-01T00:00:00Z", 1, false, nil, `{"id":"ach1","name":"Test"}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/user_achievements", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/user_achievements", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -373,11 +375,12 @@ func TestUniversalGet_WithIsNull(t *testing.T) {
 func TestUniversalGet_ProfileWallPosts(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*`).
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE .*p\.user_id = \$1.*`).
+		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "Hello!", "Test", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -388,11 +391,12 @@ func TestUniversalGet_ProfileWallPosts(t *testing.T) {
 func TestUniversalGet_ProfileWallPostComments(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*`).
+	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE .*wp\.user_id = \$1.*`).
+		WithArgs("u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "created_at", "updated_at", "author"}).
 			AddRow("comment1", "post1", "u1", "Nice!", "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", `{}`))
 
-	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, nil)
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {

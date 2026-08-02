@@ -49,19 +49,19 @@ describe("ApiClient", () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe("token management", () => {
-    it("setTokens saves both tokens to localStorage", () => {
+    it("setTokens keeps tokens in memory only", () => {
       apiClient.setTokens("access-123", "refresh-456");
 
-      expect(localStorage.getItem("auth_token")).toBe("access-123");
-      expect(localStorage.getItem("auth_refresh_token")).toBe("refresh-456");
+      expect(localStorage.getItem("auth_token")).toBeNull();
+      expect(localStorage.getItem("auth_refresh_token")).toBeNull();
       expect(apiClient.getToken()).toBe("access-123");
       expect(apiClient.getRefreshToken()).toBe("refresh-456");
     });
 
-    it("setTokens with null refresh_token does not store refresh", () => {
+    it("setTokens with null refresh_token keeps refresh state empty", () => {
       apiClient.setTokens("access-123", null);
 
-      expect(localStorage.getItem("auth_token")).toBe("access-123");
+      expect(localStorage.getItem("auth_token")).toBeNull();
       expect(localStorage.getItem("auth_refresh_token")).toBeNull();
       expect(apiClient.getRefreshToken()).toBeNull();
     });

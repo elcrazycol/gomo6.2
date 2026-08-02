@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { messengerApi } from "./messengerApi";
+import { apiClient } from "@/integrations/api/client";
 
 const TEST_TOKEN = "test-token-abc";
 
 describe("messengerApi", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.setItem("auth_token", TEST_TOKEN);
+    apiClient.setToken(TEST_TOKEN);
     global.fetch = vi.fn();
   });
 

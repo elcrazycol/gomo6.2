@@ -9,6 +9,7 @@ import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import { messengerApi } from "@/services/messengerApi";
+import { apiClient } from "@/integrations/api/client";
 import type { GroupMember } from "./types";
 
 interface Props {
@@ -78,7 +79,8 @@ export function UserInfoPanel({
     }
     const timer = setTimeout(() => {
       fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(addMemberQuery)}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") ?? ""}` },
+        credentials: "include",
+        headers: apiClient.getToken() ? { Authorization: `Bearer ${apiClient.getToken()}` } : {},
       })
         .then((r) => r.json())
         .then((res) => setAddMemberResults(res.data || []))

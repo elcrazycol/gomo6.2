@@ -686,7 +686,7 @@ func TestHandleRedisEvent_NewPost_ToThreadAndFeed(t *testing.T) {
 	clientFeed := newTestClient(hub, "user-1", "Alice")
 	clientThread := newTestClient(hub, "user-2", "Bob")
 	hub.SubscribeToRoom(clientFeed, "feed")
-	hub.SubscribeToRoom(clientThread, "thread-42")
+	hub.SubscribeToRoom(clientThread, "thread_thread-42")
 
 	event := RealtimeEvent{
 		Type: MessageTypeNewPost,
@@ -751,7 +751,7 @@ func TestHandleRedisEvent_NewPost_NoThreadID(t *testing.T) {
 func TestHandleRedisEvent_Like(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client := newTestClient(hub, "user-1", "Alice")
-	hub.SubscribeToRoom(client, "thread-99")
+	hub.SubscribeToRoom(client, "thread_thread-99")
 
 	event := RealtimeEvent{
 		Type: MessageTypeLike,
@@ -777,7 +777,7 @@ func TestHandleRedisEvent_Like(t *testing.T) {
 func TestHandleRedisEvent_Unlike(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client := newTestClient(hub, "user-1", "Alice")
-	hub.SubscribeToRoom(client, "thread-99")
+	hub.SubscribeToRoom(client, "thread_thread-99")
 
 	event := RealtimeEvent{
 		Type: MessageTypeUnlike,

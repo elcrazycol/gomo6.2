@@ -3,7 +3,7 @@ import { apiClient } from "@/integrations/api/client";
 import { uploadFile } from "@/utils/storage";
 
 const BASE = "/api/v1/messenger";
-const TOKEN = () => localStorage.getItem("auth_token") ?? "";
+const TOKEN = () => apiClient.getToken() ?? "";
 
 async function tryRefreshToken(): Promise<string | null> {
   return apiClient.tryRefreshToken();
@@ -11,11 +11,14 @@ async function tryRefreshToken(): Promise<string | null> {
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
   const doFetch = async (token: string) => {
+    const csrf = apiClient.getCSRFToken();
     const res = await fetch(`${BASE}${path}`, {
       ...options,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(csrf && options.method && options.method !== "GET" && options.method !== "HEAD" ? { "X-CSRF-Token": csrf } : {}),
         ...options.headers,
       },
     });
@@ -57,7 +60,7 @@ export const messengerApi = {
       return result.data as { id: string; username: string };
     } catch (e) {
       const err = e as Error & { status?: number };
-      if (err.status === 401 || !localStorage.getItem("auth_token")) {
+      if (err.status === 401 || (!apiClient.getToken() && !apiClient.getCSRFToken())) {
         throw new Error("not authenticated");
       }
       throw new Error("server_unreachable");

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/pquerna/otp/totp"
 )
@@ -75,6 +76,7 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 
 	// Track session
 	h.createSession(claims.UserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+	middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	// Optionally trust the device
 	if req.TrustDevice && req.DeviceID != "" {

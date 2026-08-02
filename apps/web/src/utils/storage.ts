@@ -14,6 +14,8 @@
 //   // Public URL (for storing in DB):
 //   const url = storageUrl("content", fileKey);
 
+import { apiClient } from "@/integrations/api/client";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const isHttpUrl = (v: string) => /^https?:\/\//i.test(v);
@@ -27,8 +29,9 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
   const v = keyOrUrl.trim();
   if (!v) return null;
 
-  // Already an absolute HTTP URL — return as-is
-  if (isHttpUrl(v)) return v;
+  // Messenger uploads must never fall back to an arbitrary third-party URL.
+  // Public legacy buckets may still contain absolute URLs during migration.
+  if (isHttpUrl(v)) return bucket === "uploads" ? null : v;
 
   // Already a relative API path
   if (v.startsWith("/storage/v1/")) return `${API_BASE_URL}${v}`;
@@ -51,7 +54,7 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
  * @param bucket — S3 bucket name (must be in backend allowlist)
  * @param key — object key (path within bucket)
  * @param file — File to upload
- * @param token — optional Bearer token (prevents stale localStorage read). Falls back to auth_token.
+ * @param token — optional Bearer token for non-browser API clients. Browser sessions use HttpOnly cookies.
  *
  * Throws on failure (no error-object pattern — use try/catch).
  */
@@ -69,15 +72,17 @@ export const uploadFile = async (
   formData.append("bucket", safeBucket);
   formData.append("key", safeKey);
 
-  // Auth: use provided token, or fall back to localStorage
+  // Browser sessions authenticate with HttpOnly cookies; explicit tokens are
+  // retained only for non-browser/API clients.
   const headers: Record<string, string> = {};
-  const authToken = token || localStorage.getItem("auth_token");
-  if (authToken) {
-    headers["Authorization"] = `Bearer ${authToken}`;
-  }
+  const authToken = token || null;
+  const csrf = apiClient.getCSRFToken();
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+  if (csrf) headers["X-CSRF-Token"] = csrf;
 
   const res = await fetch(`${API_BASE_URL}/storage/v1/upload`, {
     method: "POST",
+    credentials: "include",
     headers,
     body: formData,
   });
@@ -123,14 +128,14 @@ export const removeFile = async (
     .join("/");
 
   const headers: Record<string, string> = {};
-  const authToken = token || localStorage.getItem("auth_token");
-  if (authToken) {
-    headers["Authorization"] = `Bearer ${authToken}`;
-  }
+  const authToken = token || null;
+  const csrf = apiClient.getCSRFToken();
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+  if (csrf) headers["X-CSRF-Token"] = csrf;
 
   const res = await fetch(
     `${API_BASE_URL}/storage/v1/object/${safeBucket}/${safeKey}`,
-    { method: "DELETE", headers },
+    { method: "DELETE", credentials: "include", headers },
   );
 
   if (!res.ok && res.status !== 404) {

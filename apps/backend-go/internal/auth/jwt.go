@@ -125,6 +125,14 @@ func (a *AuthService) GenerateTokenPair(userID, username, domain string) (*Token
 // after finding the token" (potential theft).
 var ErrRefreshTokenNotFound = fmt.Errorf("refresh token not found")
 
+// ValidateRefreshToken reports whether an opaque refresh token is currently
+// valid for the supplied user. It never rotates or consumes the token.
+// A missing Redis backend is fail-closed because refresh-token validity cannot
+// be established without the server-side record.
+func (a *AuthService) ValidateRefreshToken(userID, refreshToken string) bool {
+	return userID != "" && refreshToken != "" && a.refreshTokenExists(userID, refreshToken)
+}
+
 // RefreshAccessToken validates a refresh token, generates a new pair first,
 // then deletes the old token (safe rotation — no window where user loses access).
 func (a *AuthService) RefreshAccessToken(userID, username, domain, refreshToken string) (*TokenPair, error) {

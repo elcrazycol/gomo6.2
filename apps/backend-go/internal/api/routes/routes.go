@@ -146,8 +146,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.POST("/login", authHandler.Login)
-			authGroup.POST("/refresh", middleware.AuthMiddleware(authService), authHandler.Refresh)
-			authGroup.POST("/logout", middleware.AuthMiddleware(authService), authHandler.Logout)
+			// Refresh authenticates using the HttpOnly refresh cookie (or the
+			// legacy bearer+JSON contract for API clients). Access may already be expired.
+			authGroup.POST("/refresh", authHandler.Refresh)
+			// Logout is CSRF-protected and can revoke a browser session using its
+			// HttpOnly refresh cookie even after the access cookie has expired.
+			authGroup.POST("/logout", authHandler.Logout)
 			// Apply both caching and rate limiting to /me endpoint
 			authGroup.GET("/me",
 				middleware.AuthCacheMiddleware(authService, redis),
@@ -240,93 +244,91 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.POST("/drops/callback", dropsHandler.DropsCallback)
 
 		// Additional tables (frontend compatibility)
-		rest.Any("/user_roles", universalHandler.HandleTableRequest)
-		rest.Any("/user_roles/*path", universalHandler.HandleTableRequest)
+		genericProtected := rest.Group("")
+		genericProtected.Use(middleware.AuthCacheMiddleware(authService, redis))
+		genericProtected.Use(middleware.ValidateCSRFMiddleware())
 
-		rest.Any("/gomosub_memberships", universalHandler.HandleTableRequest)
-		rest.Any("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_roles", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_roles/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/channels", universalHandler.HandleTableRequest)
-		rest.Any("/channels/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_memberships", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_memberships/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/gomosub_roles", universalHandler.HandleTableRequest)
-		rest.Any("/gomosub_roles/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/channels", universalHandler.HandleTableRequest)
+		genericProtected.GET("/channels/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/channel_permissions", universalHandler.HandleTableRequest)
-		rest.Any("/channel_permissions/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_roles", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_roles/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/user_session_time", universalHandler.HandleTableRequest)
-		rest.Any("/user_session_time/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/channel_permissions", universalHandler.HandleTableRequest)
+		genericProtected.GET("/channel_permissions/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/user_achievements", universalHandler.HandleTableRequest)
-		rest.Any("/user_achievements/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_session_time", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_session_time/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/achievements", universalHandler.HandleTableRequest)
-		rest.Any("/achievements/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_achievements", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_achievements/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/user_terms_acceptance", universalHandler.HandleTableRequest)
-		rest.Any("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/achievements", universalHandler.HandleTableRequest)
+		genericProtected.GET("/achievements/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/profile_customization", universalHandler.HandleTableRequest)
-		rest.Any("/profile_customization/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_terms_acceptance", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/user_placeholders", universalHandler.HandleTableRequest)
-		rest.Any("/user_placeholders/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_customization", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_customization/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/polls", universalHandler.HandleTableRequest)
-		rest.Any("/polls/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_placeholders", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_placeholders/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/poll_votes", universalHandler.HandleTableRequest)
-		rest.Any("/poll_votes/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/polls", universalHandler.HandleTableRequest)
+		genericProtected.GET("/polls/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/thread_subscriptions", universalHandler.HandleTableRequest)
-		rest.Any("/thread_subscriptions/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/poll_votes", universalHandler.HandleTableRequest)
+		genericProtected.GET("/poll_votes/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/privacy_settings", universalHandler.HandleTableRequest)
-		rest.Any("/privacy_settings/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/thread_subscriptions", universalHandler.HandleTableRequest)
+		genericProtected.GET("/thread_subscriptions/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/user_daily_visits", universalHandler.HandleTableRequest)
-		rest.Any("/user_daily_visits/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/privacy_settings", universalHandler.HandleTableRequest)
+		genericProtected.GET("/privacy_settings/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/thread_custom_message_visits", universalHandler.HandleTableRequest)
-		rest.Any("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_daily_visits", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_daily_visits/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/profile_wall_posts", universalHandler.HandleTableRequest)
-		rest.Any("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/thread_custom_message_visits", universalHandler.HandleTableRequest)
+		genericProtected.GET("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/profile_wall_post_comments", universalHandler.HandleTableRequest)
-		rest.Any("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_posts", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/profile_wall_post_likes", universalHandler.HandleTableRequest)
-		rest.Any("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_post_comments", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
-		rest.Any("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_post_likes", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
-		rest.Any("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/gomosub_invites", universalHandler.HandleTableRequest)
-		rest.Any("/gomosub_invites/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
+		genericProtected.GET("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
-		rest.Any("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_invites", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_invites/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/reports", universalHandler.HandleTableRequest)
-		rest.Any("/reports/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
+		genericProtected.GET("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
 
-		rest.Any("/user_bans", universalHandler.HandleTableRequest)
-		rest.Any("/user_bans/*path", universalHandler.HandleTableRequest)
-
-		rest.Any("/user_settings_changes", universalHandler.HandleTableRequest)
-		rest.Any("/user_settings_changes/*path", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_settings_changes", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_settings_changes/*path", universalHandler.HandleTableRequest)
 
 		// Emoji packs — specific routes BEFORE any wildcard (Gin requirement)
-		rest.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
-		rest.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
-		rest.Any("/emoji_packs", universalHandler.HandleTableRequest)
-		rest.Any("/custom_emojis", universalHandler.HandleTableRequest)
-		rest.Any("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
+		genericProtected.GET("/emoji_packs/by-slug/:slug", emojiPacksHandler.GetPackBySlug)
+		genericProtected.POST("/custom_emojis/resolve", emojiPacksHandler.ResolveEmojis)
+		genericProtected.GET("/emoji_packs", universalHandler.HandleTableRequest)
+		genericProtected.GET("/custom_emojis", universalHandler.HandleTableRequest)
+		genericProtected.GET("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
 
 		// Protected endpoints
 		protected := rest.Group("")
@@ -507,7 +509,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	{
 		storagePublic := storage.Group("")
 		{
+			// Keep public buckets anonymous, but put the private uploads auth
+			// check in Gin's middleware chain rather than invoking middleware from
+			// inside the object handler. This preserves the normal c.Next() order.
 			storagePublic.GET("/object/:bucket/*key", func(c *gin.Context) {
+				if c.Param("bucket") == "uploads" && !middleware.AuthenticateRequest(c, authService, db) {
+					return
+				}
+				c.Next()
+			}, func(c *gin.Context) {
 				if storageHandler == nil {
 					bucket := c.Param("bucket")
 					key := c.Param("key")

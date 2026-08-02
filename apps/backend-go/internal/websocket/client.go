@@ -45,6 +45,7 @@ type Client struct {
 	Rooms         map[string]bool
 	authenticated bool
 	authService   *auth.AuthService
+	cookieToken   string
 	failedSends   int
 	sendMu        sync.RWMutex
 	closeOnce     sync.Once
@@ -111,8 +112,14 @@ func (c *Client) readPump() {
 			continue
 		}
 
-		// Handle auth message — must be the first message
+		// Authentication is a one-shot handshake. Re-authenticating on the
+		// same connection could change UserID while leaving old room memberships
+		// attached, causing cross-account event delivery.
 		if message.Type == "auth" {
+			if c.authenticated {
+				c.sendError("Authentication already completed")
+				return
+			}
 			if err := c.handleAuth(message.Data); err != nil {
 				log.Printf("[WebSocket] Auth failed: %v", err)
 				c.sendError("Authentication failed: " + err.Error())
@@ -158,12 +165,9 @@ func (c *Client) readPump() {
 		switch message.Type {
 		case MessageTypeSubscribe:
 			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
-				if strings.HasPrefix(room, "chat_") {
-					convID := strings.TrimPrefix(room, "chat_")
-					if !c.Hub.isMemberOfConversation(c.UserID, convID) {
-						c.sendError("Not a member of this conversation")
-						continue
-					}
+				if !c.Hub.canAccessRoom(c.UserID, room) {
+					c.sendError("Not authorized for this room")
+					continue
 				}
 				c.Hub.SubscribeToRoom(c, room)
 				c.sendConfirmation(MessageTypeSubscribe, room)
@@ -177,6 +181,10 @@ func (c *Client) readPump() {
 
 		case MessageTypeTyping:
 			if room, ok := parseRoomFromData(message.Data); ok && room != "" {
+				if !c.Hub.canAccessRoom(c.UserID, room) {
+					c.sendError("Not authorized for this room")
+					continue
+				}
 				typingMsg := Message{
 					Type: MessageTypeTyping,
 					Room: room,
@@ -196,7 +204,12 @@ func (c *Client) readPump() {
 			}
 
 		case MessageTypeChatTyping:
-			if message.Room != "" {
+			if strings.HasPrefix(message.Room, "chat_") {
+				convID := strings.TrimPrefix(message.Room, "chat_")
+				if !c.Hub.isMemberOfConversation(c.UserID, convID) {
+					c.sendError("Not a member of this conversation")
+					continue
+				}
 				isTyping := true
 				var typingPayload struct {
 					IsTyping bool `json:"is_typing"`
@@ -204,9 +217,6 @@ func (c *Client) readPump() {
 				if err := json.Unmarshal(message.Data, &typingPayload); err == nil {
 					isTyping = typingPayload.IsTyping
 				}
-
-				// Extract conversation_id from room name (chat_{convID})
-				convID := strings.TrimPrefix(message.Room, "chat_")
 
 				// Publish via Redis for multi-server support
 				c.Hub.PublishToRedis(RedisChannelChat, RealtimeEvent{
@@ -244,7 +254,15 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	var authPayload struct {
 		Token string `json:"token"`
 	}
-	if err := json.Unmarshal(data, &authPayload); err != nil || authPayload.Token == "" {
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &authPayload); err != nil {
+			return fmt.Errorf("invalid auth payload")
+		}
+	}
+	if authPayload.Token == "" {
+		authPayload.Token = c.cookieToken
+	}
+	if authPayload.Token == "" {
 		return fmt.Errorf("invalid auth payload")
 	}
 
@@ -290,7 +308,10 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	c.UserID = claims.UserID
 	c.Username = claims.Username
 	if c.Username == "" {
-		c.Username = claims.UserID[:8]
+		c.Username = claims.UserID
+		if len(c.Username) > 8 {
+			c.Username = c.Username[:8]
+		}
 	}
 	c.Hub.presence[c.UserID] = c
 	c.Hub.mu.Unlock()
@@ -347,8 +368,9 @@ func (c *Client) sendError(msg string) {
 		Timestamp: time.Now().Unix(),
 	}
 	if msgBytes, err := json.Marshal(errMsg); err == nil {
-		c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
-		c.Conn.WriteMessage(websocket.TextMessage, msgBytes)
+		// All outbound messages, including errors, go through Send. Direct
+		// Conn writes here would race with writePump (Gorilla permits one writer).
+		c.trySend(msgBytes)
 	}
 }
 
@@ -430,9 +452,9 @@ func mustMarshalJSON(v interface{}) json.RawMessage {
 	return data
 }
 
-// Upgrader configures the WebSocket upgrader
-// Note: CheckOrigin is set per-request in ServeWs to use config
-var upgrader = websocket.Upgrader{
+// upgraderConfig contains immutable defaults for WebSocket upgrades. A fresh
+// upgrader is copied per request because CheckOrigin is request-specific.
+var upgraderConfig = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
@@ -440,7 +462,9 @@ var upgrader = websocket.Upgrader{
 // ServeWs handles WebSocket requests from the peer.
 // Authentication is deferred to the first message (type: "auth").
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, authService *auth.AuthService) {
-	// Set CheckOrigin based on hub's allowed origins
+	// Keep the upgrader request-local: mutating a package-global CheckOrigin
+	// function is a data race when upgrades happen concurrently.
+	upgrader := upgraderConfig
 	upgrader.CheckOrigin = func(req *http.Request) bool {
 		return hub.CheckOrigin(req)
 	}
@@ -451,6 +475,10 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, authService *auth
 		return
 	}
 
+	cookieToken := ""
+	if cookie, err := r.Cookie("gomo6_access_token"); err == nil {
+		cookieToken = strings.TrimSpace(cookie.Value)
+	}
 	client := &Client{
 		Hub:           hub,
 		Conn:          conn,
@@ -460,6 +488,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, authService *auth
 		Rooms:         make(map[string]bool),
 		authenticated: false,
 		authService:   authService,
+		cookieToken:   cookieToken,
 	}
 
 	select {

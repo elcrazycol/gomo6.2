@@ -4,6 +4,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { storageUrl } from "@/utils/storage";
 import { getInitials } from "./utils";
 import { messengerApi } from "@/services/messengerApi";
+import { apiClient } from "@/integrations/api/client";
 import { useMessengerStore } from "@/stores/messengerStore";
 
 interface UserSearchResult {
@@ -46,7 +47,8 @@ export function NewChatDialog({ open, onClose }: Props) {
     const timer = setTimeout(() => {
       setIsSearching(true);
       fetch(`/api/v1/drops/users/search?q=${encodeURIComponent(query)}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token") ?? ""}` },
+        credentials: "include",
+        headers: apiClient.getToken() ? { Authorization: `Bearer ${apiClient.getToken()}` } : {},
       })
         .then((r) => r.json())
         .then((res) => setResults(res.data || []))

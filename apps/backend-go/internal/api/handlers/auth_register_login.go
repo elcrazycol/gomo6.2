@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -105,6 +106,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// Track session
 	h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
 		"user":          user,
@@ -226,6 +228,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 						}
 
 						h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+						middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 						c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 							"user":          user,
@@ -263,6 +266,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"user":          user,

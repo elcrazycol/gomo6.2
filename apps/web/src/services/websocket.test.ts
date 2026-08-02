@@ -55,6 +55,7 @@ global.WebSocket = MockWebSocket;
 // ─── Import after mock setup ─────────────────────────────────────────────────
 
 import { wsService } from "./websocket";
+import { apiClient } from "@/integrations/api/client";
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ describe("WebSocketService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    apiClient.clearTokens();
     MockWebSocket.instances = [];
     wsService.disconnect();
     // Reset debounce tracker (private field) so connect() works in each test
@@ -80,21 +82,21 @@ describe("WebSocketService", () => {
 
   describe("connection lifecycle", () => {
     it("creates WebSocket when token exists", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
 
       expect(MockWebSocket.instances).toHaveLength(1);
     });
 
     it("does not connect when no token", () => {
-      localStorage.removeItem("auth_token");
+      apiClient.clearTokens();
       wsService.connect();
 
       expect(MockWebSocket.instances).toHaveLength(0);
     });
 
     it("does not double-connect while connecting", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       wsService.connect();
 
@@ -102,7 +104,7 @@ describe("WebSocketService", () => {
     });
 
     it("debounces rapid connect attempts", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       // Advance past connect, simulate close
       const ws = MockWebSocket.instances[0]!;
@@ -119,7 +121,7 @@ describe("WebSocketService", () => {
     });
 
     it("handleOpen sets connected and sends auth", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
 
       const ws = MockWebSocket.instances[0]!;
@@ -132,7 +134,7 @@ describe("WebSocketService", () => {
     });
 
     it("handleOpen resets reconnect counter", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -140,7 +142,7 @@ describe("WebSocketService", () => {
     });
 
     it("handleClose on clean close (1000) does not reconnect", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -154,7 +156,7 @@ describe("WebSocketService", () => {
     });
 
     it("handleClose on abnormal close schedules reconnect", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -168,7 +170,7 @@ describe("WebSocketService", () => {
     });
 
     it("disconnect cleans up everything", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -190,7 +192,7 @@ describe("WebSocketService", () => {
 
   describe("reconnection", () => {
     it("exponential backoff on reconnect", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws1 = MockWebSocket.instances[0]!;
       ws1.simulateOpen();
@@ -210,7 +212,7 @@ describe("WebSocketService", () => {
     });
 
     it("stops reconnecting after max attempts", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -229,13 +231,13 @@ describe("WebSocketService", () => {
     });
 
     it("no reconnect when no token in localStorage", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
 
       // Clear token
-      localStorage.removeItem("auth_token");
+      apiClient.clearTokens();
       ws.simulateClose(1006);
 
       vi.advanceTimersByTime(5000);
@@ -243,7 +245,7 @@ describe("WebSocketService", () => {
     });
 
     it("reconnect timeout cleared on disconnect", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -257,7 +259,7 @@ describe("WebSocketService", () => {
     });
 
     it("auth:expired event triggers disconnect", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -274,7 +276,7 @@ describe("WebSocketService", () => {
 
   describe("room subscriptions", () => {
     it("subscribe sends message when connected", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -288,7 +290,7 @@ describe("WebSocketService", () => {
     });
 
     it("subscribe queues if not connected", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
 
       wsService.subscribe("room-1");
@@ -299,7 +301,7 @@ describe("WebSocketService", () => {
     });
 
     it("unsubscribe sends message and removes from set", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -315,7 +317,7 @@ describe("WebSocketService", () => {
     });
 
     it("subscribeToNotifications subscribes to notifications_{userId}", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -326,7 +328,7 @@ describe("WebSocketService", () => {
     });
 
     it("subscribeToFeed subscribes to feed", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -337,18 +339,18 @@ describe("WebSocketService", () => {
     });
 
     it("subscribeToThread subscribes to thread id", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
 
       wsService.subscribeToThread("thread-abc");
 
-      expect(wsService.rooms).toContain("thread-abc");
+      expect(wsService.rooms).toContain("thread_thread-abc");
     });
 
     it("resubscribeRooms after reconnect re-sends all subscriptions", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws1 = MockWebSocket.instances[0]!;
       ws1.simulateOpen();
@@ -375,7 +377,7 @@ describe("WebSocketService", () => {
     });
 
     it("empty room string is no-op for subscribe/unsubscribe", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -404,7 +406,7 @@ describe("WebSocketService", () => {
       wsService.on("new_post", handler);
       wsService.off("new_post", handler);
 
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -417,7 +419,7 @@ describe("WebSocketService", () => {
       const handler = vi.fn();
       wsService.on("new_post", handler);
 
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -438,7 +440,7 @@ describe("WebSocketService", () => {
         throw new Error("handler crash");
       });
 
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -461,7 +463,7 @@ describe("WebSocketService", () => {
       wsService.on("like", handler1);
       wsService.on("like", handler2);
 
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -482,7 +484,7 @@ describe("WebSocketService", () => {
 
   describe("send and properties", () => {
     it("sendTyping sends typing message", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -496,7 +498,7 @@ describe("WebSocketService", () => {
     });
 
     it("sendTyping when not connected is no-op", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
 
       wsService.sendTyping("room-1");
@@ -506,7 +508,7 @@ describe("WebSocketService", () => {
     it("connected getter returns connection state", () => {
       expect(wsService.connected).toBe(false);
 
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -515,7 +517,7 @@ describe("WebSocketService", () => {
     });
 
     it("rooms getter returns subscribed rooms", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -533,7 +535,7 @@ describe("WebSocketService", () => {
 
   describe("ping and error handling", () => {
     it("ping sent every 30s when connected", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -547,7 +549,7 @@ describe("WebSocketService", () => {
     });
 
     it("ping not sent when disconnected", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
       ws.simulateOpen();
@@ -560,7 +562,7 @@ describe("WebSocketService", () => {
     });
 
     it("handleError does not throw", () => {
-      localStorage.setItem("auth_token", "test-token");
+      apiClient.setToken("test-token");
       wsService.connect();
       const ws = MockWebSocket.instances[0]!;
 

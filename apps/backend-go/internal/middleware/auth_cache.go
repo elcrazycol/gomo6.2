@@ -43,11 +43,21 @@ func AuthCacheMiddleware(authService *auth.AuthService, redisClient *redis.Clien
 			}
 		}
 
+		// Match AuthMiddleware: an explicit Bearer credential wins over an old
+		// browser cookie, preventing one credential from silently authenticating
+		// a request intended for another identity.
 		authHeader := c.GetHeader("Authorization")
 		if authHeader != "" {
-			tokenParts := strings.Split(authHeader, " ")
+			tokenParts := strings.Fields(authHeader)
 			if len(tokenParts) == 2 && tokenParts[0] == "Bearer" &&
 				tryValidateAndCache(authService, redisClient, c, tokenParts[1]) {
+				return
+			}
+		} else if rawToken := CookieAuthToken(c); rawToken != "" {
+			if !ValidateCSRF(c) {
+				return
+			}
+			if tryValidateAndCache(authService, redisClient, c, rawToken) {
 				return
 			}
 		}
