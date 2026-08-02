@@ -369,10 +369,10 @@ class ApiClient {
     }
   }
 
-  async updatePassword(password: string): Promise<void> {
+  async updatePassword(password: string, currentPassword?: string): Promise<void> {
     await this.request<unknown>('/api/v1/auth/password', {
       method: 'POST',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, current_password: currentPassword || '' }),
     });
   }
 

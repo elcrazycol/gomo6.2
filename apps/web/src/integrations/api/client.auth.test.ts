@@ -370,7 +370,7 @@ describe("ApiClient auth methods", () => {
         expect.stringContaining("/api/v1/auth/password"),
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ password: "new-secret" }),
+          body: JSON.stringify({ password: "new-secret", current_password: "" }),
         }),
       );
     });

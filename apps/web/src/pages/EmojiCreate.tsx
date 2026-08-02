@@ -244,7 +244,7 @@ const EmojiCreate = () => {
 
       // Get file extension from original file
       const originalExtension = selectedFile.name.split('.').pop() || 'png';
-      const fileName = `emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
+      const fileName = `${user.id}/emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
       await uploadFile('emojis', fileName, compressedFile);
 
       // Get public URL

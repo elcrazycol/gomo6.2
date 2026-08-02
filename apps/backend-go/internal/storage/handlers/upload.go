@@ -144,17 +144,24 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		contentType = "application/octet-stream"
 	}
 
-	// Messenger attachment keys are user-owned namespaces. The ownership
-	// prefix is checked again when a message is sent and when the object is
-	// served; an authenticated user cannot upload under another user's prefix.
+	// Ownership check. Messenger attachments live under <userID>/messenger/,
+	// every other user-uploaded object under <userID>/... . Keys are guessable
+	// (e.g. <userID>/avatar_<ts>.jpg), so an authenticated user must never be
+	// allowed to write into another user's namespace and overwrite their files.
+	claimsValue, exists := c.Get("claims")
+	claims, claimsOK := claimsValue.(*auth.Claims)
+	if !exists || !claimsOK || claims == nil || claims.UserID == "" {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
 	if bucket == "uploads" {
-		claims, ok := c.Get("claims")
-		userClaims, claimsOK := claims.(*auth.Claims)
-		if !ok || !claimsOK || userClaims == nil || userClaims.UserID == "" ||
-			!strings.HasPrefix(key, userClaims.UserID+"/messenger/") {
+		if !strings.HasPrefix(key, claims.UserID+"/messenger/") {
 			c.JSON(http.StatusForbidden, models.ErrorResponse("Invalid attachment key"))
 			return
 		}
+	} else if !strings.HasPrefix(key, claims.UserID+"/") {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Invalid object key"))
+		return
 	}
 
 	// Encrypt messenger attachments at rest
@@ -218,13 +225,18 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 
-	// Messenger uploads are private and may only be deleted by the sender of
-	// an attachment row. Authentication alone is not sufficient: object keys
-	// are guessable enough to make an unauthorised DELETE dangerous.
+	// Ownership check. Messenger uploads are private and may only be deleted by
+	// the sender of an attachment row. Public-bucket objects are user-scoped by
+	// key (<userID>/...), so deleting outside your own namespace is forbidden —
+	// object keys are guessable enough to make an unauthorised DELETE dangerous.
+	claimsValue, exists := c.Get("claims")
+	claims, claimsOK := claimsValue.(*auth.Claims)
+	if !exists || !claimsOK || claims == nil || claims.UserID == "" {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
 	if bucket == "uploads" {
-		claimsValue, exists := c.Get("claims")
-		claims, claimsOK := claimsValue.(*auth.Claims)
-		if !exists || !claimsOK || claims == nil || claims.UserID == "" || h.db == nil {
+		if h.db == nil {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
@@ -240,6 +252,9 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 			c.AbortWithStatus(http.StatusForbidden)
 			return
 		}
+	} else if !strings.HasPrefix(key, claims.UserID+"/") {
+		c.AbortWithStatus(http.StatusForbidden)
+		return
 	}
 
 	if err := h.client.DeleteFile(bucket, key); err != nil {

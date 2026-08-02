@@ -175,7 +175,6 @@ const Profile = () => {
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
   const [showProfileWall, setShowProfileWall] = useState(true);
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
-  const [newPassword, setNewPassword] = useState("");
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts' | 'friends'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
   const [showProfileStats, setShowProfileStats] = useState(false);
@@ -630,21 +629,8 @@ const Profile = () => {
       return;
     }
 
-    // Смена пароля, если поле заполнено
-    if (newPassword) {
-      const { error: passwordError } = await api.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (passwordError) {
-        toast.error("Ошибка смены пароля");
-        return;
-      } else {
-        toast.success("Пароль успешно изменён");
-        setNewPassword("");
-      }
-    }
-
+    // Смена пароля выполняется в разделе «Настройки → Аккаунт» (Settings.tsx),
+    // где пользователь подтверждает текущий пароль (current_password).
     toast.success("Профиль обновлен");
     setIsEditing(false);
     loadProfile();

@@ -419,7 +419,12 @@ const CreateThread = () => {
                     const file = e.target.files?.[0];
                     if (file) {
                       try {
-                        const imageKey = `threads/${Date.now()}-${file.name}`;
+                        const { data: { user } } = await api.auth.getUser();
+                        if (!user) {
+                          toast.error('Необходимо войти в систему');
+                          return;
+                        }
+                        const imageKey = `${user.id}/threads/${Date.now()}-${file.name}`;
                         await uploadFile('content', imageKey, file);
                         setThreadImageUrl(imageKey);
                       } catch (error) {

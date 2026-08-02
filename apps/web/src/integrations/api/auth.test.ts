@@ -401,7 +401,7 @@ describe("apiAuth", () => {
 
       const result = await apiAuth.updateUser({ password: "newpass123" });
 
-      expect(mockUpdatePassword).toHaveBeenCalledWith("newpass123");
+      expect(mockUpdatePassword).toHaveBeenCalledWith("newpass123", undefined);
       expect(mockGetCurrentUser).toHaveBeenCalledOnce();
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.error).toBeNull();

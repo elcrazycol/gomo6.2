@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	storageHandlers "github.com/gomo6/backend/internal/storage/handlers"
 )
 
@@ -190,6 +191,41 @@ func TestUploadFileWithKey_InvalidKey(t *testing.T) {
 	}
 }
 
+func TestUploadFileWithKey_PublicBucket_NotOwned(t *testing.T) {
+	h := setupStorageHandler(t)
+	req := newUploadRequest(t, "file", "avatar.jpg", "image/jpeg", []byte("data"), map[string]string{
+		"bucket": "post-images",
+		"key":    "other-user/avatar_123.jpg",
+	})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Set("claims", &auth.Claims{UserID: "user-a"})
+
+	h.UploadFileWithKey(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for foreign key, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUploadFileWithKey_PublicBucket_NoClaims(t *testing.T) {
+	h := setupStorageHandler(t)
+	req := newUploadRequest(t, "file", "avatar.jpg", "image/jpeg", []byte("data"), map[string]string{
+		"bucket": "post-images",
+		"key":    "user-a/avatar_123.jpg",
+	})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	h.UploadFileWithKey(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without claims, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUploadFileWithKey_NoFile(t *testing.T) {
 	h := setupStorageHandler(t)
 	body := &bytes.Buffer{}
@@ -238,6 +274,31 @@ func TestDownloadFile_MissingKey(t *testing.T) {
 }
 
 // ------- DeleteFile -------
+
+func TestDeleteFile_PublicBucket_NotOwned(t *testing.T) {
+	h := setupStorageHandler(t)
+	c, w := newStorageContext(http.MethodDelete, "/storage/v1/object/post-images/other-user/avatar_123.jpg",
+		map[string]string{"bucket": "post-images", "key": "other-user/avatar_123.jpg"})
+	c.Set("claims", &auth.Claims{UserID: "user-a"})
+
+	h.DeleteFile(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for foreign key, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteFile_PublicBucket_NoClaims(t *testing.T) {
+	h := setupStorageHandler(t)
+	c, w := newStorageContext(http.MethodDelete, "/storage/v1/object/post-images/user-a/avatar_123.jpg",
+		map[string]string{"bucket": "post-images", "key": "user-a/avatar_123.jpg"})
+
+	h.DeleteFile(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without claims, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
 
 func TestDeleteFile_MissingBucket(t *testing.T) {
 	h := setupStorageHandler(t)

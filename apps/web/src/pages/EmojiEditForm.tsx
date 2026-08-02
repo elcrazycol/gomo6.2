@@ -295,7 +295,7 @@ const EmojiEditForm = () => {
 
         // Get file extension from original file
         const originalExtension = selectedFile.name.split('.').pop() || 'png';
-        const fileName = `emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
+        const fileName = `${user.id}/emoji_${Date.now()}_${cleanCode}.${originalExtension}`;
         await uploadFile('emojis', fileName, compressedFile);
 
         // Get public URL
@@ -303,10 +303,12 @@ const EmojiEditForm = () => {
 
         imageUrl = publicUrl;
 
-        // Delete old image — use proper S3-compatible removeFile
+        // Delete old image — extract the storage key from the URL and clean it
+        // up (keys are <userID>/emoji_...; the backend only allows deleting
+        // objects inside the caller's own namespace).
         if (emoji.image_url !== imageUrl) {
-          const oldKey = emoji.image_url.split('/').pop();
-          if (oldKey) {
+          const oldKey = emoji.image_url.replace(/^.*\/object\/emojis\//, '');
+          if (oldKey && !oldKey.startsWith('http')) {
             try {
               await removeFile('emojis', oldKey);
             } catch {

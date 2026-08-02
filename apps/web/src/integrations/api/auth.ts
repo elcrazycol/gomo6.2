@@ -105,10 +105,10 @@ export const apiAuth = {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  updateUser: async (attrs: { password?: string }) => {
+  updateUser: async (attrs: { password?: string; current_password?: string }) => {
     try {
       if (attrs?.password) {
-        await apiClient.updatePassword(attrs.password);
+        await apiClient.updatePassword(attrs.password, attrs.current_password);
         const user = await apiClient.getCurrentUser();
         return { data: { user }, error: null };
       }

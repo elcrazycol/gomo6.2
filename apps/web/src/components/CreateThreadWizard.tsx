@@ -198,7 +198,12 @@ export const CreateThreadWizard = ({ boards, onClose }: CreateThreadWizardProps)
                   if (file) {
                     // Handle thread image upload
                     try {
-                      const imageKey = `threads/${Date.now()}-${file.name}`;
+                      const { data: { user } } = await api.auth.getUser();
+                      if (!user) {
+                        toast.error('Необходимо войти в систему');
+                        return;
+                      }
+                      const imageKey = `${user.id}/threads/${Date.now()}-${file.name}`;
                       await uploadFile('content', imageKey, file);
                       setThreadImageUrl(imageKey);
                     } catch (error) {

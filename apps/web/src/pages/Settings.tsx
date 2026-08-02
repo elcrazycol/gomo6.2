@@ -97,6 +97,7 @@ const Settings = () => {
     return localStorage.getItem('custom_font') || '';
   });
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -360,7 +361,7 @@ const Settings = () => {
   };
 
   const handlePasswordChange = async () => {
-    if (!newPassword || !confirmPassword) {
+    if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Заполните все поля");
       return;
     }
@@ -377,12 +378,14 @@ const Settings = () => {
 
     try {
       const { error } = await api.auth.updateUser({
-        password: newPassword
+        password: newPassword,
+        current_password: currentPassword,
       });
 
       if (error) throw error;
 
       toast.success("Пароль успешно изменён");
+      setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setShowPasswordDialog(false);
@@ -830,6 +833,12 @@ const Settings = () => {
                             <DialogTitle>Изменить пароль</DialogTitle>
                           </DialogHeader>
                           <div className="space-y-4">
+                            <Input
+                              type="password"
+                              placeholder="Текущий пароль"
+                              value={currentPassword}
+                              onChange={(e) => setCurrentPassword(e.target.value)}
+                            />
                             <Input
                               type="password"
                               placeholder="Новый пароль"

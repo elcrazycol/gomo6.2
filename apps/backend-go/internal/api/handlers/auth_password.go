@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"unicode"
@@ -34,10 +35,19 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	userClaims := claims.(*auth.Claims)
 
 	var body struct {
-		Password string `json:"password"`
+		Password        string `json:"password"`
+		CurrentPassword string `json:"current_password"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+
+	// Changing a password without proving knowledge of the current one would
+	// let a stolen session permanently lock the owner out. Require the current
+	// password whenever the account already has one.
+	if body.CurrentPassword == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("current_password is required"))
 		return
 	}
 
@@ -45,6 +55,22 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	if err := validatePassword(body.Password); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
+	}
+
+	var storedHash sql.NullString
+	err := h.db.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userClaims.UserID).Scan(&storedHash)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// Accounts without a password (OAuth / passkey-only) may set a first
+	// password; accounts with one must prove knowledge of it first.
+	if storedHash.Valid && storedHash.String != "" {
+		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(body.CurrentPassword)) != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			return
+		}
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), 12)

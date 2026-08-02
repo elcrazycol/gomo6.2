@@ -216,6 +216,175 @@ func TestGetProfile_DBError(t *testing.T) {
 	}
 }
 
+// helper to extract the profile object from an API response.
+func profileFromAPIResponse(t *testing.T, resp models.APIResponse) models.User {
+	t.Helper()
+	raw, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("marshal profile data: %v", err)
+	}
+	var p models.User
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("unmarshal profile: %v", err)
+	}
+	return p
+}
+
+// ─── Email privacy ──────────────────────────────────────────────────────
+
+func TestGetProfile_EmailHiddenFromAnonymous(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContext("/api/v1/profiles/u1", nil)
+	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
+
+	row := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow(
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+		nil, nil, nil, 100, 10, 2, true,
+		time.Now(), time.Now(), false, false,
+	)
+
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(row)
+
+	handler.GetProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	profile := profileFromAPIResponse(t, resp)
+	if profile.Email != nil {
+		t.Fatalf("email must be hidden from anonymous visitors, got %q", *profile.Email)
+	}
+	if profile.Username != "testuser" {
+		t.Fatalf("non-sensitive fields should stay visible, got username %q", profile.Username)
+	}
+}
+
+func TestGetProfile_OtherUserSeesNoEmail(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/profiles/u2", nil, &auth.Claims{UserID: "u1", Username: "viewer"})
+	c.Params = []gin.Param{{Key: "id", Value: "u2"}}
+
+	row := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow(
+		"u2", "user2", "user2", "user2@example.com", "localhost:8080",
+		nil, nil, nil, 50, 5, 1, false,
+		nil, time.Now(), false, false,
+	)
+
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u2").
+		WillReturnRows(row)
+
+	handler.GetProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	profile := profileFromAPIResponse(t, resp)
+	if profile.Email != nil {
+		t.Fatalf("other users must not see the email, got %q", *profile.Email)
+	}
+}
+
+func TestGetProfile_OwnerSeesEmail(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/profiles/u1", nil, &auth.Claims{UserID: "u1", Username: "testuser"})
+	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
+
+	row := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow(
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+		nil, nil, nil, 100, 10, 2, true,
+		time.Now(), time.Now(), false, false,
+	)
+
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(row)
+
+	handler.GetProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	profile := profileFromAPIResponse(t, resp)
+	if profile.Email == nil || *profile.Email != "test@example.com" {
+		t.Fatalf("profile owner should see their own email, got %v", profile.Email)
+	}
+}
+
+func TestGetProfiles_EmailsHiddenFromAnonymous(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+	c, w := newGETContext("/api/v1/profiles", nil)
+
+	rows := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow(
+		"u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
+		100, 10, 2, true, time.Now(), time.Now(), false, false,
+	).AddRow(
+		"u2", "user2", "user2", "user2@example.com", "localhost:8080", nil, nil, nil,
+		50, 5, 1, false, nil, time.Now(), false, false,
+	)
+
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*ORDER BY created_at DESC.*LIMIT \$1 OFFSET \$2`).
+		WithArgs(50, 0).
+		WillReturnRows(rows)
+
+	handler.GetProfiles(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	raw, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("marshal profiles data: %v", err)
+	}
+	var profiles []models.User
+	if err := json.Unmarshal(raw, &profiles); err != nil {
+		t.Fatalf("unmarshal profiles: %v", err)
+	}
+	for _, p := range profiles {
+		if p.Email != nil {
+			t.Fatalf("email must be hidden from anonymous visitors, got %q for %s", *p.Email, p.ID)
+		}
+	}
+}
+
 // ──────────────────────────── UpdateProfile ────────────────────────────
 
 func TestUpdateProfile_Success_UpdateBio(t *testing.T) {

@@ -171,6 +171,11 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		}
 	}
 	for i := range profiles {
+		// Email is private PII — only the profile owner may ever see it.
+		// Public profiles must not leak it to anonymous visitors or other users.
+		if viewerID != profiles[i].ID {
+			profiles[i].Email = nil
+		}
 		shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
 		if err == nil && shouldFilter {
 			if ps.PrivateHideAvatar {
@@ -178,7 +183,6 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			}
 			profiles[i].Bio = nil
 			profiles[i].BioJSON = nil
-			profiles[i].Email = nil
 			profiles[i].Garma = nil
 			profiles[i].PostCount = nil
 			profiles[i].ThreadCount = nil
@@ -242,6 +246,10 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 			viewerID = uc.UserID
 		}
 	}
+	// Email is private PII — only the profile owner may ever see it.
+	if viewerID != id {
+		profile.Email = nil
+	}
 	shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, id)
 	if err == nil && shouldFilter {
 		if ps.PrivateHideAvatar {
@@ -249,7 +257,6 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		}
 		profile.Bio = nil
 		profile.BioJSON = nil
-		profile.Email = nil
 		profile.Garma = nil
 		profile.PostCount = nil
 		profile.ThreadCount = nil
