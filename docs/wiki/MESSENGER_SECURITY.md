@@ -232,12 +232,18 @@ JWT_SECRET=$(openssl rand -base64 32)
 ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
-5. **CSP и HSTS заголовки** — конфигурация отслеживается в `Caddyfile` (matcher `@production`):
+5. **CSP и HSTS заголовки** — конфигурация отслеживается в `Caddyfile` (matcher `@production`, применяется только для реальных доменов, не для localhost). Источник истины — `Caddyfile`; ниже приведена актуальная версия:
 ```
+@production not host localhost docs.localhost dev.localhost mcaptcha.localhost
 header @production Strict-Transport-Security "max-age=31536000; includeSubDomains"
-header @production Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://mcaptcha.{$DOMAIN}; script-src 'self' blob: https://mcaptcha.{$DOMAIN}; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' wss:; font-src 'self'; media-src 'self' blob:;"
+header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://mcaptcha.{$DOMAIN:localhost}; script-src 'self' blob: https://integrate.depay.com https://mcaptcha.{$DOMAIN:localhost}; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' wss: https://integrate.depay.com https://api.depay.com; font-src 'self'; media-src 'self' blob:;"
+}
 ```
-CSP задаётся **без** `unsafe-eval`; `connect-src` ограничен собственным доменом и `wss:`; `frame-src` разрешает только self + mcaptcha (капча).
+CSP задаётся **без** `unsafe-eval`; `connect-src` ограничен собственным доменом, `wss:` и платёжными доменами depay; `frame-src` разрешает только self + mcaptcha (капча).
 
 6. **Включите rate limiting на уровне reverse proxy:**
 ```nginx

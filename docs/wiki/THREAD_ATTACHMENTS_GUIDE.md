@@ -259,8 +259,8 @@ docker exec backend-go-postgres-1 psql -U gomo6 -d gomo6 -c "SELECT id, attachme
 # Check backend logs for attachment processing
 docker logs backend-go-backend-1 --tail 50 | grep -i "attachments\|createpost"
 
-# Verify S3/Garage is accessible (from inside the docker network)
-docker compose exec garage curl -s http://localhost:3900/health || true
+# Verify S3/Garage is accessible (through the authenticated Go proxy)
+curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/storage/v1/object/post-images/avatar_placeholder.svg  # 200 — Garage доступен
 
 # Test server-side upload endpoint
 curl -X POST http://localhost:8080/storage/v1/upload \
