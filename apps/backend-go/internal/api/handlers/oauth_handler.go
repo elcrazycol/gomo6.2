@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -550,12 +551,26 @@ func isValidRedirectURI(allowedURIs []string, uri string) bool {
 		if strings.TrimSpace(allowed) == uri {
 			return true
 		}
-		// Allow wildcard matching for localhost ports
-		if strings.TrimSpace(allowed) == "http://localhost:*" && stringsHasPrefix(uri, "http://localhost:") {
+		// Allow wildcard matching for valid localhost HTTP ports only.
+		if strings.TrimSpace(allowed) == "http://localhost:*" && isValidLocalhostWildcardURI(uri) {
 			return true
 		}
 	}
 	return false
+}
+
+func isValidLocalhostWildcardURI(uri string) bool {
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Scheme != "http" || parsed.Hostname() != "localhost" {
+		return false
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		return false
+	}
+	portNumber, err := strconv.Atoi(port)
+	return err == nil && portNumber >= 1 && portNumber <= 65535
 }
 
 func isScopeAllowed(allowedScopes []string, scope string) bool {

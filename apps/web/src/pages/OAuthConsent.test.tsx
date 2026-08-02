@@ -55,6 +55,7 @@ const mockAppInfo: MockAppInfo = {
   logo_url: "",
   homepage_url: "https://example.com",
   allowed_scopes: ["openid", "profile", "email"],
+  redirect_uris: ["https://example.com/callback"],
   scope_descriptions: {
     openid: "Идентификация вашей учётной записи (OpenID Connect)",
     profile: "Чтение вашего имени пользователя и аватара",
@@ -119,6 +120,7 @@ function renderComponent(searchParams = "") {
 describe("OAuthConsent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAppInfo.redirect_uris = ["https://example.com/callback"];
     mockGetSession.mockResolvedValue({
       data: {
         session: {
@@ -249,7 +251,7 @@ describe("OAuthConsent", () => {
       screen.getByText("https://gomo6.wtf/oauth2/callback/generic"),
     ).toBeInTheDocument();
 
-    delete mockAppInfo.redirect_uris;
+    mockAppInfo.redirect_uris = ["https://example.com/callback"];
   });
 
   it("shows user info when logged in", async () => {
@@ -290,5 +292,40 @@ describe("OAuthConsent", () => {
 
     expect(window.location.href).toContain("https://example.com/callback?error=access_denied");
     expect(window.location.href).toContain("state=xyz");
+  });
+
+  it("preserves existing query parameters when denying", async () => {
+    mockAppInfo.redirect_uris = ["https://example.com/callback?tenant=demo"];
+
+    renderComponent(
+      "?client_id=app-1&state=xyz&redirect_uri=https://example.com/callback%3Ftenant%3Ddemo",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Test App")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Отказаться"));
+
+    expect(window.location.href).toContain("https://example.com/callback?tenant=demo");
+    expect(window.location.href).toContain("error=access_denied");
+    expect(window.location.href).toContain("state=xyz");
+
+    mockAppInfo.redirect_uris = ["https://example.com/callback"];
+  });
+
+  it("does not redirect to an unregistered URI on Deny", async () => {
+    renderComponent(
+      "?client_id=app-1&redirect_uri=https://attacker.example/callback",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Test App")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Отказаться"));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/");
+    expect(window.location.href).not.toContain("attacker.example");
   });
 });

@@ -90,6 +90,21 @@ func TestIsValidRedirectURI_LocalhostWildcard(t *testing.T) {
 	}
 }
 
+func TestIsValidRedirectURI_LocalhostWildcardRejectsInvalidPorts(t *testing.T) {
+	allowed := []string{"http://localhost:*"}
+	for _, uri := range []string{
+		"http://localhost/callback",
+		"http://localhost:0/callback",
+		"http://localhost:65536/callback",
+		"http://localhost:evil/callback",
+		"http://localhost:/callback",
+	} {
+		if isValidRedirectURI(allowed, uri) {
+			t.Errorf("Expected invalid localhost port to be rejected: %s", uri)
+		}
+	}
+}
+
 func TestIsValidRedirectURI_EmptyAllowed(t *testing.T) {
 	if isValidRedirectURI([]string{}, "http://localhost/callback") {
 		t.Fatal("Expected empty allowed list to reject all URIs")

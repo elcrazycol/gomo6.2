@@ -46,9 +46,26 @@ function isRedirectRegistered(uri: string, registered: string[]): boolean {
     if (allowed === trimmed) return true;
     return (
       allowed === "http://localhost:*" &&
-      trimmed.startsWith("http://localhost:")
+      isValidLocalhostWildcardUri(trimmed)
     );
   });
+}
+
+function isValidLocalhostWildcardUri(uri: string): boolean {
+  try {
+    const parsed = new URL(uri);
+    const port = Number(parsed.port);
+    return (
+      parsed.protocol === "http:" &&
+      parsed.hostname === "localhost" &&
+      parsed.port !== "" &&
+      Number.isInteger(port) &&
+      port >= 1 &&
+      port <= 65535
+    );
+  } catch {
+    return false;
+  }
 }
 
 function safeRedirectHost(uri: string | null): string | null {
@@ -215,16 +232,24 @@ const OAuthConsent = () => {
   ]);
 
   const handleDeny = useCallback(() => {
-    if (redirectUri) {
-      const params = new URLSearchParams();
-      params.set("error", "access_denied");
-      params.set("error_description", "User denied access");
-      if (state) params.set("state", state);
-      window.location.href = `${redirectUri}?${params.toString()}`;
-    } else {
+    // Never redirect to an unregistered URI, even on denial. The consent URL
+    // is user-controlled and could otherwise be used as an open redirect.
+    if (!redirectUri || !registeredRedirectUris || !isRedirectRegistered(redirectUri, registeredRedirectUris)) {
+      navigate("/");
+      return;
+    }
+
+    try {
+      const denialUrl = new URL(redirectUri);
+      denialUrl.searchParams.set("error", "access_denied");
+      denialUrl.searchParams.set("error_description", "User denied access");
+      if (state) denialUrl.searchParams.set("state", state);
+      window.location.href = denialUrl.toString();
+    } catch {
+      // A malformed registered URI must never become a navigation target.
       navigate("/");
     }
-  }, [redirectUri, state, navigate]);
+  }, [redirectUri, registeredRedirectUris, state, navigate]);
 
   const scopes = scope ? scope.split(" ") : [];
 
