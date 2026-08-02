@@ -1,11 +1,6 @@
 package handlers
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"fmt"
-	"io"
 	"log"
 	"os"
 
@@ -48,39 +43,4 @@ func decryptContent(encoded string) (string, error) {
 
 func decryptContentForConversation(conversationID, encoded string) (string, error) {
 	return crypto.DecryptForConversation(conversationID, encoded)
-}
-
-func encryptBytes(plaintext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(messengerEncryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("cipher init: %w", err)
-	}
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("GCM init: %w", err)
-	}
-	nonce := make([]byte, aesGCM.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("nonce gen: %w", err)
-	}
-	return aesGCM.Seal(nonce, nonce, plaintext, nil), nil
-}
-
-func decryptBytes(data []byte) ([]byte, error) {
-	if messengerEncryptionKey == nil || len(data) == 0 {
-		return data, nil
-	}
-	block, err := aes.NewCipher(messengerEncryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("cipher init: %w", err)
-	}
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("GCM init: %w", err)
-	}
-	nonceSize := aesGCM.NonceSize()
-	if len(data) < nonceSize {
-		return nil, fmt.Errorf("ciphertext too short (%d bytes)", len(data))
-	}
-	return aesGCM.Open(nil, data[:nonceSize], data[nonceSize:], nil)
 }

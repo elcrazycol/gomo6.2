@@ -706,11 +706,3 @@ func (h *MessengerHandler) insertAttachments(tx *sql.Tx, messageID string, attac
 	}
 	return nil
 }
-
-// nullString returns a sql.NullString for optional string values
-func nullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: s, Valid: true}
-}

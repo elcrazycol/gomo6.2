@@ -95,7 +95,6 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 	}
 	clauses = append(clauses, "ua.user_id = $"+strconv.Itoa(argIndex))
 	args = append(args, targetUserID)
-	argIndex++
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}

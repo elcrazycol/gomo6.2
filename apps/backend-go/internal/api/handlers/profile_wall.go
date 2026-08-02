@@ -106,7 +106,6 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		" OR COALESCE("+privacyAlias+".private_hide_wall, false) = false"+
 		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
 	args = append(args, claims.UserID)
-	ai++
 
 	query := baseQuery
 	if len(clauses) > 0 {

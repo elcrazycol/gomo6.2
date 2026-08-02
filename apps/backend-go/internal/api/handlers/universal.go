@@ -161,9 +161,9 @@ func genericReadScopeUser(c *gin.Context, table string) string {
 	if !needsScope {
 		return ""
 	}
-	claimsValue, ok := c.Get("claims")
-	claims, ok := claimsValue.(*auth.Claims)
-	if !ok || claims == nil {
+	claimsValue, claimsExists := c.Get("claims")
+	claims, claimsOK := claimsValue.(*auth.Claims)
+	if !claimsExists || !claimsOK || claims == nil {
 		return ""
 	}
 	return claims.UserID
