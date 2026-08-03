@@ -414,7 +414,7 @@ export const MessageContent = memo(function MessageContent({ content, attachment
   const hasEmojis = /\[e:[^\]]+\]/.test(content);
 
   if (!hasLinks && !hasAttachments && !hasEmojis) {
-    return <p className="whitespace-pre-wrap break-words">{content}</p>;
+    return <p className="message-content message-content-text whitespace-pre-wrap break-words">{content}</p>;
   }
 
   const renderTextWithEmojis = (text: string) => {
@@ -431,7 +431,7 @@ export const MessageContent = memo(function MessageContent({ content, attachment
   };
 
   return (
-    <div className="whitespace-pre-wrap break-words">
+    <div className="message-content message-content-stack whitespace-pre-wrap break-words">
       {segments.map((segment, i) => {
         if (segment.type === "text") {
           return <span key={i}>{renderTextWithEmojis(segment.content)}</span>;

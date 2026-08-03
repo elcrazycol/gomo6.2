@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { useMessengerStore, selectSelectedConversation } from "@/stores/messengerStore";
@@ -8,6 +8,34 @@ import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
 import "./messenger.css";
+
+const SIDEBAR_DEFAULT_WIDTH = 320;
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 460;
+const SIDEBAR_COLLAPSED_WIDTH = 76;
+const SIDEBAR_COLLAPSE_THRESHOLD = 180;
+const SIDEBAR_EXPAND_THRESHOLD = 220;
+const SIDEBAR_WIDTH_STORAGE_KEY = "gomo6:messenger-sidebar-width";
+
+function getInitialSidebarWidth() {
+  if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
+  try {
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+    return Number.isFinite(stored) && stored >= SIDEBAR_COLLAPSED_WIDTH && stored <= SIDEBAR_MAX_WIDTH
+      ? stored
+      : SIDEBAR_DEFAULT_WIDTH;
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH;
+  }
+}
+
+function saveSidebarWidth(width: number) {
+  try {
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
+  } catch {
+    // Storage can be unavailable in private browsing or restricted contexts.
+  }
+}
 
 export const MessengerView = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -19,7 +47,6 @@ export const MessengerView = () => {
   const selectedConversationId = useMessengerStore((s) => s.selectedConversationId);
   const createConversation = useMessengerStore((s) => s.createConversation);
   const typingUsers = useMessengerStore((s) => s.typingUsers);
-  const setError = useMessengerStore((s) => s.setError);
 
   // Refs
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -28,6 +55,11 @@ export const MessengerView = () => {
   // Mobile
   const [isMobile, setIsMobile] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  const sidebarCollapsed = !isMobile && sidebarWidth === SIDEBAR_COLLAPSED_WIDTH;
 
   const conversation = useMessengerStore(selectSelectedConversation);
   const showMobileChat = Boolean(conversation) && (!isMobile || !sidebarOpen);
@@ -49,6 +81,7 @@ export const MessengerView = () => {
     if (reqConv) {
       selectConversation(reqConv);
     } else if (targetUser && targetUser !== "null") {
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
       handleStartChat(targetUser);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -89,6 +122,76 @@ export const MessengerView = () => {
       }
     };
   }, [isMobile, showMobileChat]);
+
+  // ── Sidebar resize ─────────────────────────────────────────────────────
+  const updateSidebarWidth = useCallback((width: number) => {
+    sidebarWidthRef.current = width;
+    setSidebarWidth(width);
+    saveSidebarWidth(width);
+  }, []);
+
+  const handleSidebarResizeStart = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isMobile) return;
+    event.preventDefault();
+
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    const wasCollapsed = startWidth === SIDEBAR_COLLAPSED_WIDTH;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const targetWidth = startWidth + moveEvent.clientX - startX;
+      const nextWidth = wasCollapsed
+        ? targetWidth > SIDEBAR_EXPAND_THRESHOLD
+          ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, targetWidth))
+          : SIDEBAR_COLLAPSED_WIDTH
+        : targetWidth <= SIDEBAR_COLLAPSE_THRESHOLD
+          ? SIDEBAR_COLLAPSED_WIDTH
+          : Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, targetWidth));
+      sidebarWidthRef.current = nextWidth;
+      setSidebarWidth(nextWidth);
+    };
+
+    let cleanup = () => undefined;
+    const handleMouseUp = () => {
+      cleanup();
+      resizeCleanupRef.current = null;
+      saveSidebarWidth(sidebarWidthRef.current);
+    };
+    cleanup = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    // Keep the drag smooth even when the pointer crosses images or text.
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = cleanup;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [isMobile, sidebarWidth]);
+
+  const handleSidebarResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (isMobile) return;
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+
+    if (event.key === "ArrowLeft") {
+      updateSidebarWidth(SIDEBAR_COLLAPSED_WIDTH);
+    } else if (sidebarCollapsed) {
+      updateSidebarWidth(SIDEBAR_MIN_WIDTH);
+    } else {
+      updateSidebarWidth(Math.min(SIDEBAR_MAX_WIDTH, sidebarWidth + 16));
+    }
+  }, [isMobile, sidebarCollapsed, sidebarWidth, updateSidebarWidth]);
+
+  // Avoid retaining document styles/listeners if the view disappears mid-drag.
+  useEffect(() => () => {
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = null;
+  }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────
   const handleStartChat = useCallback(async (userId: string) => {
@@ -144,13 +247,33 @@ export const MessengerView = () => {
   return (
     <MessengerErrorBoundary>
       <div className="messenger-app">
-        <div className={`messenger-shell ${showMobileChat ? "mobile-chat-open" : ""}`}>
-          <aside className={`sidebar-panel ${sidebarOpen ? "is-open" : ""}`}>
+        <div
+          className={`messenger-shell ${showMobileChat ? "mobile-chat-open" : ""}`}
+          style={!isMobile ? { gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)` } : undefined}
+        >
+          <aside className={`sidebar-panel ${sidebarOpen ? "is-open" : ""}${sidebarCollapsed ? " is-collapsed" : ""}`}>
             <ConversationList
               onStartChat={handleStartChat}
               onSelectConversation={handleSelectConversation}
               targetUserId={searchParams.get("user")}
+              isCollapsed={sidebarCollapsed}
             />
+            {!isMobile && (
+              /* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
+              <div
+                className="sidebar-resizer"
+                role="separator"
+                aria-label="Изменить ширину списка диалогов"
+                aria-orientation="vertical"
+                aria-valuenow={sidebarWidth}
+                aria-valuemin={SIDEBAR_COLLAPSED_WIDTH}
+                aria-valuemax={SIDEBAR_MAX_WIDTH}
+                tabIndex={0}
+                onMouseDown={handleSidebarResizeStart}
+                onKeyDown={handleSidebarResizeKeyDown}
+              />
+              /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
+            )}
           </aside>
 
           <section className={`chat-panel ${showMobileChat ? "is-open" : ""}`}>

@@ -14,25 +14,33 @@ interface Props {
   onSelectConversation?: (id: string) => void;
   startingChat?: boolean;
   targetUserId?: string | null;
+  isCollapsed?: boolean;
 }
 
 const ConversationCard = memo(function ConversationCard({
   conversation,
   isSelected,
   onSelect,
+  isCollapsed,
+  myUserId,
 }: {
   conversation: ConversationView;
   isSelected: boolean;
   onSelect: () => void;
+  isCollapsed: boolean;
+  myUserId: string | null;
 }) {
   const isOnline = !conversation.is_group && conversation.other_is_online;
   const unread = conversation.unread_count ?? 0;
+  const lastMessageIsMine = Boolean(myUserId && conversation.last_message_sender_id === myUserId);
 
   return (
     <button
       type="button"
       className={`conversation-card${isSelected ? " is-active" : ""}${unread > 0 ? " has-unread" : ""}`}
       onClick={onSelect}
+      title={isCollapsed ? (conversation.is_group ? conversation.group_name || "Группа" : conversation.other_username || "Диалог") : undefined}
+      aria-label={isCollapsed ? (conversation.is_group ? conversation.group_name || "Группа" : conversation.other_username || "Диалог") : undefined}
     >
       <div className="avatar-wrapper">
         <div className="avatar">
@@ -52,22 +60,27 @@ const ConversationCard = memo(function ConversationCard({
       <div className="conversation-copy">
         <div className="conversation-head">
           <div className="conversation-user-badge">
-            {conversation.is_group ? (
-              <span className="font-bold text-xs sm:text-sm">{conversation.group_name || "Группа"}</span>
-            ) : (
-              <UserBadge
-                userId={conversation.other_user_id || ""}
-                username={conversation.other_username || ""}
-                displayName={conversation.other_display_name}
-                showOutline={false}
-                disableLink
-                disableHoverCard
-              />
-            )}
+            <div className="conversation-name">
+              {conversation.is_group ? (
+                <span className="conversation-title">{conversation.group_name || "Группа"}</span>
+              ) : (
+                <UserBadge
+                  userId={conversation.other_user_id || ""}
+                  username={conversation.other_username || ""}
+                  displayName={conversation.other_display_name}
+                  showOutline={false}
+                  disableLink
+                  disableHoverCard
+                />
+              )}
+            </div>
           </div>
-          <span className="conversation-time">
-            {formatConversationDate(conversation.last_message_at)}
-          </span>
+          <div className="conversation-last-meta" aria-label={`Последнее сообщение: ${formatConversationDate(conversation.last_message_at)}`}>
+            {lastMessageIsMine && <span className="conversation-status" aria-label="Отправлено">✓</span>}
+            <span className="conversation-time">
+              {formatConversationDate(conversation.last_message_at)}
+            </span>
+          </div>
         </div>
         <div className="conversation-meta">
           {conversation.last_message_preview ? (
@@ -86,10 +99,14 @@ const ConversationVirtualList = memo(function ConversationVirtualList({
   conversations,
   selectedId,
   onSelect,
+  isCollapsed,
+  myUserId,
 }: {
   conversations: ConversationView[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  isCollapsed: boolean;
+  myUserId: string | null;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -109,6 +126,8 @@ const ConversationVirtualList = memo(function ConversationVirtualList({
             conversation={conv}
             isSelected={conv.id === selectedId}
             onSelect={() => onSelect(conv.id)}
+            isCollapsed={isCollapsed}
+            myUserId={myUserId}
           />
         ))}
       </>
@@ -137,6 +156,8 @@ const ConversationVirtualList = memo(function ConversationVirtualList({
                 conversation={conv}
                 isSelected={conv.id === selectedId}
                 onSelect={() => onSelect(conv.id)}
+                isCollapsed={isCollapsed}
+                myUserId={myUserId}
               />
             </div>
           );
@@ -151,8 +172,10 @@ export const ConversationList = memo(function ConversationList({
   onSelectConversation,
   startingChat,
   targetUserId,
+  isCollapsed = false,
 }: Props) {
   const conversations = useMessengerStore((s) => s.conversations);
+  const myUserId = useMessengerStore((s) => s.me?.id ?? null);
   const selectedId = useMessengerStore((s) => s.selectedConversationId);
   const selectConversation = useMessengerStore((s) => s.selectConversation);
   const error = useMessengerStore((s) => s.error);
@@ -219,7 +242,7 @@ export const ConversationList = memo(function ConversationList({
       )}
 
       <div className="conversation-list" role="navigation" aria-label="Диалоги">
-        {conversations.length > 3 && (
+        {conversations.length > 3 && !isCollapsed && (
           <div style={{ padding: "0 0 4px" }}>
             <input
               type="text"
@@ -272,6 +295,8 @@ export const ConversationList = memo(function ConversationList({
           conversations={filteredConversations}
           selectedId={selectedId}
           onSelect={handleSelect}
+          isCollapsed={isCollapsed}
+          myUserId={myUserId}
         />
       </div>
     </>
