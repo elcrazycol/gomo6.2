@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   getAttachmentAspectRatio,
   rememberAttachmentAspectRatio,
   clearAttachmentAspectRatios,
+  subscribeToAttachmentRatios,
+  getAttachmentRatiosVersion,
   __resetAttachmentRatioCacheForTests,
 } from "./attachmentRatioCache";
 
@@ -79,6 +81,25 @@ describe("attachmentRatioCache", () => {
     expect(Object.keys(parsed)).toHaveLength(400);
     expect(parsed["new-entry"]).toBeDefined();
     expect(parsed["old-0"]).toBeUndefined();
+  });
+
+  it("notifies subscribers and bumps the version on mutation", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToAttachmentRatios(listener);
+    const versionBefore = getAttachmentRatiosVersion();
+
+    rememberAttachmentAspectRatio("user-1/messenger/photo.jpg", 1.5);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(getAttachmentRatiosVersion()).toBe(versionBefore + 1);
+
+    // Fallback-matching ratios are skipped and must not notify.
+    rememberAttachmentAspectRatio("user-1/messenger/photo.jpg", 4 / 3, 4 / 3);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(getAttachmentRatiosVersion()).toBe(versionBefore + 1);
+
+    unsubscribe();
+    rememberAttachmentAspectRatio("user-1/messenger/photo.jpg", 2);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("clear removes both memory and storage", () => {

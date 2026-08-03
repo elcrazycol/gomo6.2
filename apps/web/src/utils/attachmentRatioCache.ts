@@ -23,6 +23,17 @@ export function fallbackAttachmentAspectRatio(type: "image" | "video"): number {
 
 let cached: Record<string, CacheEntry> | null = null;
 
+// Version counter bumped on every mutation. ChatView subscribes to it so the
+// virtualizer re-estimates row heights in the *current* session the moment an
+// image finishes loading — not only after the chat is reopened.
+let version = 0;
+const listeners = new Set<() => void>();
+
+function emitChange(): void {
+  version += 1;
+  for (const listener of listeners) listener();
+}
+
 function readStorage(): Record<string, CacheEntry> {
   if (typeof localStorage === "undefined") return {};
   try {
@@ -116,6 +127,22 @@ export function rememberAttachmentAspectRatio(
   }
   store[url] = { ratio, savedAt: Date.now() };
   persist();
+  emitChange();
+}
+
+/**
+ * Subscribe to cache mutations. Returns an unsubscribe function. Combined with
+ * `getCacheVersion` it powers the virtualizer re-estimation in the current
+ * session.
+ */
+export function subscribeToAttachmentRatios(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Monotonic version of the cache; changes whenever a ratio is remembered. */
+export function getAttachmentRatiosVersion(): number {
+  return version;
 }
 
 /** Forget everything (used by tests and future cache-clear flows). */

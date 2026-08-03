@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDrag } from "@use-gesture/react";
 import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift } from "lucide-react";
@@ -11,7 +11,7 @@ import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
-import { getAttachmentAspectRatio } from "@/utils/attachmentRatioCache";
+import { getAttachmentAspectRatio, subscribeToAttachmentRatios, getAttachmentRatiosVersion } from "@/utils/attachmentRatioCache";
 import type { Attachment, MessageView, ReceiptRow } from "./types";
 import { estimatePrependedHeight } from "./scrollUtils";
 
@@ -169,6 +169,10 @@ export const ChatView = memo(function ChatView({
   } | null>(null);
   const applyingScrollRef = useRef(false);
   const scrollOperationRef = useRef(0);
+  // Re-estimate row heights the moment a media ratio is remembered in this
+  // session, so prepend compensation and total size track real proportions
+  // immediately — no need to reopen the chat to benefit from the cache.
+  useSyncExternalStore(subscribeToAttachmentRatios, getAttachmentRatiosVersion);
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollContainerRef.current,
