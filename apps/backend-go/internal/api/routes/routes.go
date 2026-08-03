@@ -55,6 +55,9 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 	// Initialize rate limiters (Redis-backed for distributed deployment)
 	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute)     // 100 req/min for auth/me
+	loginRateLimiter := middleware.NewAuthRateLimiter(redis, 10, time.Minute)     // 10/min per IP for login (anti brute-force)
+	registerRateLimiter := middleware.NewAuthRateLimiter(redis, 5, time.Minute)   // 5/min per IP for register (anti abuse)
+	verify2FARateLimiter := middleware.NewAuthRateLimiter(redis, 20, time.Minute) // 20/min per IP for the 2FA step
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
 	globalRateLimiter := middleware.NewGlobalRateLimiter(redis, 200, time.Minute) // 200 req/min per IP for public endpoints
 	// Upload limits: per-user request rate + hourly byte quota. Redis-backed so
@@ -153,8 +156,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Auth routes
 		authGroup := api.Group("/auth")
 		{
-			authGroup.POST("/register", authHandler.Register)
-			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/register", middleware.AuthRateLimitMiddleware(registerRateLimiter), authHandler.Register)
+			authGroup.POST("/login", middleware.AuthRateLimitMiddleware(loginRateLimiter), authHandler.Login)
 			// Refresh authenticates using the HttpOnly refresh cookie (or the
 			// legacy bearer+JSON contract for API clients). Access may already be expired.
 			authGroup.POST("/refresh", authHandler.Refresh)
@@ -178,7 +181,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				auth2fa.GET("/status", authHandler.Get2FAStatus)
 			}
 			// Verify 2FA during login (uses partial token, no full auth middleware)
-			authGroup.POST("/verify-2fa", authHandler.Verify2FA)
+			authGroup.POST("/verify-2fa", middleware.AuthRateLimitMiddleware(verify2FARateLimiter), authHandler.Verify2FA)
 
 			// WebAuthn/Passkeys endpoints
 			if webauthnHandler != nil {

@@ -265,7 +265,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -280,7 +280,7 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		}
 
 		if err := rows.Scan(valuePtrs...); err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "database error", err)
 			return
 		}
 
@@ -518,7 +518,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	if upsertQuery, upsertArgs, useUpsert := upsertInsertQuery(tableName, data); useUpsert {
 		rows, err := h.db.Query(upsertQuery, upsertArgs...)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "database error", err)
 			return
 		}
 		defer rows.Close()
@@ -528,7 +528,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		}
 		result, err := scanRowToMap(rows)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "database error", err)
 			return
 		}
 
@@ -582,7 +582,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -594,7 +594,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 
 	result, err := scanRowToMap(rows)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 
@@ -747,7 +747,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -765,7 +765,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	if err := rows.Scan(valuePtrs...); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 
@@ -878,7 +878,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	query += " WHERE " + strings.Join(clauses, " AND ") + " RETURNING *"
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 	defer rows.Close()
@@ -896,7 +896,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	}
 
 	if err := rows.Scan(valuePtrs...); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "database error", err)
 		return
 	}
 

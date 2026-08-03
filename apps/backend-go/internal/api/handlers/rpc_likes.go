@@ -41,7 +41,7 @@ func (h *RPCHandler) GetPostLikesCount(c *gin.Context) {
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE post_id = $1", postID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *RPCHandler) GetThreadLikesCount(c *gin.Context) {
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE thread_id = $1", threadID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -120,7 +120,7 @@ func (h *RPCHandler) HasUserLikedPost(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)",
 		postID, userID).Scan(&exists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *RPCHandler) HasUserLikedThread(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)",
 		threadID, userID).Scan(&exists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -200,7 +200,7 @@ func (h *RPCHandler) GetUserLikesGivenCount(c *gin.Context) {
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM post_likes WHERE user_id = $1", userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -239,7 +239,7 @@ func (h *RPCHandler) GetUserLikesReceivedCount(c *gin.Context) {
 		WHERE p.user_id = $1
 	`, userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -274,7 +274,7 @@ func (h *RPCHandler) GetUserThreadLikesGivenCount(c *gin.Context) {
 	var count int
 	err = h.db.QueryRow("SELECT COUNT(*) FROM thread_likes WHERE user_id = $1", userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -313,7 +313,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedCount(c *gin.Context) {
 		WHERE t.user_id = $1
 	`, userID).Scan(&count)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -364,7 +364,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 
 	rows, err := h.db.Query(query, postID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -387,7 +387,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 
 		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 
@@ -445,7 +445,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 
 	rows, err := h.db.Query(query, threadID, limit)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -468,7 +468,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 
 		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 
@@ -518,7 +518,7 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 		ORDER BY pl.created_at ASC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -527,7 +527,7 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
@@ -598,7 +598,7 @@ func (h *RPCHandler) GetThreadLikesBatch(c *gin.Context) {
 	countQuery := `SELECT thread_id, COUNT(*) FROM thread_likes WHERE thread_id IN (` + ph + `) GROUP BY thread_id`
 	countRows, err := h.db.Query(countQuery, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer countRows.Close()
@@ -689,7 +689,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 		ORDER BY tl.created_at ASC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -698,7 +698,7 @@ func (h *RPCHandler) GetUserThreadLikesReceivedTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})
@@ -742,7 +742,7 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 		ORDER BY p.created_at ASC
 	`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -751,7 +751,7 @@ func (h *RPCHandler) GetUserThreadReplyTimestamps(c *gin.Context) {
 	for rows.Next() {
 		var t time.Time
 		if err := rows.Scan(&t); err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		out = append(out, map[string]interface{}{"created_at": t.UTC().Format(time.RFC3339Nano)})

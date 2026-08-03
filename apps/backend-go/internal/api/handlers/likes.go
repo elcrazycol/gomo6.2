@@ -79,7 +79,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM thread_likes WHERE thread_id = $1 AND user_id = $2)",
 		threadID, userClaims.UserID).Scan(&likeExists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -101,7 +101,7 @@ func (h *LikesHandler) LikeThread(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *LikesHandler) UnlikeThread(c *gin.Context) {
 	query := "DELETE FROM thread_likes WHERE thread_id = $1 AND user_id = $2"
 	result, err := h.db.Exec(query, threadID, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -228,7 +228,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)",
 		postID, userClaims.UserID).Scan(&likeExists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -250,7 +250,7 @@ func (h *LikesHandler) LikePost(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -314,7 +314,7 @@ func (h *LikesHandler) UnlikePost(c *gin.Context) {
 	query := "DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2"
 	result, err := h.db.Exec(query, postID, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -387,7 +387,7 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 
 	rows, err := h.db.Query(query, threadID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -404,7 +404,7 @@ func (h *LikesHandler) GetThreadLikes(c *gin.Context) {
 
 		err := rows.Scan(&like.ID, &like.ThreadID, &like.UserID, &like.CreatedAt, &username, &avatarURL)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 

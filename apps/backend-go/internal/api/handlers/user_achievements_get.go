@@ -104,7 +104,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 		uid := strings.TrimPrefix(userID, "eq.")
 		canView, err := CanViewUserAchievements(h.db, viewerID, uid)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if !canView {
@@ -138,7 +138,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -152,7 +152,7 @@ LEFT JOIN achievements a ON a.id = ua.achievement_id
 			valuePtrs[i] = &values[i]
 		}
 		if err := rows.Scan(valuePtrs...); err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		row := make(map[string]interface{})

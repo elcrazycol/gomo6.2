@@ -432,7 +432,7 @@ func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName
 		return false
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		c.Abort()
 		return false
 	}

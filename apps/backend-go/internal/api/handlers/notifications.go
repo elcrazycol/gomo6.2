@@ -196,7 +196,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -210,7 +210,7 @@ func (h *NotificationsHandler) GetNotifications(c *gin.Context) {
 			&notification.RelatedPostID, &notification.RelatedUserID, &notification.IsRead, &notification.CreatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		notifications = append(notifications, notification)
@@ -266,7 +266,7 @@ func (h *NotificationsHandler) MarkAsRead(c *gin.Context) {
 
 	result, err := h.db.Exec(query, notificationID, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -307,7 +307,7 @@ func (h *NotificationsHandler) MarkAllAsRead(c *gin.Context) {
 
 	_, err := h.db.Exec(query, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -341,7 +341,7 @@ func (h *NotificationsHandler) GetUnreadCount(c *gin.Context) {
 		userClaims.UserID).Scan(&count)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

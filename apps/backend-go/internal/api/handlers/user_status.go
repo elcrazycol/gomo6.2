@@ -85,7 +85,7 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("User not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 
 	rows, err := h.db.Query(query, pq.Array(request.UserIDs))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()

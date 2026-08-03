@@ -181,7 +181,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -197,7 +197,7 @@ func (h *BoardsHandler) GetBoards(c *gin.Context) {
 			&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		boards = append(boards, board)
@@ -240,7 +240,7 @@ func (h *BoardsHandler) GetBoard(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Board not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -306,7 +306,7 @@ func (h *BoardsHandler) CreateBoard(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -341,7 +341,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !ownerID.Valid || ownerID.String != userClaims.UserID {
@@ -433,7 +433,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 
 	_, err = h.db.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -457,7 +457,7 @@ func (h *BoardsHandler) UpdateBoard(c *gin.Context) {
 		&board.RulesMarkdown, &board.RulesUpdatedAt, &board.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -498,7 +498,7 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
@@ -541,7 +541,7 @@ func (h *BoardsHandler) CreateInvite(c *gin.Context) {
 		&invite.MaxUses, &invite.CurrentUses, &invite.ExpiresAt, &invite.CreatedAt, &invite.IsActive,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -585,7 +585,7 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
@@ -600,7 +600,7 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 		ORDER BY created_at DESC
 	`, boardID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -609,7 +609,7 @@ func (h *BoardsHandler) GetInvites(c *gin.Context) {
 	for rows.Next() {
 		var inv models.GomosubInvite
 		if err := rows.Scan(&inv.ID, &inv.BoardID, &inv.Code, &inv.CreatedBy, &inv.MaxUses, &inv.CurrentUses, &inv.ExpiresAt, &inv.CreatedAt, &inv.IsActive); err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		invites = append(invites, inv)
@@ -650,7 +650,7 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !boardOwner.Valid || boardOwner.String != userClaims.UserID {
@@ -660,7 +660,7 @@ func (h *BoardsHandler) DeleteInvite(c *gin.Context) {
 
 	result, err := h.db.Exec(`UPDATE gomosub_invites SET is_active = FALSE WHERE id = $1 AND board_id = $2`, inviteID, boardID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	affected, _ := result.RowsAffected()
@@ -717,7 +717,7 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -741,7 +741,7 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 	if err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -761,14 +761,14 @@ func (h *BoardsHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
 	// Add membership
 	_, err = h.db.Exec(`INSERT INTO gomosub_memberships (board_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, inv.BoardID, userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -822,7 +822,7 @@ func (h *BoardsHandler) GetInviteInfo(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

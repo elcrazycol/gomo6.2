@@ -140,7 +140,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -169,7 +169,7 @@ func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -289,7 +289,7 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if len(retContentJSON) > 0 {
@@ -421,7 +421,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		}
 		canWrite, err := h.canWriteChannel(claims.UserID, *req.ChannelID)
 		if err != nil && err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if !canWrite {
@@ -450,7 +450,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	tx, err := h.db.Begin()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer tx.Rollback()
@@ -475,7 +475,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if len(retContentJSON) > 0 {
@@ -508,7 +508,7 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	}
 
 	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -590,7 +590,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 			c.JSON(http.StatusOK, models.SuccessResponse(false))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -605,7 +605,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 		`, req.UserID).Scan(&pinnedCount)
 
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 
@@ -644,7 +644,7 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 	}
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -696,7 +696,7 @@ func (h *RPCHandler) AwardAchievement(c *gin.Context) {
 	var achExists bool
 	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM achievements WHERE id = $1)", req.AchievementID).Scan(&achExists)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !achExists {
@@ -711,7 +711,7 @@ func (h *RPCHandler) AwardAchievement(c *gin.Context) {
 	`, req.UserID, req.AchievementID)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -753,7 +753,7 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -787,7 +787,7 @@ func (h *RPCHandler) GetBoardUserPermissions(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

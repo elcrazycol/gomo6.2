@@ -385,7 +385,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 	}
 	canView, err := CanViewUserContent(h.db, viewerID, recipientID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !canView {
@@ -446,7 +446,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 		LIMIT $2 OFFSET $3
 	`, recipientID, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -471,7 +471,7 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 			&g.giftRarity, &g.bgRarity, &g.symRarity,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if g.giftLayerURL.Valid {
@@ -547,7 +547,7 @@ func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -562,7 +562,7 @@ func (h *GiftsHandler) GetGiftCatalog(c *gin.Context) {
 			&g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		gifts = append(gifts, g)

@@ -99,7 +99,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 		return
 	}
 	if err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *RPCHandler) CreateGomoSub(c *gin.Context) {
 			c.JSON(http.StatusConflict, models.ErrorResponse("Такой слаг уже занят"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

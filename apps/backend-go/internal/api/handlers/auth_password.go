@@ -60,7 +60,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	var storedHash sql.NullString
 	err := h.db.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userClaims.UserID).Scan(&storedHash)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "load password hash", err)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 
 	_, err = h.db.Exec(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, string(hashedPassword), userClaims.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "update password hash", err)
 		return
 	}
 

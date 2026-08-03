@@ -71,7 +71,7 @@ func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -86,7 +86,7 @@ func (h *GiftAdminHandler) ListGifts(c *gin.Context) {
 			&g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		gifts = append(gifts, g)
@@ -175,7 +175,7 @@ func (h *GiftAdminHandler) CreateGift(c *gin.Context) {
 		&g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -293,7 +293,7 @@ func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
 
 	_, err := h.db.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -312,7 +312,7 @@ func (h *GiftAdminHandler) UpdateGift(c *gin.Context) {
 		&g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -346,7 +346,7 @@ func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
 
 	_, err := h.db.Exec(`UPDATE gift_catalog SET is_active = false, updated_at = NOW() WHERE id = $1`, giftID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -381,7 +381,7 @@ func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
 		ORDER BY gl.layer_type, gl.sort_order, gl.created_at
 	`, giftID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -462,7 +462,7 @@ func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
 		&nameVal, &l.SortOrder, &l.CreatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if nameVal != "" {
@@ -512,7 +512,7 @@ func (h *GiftAdminHandler) DeleteLayer(c *gin.Context) {
 
 	_, err = h.db.Exec("DELETE FROM gift_layers WHERE id = $1", layerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

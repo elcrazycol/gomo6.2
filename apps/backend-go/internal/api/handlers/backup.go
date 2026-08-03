@@ -258,7 +258,7 @@ func (h *BackupHandler) Import(c *gin.Context) {
 
 	result, err := h.runImport(c.Request.Context(), userClaims.UserID, archiveData)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

@@ -140,7 +140,7 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 		fileInfo, err = h.client.UploadFile(bucket, key, data, contentType)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
 
@@ -252,7 +252,7 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		fileInfo, err = h.client.UploadFile(bucket, key, data, contentType)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
 
@@ -391,7 +391,7 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	}
 
 	if err := h.client.DeleteFile(bucket, key); err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
 	// Derivatives are private implementation details and must not become
@@ -421,7 +421,7 @@ func (h *StorageHandler) GetPresignedURL(c *gin.Context) {
 
 	url, err := h.client.GetPresignedURL(bucket, key, time.Duration(expires)*time.Second)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
 		return
 	}
 

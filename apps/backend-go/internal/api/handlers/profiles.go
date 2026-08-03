@@ -138,7 +138,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -154,7 +154,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			&profile.IsRemote, &profile.IsAnonymous,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if bioJSON.Valid && len(bioJSON.String) > 0 {
@@ -231,7 +231,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Profile not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -381,7 +381,7 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 
 	_, err := h.db.Exec(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 

@@ -252,7 +252,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -270,7 +270,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			&username, &avatarURL,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if username.Valid {
@@ -339,7 +339,7 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if username.Valid {
@@ -388,7 +388,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Post not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -396,7 +396,7 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 
 	result, err := h.db.Exec(query, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -458,7 +458,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !authorID.Valid || authorID.String != userClaims.UserID {
@@ -493,7 +493,7 @@ func (h *PostsHandler) UpdatePost(c *gin.Context) {
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if len(retJSON) > 0 {

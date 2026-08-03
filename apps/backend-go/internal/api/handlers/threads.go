@@ -238,7 +238,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		viewerID := h.getUserIDFromRequest(c)
 		canView, err := CanViewUserContent(h.db, viewerID, threadOwnerID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if !canView {
@@ -266,7 +266,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		userID := h.getUserIDFromRequest(c)
 		canAccess, err := h.canAccessChannel(userID, channelIDParam, false)
 		if err != nil && err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if !canAccess {
@@ -358,7 +358,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	defer rows.Close()
@@ -380,7 +380,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+			serverError(c, "handler error", err)
 			return
 		}
 		if channelID.Valid {
@@ -470,7 +470,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -537,13 +537,13 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 			c.JSON(http.StatusNotFound, models.ErrorResponse("Thread not found"))
 			return
 		}
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
 	result, err := h.db.Exec("DELETE FROM threads WHERE id = $1", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
@@ -601,7 +601,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 	if !ownerID.Valid || ownerID.String != userClaims.UserID {
@@ -639,7 +639,7 @@ func (h *ThreadsHandler) UpdateThread(c *gin.Context) {
 		thread.ContentJSON = json.RawMessage(retJSON)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
+		serverError(c, "handler error", err)
 		return
 	}
 
