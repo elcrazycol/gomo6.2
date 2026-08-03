@@ -1322,7 +1322,12 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
         </motion.div>
       )}
 
-      <main id="main-content" tabIndex={-1} className="flex-1 min-h-0 outline-none" style={{ paddingTop: hideChrome ? 0 : contentPad }}>
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className={`flex-1 min-h-0 outline-none${isMessengerPage ? " is-messenger-page" : ""}`}
+        style={{ paddingTop: hideChrome ? 0 : contentPad }}
+      >
         {children}
       </main>
 
