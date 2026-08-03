@@ -132,9 +132,9 @@ class MessengerWebSocket {
 
     if (!isMine) {
       const convId = store.selectedConversationId;
-      queueMarkDelivered(data.conversation_id as string, data.id as string);
+      queueMarkDelivered(data.conversation_id as string, data.id as string, data.sent_at as string | undefined);
       if (convId === data.conversation_id) {
-        queueMarkRead(data.conversation_id as string, data.id as string);
+        queueMarkRead(data.conversation_id as string, data.id as string, data.sent_at as string | undefined);
       }
     }
   }

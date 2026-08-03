@@ -168,8 +168,8 @@ describe("messengerWebSocket", () => {
         sent_at: "2025-01-01T00:00:00Z",
       });
 
-      expect(queueMarkDeliveredMock).toHaveBeenCalledWith("conv-1", "msg-1");
-      expect(queueMarkReadMock).toHaveBeenCalledWith("conv-1", "msg-1");
+      expect(queueMarkDeliveredMock).toHaveBeenCalledWith("conv-1", "msg-1", "2025-01-01T00:00:00Z");
+      expect(queueMarkReadMock).toHaveBeenCalledWith("conv-1", "msg-1", "2025-01-01T00:00:00Z");
     });
 
     it("skips markDelivered/markRead for own messages", () => {

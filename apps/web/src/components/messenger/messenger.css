@@ -699,6 +699,19 @@
   overflow: auto;
   padding: 0 18px 12px;
   position: relative;
+  /* The list owns its anchor while history is prepended. Letting the browser
+     apply a second scroll anchor fights the virtualizer and causes the jump. */
+  overflow-anchor: none;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Keep the first network/cache reconciliation invisible. The list is still
+   mounted for accessibility and receives its final position immediately
+   after measurement. */
+.message-scroll.is-initial-positioning {
+  visibility: hidden;
 }
 
 /* ── Date separator ── */
@@ -795,7 +808,11 @@
 .message-bubble {
   max-width: min(70%, 640px);
   min-width: 0;
-  padding: 9px 12px;
+  /* Reserve metadata space for every message. Switching between measured
+     inline/multiline modes made individual bubbles change height and could
+     even make the text appear to change size while scrolling. */
+  padding: 9px 12px 28px;
+  box-sizing: border-box;
   border: 1px solid hsl(var(--border));
   border-radius: 14px;
   background: hsl(var(--card));
@@ -1640,18 +1657,32 @@
 }
 
 .msg-attachment-image {
-  max-width: 240px;
-  max-height: 300px;
+  width: min(240px, 100%);
+  height: 180px;
+  aspect-ratio: 4 / 3;
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
+  background: hsl(var(--muted) / 0.35);
 }
 
-.msg-attachment-image img {
+.msg-attachment-image img,
+.msg-attachment-image video,
+.msg-attachment-placeholder {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
+}
+
+.msg-attachment-placeholder {
+  background: linear-gradient(110deg, hsl(var(--muted) / 0.2) 20%, hsl(var(--muted) / 0.5) 38%, hsl(var(--muted) / 0.2) 56%);
+  background-size: 200% 100%;
+  animation: attachment-placeholder-shimmer 1.4s linear infinite;
+}
+
+@keyframes attachment-placeholder-shimmer {
+  to { background-position: -200% 0; }
 }
 
 .msg-attachment-file {
@@ -2338,7 +2369,12 @@
   .message-bubble {
     max-width: 88%;
     min-width: 0;
-    padding: 8px 10px;
+    padding: 8px 10px 26px;
+  }
+
+  .msg-attachment-image {
+    width: min(240px, 100%);
+    height: min(180px, 56vw);
   }
 
   .message-bubble p {

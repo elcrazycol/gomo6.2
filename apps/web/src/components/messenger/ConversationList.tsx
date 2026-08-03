@@ -232,6 +232,11 @@ export const ConversationList = memo(function ConversationList({
         >
           <span className="new-chat-plus" aria-hidden="true">+</span>
         </button>
+        {unread > 0 && (
+          <span className="header-unread-badge" aria-label={`Непрочитанных сообщений: ${unread}`}>
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
       </div>
 
       <NewChatDialog open={showNewChat} onClose={() => setShowNewChat(false)} />

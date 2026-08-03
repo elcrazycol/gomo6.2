@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useMessengerStore } from "./messengerStore";
+import { destroyMessenger, queueMarkRead, useMessengerStore } from "./messengerStore";
 import { messengerApi } from "@/services/messengerApi";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
 import type { ConversationView, MessageView } from "@/components/messenger/types";
@@ -70,6 +70,7 @@ function mockMsg(overrides: Partial<MessageView> = {}): MessageView {
 describe("messengerStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    destroyMessenger();
     vi.mocked(loadCachedMessages).mockResolvedValue(null);
     vi.mocked(saveCachedMessages).mockResolvedValue(undefined);
     // Reset store to initial state
@@ -77,6 +78,7 @@ describe("messengerStore", () => {
       me: null,
       conversations: [],
       selectedConversationId: null,
+      openingUnreadCount: 0,
       messages: [],
       receipts: new Map(),
       typingUsers: {},
@@ -242,6 +244,30 @@ describe("messengerStore", () => {
 
       await useMessengerStore.getState().markRead("msg-1");
 
+      expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
+    });
+
+    it("flushes the read marker immediately and orders UUID messages by sent_at", async () => {
+      useMessengerStore.setState({
+        conversations: [mockConv({ id: "conv-1", unread_count: 2 })],
+      });
+      vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
+
+      // The newer message deliberately has a lexically smaller UUID.
+      queueMarkRead("conv-1", "ffffffff-ffff-ffff-ffff-ffffffffffff", "2025-06-01T12:00:00Z");
+      queueMarkRead("conv-1", "00000000-0000-0000-0000-000000000000", "2025-06-01T12:01:00Z");
+      await Promise.resolve();
+
+      expect(messengerApi.markRead).toHaveBeenNthCalledWith(
+        1,
+        "conv-1",
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+      );
+      expect(messengerApi.markRead).toHaveBeenNthCalledWith(
+        2,
+        "conv-1",
+        "00000000-0000-0000-0000-000000000000",
+      );
       expect(useMessengerStore.getState().conversations[0].unread_count).toBe(0);
     });
   });

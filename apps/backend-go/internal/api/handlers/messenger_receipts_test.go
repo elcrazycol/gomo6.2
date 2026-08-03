@@ -38,7 +38,7 @@ func TestMarkRead_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// Reset unread
-	mock.ExpectExec(`UPDATE chat_members.*SET unread_count = 0, last_read_message_id = \$2.*WHERE conversation_id = \$1 AND user_id = \$3`).
+	mock.ExpectExec(`UPDATE chat_members cm.*SET unread_count = 0, last_read_message_id = \$2.*WHERE cm\.conversation_id = \$1 AND cm\.user_id = \$3`).
 		WithArgs(testConv1, testMsg1, testUser1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 

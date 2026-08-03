@@ -17,7 +17,13 @@ function estimateMessageHeight(msg: MessageView): number {
   const lines = Math.max(1, (msg.content.match(/\n/g)?.length ?? 0) + 1);
   let height = 48 + lines * 20;
   if (msg.parent_message_id) height += 36;
-  if (msg.attachments && msg.attachments.length > 0) height += 80;
+  if (msg.attachments && msg.attachments.length > 0) {
+    height += msg.attachments.reduce((total, attachment) => {
+      if (attachment.type === "image" || attachment.type === "video") return total + 184;
+      if (attachment.type === "audio") return total + 48;
+      return total + 52;
+    }, 0);
+  }
   return Math.min(height, 500);
 }
 
@@ -37,6 +43,7 @@ export const ChatView = memo(function ChatView({
   onTyping,
 }: Props) {
   const conversation = useMessengerStore(selectSelectedConversation);
+  const openingUnreadCount = useMessengerStore((s) => s.openingUnreadCount);
   const messages = useMessengerStore((s) => s.messages);
   const isLoading = useMessengerStore((s) => s.isMessagesLoading);
   const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
@@ -66,11 +73,14 @@ export const ChatView = memo(function ChatView({
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [newMessageIds, setNewMessageIds] = useState<Set<string>>(new Set());
   const [swipeBackOffset, setSwipeBackOffset] = useState(0);
+  const [isInitialPositioning, setIsInitialPositioning] = useState(false);
   const shouldAutoScroll = useRef(true);
   const isScrolledUpRef = useRef(false);
   const touchStartXRef = useRef(0);
 
   const convReceipts = receipts.get(conversation?.id ?? "") ?? [];
+  const latestMessageId = messages[messages.length - 1]?.id;
+  const latestMessageSentAt = messages[messages.length - 1]?.sent_at;
 
   // Swipe-back gesture (mobile only)
   const isTouchDevice = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
@@ -106,33 +116,56 @@ export const ChatView = memo(function ChatView({
 
   // Virtual scroll
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const prevItemCountRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
-  const messagesLengthRef = useRef(0);
+  const loadMoreRequestRef = useRef(0);
+  const initializedConversationRef = useRef<string | null>(null);
+  const initialPositionedConversationRef = useRef<string | null>(null);
+  const initialPositioningPendingRef = useRef(false);
+  const initialUnreadCountRef = useRef(0);
+  const previousMessageBoundaryRef = useRef<{
+    conversationId: string;
+    firstId: string;
+    lastId: string;
+    count: number;
+  } | null>(null);
+  const prependAnchorRef = useRef<{
+    conversationId: string;
+    firstMessageId: string;
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
+  const applyingScrollRef = useRef(false);
+  const scrollOperationRef = useRef(0);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: (index) => estimateMessageHeight(messages[index]),
+    getItemKey: (index) => messages[index]?.id ?? index,
+    // Keep resize notifications on animation frames so media/link previews
+    // are measured in one browser frame instead of several competing layouts.
+    useAnimationFrameWithResizeObserver: true,
     overscan: 5,
   });
 
-  // Keep ref in sync
-  useEffect(() => { messagesLengthRef.current = messages.length; }, [messages.length]);
-
   // Auto-scroll to bottom — direct DOM for reliability
   const pinToBottom = useCallback(() => {
+    const operation = ++scrollOperationRef.current;
     requestAnimationFrame(() => {
       const el = scrollContainerRef.current;
-      if (el) {
-        el.scrollTop = el.scrollHeight;
-      }
+      if (!el || operation !== scrollOperationRef.current) return;
+      applyingScrollRef.current = true;
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      requestAnimationFrame(() => {
+        if (operation === scrollOperationRef.current) applyingScrollRef.current = false;
+      });
     });
   }, []);
 
   const smoothScrollToBottom = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
+    const operation = ++scrollOperationRef.current;
     const target = el.scrollHeight - el.clientHeight;
     if (target <= el.scrollTop) return;
     const start = el.scrollTop;
@@ -143,27 +176,85 @@ export const ChatView = memo(function ChatView({
       if (!startTime) startTime = ts;
       const progress = Math.min((ts - startTime) / duration, 1);
       const ease = 1 - Math.pow(1 - progress, 3);
+      if (operation !== scrollOperationRef.current || !scrollContainerRef.current) return;
       el.scrollTop = start + distance * ease;
       if (progress < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   }, []);
 
-  // Auto-scroll only when conversation changes (initial load) + scroll to first unread
+  // Position a conversation exactly once, after its first message snapshot is
+  // available. The unread count is captured on conversation switch because it
+  // is reset synchronously as soon as the chat is opened.
   useLayoutEffect(() => {
-    shouldAutoScroll.current = true;
-    prevItemCountRef.current = 0;
-    setNewMessageIds(new Set());
-    if (conversation?.unread_count && conversation.unread_count > 0 && messages.length > 0) {
-      const idx = Math.max(0, messages.length - conversation.unread_count);
-      requestAnimationFrame(() => {
-        virtualizer.scrollToIndex(idx, { align: "start", behavior: "auto" });
-      });
-    } else {
-      requestAnimationFrame(() => pinToBottom());
+    if (!conversation?.id) {
+      initializedConversationRef.current = null;
+      scrollOperationRef.current += 1;
+      initialPositionedConversationRef.current = null;
+      initialPositioningPendingRef.current = false;
+      setIsInitialPositioning(false);
+      initialUnreadCountRef.current = 0;
+      previousMessageBoundaryRef.current = null;
+      prependAnchorRef.current = null;
+      isLoadingMoreRef.current = false;
+      loadMoreRequestRef.current += 1;
+      return;
     }
+
+    if (initializedConversationRef.current !== conversation.id) {
+      initializedConversationRef.current = conversation.id;
+      scrollOperationRef.current += 1;
+      initialPositionedConversationRef.current = null;
+      initialPositioningPendingRef.current = false;
+      setIsInitialPositioning(true);
+      initialUnreadCountRef.current = openingUnreadCount;
+      previousMessageBoundaryRef.current = null;
+      prependAnchorRef.current = null;
+      isLoadingMoreRef.current = false;
+      loadMoreRequestRef.current += 1;
+      shouldAutoScroll.current = true;
+      isScrolledUpRef.current = false;
+      setIsScrolledUp(false);
+      setNewMessageCount(0);
+      setNewMessageIds(new Set());
+    }
+
+    // Cached rows are intentionally kept invisible until the authoritative
+    // request completes. This prevents a cache -> network replacement from
+    // exposing an intermediate scroll position for one or two frames.
+    if (messages.length === 0 || isLoading) {
+      if (messages.length === 0 && !isLoading) setIsInitialPositioning(false);
+      return;
+    }
+    if (initialPositionedConversationRef.current === conversation.id) return;
+
+    initialPositionedConversationRef.current = conversation.id;
+    initialPositioningPendingRef.current = true;
+    const unreadCount = initialUnreadCountRef.current;
+    const positioningConversationId = conversation.id;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (
+          initializedConversationRef.current !== positioningConversationId
+          || initialPositionedConversationRef.current !== positioningConversationId
+          || useMessengerStore.getState().selectedConversationId !== positioningConversationId
+        ) return;
+
+        const currentMessages = useMessengerStore.getState().messages;
+        if (unreadCount > 0 && currentMessages.length > 0) {
+          const idx = Math.max(0, currentMessages.length - unreadCount);
+          virtualizer.scrollToIndex(idx, { align: "start", behavior: "auto" });
+        } else {
+          pinToBottom();
+        }
+        // Do not let a cache-to-network replacement be interpreted as an
+        // append while the initial viewport is being established.
+        initialPositioningPendingRef.current = false;
+        setIsInitialPositioning(false);
+      });
+    });
     composerRef.current?.focus();
-  }, [conversation?.id, pinToBottom, messages.length, conversation?.unread_count, virtualizer, composerRef]);
+  }, [conversation?.id, openingUnreadCount, messages.length, isLoading, pinToBottom, virtualizer, composerRef]);
 
   // Sync ref with state for stable callback
   useEffect(() => { isScrolledUpRef.current = isScrolledUp; }, [isScrolledUp]);
@@ -171,58 +262,119 @@ export const ChatView = memo(function ChatView({
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
+    if (!applyingScrollRef.current) scrollOperationRef.current += 1;
+
+    // Never cancel an in-flight anchor because the user keeps dragging. The
+    // next layout pass must still compensate for the newly inserted rows.
+    // Only the request token/conversation switch may invalidate it.
+
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     shouldAutoScroll.current = dist <= 32;
     const nowScrolledUp = dist > 128;
     if (nowScrolledUp !== isScrolledUpRef.current) {
       setIsScrolledUp(nowScrolledUp);
     }
-    // Reset new message count when scrolled back to bottom
     if (dist <= 32) {
       setNewMessageCount(0);
     }
-    // Load more when scrolled near top
+
     if (el.scrollTop < 50 && hasMoreMessages && !isLoadingMore && !isLoadingMoreRef.current && conversation?.id) {
       isLoadingMoreRef.current = true;
-      const prevHeight = el.scrollHeight;
-      const prevScrollTop = el.scrollTop;
-      loadMoreMessages(conversation.id).then(() => {
+      const loadRequestId = ++loadMoreRequestRef.current;
+      const loadConversationId = conversation.id;
+      prependAnchorRef.current = {
+        conversationId: loadConversationId,
+        firstMessageId: messages[0]?.id ?? "",
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+      };
+      loadMoreMessages(loadConversationId).then(() => {
+        if (loadMoreRequestRef.current !== loadRequestId || initializedConversationRef.current !== loadConversationId) return;
         requestAnimationFrame(() => {
-          if (el) {
-            const newHeight = el.scrollHeight;
-            el.scrollTop = prevScrollTop + (newHeight - prevHeight);
-          }
+          if (loadMoreRequestRef.current !== loadRequestId || initializedConversationRef.current !== loadConversationId) return;
+          // The layout effect owns anchor reconciliation. Do not inspect
+          // `messages` here: this callback closes over the pre-request render.
           isLoadingMoreRef.current = false;
         });
       }).catch(() => {
+        if (loadMoreRequestRef.current !== loadRequestId || initializedConversationRef.current !== loadConversationId) return;
         isLoadingMoreRef.current = false;
+        prependAnchorRef.current = null;
       });
     }
-  }, [hasMoreMessages, isLoadingMore, conversation?.id, loadMoreMessages]);
+  }, [hasMoreMessages, isLoadingMore, conversation?.id, loadMoreMessages, messages]);
 
-  // Auto-scroll on new messages only if user is at bottom
+  // Keep the first visible history item at the same viewport position when
+  // older messages are prepended. This runs before paint, so the user never
+  // sees the intermediate jump. The anchor is refreshed once more after the
+  // browser has applied the new virtualizer measurements.
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    const el = scrollContainerRef.current;
+    if (!anchor || !el || anchor.conversationId !== conversation?.id) return;
+
+    const firstId = messages[0]?.id;
+    if (!firstId || firstId === anchor.firstMessageId) return;
+
+    const heightDelta = el.scrollHeight - anchor.scrollHeight;
+    if (heightDelta <= 0) return;
+
+    applyingScrollRef.current = true;
+    // Preserve the user's latest position, not the position captured when the
+    // request started. This remains correct even if they keep dragging while
+    // older rows are in flight.
+    el.scrollTop = el.scrollTop + heightDelta;
+    prependAnchorRef.current = {
+      ...anchor,
+      firstMessageId: firstId,
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+    };
+    requestAnimationFrame(() => { applyingScrollRef.current = false; });
+  }, [conversation?.id, messages]);
+
+  // Distinguish a prepend (history) from an append (new message). Treating
+  // prepended history as new messages was another source of jumps and false
+  // "new messages" counters.
   useEffect(() => {
-    if (messages.length > prevItemCountRef.current) {
-      // Track newly arrived message IDs for animation gating
-      const newIds = messages.slice(prevItemCountRef.current).map((m) => m.id);
-      if (newIds.length > 0) {
-        setNewMessageIds((prev) => {
-          const next = new Set(prev);
-          for (const id of newIds) next.add(id);
-          return next;
-        });
-      }
-      if (shouldAutoScroll.current) {
-        requestAnimationFrame(() => {
-          virtualizer.scrollToIndex(messages.length - 1, { align: "end", behavior: "auto" });
-        });
-      }
-      if (isScrolledUp) {
-        setNewMessageCount((c) => c + (messages.length - prevItemCountRef.current));
+    if (!conversation?.id || messages.length === 0) {
+      if (!conversation?.id) previousMessageBoundaryRef.current = null;
+      return;
+    }
+
+    const previous = previousMessageBoundaryRef.current;
+    const firstId = messages[0].id;
+    const lastId = messages[messages.length - 1].id;
+
+    if (!initialPositioningPendingRef.current && previous && previous.conversationId === conversation.id && messages.length > previous.count) {
+      const isPrepend = firstId !== previous.firstId && lastId === previous.lastId;
+      if (!isPrepend) {
+        const appended = messages.slice(previous.count);
+        const newIds = appended.map((message) => message.id);
+        if (newIds.length > 0) {
+          setNewMessageIds((prev) => {
+            const next = new Set(prev);
+            for (const id of newIds) next.add(id);
+            return next;
+          });
+        }
+        if (shouldAutoScroll.current) {
+          requestAnimationFrame(() => {
+            virtualizer.scrollToIndex(messages.length - 1, { align: "end", behavior: "auto" });
+          });
+        } else if (isScrolledUpRef.current) {
+          setNewMessageCount((count) => count + appended.length);
+        }
       }
     }
-    prevItemCountRef.current = messages.length;
-  }, [messages.length, isScrolledUp, virtualizer]);
+
+    previousMessageBoundaryRef.current = {
+      conversationId: conversation.id,
+      firstId,
+      lastId,
+      count: messages.length,
+    };
+  }, [conversation?.id, messages, virtualizer]);
 
   // Reset auto-scroll when viewport changes (keyboard open/close)
   useEffect(() => {
@@ -261,10 +413,10 @@ export const ChatView = memo(function ChatView({
       (m) => m.sender_user_id !== me.id && !m.is_deleted && !m.localStatus,
     );
     if (lastOther) {
-      queueMarkDelivered(conversation.id, lastOther.id);
-      queueMarkRead(conversation.id, lastOther.id);
+      queueMarkDelivered(conversation.id, lastOther.id, lastOther.sent_at);
+      queueMarkRead(conversation.id, lastOther.id, lastOther.sent_at);
     }
-  }, [messages.length, conversation?.id]);
+  }, [messages.length, latestMessageId, latestMessageSentAt, conversation?.id]);
 
   // Pinned message fetch
   useEffect(() => {
@@ -300,13 +452,15 @@ export const ChatView = memo(function ChatView({
 
   const handleSend = useCallback(() => {
     if ((!draft.trim() && pendingAttachments.length === 0) || isSending) return;
+    const wasAtBottom = shouldAutoScroll.current;
     const clientId = `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     sendMessage(draft.trim() || " ", clientId, replyToMessage?.id ?? undefined, pendingAttachments.length > 0 ? pendingAttachments : undefined);
     setDraft("");
     setReplyToMessage(null);
     setPendingAttachments([]);
-    // Scroll after optimistic insert renders
-    setTimeout(smoothScrollToBottom, 100);
+    // Sending from a scrolled-up position must not yank the reader away from
+    // history. Only follow the optimistic message when already at the bottom.
+    if (wasAtBottom) setTimeout(smoothScrollToBottom, 100);
   }, [draft, isSending, sendMessage, smoothScrollToBottom, replyToMessage, pendingAttachments]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
@@ -331,6 +485,7 @@ export const ChatView = memo(function ChatView({
   }, [editMessage, editingContent]);
 
   const scrollToBottom = useCallback(() => {
+    shouldAutoScroll.current = true;
     pinToBottom();
     setIsScrolledUp(false);
     setNewMessageCount(0);
@@ -432,7 +587,7 @@ export const ChatView = memo(function ChatView({
       {/* Messages */}
       <div
         ref={scrollContainerRef}
-        className="message-scroll"
+        className={`message-scroll${isInitialPositioning && messages.length > 0 ? " is-initial-positioning" : ""}`}
         onScroll={handleScroll}
         onTouchStart={(e) => { touchStartXRef.current = e.touches[0].clientX; }}
         {...(isTouchDevice ? swipeBackBind() : {})}
@@ -485,7 +640,7 @@ export const ChatView = memo(function ChatView({
                 const imgSrc = giftData.imageUrl ? storageUrl("post-images", giftData.imageUrl) || giftData.imageUrl : null;
                 return (
                   <div
-                    key={virtualRow.key}
+                    key={msg.id}
                     data-index={virtualRow.index}
                     ref={virtualizer.measureElement}
                     style={{
@@ -527,7 +682,7 @@ export const ChatView = memo(function ChatView({
 
               return (
                 <div
-                  key={virtualRow.key}
+                  key={msg.id}
                   data-index={virtualRow.index}
                   ref={virtualizer.measureElement}
                   style={{

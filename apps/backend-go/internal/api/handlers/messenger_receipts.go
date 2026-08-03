@@ -95,9 +95,19 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 	}
 
 	_, err = tx.Exec(`
-		UPDATE chat_members
+		UPDATE chat_members cm
 		SET unread_count = 0, last_read_message_id = $2
-		WHERE conversation_id = $1 AND user_id = $3
+		WHERE cm.conversation_id = $1 AND cm.user_id = $3
+		  AND (
+			cm.last_read_message_id IS NULL
+			OR NOT EXISTS (
+				SELECT 1
+				FROM chat_messages previous_read
+				INNER JOIN chat_messages requested_read ON requested_read.id = $2
+				WHERE previous_read.id = cm.last_read_message_id
+				  AND previous_read.sent_at > requested_read.sent_at
+			)
+		)
 	`, conversationID, req.MessageID, claims.UserID)
 	if err != nil {
 		serverError(c, "mark read unread reset", err)

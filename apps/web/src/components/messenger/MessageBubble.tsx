@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useState, useRef } from "react";
+import { memo, useCallback, useState, useRef } from "react";
 import { useDrag } from "@use-gesture/react";
 import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy } from "lucide-react";
 import { formatTime } from "./utils";
@@ -49,10 +49,7 @@ export const MessageBubble = memo(function MessageBubble({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPos = useRef({ x: 0, y: 0 });
   const [isLongPressing, setIsLongPressing] = useState(false);
-  const [isCompact, setIsCompact] = useState(false);
-  const [hasMeasuredLines, setHasMeasuredLines] = useState(false);
   const [swipeOffset, setSwipeOffset] = useState(0);
-  const messageBubbleRef = useRef<HTMLDivElement | null>(null);
   const [isSwiping, setIsSwiping] = useState(false);
 
   const clearLongPress = useCallback(() => {
@@ -150,63 +147,6 @@ export const MessageBubble = memo(function MessageBubble({
     if (!isTouchDevice) onReply(message);
   }, [isTouchDevice, onReply, message]);
 
-  // Measure the actual rendered line count so every one-line message gets the
-  // compact inline timestamp, regardless of its character length.
-  const canUseInlineMeta = !quotedMessage
-    && !message.attachments?.length
-    && message.localStatus !== "failed";
-
-  useLayoutEffect(() => {
-    const bubble = messageBubbleRef.current;
-    if (!bubble || !canUseInlineMeta) {
-      setIsCompact(false);
-      setHasMeasuredLines(false);
-      return;
-    }
-
-    const content = bubble.querySelector<HTMLElement>(".message-content-text");
-    if (!content) {
-      setIsCompact(false);
-      setHasMeasuredLines(false);
-      return;
-    }
-
-    const measureLines = () => {
-      // Measure the text without the metadata/spacer affecting its wrapping.
-      bubble.classList.add("is-measuring");
-      void bubble.offsetWidth;
-      const range = document.createRange();
-
-      try {
-        range.selectNodeContents(content);
-        if (typeof range.getClientRects !== "function") {
-          // JSDOM has no layout engine; keep the safe multiline layout there.
-          setIsCompact((previous) => previous ? false : previous);
-          setHasMeasuredLines((previous) => previous ? previous : true);
-          return;
-        }
-
-        const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
-        const lineTops = new Set(rects.map((rect) => Math.round(rect.top)));
-        const nextIsCompact = rects.length > 0 && lineTops.size <= 1;
-        setIsCompact((previous) => previous === nextIsCompact ? previous : nextIsCompact);
-        setHasMeasuredLines((previous) => previous ? previous : true);
-      } finally {
-        range.detach?.();
-        bubble.classList.remove("is-measuring");
-      }
-    };
-
-    measureLines();
-    const resizeObserver = typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(measureLines)
-      : null;
-    resizeObserver?.observe(bubble);
-    resizeObserver?.observe(content);
-
-    return () => resizeObserver?.disconnect();
-  }, [canUseInlineMeta, message.content, message.attachments?.length, message.is_edited, peerReadAt, peerDeliveredAt, isMine]);
-
   if (message.is_deleted) {
     return (
       <div
@@ -244,8 +184,7 @@ export const MessageBubble = memo(function MessageBubble({
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              ref={messageBubbleRef}
-              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact ? " is-multiline" : ""}`}
+              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}`}
               data-message-id={message.id}
             >
               {quotedMessage && (

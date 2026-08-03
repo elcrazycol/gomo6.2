@@ -124,6 +124,8 @@ export const messengerApi = {
     return req(`/conversations/${conversationId}/read`, {
       method: "POST",
       body: JSON.stringify({ message_id: messageId }),
+      // Preserve the final read marker during an immediate reload/navigation.
+      keepalive: true,
     });
   },
 
