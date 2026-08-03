@@ -7,6 +7,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crypto"
 )
 
 // ─── ListConversations ───────────────────────────────────────────────────────
@@ -92,6 +93,50 @@ func TestListConversations_Unauthenticated(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestListConversations_DecryptionFailureNoCiphertextLeak(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := newGETContext("/api/v1/messenger/conversations", nil)
+	c.Set("claims", claims)
+
+	now := time.Now()
+	rows := sqlmock.NewRows([]string{
+		"id", "last_message_at", "last_message_preview",
+		"last_message_sender_id", "pinned_message_id", "updated_at",
+		"unread_count", "is_muted", "is_group", "group_name", "group_avatar_url", "member_count",
+
+		"other_id", "other_username", "other_display_name",
+		"other_avatar_url", "other_account_number", "other_is_online", "other_last_seen_at",
+	}).AddRow(testConv1, now, "not-a-valid-ciphertext!", testUser2, nil, now, 3, false, false, nil, nil, 2, testUser2, "alice", "Alice", nil, 1001, true, nil)
+
+	mock.ExpectQuery(`SELECT.*FROM chat_members cm.*`).
+		WithArgs(testUser1).
+		WillReturnRows(rows)
+
+	handler.ListConversations(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(data) != 1 {
+		t.Fatalf("expected 1 conversation, got %d", len(data))
+	}
+	first := data[0].(map[string]interface{})
+	preview := first["last_message_preview"]
+	if preview == "not-a-valid-ciphertext!" {
+		t.Fatal("ciphertext preview must never be returned to the client")
+	}
+	if preview != crypto.DecryptionFailedPlaceholder {
+		t.Errorf("expected placeholder preview %q, got %v", crypto.DecryptionFailedPlaceholder, preview)
 	}
 }
 

@@ -55,6 +55,12 @@ const (
 	KeyVersionHKDF = 2
 )
 
+// DecryptionFailedPlaceholder replaces ciphertext whenever a message cannot be
+// decrypted (wrong key version, corrupted payload, etc.). It is returned to
+// clients instead of the raw encrypted blob so the ciphertext is never exposed
+// through the API or WebSocket broadcasts.
+const DecryptionFailedPlaceholder = "🔒 Сообщение недоступно"
+
 // hkdfKeyCache caches derived per-conversation keys to avoid recomputing HKDF.
 // Only v2 keys are cached; legacy keys are cheap to compute.
 var hkdfKeyCache sync.Map // key: "convID", value: []byte

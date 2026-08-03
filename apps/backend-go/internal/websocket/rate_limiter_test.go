@@ -4,23 +4,34 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
+
+// setupWSRateLimitRedis creates a miniredis instance and a Redis-backed limiter.
+func setupWSRateLimitRedis(t *testing.T) (*miniredis.Miniredis, *RateLimiter) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	limiter := NewRateLimiter(rdb, 5, time.Minute)
+	return mr, limiter
+}
 
 // =============================================================================
 // RateLimiter — basic Allow/Deny
 // =============================================================================
 
 func TestRateLimiter_FirstRequestAllowed(t *testing.T) {
-	rl := NewRateLimiter(5, time.Minute)
-
+	_, rl := setupWSRateLimitRedis(t)
 	if !rl.Allow("user-1") {
 		t.Error("first request must be allowed")
 	}
 }
 
 func TestRateLimiter_WithinLimit(t *testing.T) {
-	rl := NewRateLimiter(5, time.Minute)
-
+	_, rl := setupWSRateLimitRedis(t)
 	for i := 0; i < 5; i++ {
 		if !rl.Allow("user-1") {
 			t.Errorf("request %d must be allowed (max 5)", i+1)
@@ -29,36 +40,32 @@ func TestRateLimiter_WithinLimit(t *testing.T) {
 }
 
 func TestRateLimiter_ExceedLimit(t *testing.T) {
-	rl := NewRateLimiter(3, time.Minute)
-
-	for i := 0; i < 3; i++ {
+	_, rl := setupWSRateLimitRedis(t)
+	for i := 0; i < 5; i++ {
 		if !rl.Allow("user-1") {
 			t.Fatalf("request %d must be allowed", i+1)
 		}
 	}
-
 	if rl.Allow("user-1") {
-		t.Fatal("4th request must be denied after exceeding limit of 3")
+		t.Fatal("6th request must be denied after exceeding limit of 5")
 	}
 }
 
 func TestRateLimiter_SeparateUsers(t *testing.T) {
-	rl := NewRateLimiter(2, time.Minute)
+	_, rl := setupWSRateLimitRedis(t)
 
-	// User 1 uses all tokens
-	rl.Allow("user-1")
-	rl.Allow("user-1")
-
+	for i := 0; i < 5; i++ {
+		rl.Allow("user-1")
+	}
 	if rl.Allow("user-1") {
 		t.Error("user-1 must be rate-limited")
 	}
 
-	// User 2 should still have full quota
-	if !rl.Allow("user-2") {
-		t.Error("user-2 must still be allowed (separate bucket)")
-	}
-	if !rl.Allow("user-2") {
-		t.Error("user-2 second request must be allowed")
+	// user-2 should still have full quota
+	for i := 0; i < 5; i++ {
+		if !rl.Allow("user-2") {
+			t.Errorf("user-2 request %d must be allowed", i+1)
+		}
 	}
 }
 
@@ -67,89 +74,93 @@ func TestRateLimiter_SeparateUsers(t *testing.T) {
 // =============================================================================
 
 func TestRateLimiter_WindowRefill(t *testing.T) {
-	// Small window: 50ms
-	rl := NewRateLimiter(3, 50*time.Millisecond)
+	// miniredis minimum TTL is 1s, so use a 2s window.
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	rl := NewRateLimiter(rdb, 3, 2*time.Second)
 
-	// Use all tokens
 	for i := 0; i < 3; i++ {
 		rl.Allow("user-1")
 	}
-
-	// Must be denied now
 	if rl.Allow("user-1") {
 		t.Fatal("must be rate-limited after using all tokens")
 	}
 
-	// Wait for window to pass
-	time.Sleep(60 * time.Millisecond)
+	// Fast-forward the simulated Redis clock past the window.
+	mr.FastForward(3 * time.Second)
+	time.Sleep(20 * time.Millisecond)
 
-	// Should be allowed again after window refill
 	if !rl.Allow("user-1") {
 		t.Error("must be allowed after window refill")
 	}
 }
 
-func TestRateLimiter_NoPartialRefill(t *testing.T) {
-	rl := NewRateLimiter(3, 100*time.Millisecond)
-
-	for i := 0; i < 3; i++ {
-		rl.Allow("user-1")
-	}
-
-	time.Sleep(30 * time.Millisecond)
-
-	if rl.Allow("user-1") {
-		t.Error("must still be rate-limited before window ends")
-	}
-}
-
 // =============================================================================
-// RateLimiter — concurrent access
+// RateLimiter — Reset
 // =============================================================================
 
-func TestRateLimiter_ConcurrentAccess(t *testing.T) {
-	rl := NewRateLimiter(1000, time.Minute)
-
-	var wg sync.WaitGroup
-	users := []string{"a", "b", "c", "d", "e"}
-	results := make(chan bool, len(users)*10)
-
-	for _, user := range users {
-		user := user
-		for j := 0; j < 10; j++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				results <- rl.Allow(user)
-			}()
-		}
-	}
-
-	wg.Wait()
-	close(results)
-
-	allowed := 0
-	denied := 0
-	for r := range results {
-		if r {
-			allowed++
-		} else {
-			denied++
-		}
-	}
-
-	if allowed != 50 {
-		t.Errorf("expected all 50 requests to pass, got %d allowed, %d denied", allowed, denied)
-	}
-}
-
-func TestRateLimiter_ConcurrentAtBoundary(t *testing.T) {
-	rl := NewRateLimiter(5, time.Minute)
-
-	var wg sync.WaitGroup
-	results := make(chan bool, 5)
+func TestRateLimiter_Reset(t *testing.T) {
+	_, rl := setupWSRateLimitRedis(t)
 
 	for i := 0; i < 5; i++ {
+		rl.Allow("user-1")
+	}
+	if rl.Allow("user-1") {
+		t.Fatal("must be denied after exceeding limit")
+	}
+
+	rl.Reset("user-1")
+
+	if !rl.Allow("user-1") {
+		t.Error("request after reset must be allowed")
+	}
+}
+
+func TestRateLimiter_Reset_Nonexistent(t *testing.T) {
+	_, rl := setupWSRateLimitRedis(t)
+	// Reset on a user that doesn't exist should not panic
+	rl.Reset("nonexistent-user")
+}
+
+// =============================================================================
+// RateLimiter — edge cases
+// =============================================================================
+
+func TestRateLimiter_NilRedis(t *testing.T) {
+	rl := NewRateLimiter(nil, 5, time.Minute)
+	if !rl.Allow("user-1") {
+		t.Error("nil Redis must fail open (allow)")
+	}
+}
+
+func TestRateLimiter_ZeroMaxRequests(t *testing.T) {
+	_, rl := setupWSRateLimitRedis(t)
+	rl.maxMessages = 0
+	if rl.Allow("user-1") {
+		t.Error("maxMessages=0 must deny all requests")
+	}
+}
+
+func TestRateLimiter_EmptyUserID(t *testing.T) {
+	_, rl := setupWSRateLimitRedis(t)
+	if !rl.Allow("") {
+		t.Error("first empty user request must be allowed")
+	}
+}
+
+// =============================================================================
+// RateLimiter — concurrent access (INCR is atomic in Redis)
+// =============================================================================
+
+func TestRateLimiter_ConcurrentAtBoundary(t *testing.T) {
+	_, rl := setupWSRateLimitRedis(t)
+	rl.maxMessages = 5
+
+	var wg sync.WaitGroup
+	results := make(chan bool, 20)
+
+	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -168,147 +179,6 @@ func TestRateLimiter_ConcurrentAtBoundary(t *testing.T) {
 	}
 
 	if passed != 5 {
-		t.Errorf("expected all 5 concurrent requests to pass, got %d", passed)
-	}
-
-	if rl.Allow("user-boundary") {
-		t.Error("6th request after concurrent boundary must be denied")
-	}
-}
-
-// =============================================================================
-// RateLimiter — Reset
-// =============================================================================
-
-func TestRateLimiter_Reset(t *testing.T) {
-	rl := NewRateLimiter(1, time.Minute)
-
-	rl.Allow("user-1")
-	if rl.Allow("user-1") {
-		t.Fatal("2nd request must be denied when max=1")
-	}
-
-	rl.Reset("user-1")
-
-	if !rl.Allow("user-1") {
-		t.Error("request after reset must be allowed")
-	}
-}
-
-func TestRateLimiter_Reset_Nonexistent(t *testing.T) {
-	rl := NewRateLimiter(5, time.Minute)
-	// Reset on a user that doesn't exist should not panic
-	rl.Reset("nonexistent-user")
-}
-
-// =============================================================================
-// RateLimiter — Empty user ID
-// =============================================================================
-
-func TestRateLimiter_EmptyUserID(t *testing.T) {
-	rl := NewRateLimiter(5, time.Minute)
-
-	if !rl.Allow("") {
-		t.Error("first empty user request must be allowed")
-	}
-	if !rl.Allow("") {
-		t.Error("second empty user request must be allowed (within limit)")
-	}
-}
-
-// =============================================================================
-// RateLimiter — Zero max requests
-// =============================================================================
-
-func TestRateLimiter_ZeroMaxRequests(t *testing.T) {
-	rl := NewRateLimiter(0, time.Minute)
-
-	// First request: creates bucket with tokens = -1, returns true
-	if !rl.Allow("user-1") {
-		t.Error("first request with max=0 must be allowed")
-	}
-
-	// Second request: tokens = -1, denied
-	if rl.Allow("user-1") {
-		t.Error("second request with max=0 must be denied")
-	}
-}
-
-func TestRateLimiter_OneRequest(t *testing.T) {
-	rl := NewRateLimiter(1, time.Minute)
-
-	if !rl.Allow("user-1") {
-		t.Fatal("first (only) request must be allowed")
-	}
-	if rl.Allow("user-1") {
-		t.Fatal("second request must be denied when max=1")
-	}
-}
-
-// =============================================================================
-// RateLimiter — Cleanup
-// =============================================================================
-
-func TestRateLimiter_CleanupStaleEntry(t *testing.T) {
-	rl := NewRateLimiter(5, 10*time.Millisecond)
-
-	rl.Allow("stale-user")
-
-	rl.mu.RLock()
-	_, exists := rl.buckets["stale-user"]
-	rl.mu.RUnlock()
-	if !exists {
-		t.Fatal("stale-user must exist right after Allow")
-	}
-
-	time.Sleep(100 * time.Millisecond)
-
-	rl.mu.RLock()
-	_, exists = rl.buckets["stale-user"]
-	rl.mu.RUnlock()
-
-	if exists {
-		t.Error("stale-user bucket must have been cleaned up")
-	}
-}
-
-// =============================================================================
-// RateLimiter — Large batch
-// =============================================================================
-
-func TestRateLimiter_LargeBatch(t *testing.T) {
-	rl := NewRateLimiter(100, time.Minute)
-
-	// Simulate 100 requests — all within limit
-	for i := 0; i < 100; i++ {
-		if !rl.Allow("batch-user") {
-			t.Fatalf("request %d must be allowed (max 100)", i+1)
-		}
-	}
-
-	// 101st must fail
-	if rl.Allow("batch-user") {
-		t.Fatal("101st request must be denied (max 100)")
-	}
-}
-
-// =============================================================================
-// RateLimiter — Multiple users independently limited
-// =============================================================================
-
-func TestRateLimiter_MultipleUsersIndependently(t *testing.T) {
-	rl := NewRateLimiter(2, time.Minute)
-
-	users := []string{"alice", "bob", "charlie"}
-	for _, user := range users {
-		if !rl.Allow(user) {
-			t.Fatalf("first request for %s must be allowed", user)
-		}
-		if !rl.Allow(user) {
-			t.Fatalf("second request for %s must be allowed", user)
-		}
-		if rl.Allow(user) {
-			t.Errorf("third request for %s must be denied", user)
-		}
+		t.Errorf("expected exactly 5 concurrent requests to pass (INCR is atomic), got %d", passed)
 	}
 }

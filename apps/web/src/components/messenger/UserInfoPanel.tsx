@@ -98,7 +98,15 @@ export function UserInfoPanel({
       setShowAddMember(false);
       setAddMemberQuery("");
     } catch (err) {
-      console.error("Failed to add member:", err);
+      const { toast } = await import("sonner");
+      const msg = err instanceof Error ? err.message : "";
+      if (/friend/i.test(msg)) {
+        toast.error("Добавлять в группу можно только друзей");
+      } else if (/limit/i.test(msg)) {
+        toast.error("Достигнут лимит участников группы (100)");
+      } else {
+        toast.error("Не удалось добавить участника");
+      }
     }
   }, [conversationId]);
 

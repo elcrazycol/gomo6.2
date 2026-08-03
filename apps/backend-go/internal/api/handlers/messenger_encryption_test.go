@@ -271,3 +271,68 @@ func TestEncryptDifferentNonces(t *testing.T) {
 		t.Error("two encryptions of same text should produce different ciphertexts (random nonce)")
 	}
 }
+
+// ─── decryptMessageContent: never leak ciphertext ──────────────────────────
+
+func TestDecryptMessageContent_Success(t *testing.T) {
+	key := "0123456789abcdef0123456789abcdef"
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", key)
+	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+
+	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
+
+	plaintext := "secret message"
+	encrypted, err := crypto.EncryptForConversation("conv-1", plaintext)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+
+	msg := &MessageResponse{Content: encrypted}
+	decryptMessageContent("conv-1", msg)
+	if msg.Content != plaintext {
+		t.Errorf("expected decrypted %q, got %q", plaintext, msg.Content)
+	}
+}
+
+func TestDecryptMessageContent_NoCiphertextLeak(t *testing.T) {
+	key := "0123456789abcdef0123456789abcdef"
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", key)
+	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+
+	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
+
+	ciphertext := "not-a-valid-ciphertext!"
+	msg := &MessageResponse{Content: ciphertext}
+	decryptMessageContent("conv-1", msg)
+	if msg.Content == ciphertext {
+		t.Error("ciphertext must never be returned to the client")
+	}
+	if msg.Content != crypto.DecryptionFailedPlaceholder {
+		t.Errorf("expected placeholder %q, got %q", crypto.DecryptionFailedPlaceholder, msg.Content)
+	}
+}
+
+func TestDecryptMessageContent_DeletedMessageUntouched(t *testing.T) {
+	key := "0123456789abcdef0123456789abcdef"
+	os.Setenv("MESSENGER_ENCRYPTION_KEY", key)
+	defer os.Unsetenv("MESSENGER_ENCRYPTION_KEY")
+
+	initEncryptionKey()
+	defer func() { messengerEncryptionKey = nil }()
+
+	msg := &MessageResponse{Content: "raw-ciphertext", IsDeleted: true}
+	decryptMessageContent("conv-1", msg)
+	if msg.Content != "raw-ciphertext" {
+		t.Errorf("deleted messages should keep empty content untouched, got %q", msg.Content)
+	}
+}
+
+func TestDecryptMessageContent_EmptyContentUntouched(t *testing.T) {
+	msg := &MessageResponse{Content: "", IsDeleted: false}
+	decryptMessageContent("conv-1", msg)
+	if msg.Content != "" {
+		t.Errorf("empty content should stay empty, got %q", msg.Content)
+	}
+}

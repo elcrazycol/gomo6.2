@@ -1,26 +1,25 @@
 package middleware
 
 import (
-	"sync"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
+	"github.com/redis/go-redis/v9"
 )
 
-// =============================================================================
-// MessengerRateLimiter — NewMessengerRateLimiter
-// =============================================================================
-
-func TestNewMessengerRateLimiter(t *testing.T) {
-	rl := NewMessengerRateLimiter(10, time.Minute)
-	if rl == nil {
-		t.Fatal("expected non-nil limiter")
-	}
-	if rl.maxRequests != 10 {
-		t.Errorf("expected maxRequests=10, got %d", rl.maxRequests)
-	}
-	if rl.window != time.Minute {
-		t.Errorf("expected window=1m, got %v", rl.window)
-	}
+// setupMessengerRateLimitRedis creates a miniredis instance and a Redis-backed limiter.
+func setupMessengerRateLimitRedis(t *testing.T) (*miniredis.Miniredis, *MessengerRateLimiter) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	limiter := NewMessengerRateLimiter(rdb, 5, time.Minute)
+	return mr, limiter
 }
 
 // =============================================================================
@@ -28,14 +27,14 @@ func TestNewMessengerRateLimiter(t *testing.T) {
 // =============================================================================
 
 func TestMessengerRateLimiter_FirstRequestAllowed(t *testing.T) {
-	rl := NewMessengerRateLimiter(5, time.Minute)
+	_, rl := setupMessengerRateLimitRedis(t)
 	if !rl.Allow("user-1") {
 		t.Error("first request must be allowed")
 	}
 }
 
 func TestMessengerRateLimiter_WithinLimit(t *testing.T) {
-	rl := NewMessengerRateLimiter(5, time.Minute)
+	_, rl := setupMessengerRateLimitRedis(t)
 	for i := 0; i < 5; i++ {
 		if !rl.Allow("user-1") {
 			t.Errorf("request %d must be allowed (max 5)", i+1)
@@ -44,31 +43,26 @@ func TestMessengerRateLimiter_WithinLimit(t *testing.T) {
 }
 
 func TestMessengerRateLimiter_ExceedLimit(t *testing.T) {
-	rl := NewMessengerRateLimiter(3, time.Minute)
-	for i := 0; i < 3; i++ {
+	_, rl := setupMessengerRateLimitRedis(t)
+	for i := 0; i < 5; i++ {
 		if !rl.Allow("user-1") {
-			t.Errorf("request %d must be allowed (max 3)", i+1)
+			t.Errorf("request %d must be allowed (max 5)", i+1)
 		}
 	}
-	// 4th request must be denied
+	// 6th request must be denied
 	if rl.Allow("user-1") {
-		t.Error("4th request must be denied (limit 3)")
+		t.Error("6th request must be denied (limit 5)")
 	}
 }
 
 func TestMessengerRateLimiter_IndependentBuckets(t *testing.T) {
-	rl := NewMessengerRateLimiter(2, time.Minute)
-
-	// Use up user-1's tokens
-	rl.Allow("user-1")
-	rl.Allow("user-1")
-
-	// user-2 should still have full allowance
-	if !rl.Allow("user-2") {
-		t.Error("user-2 must have independent bucket")
+	_, rl := setupMessengerRateLimitRedis(t)
+	for i := 0; i < 5; i++ {
+		rl.Allow("user-1")
 	}
+	// user-2 should still have a full independent budget
 	if !rl.Allow("user-2") {
-		t.Error("user-2's second request must be allowed")
+		t.Error("user-2 must have an independent budget")
 	}
 	// user-1 should still be blocked
 	if rl.Allow("user-1") {
@@ -77,94 +71,96 @@ func TestMessengerRateLimiter_IndependentBuckets(t *testing.T) {
 }
 
 func TestMessengerRateLimiter_WindowRefill(t *testing.T) {
-	// Use a very short window so the test doesn't take long
-	rl := NewMessengerRateLimiter(2, 50*time.Millisecond)
+	// miniredis minimum TTL is 1s, so use a 2s window.
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	rl := NewMessengerRateLimiter(rdb, 2, 2*time.Second)
 
-	// Use up tokens
-	if !rl.Allow("user-1") {
-		t.Fatal("first request must be allowed")
-	}
-	if !rl.Allow("user-1") {
-		t.Fatal("second request must be allowed")
+	for i := 0; i < 2; i++ {
+		if !rl.Allow("user-1") {
+			t.Fatal("first two requests must be allowed")
+		}
 	}
 	if rl.Allow("user-1") {
 		t.Fatal("third request must be denied")
 	}
 
-	// Wait for window to expire
-	time.Sleep(60 * time.Millisecond)
+	// Fast-forward the simulated Redis clock past the window.
+	mr.FastForward(3 * time.Second)
+	time.Sleep(20 * time.Millisecond)
 
-	// Should be allowed again after refill
 	if !rl.Allow("user-1") {
 		t.Error("request must be allowed after window refill")
 	}
 }
 
-func TestMessengerRateLimiter_PartialRefill(t *testing.T) {
-	// Tokens don't accumulate across windows — they reset to max-1
-	// plus the refill request itself counts, giving maxRequests total
-	rl := NewMessengerRateLimiter(3, 50*time.Millisecond)
-
-	// Use 2 of the 3 available tokens
-	if !rl.Allow("user-1") {
-		t.Fatal("first")
-	}
-	if !rl.Allow("user-1") {
-		t.Fatal("second")
-	}
-
-	// Wait for window to expire
-	time.Sleep(60 * time.Millisecond)
-
-	// After refill: tokens = maxRequests - 1 = 2, and the refill itself returns true
-	// So we get maxRequests total requests
-	for i := 0; i < 3; i++ {
-		if !rl.Allow("user-1") {
-			t.Errorf("call %d after refill must be allowed (max %d total)", i+1, 3)
-		}
-	}
-	// 4th should be denied
-	if rl.Allow("user-1") {
-		t.Error("4th call after refill must be denied")
-	}
-}
-
-func TestMessengerRateLimiter_ConcurrentAccess(t *testing.T) {
-	rl := NewMessengerRateLimiter(100, time.Minute)
-	var wg sync.WaitGroup
-	concurrency := 10
-	allowed := make([]bool, concurrency*10)
-
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			for j := 0; j < 10; j++ {
-				allowed[idx*10+j] = rl.Allow("concurrent-user")
-			}
-		}(i)
-	}
-	wg.Wait()
-
-	// Count allowed requests — should be exactly maxRequests (100) even under concurrency
-	allowedCount := 0
-	for _, a := range allowed {
-		if a {
-			allowedCount++
-		}
-	}
-	if allowedCount != 100 {
-		t.Errorf("expected exactly 100 allowed requests under concurrency, got %d", allowedCount)
-	}
-}
-
-// =============================================================================
-// MessengerRateLimiter — Allow with empty/edge user IDs
-// =============================================================================
-
 func TestMessengerRateLimiter_EmptyUserID(t *testing.T) {
-	rl := NewMessengerRateLimiter(3, time.Minute)
+	_, rl := setupMessengerRateLimitRedis(t)
 	if !rl.Allow("") {
 		t.Error("empty user ID must be allowed initially")
+	}
+}
+
+func TestMessengerRateLimiter_NilRedis(t *testing.T) {
+	rl := NewMessengerRateLimiter(nil, 5, time.Minute)
+	if !rl.Allow("user-1") {
+		t.Error("nil Redis must fail open (allow)")
+	}
+}
+
+func TestMessengerRateLimiter_ZeroMaxRequests(t *testing.T) {
+	_, rl := setupMessengerRateLimitRedis(t)
+	rl.maxRequests = 0
+	if rl.Allow("user-1") {
+		t.Error("maxRequests=0 must deny all requests")
+	}
+}
+
+// =============================================================================
+// MessengerRateLimitMiddleware — gin wrapper
+// =============================================================================
+
+func TestMessengerRateLimitMiddleware_NoClaims_PassesThrough(t *testing.T) {
+	_, limiter := setupMessengerRateLimitRedis(t)
+	handler := MessengerRateLimitMiddleware(limiter)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	handler(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 pass-through without claims, got %d", w.Code)
+	}
+}
+
+func TestMessengerRateLimitMiddleware_WithClaims_Allowed(t *testing.T) {
+	_, limiter := setupMessengerRateLimitRedis(t)
+	handler := MessengerRateLimitMiddleware(limiter)
+
+	for i := 0; i < 5; i++ {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Set("claims", &auth.Claims{UserID: "user-1"})
+		handler(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d expected 200, got %d", i+1, w.Code)
+		}
+	}
+}
+
+func TestMessengerRateLimitMiddleware_WithClaims_Denied(t *testing.T) {
+	_, limiter := setupMessengerRateLimitRedis(t)
+	handler := MessengerRateLimitMiddleware(limiter)
+
+	for i := 0; i < 6; i++ {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Set("claims", &auth.Claims{UserID: "user-1"})
+		handler(c)
+		if i == 5 && w.Code != http.StatusTooManyRequests {
+			t.Fatalf("6th request expected 429, got %d", w.Code)
+		}
 	}
 }

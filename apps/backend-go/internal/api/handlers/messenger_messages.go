@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/storage"
 	"github.com/gomo6/backend/internal/websocket"
@@ -150,7 +151,9 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		if isDeleted {
 			msg.Content = ""
 		} else {
-			// Try per-conversation key first, fall back to master key (for legacy messages)
+			// Try per-conversation key first, fall back to master key (for legacy messages).
+			// If decryption fails, replace the ciphertext with a placeholder — the
+			// encrypted blob must never be returned to the client.
 			decrypted, decErr := decryptContentForConversation(conversationID, encryptedContent)
 			if decErr != nil {
 				decrypted, decErr = decryptContent(encryptedContent)
@@ -158,7 +161,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			if decErr == nil {
 				msg.Content = decrypted
 			} else {
-				msg.Content = encryptedContent
+				msg.Content = crypto.DecryptionFailedPlaceholder
 			}
 		}
 
@@ -531,11 +534,14 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 }
 
 func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string) {
-	// Encrypt content before Redis broadcast
+	// Encrypt content before Redis broadcast. If encryption fails, drop the
+	// event instead of publishing plaintext as if it were ciphertext — the
+	// recipient decrypt path would otherwise replace it with a placeholder
+	// anyway, and plaintext must never travel over Redis.
 	encrypted, err := encryptContentForConversation(conversationID, newContent)
 	if err != nil {
-		log.Printf("[Messenger] encrypt edit broadcast: %v", err)
-		encrypted = newContent // fallback (should not happen with mandatory key)
+		log.Printf("[Messenger] encrypt edit broadcast: %v — skipping broadcast", err)
+		return
 	}
 	payload := map[string]interface{}{
 		"id":                msgID,

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -79,7 +80,9 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			conv.LastMessageAt = &lastMsgAt.String
 		}
 		if preview.Valid {
-			// Try per-conversation key first, fall back to master key
+			// Try per-conversation key first, fall back to master key. If decryption
+			// fails, replace the ciphertext with a placeholder — the encrypted blob
+			// must never be returned to the client.
 			decrypted, err := decryptContentForConversation(conv.ID, preview.String)
 			if err != nil {
 				decrypted, err = decryptContent(preview.String)
@@ -87,7 +90,8 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			if err == nil {
 				conv.LastMessagePreview = &decrypted
 			} else {
-				conv.LastMessagePreview = &preview.String
+				placeholder := crypto.DecryptionFailedPlaceholder
+				conv.LastMessagePreview = &placeholder
 			}
 		}
 		if lastMsgSender.Valid {
@@ -285,7 +289,12 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 
 	var req CreateGroupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request: name required"))
+		if strings.TrimSpace(req.Name) == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Group name is required"))
+			return
+		}
+		// e.g. member_ids exceeds the binding limit — do not blame the name.
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
 		return
 	}
 
@@ -293,6 +302,39 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 	if name == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Group name is required"))
 		return
+	}
+
+	// Deduplicate and validate member IDs (skip self and invalid UUIDs).
+	seen := make(map[string]struct{}, len(req.MemberIDs))
+	memberIDs := make([]string, 0, len(req.MemberIDs))
+	for _, id := range req.MemberIDs {
+		if !isUUID(id) || id == claims.UserID {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		memberIDs = append(memberIDs, id)
+	}
+
+	// Enforce the maximum group size (creator + initial members).
+	if len(memberIDs)+1 > maxGroupSize {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(fmt.Sprintf("Group member limit reached (max %d)", maxGroupSize)))
+		return
+	}
+
+	// Only confirmed friends can be added to a group at creation time.
+	for _, id := range memberIDs {
+		friends, err := h.areFriends(c, claims.UserID, id)
+		if err != nil {
+			serverError(c, "check friendship", err)
+			return
+		}
+		if !friends {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Only friends can be added to a group"))
+			return
+		}
 	}
 
 	// Create conversation
@@ -317,11 +359,8 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 		return
 	}
 
-	// Add other members if any
-	for _, id := range req.MemberIDs {
-		if !isUUID(id) || id == claims.UserID {
-			continue
-		}
+	// Add other members (already validated as friends and within the size limit)
+	for _, id := range memberIDs {
 		h.dbFor(c).Exec(`
 			INSERT INTO chat_members (conversation_id, user_id, role)
 			VALUES ($1, $2, 'member')
@@ -412,11 +451,59 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 		return
 	}
 
-	added := 0
+	// Deduplicate and validate user IDs; skip users already in the group.
+	seen := make(map[string]struct{}, len(req.UserIDs))
+	newIDs := make([]string, 0, len(req.UserIDs))
 	for _, id := range req.UserIDs {
-		if !isUUID(id) {
+		if !isUUID(id) || id == claims.UserID {
 			continue
 		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		var already bool
+		if err := h.dbFor(c).QueryRow(`SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)`, groupID, id).Scan(&already); err != nil {
+			serverError(c, "check existing member", err)
+			return
+		}
+		if already {
+			continue
+		}
+		seen[id] = struct{}{}
+		newIDs = append(newIDs, id)
+	}
+
+	if len(newIDs) == 0 {
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"added": 0}))
+		return
+	}
+
+	// Enforce the maximum group size.
+	var currentCount int
+	if err := h.dbFor(c).QueryRow(`SELECT COUNT(*) FROM chat_members WHERE conversation_id = $1`, groupID).Scan(&currentCount); err != nil {
+		serverError(c, "count group members", err)
+		return
+	}
+	if currentCount+len(newIDs) > maxGroupSize {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(fmt.Sprintf("Group member limit reached (max %d)", maxGroupSize)))
+		return
+	}
+
+	// Only confirmed friends can be added to a group.
+	for _, id := range newIDs {
+		friends, err := h.areFriends(c, claims.UserID, id)
+		if err != nil {
+			serverError(c, "check friendship", err)
+			return
+		}
+		if !friends {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Only friends can be added to a group"))
+			return
+		}
+	}
+
+	added := 0
+	for _, id := range newIDs {
 		_, err := h.dbFor(c).Exec(`INSERT INTO chat_members (conversation_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT (conversation_id, user_id) DO NOTHING`, groupID, id)
 		if err == nil {
 			added++

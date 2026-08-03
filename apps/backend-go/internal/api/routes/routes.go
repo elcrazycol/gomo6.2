@@ -57,6 +57,14 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	authRateLimiter := middleware.NewAuthRateLimiter(redis, 100, time.Minute)     // 100 req/min for auth/me
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
 	globalRateLimiter := middleware.NewGlobalRateLimiter(redis, 200, time.Minute) // 200 req/min per IP for public endpoints
+	// Upload limits: per-user request rate + hourly byte quota. Redis-backed so
+	// the budget holds across instances and /storage/v1/upload cannot be used to
+	// exhaust object storage.
+	uploadRateLimiter := middleware.NewUploadRateLimiter(
+		redis,
+		middleware.DefaultUploadsPerMinute,
+		middleware.DefaultUploadBytesPerHour,
+	)
 
 	// Initialize WebAuthn handler for passkey support (Redis-backed sessions)
 	webauthnHandler := handlers.NewWebAuthnHandler(db, redis, authService)
@@ -433,7 +441,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			messengerRead := protected.Group("")
 			messengerRead.Use(middleware.MessengerTransactionMiddleware(db))
 			messengerRead.Use(middleware.MessengerRateLimitMiddleware(
-				middleware.NewMessengerRateLimiter(300, 1*time.Minute)))
+				middleware.NewMessengerRateLimiter(redis, 300, 1*time.Minute)))
 			{
 				messengerRead.GET("/messenger/unread-count", messengerHandler.GetUnreadCount)
 				messengerRead.GET("/messenger/conversations", messengerHandler.ListConversations)
@@ -445,7 +453,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			messengerWrite := protected.Group("")
 			messengerWrite.Use(middleware.MessengerTransactionMiddleware(db))
 			messengerWrite.Use(middleware.MessengerRateLimitMiddleware(
-				middleware.NewMessengerRateLimiter(120, 1*time.Minute)))
+				middleware.NewMessengerRateLimiter(redis, 120, 1*time.Minute)))
 			{
 				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
 				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
@@ -573,7 +581,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		{
 			// Server-side upload: browser sends file to backend, backend uploads to Garage.
 			// Avoids CORS/S3-signature issues with direct browser-to-Garage upload.
-			storageProtected.POST("/upload", func(c *gin.Context) {
+			storageProtected.POST("/upload", middleware.UploadRateLimitMiddleware(uploadRateLimiter), func(c *gin.Context) {
 				if storageHandler == nil {
 					c.JSON(http.StatusNotImplemented, gin.H{"success": false, "error": "Storage not available"})
 					return

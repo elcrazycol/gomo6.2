@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/storage"
@@ -115,10 +116,14 @@ type MarkReadRequest struct {
 	MessageID string `json:"message_id" binding:"required"`
 }
 
+// maxGroupSize caps how many members a group conversation can have.
+// Enforced in CreateGroupConversation and AddGroupMembers.
+const maxGroupSize = 100
+
 // CreateGroupRequest is the POST body for creating a group chat
 type CreateGroupRequest struct {
 	Name      string   `json:"name" binding:"required,min=1,max=100"`
-	MemberIDs []string `json:"member_ids" binding:"max=49"`
+	MemberIDs []string `json:"member_ids" binding:"max=99"` // creator + 99 = maxGroupSize
 }
 
 // UpdateGroupRequest is the PUT body for updating a group chat
@@ -247,6 +252,20 @@ func (h *MessengerHandler) isMember(c *gin.Context, conversationID, userID strin
 	return ok, err
 }
 
+// areFriends reports whether two users have a confirmed friendship.
+// The friendships table always stores the smaller UUID first, so both column
+// orders are checked. The table has no RLS, so the query works from the
+// messenger request transaction.
+func (h *MessengerHandler) areFriends(c *gin.Context, user1, user2 string) (bool, error) {
+	var ok bool
+	err := h.dbFor(c).QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM friendships
+			WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+		)`, user1, user2).Scan(&ok)
+	return ok, err
+}
+
 // hasHTML checks if content contains HTML tags — we only allow plaintext.
 func hasHTML(s string) bool {
 	return htmlTagRegex.MatchString(s)
@@ -275,18 +294,23 @@ func GenerateClientID() string {
 // decryptMessageContent decrypts a single message's content if encrypted.
 // Tries the per-conversation key first, then falls back to the master key for
 // legacy messages written before per-conversation encryption was introduced.
+// If decryption fails, the ciphertext is replaced with a neutral placeholder
+// so the encrypted blob is never returned to the client.
 func decryptMessageContent(conversationID string, msg *MessageResponse) {
-	if msg.Content != "" && !msg.IsDeleted {
-		decrypted, err := decryptContentForConversation(conversationID, msg.Content)
-		if err == nil {
-			msg.Content = decrypted
-			return
-		}
-		decrypted, err = decryptContent(msg.Content)
-		if err == nil {
-			msg.Content = decrypted
-		}
+	if msg.Content == "" || msg.IsDeleted {
+		return
 	}
+	decrypted, err := decryptContentForConversation(conversationID, msg.Content)
+	if err == nil {
+		msg.Content = decrypted
+		return
+	}
+	decrypted, err = decryptContent(msg.Content)
+	if err == nil {
+		msg.Content = decrypted
+		return
+	}
+	msg.Content = crypto.DecryptionFailedPlaceholder
 }
 
 // FindOrCreateConversation atomically finds or creates a regular 1:1

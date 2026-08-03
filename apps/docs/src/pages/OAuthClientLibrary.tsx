@@ -303,8 +303,9 @@ export const OAuthClientLibrary = () => {
         </h2>
         <p className="text-sm text-gray-400 leading-relaxed mb-4">
           Наша TypeScript библиотека — это полноценный OAuth 2.0 клиент, работающий прямо в браузере
-          без единой внешней зависимости. Использует Web Crypto API для PKCE, localStorage для хранения
-          токенов и предоставляет React hook для удобной интеграции в ваше приложение.
+          без единой внешней зависимости. Использует Web Crypto API для PKCE, по умолчанию хранит токены
+          только в памяти (в localStorage — только при явном persistTokens) и предоставляет React hook
+          для удобной интеграции в ваше приложение.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
@@ -362,7 +363,8 @@ export const OAuthClientLibrary = () => {
               { name: "clientSecret?", type: "string", desc: "Client secret для confidential клиентов" },
               { name: "redirectUri", type: "string", desc: "Redirect URI, зарегистрированный в приложении" },
               { name: "authorizationBaseUrl?", type: "string", desc: "Базовый URL сервера (по умолчанию — текущий origin)" },
-              { name: "storageKey?", type: "string", desc: "Префикс для localStorage (по умолчанию gomo6_oauth)" },
+              { name: "storageKey?", type: "string", desc: "Префикс хранилища токенов (по умолчанию gomo6_oauth). Неймспейс in-memory хранилища; ключ localStorage используется только при persistTokens" },
+              { name: "persistTokens?", type: "boolean", desc: "Сохранять токены в localStorage. По умолчанию false (безопасно): токены живут только в памяти страницы" },
             ]}
           >
             <CodeBlock code={codeConstructor} />
@@ -459,7 +461,7 @@ export const OAuthClientLibrary = () => {
           <ApiMethod
             icon={Layers}
             title="client.saveTokens() / loadTokens() / clearTokens()"
-            desc="Управление хранением токенов в localStorage"
+            desc="Управление токенами. По умолчанию хранятся только в памяти (безопасно от XSS); localStorage используется лишь при persistTokens: true"
             returns="void | TokenStore | null"
           />
 

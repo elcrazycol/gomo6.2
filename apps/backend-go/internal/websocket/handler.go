@@ -1,14 +1,16 @@
 package websocket
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -16,21 +18,22 @@ const (
 	defaultPreAuthWindow         = time.Minute
 )
 
-type preAuthWindow struct {
-	started time.Time
-	count   int
-}
-
 // PreAuthLimiter bounds WebSocket upgrades before the client has authenticated.
-// It is deliberately keyed by the source IP and fails closed when exhausted.
+// It is keyed by the source IP and backed by Redis so the budget holds across
+// all server instances (the previous in-memory window was per-process).
+//
+// Unlike the other Redis-backed limiters, this one fails CLOSED on Redis
+// errors: it is the only anti-DoS control that runs before authentication, so
+// an outage must not silently disable the upgrade throttle (legitimate clients
+// can simply retry after the outage). A nil Redis client (tests, dev) still
+// fails open.
 type PreAuthLimiter struct {
-	mu           sync.Mutex
-	windows      map[string]preAuthWindow
+	redis        *redis.Client
 	maxAttempts  int
 	windowLength time.Duration
 }
 
-func NewPreAuthLimiter(maxAttempts int, windowLength time.Duration) *PreAuthLimiter {
+func NewPreAuthLimiter(redisClient *redis.Client, maxAttempts int, windowLength time.Duration) *PreAuthLimiter {
 	if maxAttempts <= 0 {
 		maxAttempts = defaultPreAuthMaxConnections
 	}
@@ -38,44 +41,40 @@ func NewPreAuthLimiter(maxAttempts int, windowLength time.Duration) *PreAuthLimi
 		windowLength = defaultPreAuthWindow
 	}
 	return &PreAuthLimiter{
-		windows:      make(map[string]preAuthWindow),
+		redis:        redisClient,
 		maxAttempts:  maxAttempts,
 		windowLength: windowLength,
 	}
 }
 
 // Allow admits one upgrade attempt and returns false after the per-IP budget
-// is exhausted. Old entries are pruned opportunistically to keep memory bound.
+// is exhausted. Redis TTL expires the window automatically; no manual pruning
+// is needed.
 func (l *PreAuthLimiter) Allow(ip string) bool {
 	if l == nil {
-		return true
+		return true // nil limiter: allow
+	}
+	if l.redis == nil {
+		return true // Redis not configured (tests/dev): allow
 	}
 	ip = strings.TrimSpace(ip)
 	if ip == "" {
 		ip = "unknown"
 	}
 
-	now := time.Now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
 
-	for key, entry := range l.windows {
-		if now.Sub(entry.started) >= 2*l.windowLength {
-			delete(l.windows, key)
-		}
+	key := fmt.Sprintf("ratelimit:ws-pre:%s", ip)
+	count, err := l.redis.Incr(ctx, key).Result()
+	if err != nil {
+		return false // fail CLOSED on Redis errors: do not disable the pre-auth throttle
+	}
+	if count == 1 {
+		l.redis.Expire(ctx, key, l.windowLength)
 	}
 
-	entry, ok := l.windows[ip]
-	if !ok || now.Sub(entry.started) >= l.windowLength {
-		l.windows[ip] = preAuthWindow{started: now, count: 1}
-		return true
-	}
-	if entry.count >= l.maxAttempts {
-		return false
-	}
-	entry.count++
-	l.windows[ip] = entry
-	return true
+	return count <= int64(l.maxAttempts)
 }
 
 // Handler handles WebSocket HTTP requests
@@ -88,7 +87,13 @@ type Handler struct {
 // NewHandler creates a new WebSocket handler. The optional limiter is useful
 // for tests and deployment-specific limits; production uses the safe default.
 func NewHandler(hub *Hub, authService *auth.AuthService, limiters ...*PreAuthLimiter) *Handler {
-	limiter := NewPreAuthLimiter(defaultPreAuthMaxConnections, defaultPreAuthWindow)
+	// The default limiter is Redis-backed via the hub's client so the upgrade
+	// budget is shared across instances.
+	var redisClient *redis.Client
+	if hub != nil {
+		redisClient = hub.redis
+	}
+	limiter := NewPreAuthLimiter(redisClient, defaultPreAuthMaxConnections, defaultPreAuthWindow)
 	if len(limiters) > 0 && limiters[0] != nil {
 		limiter = limiters[0]
 	}

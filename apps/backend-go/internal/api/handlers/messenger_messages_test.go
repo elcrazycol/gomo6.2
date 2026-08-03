@@ -7,6 +7,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/crypto"
 )
 
 // ─── GetMessages ─────────────────────────────────────────────────────────────
@@ -139,6 +140,55 @@ func TestGetMessages_Empty(t *testing.T) {
 	}
 	if len(data) != 0 {
 		t.Fatalf("expected 0 messages, got %d", len(data))
+	}
+}
+
+func TestGetMessages_DecryptionFailureNoCiphertextLeak(t *testing.T) {
+	handler, mock := setupMessengerHandler(t)
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	c, w := newGETContextWithParams("/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/messages", nil, map[string]string{"id": testConv1})
+	c.Set("claims", claims)
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs(testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	now := time.Now()
+	msgRows := sqlmock.NewRows([]string{
+		"event_id", "id", "conversation_id", "sender_user_id", "sender_username", "parent_message_id",
+		"content", "is_edited", "is_deleted",
+		"edited_at", "sent_at", "client_id",
+	}).AddRow(int64(1), testMsg1, testConv1, testUser1, "testuser", nil, "not-a-valid-ciphertext!", false, false, nil, now, "c1")
+
+	mock.ExpectQuery(`SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,.*FROM chat_messages m.*LEFT JOIN users u.*WHERE m.conversation_id = \$1.*ORDER BY m.sent_at DESC.*LIMIT \$2`).
+		WithArgs(testConv1, 50).
+		WillReturnRows(msgRows)
+
+	mock.ExpectQuery(`SELECT id, message_id, url, type, name, size, mime, meta, sort_order FROM message_attachments WHERE message_id IN`).
+		WithArgs(testMsg1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "message_id", "url", "type", "name", "size", "mime", "meta", "sort_order"}))
+
+	handler.GetMessages(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	data, err := stripJSONArray(w.Body.Bytes())
+	if err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if len(data) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(data))
+	}
+	first := data[0].(map[string]interface{})
+	content := first["content"]
+	if content == "not-a-valid-ciphertext!" {
+		t.Fatal("ciphertext must never be returned to the client")
+	}
+	if content != crypto.DecryptionFailedPlaceholder {
+		t.Errorf("expected placeholder %q, got %v", crypto.DecryptionFailedPlaceholder, content)
 	}
 }
 

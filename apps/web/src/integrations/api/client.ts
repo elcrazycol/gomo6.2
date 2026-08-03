@@ -73,6 +73,10 @@ class ApiClient {
     // Browser auth is restored from HttpOnly cookies by the backend. Access and
     // refresh tokens are kept only in memory when an API client explicitly needs
     // the legacy Bearer compatibility path.
+    // One-time migration cleanup: older builds persisted the token pair to Web
+    // Storage. Drop any leftovers on load so secrets never linger in localStorage
+    // for an XSS to steal, even if the page never logs out.
+    removeLegacyStoredTokens();
   }
 
   setToken(token: string) {
@@ -99,8 +103,7 @@ class ApiClient {
     this.cachedUser = null;
     this.currentUserPromise = null;
     this.currentUserCacheTime = 0;
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_refresh_token');
+    removeLegacyStoredTokens();
   }
 
   getToken(): string | null {
@@ -697,6 +700,18 @@ class ApiClient {
   async deleteAllOtherSessions(): Promise<{ deleted: number }> {
     const resp = await this.request<{ deleted: number }>('/api/v1/auth/sessions', { method: 'DELETE' });
     return resp.data as { deleted: number };
+  }
+}
+
+// Legacy builds stored the access/refresh pair in localStorage. Remove them so
+// no previously persisted secret survives a page load.
+function removeLegacyStoredTokens(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_refresh_token');
+  } catch {
+    // localStorage may be unavailable (private mode, sandboxed iframe)
   }
 }
 

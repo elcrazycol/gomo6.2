@@ -13,8 +13,19 @@ export interface OAuthClientConfig {
   redirectUri: string
   /** Base URL of the authorization server. Defaults to current origin */
   authorizationBaseUrl?: string
-  /** Token storage key prefix for localStorage. Default "gomo6_oauth" */
+  /**
+   * Token store key prefix. Default "gomo6_oauth".
+   * Tokens are kept in memory only; this key namespaces the in-memory store and
+   * (only when persistTokens is enabled) acts as the localStorage prefix.
+   */
   storageKey?: string
+  /**
+   * Persist tokens to localStorage. Default false (secure): tokens live only in
+   * memory for the lifetime of the page and are never written to Web Storage.
+   * Enabling this re-exposes access/refresh tokens to any XSS on the page and
+   * is not recommended.
+   */
+  persistTokens?: boolean
 }
 
 export interface TokenResponse {
@@ -201,31 +212,55 @@ export function getJWTId(token: string): string | null {
 
 const DEFAULT_STORAGE_KEY = "gomo6_oauth"
 
+// Tokens live in memory by default so they can never be exfiltrated from
+// localStorage by XSS. Only the opt-in persistTokens flag writes to Web Storage.
+const memoryTokenStores = new Map<string, TokenStore>()
+
 function getStorageKey(customPrefix?: string): string {
   return `${customPrefix ?? DEFAULT_STORAGE_KEY}_tokens`
 }
 
-function saveTokens(store: TokenStore, storageKey?: string): void {
+function saveTokens(store: TokenStore, storageKey?: string, persist = false): void {
+  const key = getStorageKey(storageKey)
+  memoryTokenStores.set(key, store)
+  if (!persist) {
+    // Best-effort removal of any legacy persisted copy.
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // localStorage may be blocked (e.g., in iframes without 3rd-party cookies)
+    }
+    return
+  }
   try {
-    localStorage.setItem(getStorageKey(storageKey), JSON.stringify(store))
+    localStorage.setItem(key, JSON.stringify(store))
   } catch {
     // localStorage may be blocked (e.g., in iframes without 3rd-party cookies)
   }
 }
 
-function loadTokens(storageKey?: string): TokenStore | null {
+function loadTokens(storageKey?: string, persist = false): TokenStore | null {
+  const key = getStorageKey(storageKey)
+  const memory = memoryTokenStores.get(key)
+  if (memory) return memory
+  if (!persist) return null
   try {
-    const raw = localStorage.getItem(getStorageKey(storageKey))
+    const raw = localStorage.getItem(key)
     if (!raw) return null
-    return JSON.parse(raw) as TokenStore
+    const parsed = JSON.parse(raw) as TokenStore
+    memoryTokenStores.set(key, parsed)
+    return parsed
   } catch {
     return null
   }
 }
 
 function clearTokens(storageKey?: string): void {
+  const key = getStorageKey(storageKey)
+  memoryTokenStores.delete(key)
+  // Also drop any legacy persisted copy from before the in-memory migration.
   try {
-    localStorage.removeItem(getStorageKey(storageKey))
+    localStorage.removeItem(key)
   } catch {
     // ignore
   }
@@ -269,6 +304,7 @@ export class OAuthClient {
       authorizationBaseUrl:
         config.authorizationBaseUrl ?? window.location.origin,
       storageKey: config.storageKey ?? DEFAULT_STORAGE_KEY,
+      persistTokens: config.persistTokens ?? false,
     }
   }
 
@@ -592,7 +628,7 @@ export class OAuthClient {
 
   // ─── Token Store Management ────────────────────────────────────────────
 
-  /** Save tokens to localStorage */
+  /** Save tokens. Stored in memory only unless persistTokens is enabled. */
   saveTokens(tokens: TokenResponse): void {
     const store: TokenStore = {
       accessToken: tokens.accessToken,
@@ -601,15 +637,15 @@ export class OAuthClient {
       expiresAt: Date.now() + (tokens.expiresIn || 3600) * 1000,
       scope: tokens.scope ?? null,
     }
-    saveTokens(store, this.config.storageKey)
+    saveTokens(store, this.config.storageKey, this.config.persistTokens)
   }
 
-  /** Load tokens from localStorage */
+  /** Load tokens from the in-memory store (or localStorage when persisting). */
   loadTokens(): TokenStore | null {
-    return loadTokens(this.config.storageKey)
+    return loadTokens(this.config.storageKey, this.config.persistTokens)
   }
 
-  /** Clear stored tokens */
+  /** Clear stored tokens (memory + any legacy localStorage copy). */
   clearTokens(): void {
     clearTokens(this.config.storageKey)
   }

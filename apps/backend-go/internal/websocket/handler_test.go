@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/redis/go-redis/v9"
 )
 
 // =============================================================================
@@ -63,7 +65,11 @@ func TestHandleWebSocket_NoAuthRequired(t *testing.T) {
 }
 
 func TestPreAuthLimiter_BoundsAttemptsPerIP(t *testing.T) {
-	limiter := NewPreAuthLimiter(2, time.Minute)
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+
+	limiter := NewPreAuthLimiter(rdb, 2, time.Minute)
 	if !limiter.Allow("198.51.100.10") {
 		t.Fatal("first attempt should be admitted")
 	}
@@ -79,13 +85,45 @@ func TestPreAuthLimiter_BoundsAttemptsPerIP(t *testing.T) {
 }
 
 func TestPreAuthLimiter_ResetsAfterWindow(t *testing.T) {
-	limiter := NewPreAuthLimiter(1, 10*time.Millisecond)
+	// miniredis minimum TTL is 1s, so use a 2s window.
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+
+	limiter := NewPreAuthLimiter(rdb, 1, 2*time.Second)
 	if !limiter.Allow("198.51.100.12") || limiter.Allow("198.51.100.12") {
 		t.Fatal("limiter should reject the second attempt in the window")
 	}
-	time.Sleep(15 * time.Millisecond)
+	mr.FastForward(3 * time.Second)
+	time.Sleep(20 * time.Millisecond)
 	if !limiter.Allow("198.51.100.12") {
 		t.Fatal("limiter should reset after the window")
+	}
+}
+
+func TestPreAuthLimiter_NilRedis_Allows(t *testing.T) {
+	// A nil Redis client (tests/dev, no Redis configured) fails open.
+	limiter := NewPreAuthLimiter(nil, 2, time.Minute)
+	for i := 0; i < 5; i++ {
+		if !limiter.Allow("198.51.100.20") {
+			t.Fatalf("nil Redis must allow, denied on attempt %d", i+1)
+		}
+	}
+}
+
+func TestPreAuthLimiter_RedisError_FailsClosed(t *testing.T) {
+	// The pre-auth limiter must fail CLOSED on Redis errors: it is the only
+	// anti-DoS control before authentication, so an outage must not silently
+	// disable the upgrade throttle.
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	limiter := NewPreAuthLimiter(rdb, 20, time.Minute)
+
+	// Take Redis down to force an error on the next INCR.
+	mr.Close()
+
+	if limiter.Allow("198.51.100.30") {
+		t.Fatal("Redis error must fail closed (deny upgrades)")
 	}
 }
 

@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -322,40 +323,47 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 
 	log.Printf("[WebSocket] Authenticated user: %s (%s)", c.Username, c.UserID)
 
-	// Set RLS session variable for defense-in-depth.
-	// WebSocket handlers also check membership via isMemberOfConversation(),
-	// but this adds database-level protection.
-	if c.Hub.db != nil {
-		c.Hub.db.Exec("SELECT set_config('app.current_user_id', $1, true)", c.UserID)
-	}
+	// NOTE: no set_config on the pooled connection here. The old call executed
+	// set_config('app.current_user_id', ...) without a transaction, which
+	// persists on the session and leaks the RLS binding to unrelated queries
+	// reusing that connection. Every Hub DB operation that needs RLS runs in
+	// its own transaction via withUserTx (see isMemberOfConversation).
 
 	return nil
 }
 
 // autoSubscribeBotsChats fetches all conversations for the bot user
 // and subscribes to their chat rooms so the bot receives messages.
+// The query runs inside a transaction scoped to the bot user so chat_members
+// RLS admits the bot's own memberships.
 func (c *Client) autoSubscribeBotsChats() {
 	if c.Hub.db == nil {
 		return
 	}
 
-	rows, err := c.Hub.db.Query(`
-		SELECT cm.conversation_id
-		FROM chat_members cm
-		WHERE cm.user_id = $1`, c.UserID)
+	err := c.Hub.withUserTx(c.UserID, func(tx *sql.Tx) error {
+		rows, err := tx.Query(`
+			SELECT cm.conversation_id
+			FROM chat_members cm
+			WHERE cm.user_id = $1`, c.UserID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var convID string
+			if err := rows.Scan(&convID); err != nil {
+				continue
+			}
+			room := fmt.Sprintf("chat_%s", convID)
+			c.Hub.SubscribeToRoom(c, room)
+		}
+		return rows.Err()
+	})
 	if err != nil {
 		log.Printf("[WebSocket] Failed to fetch bot conversations: %v", err)
 		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var convID string
-		if err := rows.Scan(&convID); err != nil {
-			continue
-		}
-		room := fmt.Sprintf("chat_%s", convID)
-		c.Hub.SubscribeToRoom(c, room)
 	}
 	log.Printf("[WebSocket] Bot %s auto-subscribed to chat rooms", c.Username)
 }

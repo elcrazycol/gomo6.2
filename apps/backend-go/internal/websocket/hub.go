@@ -108,7 +108,7 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 		ctx:                  ctx,
 		cancel:               cancel,
 		allowedOrigins:       allowedOrigins,
-		rateLimiter:          NewRateLimiter(60, time.Minute), // 60 messages per minute
+		rateLimiter:          NewRateLimiter(redisClient, 60, time.Minute), // 60 messages per minute, Redis-backed
 		statusUpdateDebounce: make(map[string]*time.Timer),
 	}
 }
@@ -116,6 +116,30 @@ func NewHub(redisClient *redis.Client, allowedOrigins []string) *Hub {
 // SetDB sets the database connection for the Hub
 func (h *Hub) SetDB(db *sql.DB) {
 	h.db = db
+}
+
+// withUserTx runs fn inside a short transaction whose RLS binding
+// (app.current_user_id) is scoped with SET LOCAL. The old approach executed
+// set_config via Exec on a pooled connection: with no transaction in progress,
+// set_config(..., true) persists on the session, so the setting leaked to
+// unrelated queries on that connection. Scoping it to one transaction prevents
+// cross-user RLS contamination.
+func (h *Hub) withUserTx(userID string, fn func(tx *sql.Tx) error) error {
+	if h.db == nil {
+		return fmt.Errorf("websocket hub has no database")
+	}
+	tx, err := h.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Run starts the Hub and begins listening for Redis messages
@@ -398,8 +422,10 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 
 // decryptChatPayloadForBroadcast tries to decrypt a chat payload's
 // encrypted_content using the per-conversation key, falling back to the master
-// key for legacy messages. It returns updated message bytes (with the decrypted
-// content) when decryption succeeds, otherwise it returns the original bytes.
+// key for legacy messages. It returns updated message bytes with the decrypted
+// content and the encrypted_content key removed. If decryption fails, the
+// content is replaced with crypto.DecryptionFailedPlaceholder — the raw
+// ciphertext must never be forwarded to clients.
 func decryptChatPayloadForBroadcast(payload map[string]interface{}, message Message, messageBytes []byte, eventType string) []byte {
 	enc, ok := payload["encrypted_content"].(string)
 	if !ok || enc == "" {
@@ -420,7 +446,8 @@ func decryptChatPayloadForBroadcast(payload map[string]interface{}, message Mess
 		decrypted, err = crypto.DecryptMaster(enc)
 	}
 	if err != nil {
-		return messageBytes
+		// Do not leak ciphertext: forward a neutral placeholder instead.
+		decrypted = crypto.DecryptionFailedPlaceholder
 	}
 
 	payload["content"] = decrypted
@@ -446,17 +473,20 @@ func extractRoomID(payload interface{}, key string) string {
 
 // autoSubscribeBotsToChat finds bot users who are members of a conversation
 // and subscribes their connected clients to the chat room.
+//
+// The lookup runs through a SECURITY DEFINER function because it is a
+// system-level operation: the Redis event handler has no per-request user
+// context, and chat_members is FORCE RLS, so a plain query would be filtered
+// out (current_setting returns NULL outside a bound transaction).
 func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
 	if h.db == nil {
 		return
 	}
 
-	rows, err := h.db.Query(`
-		SELECT cm.user_id
-		FROM chat_members cm
-		INNER JOIN bots b ON b.user_id = cm.user_id
-		WHERE cm.conversation_id = $1 AND b.is_active = true`, conversationID)
+	rows, err := h.db.Query(
+		"SELECT user_id FROM get_active_bot_members($1)", conversationID)
 	if err != nil {
+		log.Printf("[WebSocket] failed to query active bot members: %v", err)
 		return
 	}
 	defer rows.Close()
@@ -484,16 +514,20 @@ func (h *Hub) autoSubscribeBotsToChat(conversationID, chatRoom string) {
 }
 
 // isMemberOfConversation checks if a user is a member of a chat conversation.
-// Returns false if DB is unavailable (fail-closed).
+// The query runs inside a transaction scoped to userID so the chat_members RLS
+// policy (which reads app.current_user_id) admits the row without leaking the
+// setting to pooled connections. Returns false if DB is unavailable (fail-closed).
 func (h *Hub) isMemberOfConversation(userID, conversationID string) bool {
 	if h.db == nil {
 		return false
 	}
 	var ok bool
-	err := h.db.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
-		conversationID, userID,
-	).Scan(&ok)
+	err := h.withUserTx(userID, func(tx *sql.Tx) error {
+		return tx.QueryRow(
+			"SELECT EXISTS(SELECT 1 FROM chat_members WHERE conversation_id = $1 AND user_id = $2)",
+			conversationID, userID,
+		).Scan(&ok)
+	})
 	if err != nil {
 		log.Printf("[WebSocket] membership check error: %v", err)
 		return false
