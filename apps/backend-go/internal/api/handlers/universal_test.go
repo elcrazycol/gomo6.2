@@ -126,7 +126,7 @@ func TestUniversalPost_UpsertDailyVisits(t *testing.T) {
 
 	c, w := newUniversalRequestContext("POST", "/api/v1/user_daily_visits", map[string]string{
 		"user_id": "u1",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -296,7 +296,7 @@ func TestUniversalPost_UpsertGomosubRules(t *testing.T) {
 	c, w := newUniversalRequestContext("POST", "/api/v1/gomosub_rules_acceptance", map[string]string{
 		"user_id":  "u1",
 		"board_id": "b1",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -322,7 +322,7 @@ func TestUniversalPost_UpsertWallPostLikes(t *testing.T) {
 	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_likes", map[string]string{
 		"post_id": "post1",
 		"user_id": "u1",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -470,4 +470,201 @@ func TestUniversal_ParseAPIOrder(t *testing.T) {
 	_ = mock
 	result.WriteString("ok")
 	_ = result
+}
+
+// ─── K1: ownership enforcement (IDOR fix) ───────────────────────────────────
+
+func TestUniversalPost_WallPosts_OwnWall(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_posts.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content"}).
+			AddRow("post1", "u1", "u1", "T", "C"))
+
+	// The client tries to forge author_id; the server must force it to the caller.
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_posts", map[string]string{
+		"user_id":   "u1",
+		"author_id": "evil",
+		"title":     "T",
+		"content":   "C",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_WallPosts_ForbiddenForeignWall(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(allow_wall_posts_from_others, true\) FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(false))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_posts", map[string]string{
+		"user_id": "u2",
+		"title":   "T",
+		"content": "C",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_WallPosts_AllowedForeignWall(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT COALESCE\(allow_wall_posts_from_others, true\) FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(true))
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_posts.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id"}).
+			AddRow("post1", "u2", "u1"))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_posts", map[string]string{
+		"user_id": "u2",
+		"title":   "T",
+		"content": "C",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_WallPosts_RequiresAuth(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_posts", map[string]string{
+		"user_id": "u1",
+		"content": "C",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_Likes_ForcesOwner(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_likes.*VALUES.*ON CONFLICT.*DO UPDATE SET user_id = EXCLUDED.user_id.*RETURNING \*`).
+		WithArgs("post1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id"}).
+			AddRow("1", "post1", "u1"))
+
+	// The client attempts to like as another user; the server must use the caller.
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_likes", map[string]string{
+		"post_id": "post1",
+		"user_id": "victim",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_WallPosts_OwnershipScope(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_posts SET .* WHERE .*author_id = \$[0-9]+ OR user_id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "content"}).
+			AddRow("post1", "u1", "u1", "updated"))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_posts?id=eq.post1", map[string]string{
+		"content": "updated",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_WallPosts_RequiresAuth(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_posts?id=eq.post1", map[string]string{
+		"content": "updated",
+	}, nil)
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalDelete_WallPosts_OwnershipScope(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*DELETE FROM profile_wall_posts WHERE .*author_id = \$[0-9]+ OR user_id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("post1"))
+
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_posts?id=eq.post1", nil, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_Reposts_ForcesWallOwner(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_reposts \(.*post_id.*user_id.*wall_user_id.*\).*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "wall_user_id"}).
+			AddRow("r1", "post1", "u1", "u1"))
+
+	// The client attempts to repost onto a victim's wall; both user_id and
+	// wall_user_id must be forced to the caller.
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_reposts", map[string]string{
+		"post_id":      "post1",
+		"user_id":      "victim",
+		"wall_user_id": "victim",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_WallPosts_CannotMoveToForeignWall(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_posts SET .* WHERE .*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "content"}).
+			AddRow("post1", "u1", "u1", "updated"))
+
+	// Changing user_id to a victim's wall must not be honored (it is dropped
+	// from the SET clause); the request still succeeds scoped to own content.
+	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_posts?id=eq.post1", map[string]string{
+		"content": "updated",
+		"user_id": "victim",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalDelete_WallComments_OwnershipScope(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*DELETE FROM profile_wall_post_comments WHERE .*user_id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("c1"))
+
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_post_comments?id=eq.c1", nil, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
 }

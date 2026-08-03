@@ -142,6 +142,17 @@ func genericReadDeniedTable(table string) bool {
 	}
 }
 
+// authenticatedUserID returns the authenticated user ID from the request
+// context, or "" when the request is unauthenticated.
+func authenticatedUserID(c *gin.Context) string {
+	claimsValue, exists := c.Get("claims")
+	claims, ok := claimsValue.(*auth.Claims)
+	if !exists || !ok || claims == nil || claims.UserID == "" {
+		return ""
+	}
+	return claims.UserID
+}
+
 // genericReadScopeUser returns the authenticated user ID for tables where the
 // compatibility read endpoint must be user-scoped. An unscoped table is left
 // untouched so public-ish compatibility queries (channels, roles, etc.) keep

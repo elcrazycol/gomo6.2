@@ -2,9 +2,6 @@ import { api } from "@/integrations/api/compat";
 
 export interface ProfileCustomization {
   username_css: string | null;
-  username_icon_svg: string | null;
-  username_icon_fill: string | null;
-  username_icon_stroke: string | null;
   profile_badge_text: string | null;
   profile_badge_css: string | null;
 }

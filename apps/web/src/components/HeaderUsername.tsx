@@ -11,9 +11,6 @@ interface CachedProfile {
   color?: string;
   customization?: {
     username_css?: string;
-    username_icon_svg?: string;
-    username_icon_fill?: string;
-    username_icon_stroke?: string;
   };
 }
 
@@ -71,20 +68,6 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
           {profileData.display_name?.trim() || profileData.username || 'Профиль'}
           <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
         </span>
-        {profileData.customization?.username_icon_svg && (
-          <span
-            className="inline-flex items-center justify-center transition-transform duration-200 group-hover:translate-x-0.5"
-            dangerouslySetInnerHTML={{ __html: profileData.customization.username_icon_svg }}
-            style={{
-              fill: profileData.customization.username_icon_fill || undefined,
-              stroke: profileData.customization.username_icon_stroke || undefined,
-              width: '1em',
-              height: '1em',
-                maxHeight: '20px',
-                maxWidth: '20px',
-            }}
-          />
-        )}
         <div className="transition-transform duration-200 group-hover:translate-x-0.5">
           <AdminBadge userId={userId} />
         </div>

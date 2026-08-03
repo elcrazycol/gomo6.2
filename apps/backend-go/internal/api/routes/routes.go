@@ -286,6 +286,8 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/profile_customization", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_customization/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_customization", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_customization/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/user_placeholders", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_placeholders/*path", universalHandler.HandleTableRequest)

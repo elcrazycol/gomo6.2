@@ -441,7 +441,7 @@ func TestUniversalPost_ProfileWallPost(t *testing.T) {
 		"author_id": "u1",
 		"title":     "My Wall Post",
 		"content":   "Hello world!",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -481,7 +481,7 @@ func TestUniversalPost_ProfileWallComment(t *testing.T) {
 		"post_id": "post1",
 		"user_id": "u2",
 		"content": "Great post!",
-	}, nil)
+	}, &auth.Claims{UserID: "u2"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -515,7 +515,7 @@ func TestUniversalPost_ProfileWallPostLike(t *testing.T) {
 	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_likes", map[string]string{
 		"post_id": "post1",
 		"user_id": "u1",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -596,8 +596,7 @@ func TestUniversalGet_ProfileWallPostLikes_DBError(t *testing.T) {
 func TestUniversalPut_ProfileWallPost(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`UPDATE profile_wall_posts SET content = \$1 WHERE id = \$2 RETURNING \*`).
-		WithArgs("Updated content", "post1").
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_posts SET .* WHERE .*RETURNING \*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "content"}).
 			AddRow("post1", "u1", "My Post", "Updated content"))
 
@@ -610,7 +609,7 @@ func TestUniversalPut_ProfileWallPost(t *testing.T) {
 
 	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_posts?id=eq.post1", map[string]string{
 		"content": "Updated content",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -621,13 +620,12 @@ func TestUniversalPut_ProfileWallPost(t *testing.T) {
 func TestUniversalPut_ProfileWallPost_NotFound(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`UPDATE profile_wall_posts SET content = \$1 WHERE id = \$2 RETURNING \*`).
-		WithArgs("New content", "nonexistent").
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_posts SET .* WHERE .*RETURNING \*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "content"}))
 
 	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_posts?id=eq.nonexistent", map[string]string{
 		"content": "New content",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 404 {
@@ -640,12 +638,11 @@ func TestUniversalPut_ProfileWallPost_NotFound(t *testing.T) {
 func TestUniversalDelete_ProfileWallPost(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`DELETE FROM profile_wall_posts WHERE id = \$1 RETURNING \*`).
-		WithArgs("post1").
+	mock.ExpectQuery(`(?s).*DELETE FROM profile_wall_posts WHERE .*RETURNING \*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "content"}).
 			AddRow("post1", "u1", "My Post", "Content"))
 
-	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_posts?id=eq.post1", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_posts?id=eq.post1", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 200 {
@@ -656,11 +653,10 @@ func TestUniversalDelete_ProfileWallPost(t *testing.T) {
 func TestUniversalDelete_ProfileWallPost_NotFound(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`DELETE FROM profile_wall_posts WHERE id = \$1 RETURNING \*`).
-		WithArgs("nonexistent").
+	mock.ExpectQuery(`(?s).*DELETE FROM profile_wall_posts WHERE .*RETURNING \*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "title", "content"}))
 
-	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_posts?id=eq.nonexistent", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/profile_wall_posts?id=eq.nonexistent", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != 404 {

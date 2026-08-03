@@ -90,7 +90,7 @@ describe("getProfileCustomization", () => {
   });
 
   it("fetches customization from API", async () => {
-    const mockData = { username_css: "color: red", username_icon_svg: null, username_icon_fill: null, username_icon_stroke: null, profile_badge_text: "VIP", profile_badge_css: null };
+    const mockData = { username_css: "color: red", profile_badge_text: "VIP", profile_badge_css: null };
     mockFrom.mockReturnValue(makeChain({ data: mockData, error: null }));
 
     const result = await getProfileCustomization("user-1");
@@ -105,7 +105,7 @@ describe("getProfileCustomization", () => {
   });
 
   it("caches result on subsequent calls", async () => {
-    const mockData = { username_css: "color: blue", username_icon_svg: null, username_icon_fill: null, username_icon_stroke: null, profile_badge_text: null, profile_badge_css: null };
+    const mockData = { username_css: "color: blue", profile_badge_text: null, profile_badge_css: null };
     mockFrom.mockReturnValue(makeChain({ data: mockData, error: null }));
 
     await getProfileCustomization("user-1");
@@ -129,7 +129,7 @@ describe("clearCustomizationCache", () => {
   });
 
   it("clears specific user from cache", async () => {
-    mockFrom.mockReturnValue(makeChain({ data: { username_css: null, username_icon_svg: null, username_icon_fill: null, username_icon_stroke: null, profile_badge_text: null, profile_badge_css: null }, error: null }));
+    mockFrom.mockReturnValue(makeChain({ data: { username_css: null, profile_badge_text: null, profile_badge_css: null }, error: null }));
 
     await getProfileCustomization("user-1");
     clearCustomizationCache("user-1");
@@ -139,7 +139,7 @@ describe("clearCustomizationCache", () => {
   });
 
   it("clears entire cache when no userId", async () => {
-    mockFrom.mockReturnValue(makeChain({ data: { username_css: null, username_icon_svg: null, username_icon_fill: null, username_icon_stroke: null, profile_badge_text: null, profile_badge_css: null }, error: null }));
+    mockFrom.mockReturnValue(makeChain({ data: { username_css: null, profile_badge_text: null, profile_badge_css: null }, error: null }));
 
     await getProfileCustomization("user-1");
     clearCustomizationCache();

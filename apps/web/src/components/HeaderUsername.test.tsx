@@ -73,16 +73,6 @@ describe("HeaderUsername", () => {
     expect(el.style.color).toBe("red");
   });
 
-  it("renders username icon SVG when present", () => {
-    mockGetProfile.mockReturnValue({
-      username: "icon_user",
-      color: "",
-      customization: { username_icon_svg: '<svg></svg>' },
-    });
-    render(<HeaderUsername userId="user-1" />);
-    expect(screen.getByText("icon_user")).toBeInTheDocument();
-  });
-
   it("shows 'Профиль' when username is empty", () => {
     mockGetProfile.mockReturnValue({ username: "", color: "", customization: null });
     render(<HeaderUsername userId="user-1" />);

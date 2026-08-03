@@ -6,13 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
-import { Palette, Image, Award, ArrowLeft, Save } from "lucide-react";
+import { Palette, Award, ArrowLeft, Save } from "lucide-react";
 import { clearCustomizationCache, dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
 
 import { ProfilePreview } from "./ProfilePreview";
 import { UsernameEditor } from "./UsernameEditor";
-import { IconEditor } from "./IconEditor";
 import { BadgeEditor } from "./BadgeEditor";
 
 const CustomProfile = () => {
@@ -27,9 +26,6 @@ const CustomProfile = () => {
 
   // Customization (raw values matching DB schema)
   const [usernameCss, setUsernameCss] = useState("");
-  const [iconSvg, setIconSvg] = useState("");
-  const [iconFill, setIconFill] = useState("#ffffff");
-  const [iconStroke, setIconStroke] = useState("#000000");
   const [badgeText, setBadgeText] = useState("");
   const [badgeCss, setBadgeCss] = useState("");
 
@@ -40,9 +36,9 @@ const CustomProfile = () => {
   // Mark changes whenever customization state updates
   useEffect(() => {
     if (!initialSnapshotRef.current) return;
-    const current = JSON.stringify({ usernameCss, iconSvg, iconFill, iconStroke, badgeText, badgeCss });
+    const current = JSON.stringify({ usernameCss, badgeText, badgeCss });
     setHasChanges(current !== initialSnapshotRef.current);
-  }, [usernameCss, iconSvg, iconFill, iconStroke, badgeText, badgeCss]);
+  }, [usernameCss, badgeText, badgeCss]);
 
   // Load user and customization
   useEffect(() => {
@@ -77,9 +73,6 @@ const CustomProfile = () => {
 
         const loadedValues = {
           usernameCss: "",
-          iconSvg: "",
-          iconFill: "#ffffff",
-          iconStroke: "#000000",
           badgeText: "",
           badgeCss: "",
         };
@@ -87,9 +80,6 @@ const CustomProfile = () => {
         if (data && !error) {
           const d = data as Record<string, unknown>;
           if (d.username_css) { loadedValues.usernameCss = d.username_css as string; setUsernameCss(loadedValues.usernameCss); }
-          if (d.username_icon_svg) { loadedValues.iconSvg = d.username_icon_svg as string; setIconSvg(loadedValues.iconSvg); }
-          if (d.username_icon_fill) { loadedValues.iconFill = d.username_icon_fill as string; setIconFill(loadedValues.iconFill); }
-          if (d.username_icon_stroke) { loadedValues.iconStroke = d.username_icon_stroke as string; setIconStroke(loadedValues.iconStroke); }
           if (d.profile_badge_text) { loadedValues.badgeText = d.profile_badge_text as string; setBadgeText(loadedValues.badgeText); }
           if (d.profile_badge_css) { loadedValues.badgeCss = d.profile_badge_css as string; setBadgeCss(loadedValues.badgeCss); }
         }
@@ -117,9 +107,6 @@ const CustomProfile = () => {
         .upsert({
           user_id: user.id,
           username_css: usernameCss || null,
-          username_icon_svg: iconSvg || null,
-          username_icon_fill: iconFill || null,
-          username_icon_stroke: iconStroke || null,
           profile_badge_text: badgeText || null,
           profile_badge_css: badgeCss || null,
         });
@@ -128,7 +115,7 @@ const CustomProfile = () => {
 
       clearCustomizationCache(user.id);
       dispatchProfileCacheInvalidate();
-      initialSnapshotRef.current = JSON.stringify({ usernameCss, iconSvg, iconFill, iconStroke, badgeText, badgeCss });
+      initialSnapshotRef.current = JSON.stringify({ usernameCss, badgeText, badgeCss });
       setHasChanges(false);
       toast.success("Кастомизация сохранена!");
     } catch (err) {
@@ -200,15 +187,11 @@ const CustomProfile = () => {
         {/* Left: Editors */}
         <div>
           <Tabs defaultValue="username" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-4">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="username" className="gap-1.5 text-xs sm:text-sm">
                 <Palette className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Никнейм</span>
                 <span className="sm:hidden">Ник</span>
-              </TabsTrigger>
-              <TabsTrigger value="icon" className="gap-1.5 text-xs sm:text-sm">
-                <Image className="w-3.5 h-3.5" />
-                Иконка
               </TabsTrigger>
               <TabsTrigger value="badge" className="gap-1.5 text-xs sm:text-sm">
                 <Award className="w-3.5 h-3.5" />
@@ -219,19 +202,6 @@ const CustomProfile = () => {
             <TabsContent value="username">
               <Card className="p-4 sm:p-6">
                 <UsernameEditor value={usernameCss} onChange={setUsernameCss} />
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="icon">
-              <Card className="p-4 sm:p-6">
-                <IconEditor
-                  svg={iconSvg}
-                  fill={iconFill}
-                  stroke={iconStroke}
-                  onSvgChange={setIconSvg}
-                  onFillChange={setIconFill}
-                  onStrokeChange={setIconStroke}
-                />
               </Card>
             </TabsContent>
 
@@ -254,9 +224,6 @@ const CustomProfile = () => {
             username={username}
             avatarUrl={avatarUrl}
             usernameCss={usernameCss}
-            iconSvg={iconSvg}
-            iconFill={iconFill}
-            iconStroke={iconStroke}
             badgeText={badgeText}
             badgeCss={badgeCss}
           />

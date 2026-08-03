@@ -6,9 +6,6 @@ interface ProfilePreviewProps {
   username: string;
   avatarUrl: string | null;
   usernameCss: string;
-  iconSvg: string;
-  iconFill: string;
-  iconStroke: string;
   badgeText: string;
   badgeCss: string;
 }
@@ -17,9 +14,6 @@ export function ProfilePreview({
   username,
   avatarUrl,
   usernameCss,
-  iconSvg,
-  iconFill,
-  iconStroke,
   badgeText,
   badgeCss,
 }: ProfilePreviewProps) {
@@ -45,20 +39,6 @@ export function ProfilePreview({
           {/* User info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              {iconSvg && (
-                <span
-                  className="inline-flex items-center justify-center shrink-0"
-                  dangerouslySetInnerHTML={{ __html: iconSvg }}
-                  style={{
-                    fill: iconFill,
-                    stroke: iconStroke,
-                    width: '1em',
-                    height: '1em',
-                    maxHeight: '20px',
-                    maxWidth: '20px',
-                  }}
-                />
-              )}
               <span className="text-xl font-bold truncate" style={usernameStyle}>
                 {username || "Ваш никнейм"}
               </span>
@@ -88,20 +68,6 @@ export function ProfilePreview({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1 flex-wrap mb-1">
-              {iconSvg && (
-                <span
-                  className="inline-flex items-center justify-center shrink-0"
-                  dangerouslySetInnerHTML={{ __html: iconSvg }}
-                  style={{
-                    fill: iconFill,
-                    stroke: iconStroke,
-                    width: '1em',
-                    height: '1em',
-                    maxHeight: '16px',
-                    maxWidth: '16px',
-                  }}
-                />
-              )}
               <span className="text-sm font-bold truncate" style={usernameStyle}>
                 {username || "Ваш никнейм"}
               </span>

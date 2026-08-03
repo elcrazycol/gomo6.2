@@ -368,13 +368,10 @@ RETURNING *`
 		if !hasUID {
 			return "", nil, false
 		}
-		q := `INSERT INTO profile_customization (user_id, username_css, username_icon_svg, username_icon_fill, username_icon_stroke, profile_badge_text, profile_badge_css, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		q := `INSERT INTO profile_customization (user_id, username_css, profile_badge_text, profile_badge_css, updated_at)
+VALUES ($1, $2, $3, $4, NOW())
 ON CONFLICT (user_id) DO UPDATE SET
   username_css = EXCLUDED.username_css,
-  username_icon_svg = EXCLUDED.username_icon_svg,
-  username_icon_fill = EXCLUDED.username_icon_fill,
-  username_icon_stroke = EXCLUDED.username_icon_stroke,
   profile_badge_text = EXCLUDED.profile_badge_text,
   profile_badge_css = EXCLUDED.profile_badge_css,
   updated_at = NOW()
@@ -382,9 +379,6 @@ RETURNING *`
 		return q, []interface{}{
 			uid,
 			data["username_css"],
-			data["username_icon_svg"],
-			data["username_icon_fill"],
-			data["username_icon_stroke"],
 			data["profile_badge_text"],
 			data["profile_badge_css"],
 		}, true
@@ -418,6 +412,93 @@ func scanRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
 	return result, nil
 }
 
+// enforcePostOwnership forces ownership columns of user-owned tables to the
+// authenticated user so a client can never impersonate another user on write.
+// It writes the HTTP response and returns false when the request is rejected.
+func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string, data map[string]interface{}) bool {
+	switch tableName {
+	case "profile_wall_posts":
+		userID := authenticatedUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return false
+		}
+		// The author is always the caller. The wall owner may be another user,
+		// but only when their privacy settings allow posts from others.
+		data["author_id"] = userID
+		wallOwner, _ := data["user_id"].(string)
+		if wallOwner == "" {
+			wallOwner = userID
+			data["user_id"] = userID
+		}
+		if wallOwner != userID {
+			var allowed bool
+			err := h.db.QueryRowContext(c.Request.Context(),
+				`SELECT COALESCE(allow_wall_posts_from_others, true) FROM privacy_settings WHERE user_id = $1`,
+				wallOwner).Scan(&allowed)
+			if err != nil && err != sql.ErrNoRows {
+				serverError(c, "check wall privacy", err)
+				return false
+			}
+			if err == sql.ErrNoRows {
+				allowed = true
+			}
+			if !allowed {
+				c.JSON(http.StatusForbidden, models.ErrorResponse("This user does not allow wall posts from others"))
+				return false
+			}
+		}
+	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_comment_likes",
+		"user_daily_visits", "thread_custom_message_visits", "gomosub_rules_acceptance", "profile_customization":
+		// Single-owner tables: the owner is always the authenticated user.
+		userID := authenticatedUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return false
+		}
+		data["user_id"] = userID
+	case "profile_wall_post_reposts":
+		// Reposts are always authored by and placed on the caller's own wall;
+		// wall_user_id must never be client-controlled (foreign-wall bypass).
+		userID := authenticatedUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return false
+		}
+		data["user_id"] = userID
+		data["wall_user_id"] = userID
+	}
+	return true
+}
+
+// enforceWallWriteScope appends the ownership predicate to the WHERE clause of
+// wall-related writes so a client can only modify its own content.
+// Returns false (response already written) when unauthenticated.
+func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, args []interface{}, argIndex int) ([]string, []interface{}, int, bool) {
+	switch tableName {
+	case "profile_wall_posts":
+		userID := authenticatedUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return clauses, args, argIndex, false
+		}
+		// The author or the wall owner may edit/delete a post.
+		clauses = append(clauses, "(author_id = $"+strconv.Itoa(argIndex)+" OR user_id = $"+strconv.Itoa(argIndex)+")")
+		args = append(args, userID)
+		argIndex++
+	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_post_reposts", "profile_wall_comment_likes":
+		userID := authenticatedUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return clauses, args, argIndex, false
+		}
+		clauses = append(clauses, "user_id = $"+strconv.Itoa(argIndex))
+		args = append(args, userID)
+		argIndex++
+	}
+	return clauses, args, argIndex, true
+}
+
 func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
@@ -426,6 +507,11 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	}
 	if err := normalizeJSONValuesForDB(data); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	// K1: force ownership so writes cannot impersonate another user.
+	if !h.enforcePostOwnership(c, tableName, data) {
 		return
 	}
 
@@ -591,6 +677,22 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		return
 	}
 
+	// K1: never allow rewriting authorship through a generic update.
+	if tableName == "profile_wall_posts" {
+		userID := authenticatedUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		data["author_id"] = userID
+		// The wall owner column must never be changed through a generic PUT:
+		// moving a post onto another user's wall would bypass the POST privacy
+		// check (allow_wall_posts_from_others). Keep the original wall.
+		if wall, ok := data["user_id"].(string); ok && wall != "" && wall != userID {
+			delete(data, "user_id")
+		}
+	}
+
 	// Build UPDATE query
 	query := "UPDATE " + tableName + " SET "
 	var updates []string
@@ -610,6 +712,13 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		clauses = append(clauses, "id = $"+strconv.Itoa(argIndex))
 		args = append(args, recordID)
 		argIndex++
+	}
+
+	// K1: wall updates are scoped to the author or the wall owner.
+	var ok bool
+	clauses, args, argIndex, ok = enforceWallWriteScope(c, tableName, clauses, args, argIndex)
+	if !ok {
+		return
 	}
 
 	for key, values := range c.Request.URL.Query() {
@@ -735,6 +844,13 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		clauses = append(clauses, "id = $"+strconv.Itoa(argIndex))
 		args = append(args, recordID)
 		argIndex++
+	}
+
+	// K1: wall deletes are scoped to the author or the wall owner.
+	var ok bool
+	clauses, args, argIndex, ok = enforceWallWriteScope(c, tableName, clauses, args, argIndex)
+	if !ok {
+		return
 	}
 
 	for key, values := range c.Request.URL.Query() {

@@ -956,20 +956,6 @@ const Profile = () => {
                       >
                         {profile.display_name?.trim() || profile.username}
                       </h1>
-                      {customization?.username_icon_svg && (
-                        <span
-                          className="inline-flex items-center justify-center"
-                          dangerouslySetInnerHTML={{ __html: customization.username_icon_svg }}
-                          style={{
-                            fill: customization.username_icon_fill || undefined,
-                            stroke: customization.username_icon_stroke || undefined,
-                            width: '1em',
-                            height: '1em',
-                            maxHeight: '20px',
-                            maxWidth: '20px',
-                          }}
-                        />
-                      )}
                       {customization?.profile_badge_text && (
                         <span
                           className="px-2 py-1 rounded text-xs font-medium ml-2"
