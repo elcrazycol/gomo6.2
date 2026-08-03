@@ -390,17 +390,50 @@ function getAttachmentAspectRatio(attachment: Attachment): number {
   return attachment.type === "video" ? 16 / 9 : 4 / 3;
 }
 
-function AttachmentView({ attachment }: { attachment: Attachment }) {
+function getAttachmentDisplayWidth(aspectRatio: number, viewportHeight: number): number {
+  if (typeof window === "undefined") return Math.min(640, 640 * aspectRatio);
+  // Keep very tall photos inside the viewport while retaining their exact
+  // proportions. The CSS max-width still lets the chat column shrink this
+  // value further on narrow screens.
+  const maxHeight = Math.min(viewportHeight * 0.68, 640);
+  return Math.min(640, Math.max(1, maxHeight * aspectRatio));
+}
+
+function AttachmentView({ attachment, fitToViewport = false }: { attachment: Attachment; fitToViewport?: boolean }) {
   const url = useAuthenticatedAttachmentUrl(attachment);
   const [aspectRatio, setAspectRatio] = useState(() => getAttachmentAspectRatio(attachment));
+  const [viewportHeight, setViewportHeight] = useState(() => typeof window === "undefined" ? 800 : window.innerHeight);
   const isVisual = attachment.type === "image" || attachment.type === "video";
+
+  useEffect(() => {
+    if (!fitToViewport) return undefined;
+
+    const handleViewportResize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener("resize", handleViewportResize, { passive: true });
+    return () => window.removeEventListener("resize", handleViewportResize);
+  }, [fitToViewport]);
+
+  const rememberMeasuredRatio = (ratio: number) => {
+    if (ratio <= 0 || !Number.isFinite(ratio)) return;
+    setAspectRatio(ratio);
+    rememberAttachmentAspectRatio(
+      attachment.url,
+      ratio,
+      fallbackAttachmentAspectRatio(attachment.type === "video" ? "video" : "image"),
+    );
+  };
 
   const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth, naturalHeight } = event.currentTarget;
     if (naturalWidth > 0 && naturalHeight > 0) {
-      const ratio = naturalWidth / naturalHeight;
-      setAspectRatio(ratio);
-      rememberAttachmentAspectRatio(attachment.url, ratio, fallbackAttachmentAspectRatio(attachment.type === "video" ? "video" : "image"));
+      rememberMeasuredRatio(naturalWidth / naturalHeight);
+    }
+  };
+
+  const handleVideoMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const { videoWidth, videoHeight } = event.currentTarget;
+    if (videoWidth > 0 && videoHeight > 0) {
+      rememberMeasuredRatio(videoWidth / videoHeight);
     }
   };
 
@@ -408,13 +441,17 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
     return (
       <div
         className={`msg-attachment-image${url ? " is-loaded" : " is-loading"}`}
-        style={{ aspectRatio }}
+        style={{
+          aspectRatio,
+          "--attachment-ratio": aspectRatio,
+          ...(fitToViewport ? { width: getAttachmentDisplayWidth(aspectRatio, viewportHeight) } : {}),
+        } as React.CSSProperties}
         aria-busy={!url}
       >
         {attachment.type === "image" ? (
-          url && <img src={url} alt={attachment.name} loading="lazy" onLoad={handleImageLoad} />
+          url && <img src={url} alt={attachment.name} loading="lazy" onLoad={handleImageLoad} style={{ objectFit: "contain" }} />
         ) : (
-          url && <video src={url} controls preload="metadata" />
+          url && <video src={url} controls preload="metadata" onLoadedMetadata={handleVideoMetadata} style={{ objectFit: "contain" }} />
         )}
         {!url && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
       </div>
@@ -478,10 +515,10 @@ export const MessageContent = memo(function MessageContent({ content, attachment
 
   if (isMediaMessage) {
     return (
-      <div className="message-content message-content-media">
+      <div className={`message-content message-content-media${content.trim() ? " has-caption" : ""}`}>
         <div className={`msg-attachments${visualAttachments.length > 1 ? " is-media-grid" : ""}`}>
           {visualAttachments.map((att, i) => (
-            <AttachmentView key={att.id || i} attachment={att} />
+            <AttachmentView key={att.id || i} attachment={att} fitToViewport />
           ))}
         </div>
         {content.trim() && <div className="message-media-caption">{renderedText}</div>}

@@ -855,6 +855,7 @@
 }
 
 .message-bubble {
+  --message-meta-reserve: 84px;
   box-sizing: border-box;
   max-width: min(70%, 640px);
   min-width: 0;
@@ -880,11 +881,14 @@
   background: hsl(var(--primary) / 0.06);
 }
 
-/* Telegram-style media bubbles: the image is the bubble, not a card inside it. */
+/* Responsive media bubbles: preserve the source proportions and let the
+   available viewport decide the final size. The caption is a real second
+   section, never painted over the image. */
 .message-bubble.is-media-bubble {
   box-sizing: border-box;
-  width: min(70%, 640px);
+  width: fit-content;
   max-width: min(70%, 640px);
+  min-width: 0;
   padding: 0;
   border: 0;
   border-radius: 16px;
@@ -901,8 +905,15 @@
 
 .message-bubble.is-media-bubble .message-content-media,
 .message-bubble.is-media-bubble .msg-attachments {
-  width: 100%;
+  width: fit-content;
+  max-width: 100%;
   margin: 0;
+}
+
+.message-bubble.is-media-bubble .message-content-media {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .message-bubble.is-media-bubble .message-meta {
@@ -935,18 +946,22 @@
 }
 
 .message-media-caption {
-  position: absolute;
-  inset: auto 0 0;
-  z-index: 1;
-  min-height: 58px;
-  padding: 28px 62px 9px 11px;
   box-sizing: border-box;
-  color: #fff;
-  background: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.68) 100%);
+  width: 100%;
+  max-width: 100%;
+  padding: 9px 62px 9px 11px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border-top: 1px solid hsl(var(--border) / 0.35);
   font-size: 14px;
   line-height: 1.35;
   overflow-wrap: anywhere;
-  pointer-events: none;
+}
+
+.message-bubble.is-mine .message-media-caption {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-top-color: hsl(var(--primary-foreground) / 0.14);
 }
 
 .message-media-caption a {
@@ -981,7 +996,7 @@
   white-space: pre-wrap;
 }
 
-/* Compact bubbles keep the metadata in the same line as short text. */
+/* Keep the message body clear of the right-aligned time/status block. */
 .message-content-text,
 .message-content-stack,
 .message-content-media {
@@ -1001,14 +1016,19 @@
   display: none;
 }
 
+/* Measure one-line messages with the same right-side reserve they will have
+   after the metadata is positioned. This prevents a late wrap/overlap. */
+.message-bubble.is-measuring .message-content-text,
 .message-bubble.is-compact .message-content-text {
-  display: inline;
+  box-sizing: border-box;
+  display: block;
+  padding-right: var(--message-meta-reserve);
 }
 
 .message-bubble.is-multiline .message-content-text::after {
   content: "";
   display: inline-block;
-  width: 84px;
+  width: var(--message-meta-reserve);
   height: 1em;
   vertical-align: bottom;
 }
@@ -1293,16 +1313,13 @@
 }
 
 .message-bubble.is-compact .message-meta {
-  position: static;
-  display: inline-flex;
-  vertical-align: baseline;
-  margin-left: 5px;
-  padding: 0;
-  background: transparent;
-}
-
-.message-bubble.is-compact .message-meta::before {
-  display: none;
+  /* Compact messages use the same right-edge placement as every other
+     message; the body reserves space instead of placing meta after text. */
+  position: absolute;
+  right: 11px;
+  bottom: 8px;
+  margin: 0;
+  padding: 1px 0 1px 6px;
 }
 
 .message-time,
@@ -1798,8 +1815,10 @@
 
 .msg-attachment-image {
   position: relative;
-  max-width: 240px;
+  width: min(100%, 420px);
+  max-width: 100%;
   max-height: 300px;
+  aspect-ratio: var(--attachment-ratio, 4 / 3);
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
@@ -1807,19 +1826,27 @@
 }
 
 .message-content-media .msg-attachment-image {
-  width: 100%;
-  max-width: none;
+  width: min(100%, 640px);
+  max-width: 100%;
   max-height: min(68dvh, 640px);
   border-radius: 0;
+}
+
+.message-content-media > .msg-attachments.is-media-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .msg-attachment-image img,
 .msg-attachment-image video {
   display: block;
   width: 100%;
-  max-width: 100%;
   height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
 .msg-attachment-image.is-loading {
@@ -2525,14 +2552,18 @@
   }
 
   .message-bubble.is-media-bubble {
-    width: min(88%, 520px);
-    max-width: min(88%, 520px);
+    width: fit-content;
+    max-width: 88%;
     padding: 0;
   }
 
+  .message-content-media .msg-attachment-image {
+    width: min(100%, 520px);
+    max-height: min(70dvh, 640px);
+  }
+
   .message-media-caption {
-    padding-left: 9px;
-    padding-right: 58px;
+    padding: 8px 58px 8px 9px;
     font-size: 13px;
   }
 

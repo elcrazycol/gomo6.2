@@ -161,7 +161,6 @@ export const MessageBubble = memo(function MessageBubble({
   // Measure the actual rendered line count so every one-line message gets the
   // compact inline timestamp, regardless of its character length.
   const canUseInlineMeta = !isMediaBubble
-    && !quotedMessage
     && !message.attachments?.length
     && message.localStatus !== "failed";
 

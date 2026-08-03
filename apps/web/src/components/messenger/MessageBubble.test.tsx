@@ -143,7 +143,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Сообщение удалено")).toBeInTheDocument();
   });
 
-  it("renders media messages as a full-bleed bubble with an overlay caption", () => {
+  it("renders media messages with a separate caption section and source aspect ratio", () => {
     const { container } = render(
       <MessageBubble
         message={createMessage({
@@ -165,8 +165,12 @@ describe("MessageBubble", () => {
 
     expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
     expect(container.querySelector(".message-content-media")).toBeInTheDocument();
-    expect(container.querySelector(".message-media-caption")).toHaveTextContent("пример фото");
-    expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 1.3333333333333333");
+    const caption = container.querySelector(".message-media-caption");
+    const media = container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image");
+    expect(caption).toHaveTextContent("пример фото");
+    expect(caption?.className).not.toContain("overlay");
+    expect(media).toHaveStyle("aspect-ratio: 1.3333333333333333");
+    expect(caption?.previousElementSibling).toBe(container.querySelector(".msg-attachments"));
   });
 
   it("uses the remembered aspect ratio for legacy photos without metadata", () => {
@@ -190,6 +194,92 @@ describe("MessageBubble", () => {
 
     expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
     expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 0.5625");
+  });
+
+  it("keeps timestamp and status inline for a one-line reply", () => {
+    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
+    const originalGetClientRects = rangePrototype.getClientRects;
+    const rect = { top: 10, width: 80, height: 14 } as DOMRect;
+    const rectList = {
+      0: rect,
+      length: 1,
+      item: (index: number) => index === 0 ? rect : null,
+    } as unknown as DOMRectList;
+
+    Object.defineProperty(rangePrototype, "getClientRects", {
+      configurable: true,
+      value: () => rectList,
+    });
+
+    try {
+      const quoted = createMessage({ id: "quoted-1", content: "original" });
+      const { container } = render(
+        <MessageBubble
+          message={createMessage({ content: "ответ" })}
+          {...defaultProps}
+          isMine={true}
+          quotedMessage={quoted}
+        />,
+      );
+
+      const bubble = container.querySelector(".message-bubble");
+      expect(bubble).toHaveClass("is-compact");
+      expect(container.querySelector(".message-meta")).toBeInTheDocument();
+    } finally {
+      if (originalGetClientRects) {
+        Object.defineProperty(rangePrototype, "getClientRects", {
+          configurable: true,
+          value: originalGetClientRects,
+        });
+      } else {
+        delete rangePrototype.getClientRects;
+      }
+    }
+  });
+
+  it("keeps bottom space for a multiline reply", () => {
+    const rangePrototype = Range.prototype as Range & { getClientRects?: () => DOMRectList };
+    const originalGetClientRects = rangePrototype.getClientRects;
+    const firstRect = { top: 10, width: 80, height: 14 } as DOMRect;
+    const secondRect = { top: 28, width: 70, height: 14 } as DOMRect;
+    const rects = [firstRect, secondRect];
+    const rectList = {
+      0: firstRect,
+      1: secondRect,
+      length: rects.length,
+      item: (index: number) => rects[index] ?? null,
+    } as unknown as DOMRectList;
+
+    Object.defineProperty(rangePrototype, "getClientRects", {
+      configurable: true,
+      value: () => rectList,
+    });
+
+    try {
+      const quoted = createMessage({ id: "quoted-1", content: "original" });
+      const { container } = render(
+        <MessageBubble
+          message={createMessage({ content: "длинный ответ" })}
+          {...defaultProps}
+          isMine={true}
+          quotedMessage={quoted}
+        />,
+      );
+
+      const bubble = container.querySelector(".message-bubble");
+      expect(bubble).toHaveClass("is-multiline");
+      expect(bubble).not.toHaveClass("is-compact");
+      expect(container.querySelector(".message-meta")).toBeInTheDocument();
+    } finally {
+      if (originalGetClientRects) {
+        Object.defineProperty(rangePrototype, "getClientRects", {
+          configurable: true,
+          value: originalGetClientRects,
+        });
+      } else {
+        delete rangePrototype.getClientRects;
+      }
+    }
   });
 
   it("keeps quoted media in the regular bubble layout", () => {
