@@ -829,6 +829,78 @@
   background: hsl(var(--primary) / 0.06);
 }
 
+/* Telegram-style media bubbles: the image is the bubble, not a card inside it. */
+.message-bubble.is-media-bubble {
+  width: min(70%, 640px);
+  max-width: min(70%, 640px);
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.message-bubble.is-media-bubble.is-mine,
+.message-bubble.is-media-bubble.is-mine:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+.message-bubble.is-media-bubble .message-content-media,
+.message-bubble.is-media-bubble .msg-attachments {
+  width: 100%;
+  margin: 0;
+}
+
+.message-bubble.is-media-bubble .message-meta {
+  right: 9px;
+  bottom: 8px;
+  padding: 2px 0 2px 5px;
+  color: #fff;
+  opacity: 1;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.65);
+}
+
+.message-bubble.is-media-bubble .message-meta::before {
+  display: none;
+}
+
+.message-bubble.is-media-bubble .message-time,
+.message-bubble.is-media-bubble .edited-label,
+.message-bubble.is-media-bubble .message-status,
+.message-bubble.is-media-bubble .status-check,
+.message-bubble.is-media-bubble .status-double-check {
+  color: inherit;
+}
+
+.message-bubble.is-media-bubble .status-double-check.is-read {
+  color: #79c7ff;
+}
+
+.message-bubble.is-media-bubble .message-status {
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.65);
+}
+
+.message-media-caption {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  min-height: 58px;
+  padding: 28px 62px 9px 11px;
+  box-sizing: border-box;
+  color: #fff;
+  background: linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.68) 100%);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.message-media-caption a {
+  color: inherit;
+}
+
 /* Tail corners — VK/Facebook style */
 .bubble-row:not(.is-mine) .message-bubble {
   border-bottom-left-radius: 5px;
@@ -1123,6 +1195,12 @@
 .msg-link:hover { opacity: 0.8; }
 
 /* ── Message meta (time + status) ── */
+
+.message-content-media {
+  position: relative;
+  overflow: hidden;
+  border-radius: inherit;
+}
 
 .message-meta {
   position: absolute;
@@ -1651,19 +1729,55 @@
   margin-top: 4px;
 }
 
+.message-content-media > .msg-attachments {
+  margin-top: 0;
+}
+
+.msg-attachments.is-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+}
+
 .msg-attachment-image {
+  position: relative;
   max-width: 240px;
   max-height: 300px;
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
+  background: hsl(var(--muted) / 0.35);
 }
 
-.msg-attachment-image img {
-  max-width: 100%;
-  max-height: 300px;
+.message-content-media .msg-attachment-image {
+  width: 100%;
+  max-width: none;
+  max-height: min(68dvh, 640px);
+  border-radius: 0;
+}
+
+.msg-attachment-image img,
+.msg-attachment-image video {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.msg-attachment-image.is-loading {
+  min-height: 160px;
+}
+
+.msg-attachment-loading-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, hsl(var(--muted) / 0.3) 25%, hsl(var(--muted) / 0.6) 45%, hsl(var(--muted) / 0.3) 65%);
+  background-size: 200% 100%;
+  animation: media-shimmer 1.4s linear infinite;
+}
+
+@keyframes media-shimmer {
+  to { background-position: -200% 0; }
 }
 
 .msg-attachment-file {
@@ -2211,12 +2325,7 @@
     font-size: 13px;
   }
 
-  .message-scroll {
-    padding-inline: clamp(24px, 4vw, 72px);
-  }
-
   .composer {
-    padding-inline: clamp(24px, 4vw, 72px);
     padding-bottom: 20px;
   }
 }
@@ -2351,6 +2460,18 @@
     max-width: 88%;
     min-width: 0;
     padding: 8px 10px;
+  }
+
+  .message-bubble.is-media-bubble {
+    width: min(88%, 520px);
+    max-width: min(88%, 520px);
+    padding: 0;
+  }
+
+  .message-media-caption {
+    padding-left: 9px;
+    padding-right: 58px;
+    font-size: 13px;
   }
 
   .message-bubble p {

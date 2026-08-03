@@ -309,6 +309,7 @@ export function GiftDetailDialog({ giftId, recipientId, open, onOpenChange }: { 
 interface MessageContentProps {
   content: string;
   attachments?: Attachment[];
+  hasQuotedMessage?: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -368,21 +369,44 @@ function useAuthenticatedAttachmentUrl(attachment: Attachment): string | null {
   return objectUrl;
 }
 
-function AttachmentView({ attachment }: { attachment: Attachment }) {
-  const url = useAuthenticatedAttachmentUrl(attachment);
-
-  if (attachment.type === "image" && url) {
-    return (
-      <div className="msg-attachment-image">
-        <img src={url} alt={attachment.name} loading="lazy" />
-      </div>
-    );
+function getAttachmentAspectRatio(attachment: Attachment): number {
+  if (attachment.meta) {
+    try {
+      const parsed = JSON.parse(attachment.meta) as { width?: unknown; height?: unknown };
+      if (typeof parsed.width === "number" && typeof parsed.height === "number" && parsed.width > 0 && parsed.height > 0) {
+        return parsed.width / parsed.height;
+      }
+    } catch {
+      // Older attachments contain non-JSON metadata. Use the stable fallback.
+    }
   }
 
-  if (attachment.type === "video" && url) {
+  return attachment.type === "video" ? 16 / 9 : 4 / 3;
+}
+
+function AttachmentView({ attachment }: { attachment: Attachment }) {
+  const url = useAuthenticatedAttachmentUrl(attachment);
+  const [aspectRatio, setAspectRatio] = useState(() => getAttachmentAspectRatio(attachment));
+  const isVisual = attachment.type === "image" || attachment.type === "video";
+
+  const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget;
+    if (naturalWidth > 0 && naturalHeight > 0) setAspectRatio(naturalWidth / naturalHeight);
+  };
+
+  if (isVisual) {
     return (
-      <div className="msg-attachment-image">
-        <video src={url} controls preload="metadata" />
+      <div
+        className={`msg-attachment-image${url ? " is-loaded" : " is-loading"}`}
+        style={{ aspectRatio }}
+        aria-busy={!url}
+      >
+        {attachment.type === "image" ? (
+          url && <img src={url} alt={attachment.name} loading="lazy" onLoad={handleImageLoad} />
+        ) : (
+          url && <video src={url} controls preload="metadata" />
+        )}
+        {!url && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
       </div>
     );
   }
@@ -406,12 +430,17 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, attachments }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, attachments, hasQuotedMessage = false }: MessageContentProps) {
   const segments = useMemo(() => parseMessageLinks(content), [content]);
 
   const hasLinks = segments.some((s) => s.type === "link");
   const hasAttachments = attachments && attachments.length > 0;
   const hasEmojis = /\[e:[^\]]+\]/.test(content);
+  const visualAttachments = attachments?.filter((attachment) => attachment.type === "image" || attachment.type === "video") ?? [];
+  const isMediaMessage = !hasQuotedMessage
+    && !segments.some((segment) => segment.type === "link")
+    && visualAttachments.length > 0
+    && visualAttachments.length === attachments?.length;
 
   if (!hasLinks && !hasAttachments && !hasEmojis) {
     return <p className="message-content message-content-text whitespace-pre-wrap break-words">{content}</p>;
@@ -430,14 +459,29 @@ export const MessageContent = memo(function MessageContent({ content, attachment
     });
   };
 
+  const renderedText = segments.map((segment, i) => {
+    if (segment.type === "text") {
+      return <span key={i}>{renderTextWithEmojis(segment.content)}</span>;
+    }
+    return <LinkSegmentView key={i} segment={segment} />;
+  });
+
+  if (isMediaMessage) {
+    return (
+      <div className="message-content message-content-media">
+        <div className={`msg-attachments${visualAttachments.length > 1 ? " is-media-grid" : ""}`}>
+          {visualAttachments.map((att, i) => (
+            <AttachmentView key={att.id || i} attachment={att} />
+          ))}
+        </div>
+        {content.trim() && <div className="message-media-caption">{renderedText}</div>}
+      </div>
+    );
+  }
+
   return (
     <div className="message-content message-content-stack whitespace-pre-wrap break-words">
-      {segments.map((segment, i) => {
-        if (segment.type === "text") {
-          return <span key={i}>{renderTextWithEmojis(segment.content)}</span>;
-        }
-        return <LinkSegmentView key={i} segment={segment} />;
-      })}
+      {renderedText}
       {hasAttachments && (
         <div className="msg-attachments">
           {attachments!.map((att, i) => (

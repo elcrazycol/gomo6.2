@@ -38,6 +38,24 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function readImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const source = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(source);
+      resolve(image.naturalWidth > 0 && image.naturalHeight > 0
+        ? { width: image.naturalWidth, height: image.naturalHeight }
+        : null);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(source);
+      resolve(null);
+    };
+    image.src = source;
+  });
+}
+
 export const MessageComposer = memo(function MessageComposer({
   draft,
   setDraft,
@@ -177,12 +195,14 @@ export const MessageComposer = memo(function MessageComposer({
           : file.type.startsWith("audio/") ? "audio"
           : "file";
 
+        const dimensions = type === "image" ? await readImageDimensions(file) : null;
         newAttachments.push({
           url: path,
           type,
           name: file.name,
           size: file.size,
           mime: file.type || "application/octet-stream",
+          ...(dimensions ? { meta: JSON.stringify(dimensions) } : {}),
         });
       } catch (err) {
         console.error("Upload failed:", err);

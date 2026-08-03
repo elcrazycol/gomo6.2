@@ -16,16 +16,43 @@ import { estimatePrependedHeight } from "./scrollUtils";
 
 function estimateMessageHeight(msg: MessageView): number {
   const lines = Math.max(1, (msg.content.match(/\n/g)?.length ?? 0) + 1);
-  let height = 48 + lines * 20;
+  const visualAttachments = msg.attachments?.filter(
+    (attachment) => attachment.type === "image" || attachment.type === "video",
+  ) ?? [];
+  const isStandaloneMedia = visualAttachments.length > 0
+    && visualAttachments.length === (msg.attachments?.length ?? 0)
+    && !msg.parent_message_id
+    && !/(https?:\/\/|www\.)/i.test(msg.content);
+  let height = isStandaloneMedia ? 0 : 48 + lines * 20;
   if (msg.parent_message_id) height += 36;
   if (msg.attachments && msg.attachments.length > 0) {
-    height += msg.attachments.reduce((total, attachment) => {
-      if (attachment.type === "image" || attachment.type === "video") return total + 184;
-      if (attachment.type === "audio") return total + 48;
-      return total + 52;
-    }, 0);
+    const nonVisualHeight = msg.attachments
+      .filter((attachment) => attachment.type !== "image" && attachment.type !== "video")
+      .reduce((total, attachment) => total + (attachment.type === "audio" ? 48 : 52), 0);
+
+    if (visualAttachments.length > 0) {
+      const mediaHeight = visualAttachments.reduce((maximum, attachment) => {
+        let aspectRatio = attachment.type === "video" ? 16 / 9 : 4 / 3;
+        if (attachment.meta) {
+          try {
+            const parsed = JSON.parse(attachment.meta) as { width?: unknown; height?: unknown };
+            if (typeof parsed.width === "number" && typeof parsed.height === "number" && parsed.width > 0 && parsed.height > 0) {
+              aspectRatio = parsed.width / parsed.height;
+            }
+          } catch {
+            // Keep the conservative placeholder ratio for legacy metadata.
+          }
+        }
+        const mediaWidth = visualAttachments.length > 1 ? 320 : 640;
+        return Math.max(maximum, Math.min(640, Math.max(160, mediaWidth / aspectRatio)));
+      }, 0);
+      // A grid shares one row's height; don't sum every image's full height.
+      height += mediaHeight + 4 + nonVisualHeight;
+    } else {
+      height += nonVisualHeight;
+    }
   }
-  return Math.min(height, 500);
+  return Math.min(height, 900);
 }
 
 interface Props {

@@ -137,6 +137,56 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Сообщение удалено")).toBeInTheDocument();
   });
 
+  it("renders media messages as a full-bleed bubble with an overlay caption", () => {
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "пример фото",
+          attachments: [{
+            id: "att-1",
+            url: "user-1/messenger/photo.jpg",
+            type: "image",
+            name: "photo.jpg",
+            size: 1200,
+            mime: "image/jpeg",
+            meta: JSON.stringify({ width: 1200, height: 900 }),
+          }],
+        })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
+    expect(container.querySelector(".message-content-media")).toBeInTheDocument();
+    expect(container.querySelector(".message-media-caption")).toHaveTextContent("пример фото");
+    expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 1.3333333333333333");
+  });
+
+  it("keeps quoted media in the regular bubble layout", () => {
+    const quoted = createMessage({ id: "quoted-1", content: "original" });
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "caption",
+          attachments: [{
+            url: "user-1/messenger/photo.jpg",
+            type: "image",
+            name: "photo.jpg",
+            size: 1200,
+            mime: "image/jpeg",
+          }],
+        })}
+        {...defaultProps}
+        quotedMessage={quoted}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble")).not.toBeInTheDocument();
+    expect(container.querySelector(".message-content-media")).not.toBeInTheDocument();
+    expect(container.querySelector(".msg-attachments")).toBeInTheDocument();
+  });
+
   it("renders edited label for edited messages", () => {
     render(
       <MessageBubble

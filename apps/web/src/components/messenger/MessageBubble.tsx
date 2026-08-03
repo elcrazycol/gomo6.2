@@ -150,9 +150,18 @@ export const MessageBubble = memo(function MessageBubble({
     if (!isTouchDevice) onReply(message);
   }, [isTouchDevice, onReply, message]);
 
+  const hasVisualAttachments = message.attachments?.some(
+    (attachment) => attachment.type === "image" || attachment.type === "video",
+  ) ?? false;
+  const isMediaBubble = !quotedMessage
+    && message.localStatus !== "failed"
+    && hasVisualAttachments
+    && message.attachments?.every((attachment) => attachment.type === "image" || attachment.type === "video");
+
   // Measure the actual rendered line count so every one-line message gets the
   // compact inline timestamp, regardless of its character length.
-  const canUseInlineMeta = !quotedMessage
+  const canUseInlineMeta = !isMediaBubble
+    && !quotedMessage
     && !message.attachments?.length
     && message.localStatus !== "failed";
 
@@ -245,7 +254,7 @@ export const MessageBubble = memo(function MessageBubble({
           <ContextMenuTrigger asChild>
             <div
               ref={messageBubbleRef}
-              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact ? " is-multiline" : ""}`}
+              className={`message-bubble${isMine ? " is-mine" : ""}${isPinned ? " is-pinned" : ""}${message.localStatus === "failed" ? " is-stuck" : ""}${isNew ? " is-new" : ""}${isMediaBubble ? " is-media-bubble" : ""}${isCompact ? " is-compact" : ""}${hasMeasuredLines && !isCompact && !isMediaBubble ? " is-multiline" : ""}`}
               data-message-id={message.id}
             >
               {quotedMessage && (
@@ -270,7 +279,11 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               )}
 
-              <MessageContent content={message.content} attachments={message.attachments} />
+              <MessageContent
+                content={message.content}
+                attachments={message.attachments}
+                hasQuotedMessage={Boolean(quotedMessage)}
+              />
 
               <div className="message-meta">
                 <span className="message-time">{formatTime(message.sent_at)}</span>
