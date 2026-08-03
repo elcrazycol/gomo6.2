@@ -222,11 +222,6 @@ export const ConversationList = memo(function ConversationList({
             aria-label="Поиск диалогов"
             className="sidebar-search"
           />
-          {unread > 0 && (
-            <span className="sidebar-search-unread" title={`${unread} непрочитанных`}>
-              {unread > 99 ? "99+" : unread}
-            </span>
-          )}
         </div>
         <button
           type="button"

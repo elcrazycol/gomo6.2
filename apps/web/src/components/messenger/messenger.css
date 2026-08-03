@@ -235,11 +235,16 @@
 .sidebar-panel.is-collapsed .sidebar-top {
   justify-content: center;
   margin: 0;
-  padding: 8px;
+  /*padding: 8px;*/
   border: 0;
   border-radius: 0;
+  height: 57px;
   background: transparent;
   box-shadow: none;
+  border-bottom: 0.5px solid hsl(var(--border));
+}
+.sidebar-panel.is-collapsed .sidebar-top:hover {
+    background: rgb(0 0 0 / 0.07);
 }
 
 .sidebar-panel.is-collapsed .sidebar-search-wrap {
@@ -247,16 +252,19 @@
 }
 
 .sidebar-panel.is-collapsed .sidebar-top .new-chat-button {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  max-width: 34px;
-  max-height: 34px;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    min-width: 75px;
   flex: 0 0 34px;
   flex-shrink: 0;
   aspect-ratio: 1;
   box-sizing: border-box;
+}
+
+.sidebar-panel.is-collapsed .sidebar-top .new-chat-button:hover {
+    background: none;
+    box-shadow: none;
 }
 
 .sidebar-panel.is-collapsed .new-chat-plus {
