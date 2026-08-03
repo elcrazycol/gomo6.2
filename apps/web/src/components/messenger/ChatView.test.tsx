@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-
-// Re-implementing pure logic from ChatView.tsx for testing
+import { describe, it, expect } from 'vitest';
+import { isConsecutive, getDateSeparator } from './messageListUtils';
 
 type MessageView = {
   id: string;
@@ -8,26 +7,6 @@ type MessageView = {
   sent_at: string;
   content: string;
   parent_message_id?: string | null;
-};
-
-const isConsecutive = (prev: MessageView | null, curr: MessageView): boolean => {
-  return (
-    prev != null &&
-    prev.sender_user_id === curr.sender_user_id &&
-    new Date(curr.sent_at).getTime() - new Date(prev.sent_at).getTime() < 120_000
-  );
-};
-
-const getDateSeparator = (prev: MessageView | null, curr: MessageView, now: Date = new Date()): string | null => {
-  const currDate = new Date(curr.sent_at).toDateString();
-  if (prev && new Date(prev.sent_at).toDateString() === currDate) return null;
-
-  const today = now.toDateString();
-  const yesterday = new Date(now.getTime() - 86400000).toDateString();
-
-  if (currDate === today) return "сегодня";
-  if (currDate === yesterday) return "вчера";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(new Date(curr.sent_at));
 };
 
 const msg = (id: string, sender: string, sentAt: string, content = ''): MessageView => ({

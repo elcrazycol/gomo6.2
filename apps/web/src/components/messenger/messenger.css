@@ -695,23 +695,35 @@
 
 /* ── Message scroll area ── */
 
+/* Applied to the react-virtuoso scroller (components.Scroller in MessageList).
+   The list owns its anchor while history is prepended (firstItemIndex), so the
+   browser must not apply a second scroll anchor that fights it. */
 .message-scroll {
   overflow: auto;
   padding: 0 18px 12px;
   position: relative;
-  /* The list owns its anchor while history is prepended. Letting the browser
-     apply a second scroll anchor fights the virtualizer and causes the jump. */
   overflow-anchor: none;
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
   -webkit-overflow-scrolling: touch;
 }
 
-/* Keep the first network/cache reconciliation invisible. The list is still
-   mounted for accessibility and receives its final position immediately
-   after measurement. */
-.message-scroll.is-initial-positioning {
-  visibility: hidden;
+/* Error banner + virtualized message list share one grid row. */
+.chat-messages-area {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-messages-area > .message-scroll-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.chat-messages-area > .inline-loader {
+  flex: 1 1 auto;
 }
 
 /* ── Date separator ── */
