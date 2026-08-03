@@ -129,6 +129,14 @@ if [ "$HAS_BACKEND" -eq 1 ]; then
     done
 
     if [ ${#PKGS[@]} -gt 0 ]; then
+      # Messenger handlers tests call crypto.Init() (via decrypt helpers), which
+      # is FATAL without MESSENGER_ENCRYPTION_KEY. When the developer hasn't
+      # exported a key, generate a throwaway one so backend commits don't fail
+      # on a missing env var. If either key env var is already set, keep it.
+      if [ -z "${MESSENGER_ENCRYPTION_KEY:-}" ] && [ -z "${ENCRYPTION_KEY:-}" ]; then
+        MESSENGER_ENCRYPTION_KEY="$(openssl rand -hex 32 2>/dev/null || od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+        export MESSENGER_ENCRYPTION_KEY
+      fi
       if ! go test "${PKGS[@]}" -count=1 2>&1; then
         fail "go test (${PKGS[*]})"
         exit 1
