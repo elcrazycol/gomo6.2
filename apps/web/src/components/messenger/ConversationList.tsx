@@ -1,6 +1,6 @@
 import { memo, useCallback, useState, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MessageCircle, UserPlus, X, Plus } from "lucide-react";
+import { MessageCircle, Search, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -211,22 +211,31 @@ export const ConversationList = memo(function ConversationList({
   return (
     <>
       <div className="sidebar-top">
-        <div className="sidebar-top-row">
-        <h1>Сообщения</h1>
-        {unread > 0 && (
-          <span className="header-unread-badge" title={`${unread} непрочитанных`}>
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
+        <div className="sidebar-search-wrap">
+          <Search className="sidebar-search-icon" size={17} aria-hidden="true" />
+          <input
+            id="conversation-search"
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search"
+            aria-label="Поиск диалогов"
+            className="sidebar-search"
+          />
+          {unread > 0 && (
+            <span className="sidebar-search-unread" title={`${unread} непрочитанных`}>
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
         </div>
         <button
           type="button"
-          className="icon-button"
+          className="icon-button new-chat-button"
           onClick={() => setShowNewChat(true)}
           title="Новый чат"
           aria-label="Новый чат"
         >
-          <Plus size={16} />
+          <span className="new-chat-plus" aria-hidden="true">+</span>
         </button>
       </div>
 
@@ -242,28 +251,6 @@ export const ConversationList = memo(function ConversationList({
       )}
 
       <div className="conversation-list" role="navigation" aria-label="Диалоги">
-        {conversations.length > 3 && !isCollapsed && (
-          <div style={{ padding: "0 0 4px" }}>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Поиск..."
-              style={{
-                width: "100%",
-                padding: "7px 10px",
-                borderRadius: "8px",
-                border: "1px solid hsl(var(--input))",
-                background: "hsl(var(--background))",
-                color: "hsl(var(--foreground))",
-                fontSize: "13px",
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
-          </div>
-        )}
-
         {initLoading && conversations.length === 0 && (
           <div className="panel-loader-overlay sidebar-loader">
             <PentagramLoader size="md" />

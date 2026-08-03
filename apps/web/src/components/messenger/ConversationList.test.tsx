@@ -73,9 +73,10 @@ describe("ConversationList", () => {
   });
 
   describe("header", () => {
-    it("renders title 'Сообщения'", () => {
+    it("renders the conversation search and new chat button", () => {
       render(<ConversationList />);
-      expect(screen.getByText("Сообщения")).toBeInTheDocument();
+      expect(screen.getByRole("searchbox", { name: "Поиск диалогов" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Новый чат" })).toBeInTheDocument();
     });
 
     it("shows total unread badge when totalUnread > 0", () => {

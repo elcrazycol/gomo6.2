@@ -276,7 +276,7 @@ export const MessengerView = () => {
             )}
           </aside>
 
-          <section className={`chat-panel ${showMobileChat ? "is-open" : ""}`}>
+          <section className={`chat-panel${showMobileChat ? " is-open" : ""}${!conversation ? " is-empty" : ""}`}>
             <ChatView
               onBack={handleBack}
               composerRef={composerRef}

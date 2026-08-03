@@ -67,7 +67,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   const [volume, setVolume] = useState(1);
   const storedVolumeRef = useRef<number | null>(null);
   const [isDesktop, setIsDesktop] = useState<boolean>(false);
-  const [contentPad, setContentPad] = useState<number>(72);
+  const [contentPad, setContentPad] = useState<number>(60);
   const lastTrackRef = useRef<{ id: string; title: string; src?: string } | null>(null);
   const lastHeaderToggleRef = useRef(0);
   const [restored, setRestored] = useState(false);
@@ -712,7 +712,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
   }, [nowPlaying?.id]);
 
   useEffect(() => {
-    const headerPad = isHeaderVisible ? (isDesktop ? 74 : mobileSearchOpen ? 120 : 68) : 24;
+    const headerPad = isHeaderVisible ? (isDesktop ? 60 : mobileSearchOpen ? 120 : 68) : 24;
     const nowPlayingPad = nowPlaying && !nowPlayingHidden ? 52 : 0;
     setContentPad(headerPad + nowPlayingPad);
   }, [isDesktop, isHeaderVisible, nowPlaying, nowPlayingHidden, mobileSearchOpen]);

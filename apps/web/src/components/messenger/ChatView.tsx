@@ -368,7 +368,7 @@ export const ChatView = memo(function ChatView({
 
   if (!conversation || !me) {
     return (
-      <div className="empty-thread hero">
+      <div className="empty-thread hero chat-empty-state">
         <MessageCircle size={18} />
         <h2>Выбери диалог</h2>
         <p>Открой переписку слева или начни разговор из профиля любого пользователя.</p>
