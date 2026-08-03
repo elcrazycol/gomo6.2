@@ -957,6 +957,66 @@ main.is-messenger-page {
   text-shadow: 0 1px 3px rgb(0 0 0 / 0.65);
 }
 
+/* ── Photo + text: the caption turns the media message into a regular bubble ──
+   The bubble gets the same background/border as normal text messages and the
+   time + status move inside the caption area (regular colors, right-aligned)
+   instead of being overlaid on the photo. Photo-only messages keep the
+   flush-image look with the white meta on the image. */
+.message-bubble.is-media-bubble.has-caption {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.message-bubble.is-media-bubble.is-mine.has-caption,
+.message-bubble.is-media-bubble.is-mine.has-caption:hover {
+  border-color: hsl(var(--primary) / 0.25);
+  background: hsl(var(--primary) / 0.06);
+}
+
+.message-bubble.is-media-bubble.has-caption .message-media-caption {
+  padding: 9px 12px 22px;
+  background: transparent;
+  border-top: 0;
+  color: hsl(var(--foreground));
+  white-space: pre-wrap;
+}
+
+/* Reserve room on the caption's last line for the inline time/status, exactly
+   like regular multiline text bubbles do. */
+.message-bubble.is-media-bubble.has-caption .message-media-caption::after {
+  content: "";
+  display: inline-block;
+  width: var(--message-meta-reserve, 84px);
+  height: 1em;
+  vertical-align: bottom;
+}
+
+.message-bubble.is-media-bubble.has-caption .message-meta {
+  right: 11px;
+  bottom: 8px;
+  padding: 1px 0 1px 6px;
+  color: hsl(var(--muted-foreground));
+  opacity: 0.78;
+  text-shadow: none;
+}
+
+.message-bubble.is-media-bubble.has-caption .message-meta::before {
+  display: block;
+}
+
+.message-bubble.is-media-bubble.has-caption .message-time,
+.message-bubble.is-media-bubble.has-caption .edited-label,
+.message-bubble.is-media-bubble.has-caption .message-status,
+.message-bubble.is-media-bubble.has-caption .status-check,
+.message-bubble.is-media-bubble.has-caption .status-double-check {
+  color: inherit;
+  text-shadow: none;
+}
+
+.message-bubble.is-media-bubble.has-caption .status-double-check.is-read {
+  color: hsl(var(--primary));
+}
+
 .message-media-caption {
   box-sizing: border-box;
   width: 100%;
@@ -1866,7 +1926,7 @@ main.is-messenger-page {
   position: relative;
   padding: 0;
   border: 0;
-  cursor: zoom-in;
+  cursor: pointer;
   overflow: hidden;
   background: transparent;
 }
@@ -2653,6 +2713,16 @@ main.is-messenger-page {
   .message-media-caption {
     padding: 8px 58px 8px 9px;
     font-size: 13px;
+  }
+
+  .message-bubble.is-media-bubble.has-caption .message-media-caption {
+    padding: 8px 10px 20px;
+    font-size: 13px;
+  }
+
+  .message-bubble.is-media-bubble.has-caption .message-meta {
+    right: 9px;
+    bottom: 7px;
   }
 
   .message-bubble p {

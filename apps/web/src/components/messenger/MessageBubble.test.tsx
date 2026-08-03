@@ -164,6 +164,7 @@ describe("MessageBubble", () => {
     );
 
     expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.is-media-bubble.has-caption")).toBeInTheDocument();
     expect(container.querySelector(".message-content-media")).toBeInTheDocument();
     const caption = container.querySelector(".message-media-caption");
     const media = container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image");
@@ -193,6 +194,7 @@ describe("MessageBubble", () => {
     );
 
     expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.is-media-bubble.has-caption")).not.toBeInTheDocument();
     expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 0.5625");
   });
 
