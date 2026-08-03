@@ -12,6 +12,8 @@ import {
   type HTMLAttributes,
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
+  type UIEvent as ReactUIEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useDrag } from "@use-gesture/react";
@@ -19,6 +21,7 @@ import { ArrowLeft, ChevronDown } from "lucide-react";
 import { useMessengerStore } from "@/stores/messengerStore";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
+import { getMaxScrollTop, isNearScrollBottom } from "./scrollUtils";
 
 export interface MessageRenderExtras {
   dateLabel: string | null;
@@ -75,6 +78,15 @@ export const MessageList = memo(
     const firstItemIndexRef = useRef(0);
     const prevFirstIdRef = useRef<string | null>(null);
     const prevLastIdRef = useRef<string | null>(null);
+    const isSettlingToBottomRef = useRef(false);
+    const settleCleanupRef = useRef<(() => void) | null>(null);
+
+    const cancelBottomSettle = useCallback(() => {
+      isSettlingToBottomRef.current = false;
+      const cleanup = settleCleanupRef.current;
+      settleCleanupRef.current = null;
+      cleanup?.();
+    }, []);
 
     const isTouchDevice =
       typeof window !== "undefined" &&
@@ -83,18 +95,84 @@ export const MessageList = memo(
 
     // ── Imperative API (send-scroll, pinned-message jump) ──────────────
     const scrollToBottom = useCallback(() => {
+      cancelBottomSettle();
+      isSettlingToBottomRef.current = true;
       shouldAutoScrollRef.current = true;
       const length = useMessengerStore.getState().messages.length;
-      if (length === 0) return;
+      if (length === 0) {
+        cancelBottomSettle();
+        return;
+      }
+
+      const lastIndex = firstItemIndexRef.current + length - 1;
       virtuosoRef.current?.scrollToIndex({
-        index: firstItemIndexRef.current + length - 1,
+        index: lastIndex,
         align: "end",
         behavior: "smooth",
       });
+
+      // scrollToIndex aligns the last *item*. With dynamic media heights and
+      // scroller padding that can still leave a few pixels above the real
+      // bottom. Let Virtuoso render the target first, then use the container's
+      // actual max scrollTop as the final authority.
+      let settleFrames = 0;
+      let settleObserver: ResizeObserver | null = null;
+      let firstSettle = true;
+      let cancelled = false;
+      let rafId: number | null = null;
+      const timeoutIds: number[] = [];
+      const scroller = scrollerElRef.current;
+      let cleanupSettle: () => void = () => undefined;
+      const settleAtBottom = () => {
+        if (cancelled || !isSettlingToBottomRef.current) return;
+        const el = scrollerElRef.current;
+        if (!el) return;
+        const top = getMaxScrollTop(el.scrollHeight, el.clientHeight);
+        if (!isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 2)) {
+          el.scrollTo({ top, behavior: firstSettle ? "smooth" : "auto" });
+        }
+        firstSettle = false;
+        settleFrames += 1;
+        if (settleFrames >= 8) cleanupSettle();
+      };
+      const settleOnMediaLoad = () => settleAtBottom();
+      if (scroller) {
+        scroller.addEventListener("load", settleOnMediaLoad, true);
+        scroller.addEventListener("loadedmetadata", settleOnMediaLoad, true);
+      }
+      if (typeof ResizeObserver !== "undefined" && scroller) {
+        settleObserver = new ResizeObserver(settleAtBottom);
+        settleObserver.observe(scroller);
+      }
+      cleanupSettle = () => {
+        if (cancelled) return;
+        cancelled = true;
+        if (rafId !== null) window.cancelAnimationFrame(rafId);
+        for (const timeoutId of timeoutIds) window.clearTimeout(timeoutId);
+        settleObserver?.disconnect();
+        scroller?.removeEventListener("load", settleOnMediaLoad, true);
+        scroller?.removeEventListener("loadedmetadata", settleOnMediaLoad, true);
+        if (settleCleanupRef.current === cleanupSettle) settleCleanupRef.current = null;
+        isSettlingToBottomRef.current = false;
+      };
+      settleCleanupRef.current = cleanupSettle;
+      const settleNextFrame = () => {
+        settleAtBottom();
+        if (!cancelled && settleFrames < 8) rafId = window.requestAnimationFrame(settleNextFrame);
+      };
+      rafId = window.requestAnimationFrame(settleNextFrame);
+      // Protected blob URLs may finish well after the initial frames. These
+      // checkpoints keep an explicit "go bottom" action attached to the real
+      // bottom without affecting ordinary user scrolling.
+      for (const delay of [100, 250, 500, 900]) {
+        timeoutIds.push(window.setTimeout(settleAtBottom, delay));
+      }
+      timeoutIds.push(window.setTimeout(cleanupSettle, 1200));
+
       isScrolledUpRef.current = false;
       setIsScrolledUp(false);
       setNewMessageCount(0);
-    }, []);
+    }, [cancelBottomSettle]);
 
     const scrollToMessage = useCallback((messageId: string) => {
       const index = useMessengerStore.getState().messages.findIndex((m) => m.id === messageId);
@@ -107,6 +185,8 @@ export const MessageList = memo(
     }, []);
 
     useImperativeHandle(ref, () => ({ scrollToBottom, scrollToMessage }), [scrollToBottom, scrollToMessage]);
+
+    useEffect(() => () => cancelBottomSettle(), [cancelBottomSettle]);
 
     // ── Stick to the bottom only when the user is already there ────────
     // The ref tracks the same 32px threshold the old implementation used.
@@ -126,7 +206,11 @@ export const MessageList = memo(
       const el = scrollerElRef.current;
       if (!el) return;
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      shouldAutoScrollRef.current = distance <= 32;
+      if (isSettlingToBottomRef.current) {
+        shouldAutoScrollRef.current = true;
+        return;
+      }
+      shouldAutoScrollRef.current = isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 32);
       const nowScrolledUp = distance > 128;
       if (nowScrolledUp !== isScrolledUpRef.current) {
         isScrolledUpRef.current = nowScrolledUp;
@@ -227,10 +311,12 @@ export const MessageList = memo(
     const scrollerHandlersRef = useRef<ScrollerHandlers>({});
     scrollerHandlersRef.current = {
       onScroll: handleScroll,
+      onWheel: (_event: ReactWheelEvent<HTMLDivElement>) => cancelBottomSettle(),
       ...(isTouchDevice
         ? {
             ...swipeBackBind(),
             onTouchStart: (event: ReactTouchEvent<HTMLDivElement>) => {
+              cancelBottomSettle();
               touchStartXRef.current = event.touches[0]?.clientX ?? 0;
             },
           }
@@ -243,11 +329,32 @@ export const MessageList = memo(
           const gesture = scrollerHandlersRef.current;
           const gestureStyle = (gesture.style as CSSProperties | undefined) ?? {};
           const { style: _ignoredGestureStyle, ...gestureHandlers } = gesture;
+          const propsOnScroll = props.onScroll;
+          const gestureOnScroll = gestureHandlers.onScroll as ((event: ReactUIEvent<HTMLDivElement>) => void) | undefined;
+          const propsOnTouchStart = props.onTouchStart;
+          const gestureOnTouchStart = gestureHandlers.onTouchStart as ((event: ReactTouchEvent<HTMLDivElement>) => void) | undefined;
+          const propsOnWheel = props.onWheel;
+          const gestureOnWheel = gestureHandlers.onWheel as ((event: ReactWheelEvent<HTMLDivElement>) => void) | undefined;
+          const mergedOnScroll = (event: ReactUIEvent<HTMLDivElement>) => {
+            gestureOnScroll?.(event);
+            propsOnScroll?.(event);
+          };
+          const mergedOnTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+            gestureOnTouchStart?.(event);
+            propsOnTouchStart?.(event);
+          };
+          const mergedOnWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+            gestureOnWheel?.(event);
+            propsOnWheel?.(event);
+          };
           return (
             <div
               ref={scrollerRef}
               {...(gestureHandlers as unknown as DOMAttributes<HTMLDivElement>)}
               {...props}
+              onScroll={mergedOnScroll}
+              onTouchStart={mergedOnTouchStart}
+              onWheel={mergedOnWheel}
               className="message-scroll"
               style={{ ...gestureStyle, ...props.style }}
               role="log"
@@ -261,7 +368,32 @@ export const MessageList = memo(
     // Keep the components object stable so Virtuoso does not redo internal
     // subscriptions on every state change (isScrolledUp, messages, ...).
     // CustomScroller itself is memoized above, so it never changes identity.
-    const listComponents = useMemo(() => ({ Scroller: CustomScroller }), [CustomScroller]);
+    const CustomList = useMemo(
+      () =>
+        forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function CustomList({ style, children, ...props }, listRef) {
+          return (
+            <div
+              ref={listRef}
+              {...props}
+              className={`message-virtuoso-list${props.className ? ` ${props.className}` : ""}`}
+              style={{
+                ...style,
+                boxSizing: "border-box",
+                width: "100%",
+                minWidth: 0,
+                maxWidth: "100%",
+              }}
+            >
+              {children}
+            </div>
+          );
+        }),
+      [],
+    );
+    const listComponents = useMemo(
+      () => ({ Scroller: CustomScroller, List: CustomList }),
+      [CustomScroller, CustomList],
+    );
 
     if (messages.length === 0) return null;
 

@@ -82,6 +82,7 @@
 .chat-panel {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: hsl(var(--background));
@@ -698,9 +699,20 @@
 /* Applied to the react-virtuoso scroller (components.Scroller in MessageList).
    The list owns its anchor while history is prepended (firstItemIndex), so the
    browser must not apply a second scroll anchor that fights it. */
+.message-scroll-wrap {
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
 .message-scroll {
-  overflow: auto;
-  padding: 0 18px 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: clip;
+  padding: 0 0 12px;
   position: relative;
   overflow-anchor: none;
   overscroll-behavior-y: contain;
@@ -708,10 +720,30 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* Virtuoso keeps the List at width: 100%. Keep the gutter inside that width
+   so bubbles fit the viewport instead of becoming 100% + horizontal margins. */
+.message-virtuoso-list {
+  --message-gutter: clamp(16px, 2.5vw, 32px);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: var(--message-gutter);
+}
+
+.message-virtuoso-list > [data-index],
+.message-virtuoso-list > [data-item-index] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Error banner + virtualized message list share one grid row. */
 .chat-messages-area {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -762,6 +794,9 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   margin-bottom: 4px;
 }
 
@@ -776,6 +811,8 @@
   gap: 4px;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   position: relative;
   transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
@@ -818,8 +855,10 @@
 }
 
 .message-bubble {
+  box-sizing: border-box;
   max-width: min(70%, 640px);
-  min-width: 0;  padding: 9px 12px;
+  min-width: 0;
+  padding: 9px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: 14px;
   background: hsl(var(--card));
@@ -843,6 +882,7 @@
 
 /* Telegram-style media bubbles: the image is the bubble, not a card inside it. */
 .message-bubble.is-media-bubble {
+  box-sizing: border-box;
   width: min(70%, 640px);
   max-width: min(70%, 640px);
   padding: 0;
@@ -943,9 +983,12 @@
 
 /* Compact bubbles keep the metadata in the same line as short text. */
 .message-content-text,
-.message-content-stack {
+.message-content-stack,
+.message-content-media {
   position: relative;
   z-index: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .message-bubble.is-multiline .message-content-stack {
@@ -1210,6 +1253,8 @@
 
 .message-content-media {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   border-radius: inherit;
 }
@@ -1770,10 +1815,11 @@
 
 .msg-attachment-image img,
 .msg-attachment-image video {
+  display: block;
   width: 100%;
+  max-width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
 }
 
 .msg-attachment-image.is-loading {
@@ -2460,7 +2506,11 @@
   }
 
   .message-scroll {
-    padding: 0 10px 8px;
+    padding-bottom: 8px;
+  }
+
+  .message-virtuoso-list {
+    --message-gutter: 12px;
   }
 
   .chat-panel.is-empty .chat-empty-state {
