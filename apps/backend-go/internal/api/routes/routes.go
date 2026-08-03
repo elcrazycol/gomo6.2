@@ -116,6 +116,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		storageHandler = nil
 	} else {
 		storageHandler = storageHandlers.NewStorageHandler(storageClient, db)
+		storageHandler.StartOrphanCleanup()
 	}
 	messengerHandler.SetStorage(storageClient)
 

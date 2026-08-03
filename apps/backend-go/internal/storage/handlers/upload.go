@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/media"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,14 @@ import (
 )
 
 const maxUploadBytes = 10 * 1024 * 1024
+
+type imageVariantResponse struct {
+	PreviewKey  string `json:"preview_key"`
+	LQIP        string `json:"lqip"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	ContentType string `json:"content_type"`
+}
 
 type StorageHandler struct {
 	client *storage.StorageClient
@@ -97,19 +106,69 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	hash := fmt.Sprintf("%x", md5.Sum(data))
 	key := fmt.Sprintf("%s%s", hash, ext)
+	if bucket == "uploads" {
+		claimsValue, exists := c.Get("claims")
+		claims, claimsOK := claimsValue.(*auth.Claims)
+		if !exists || !claimsOK || claims == nil || claims.UserID == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		// Keep the legacy auto-key endpoint safe and compatible with the
+		// explicit-key messenger endpoint. A root-level uploads key cannot be
+		// authorized against a message attachment row.
+		key = fmt.Sprintf("%s/messenger/%s%s", claims.UserID, hash, ext)
+	}
 
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	fileInfo, err := h.client.UploadFile(bucket, key, data, contentType)
+	var generated *media.ImageVariants
+	if isImageBucket(bucket) && isImageKey(key) {
+		generated, err = media.GenerateImageVariants(data)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("invalid image"))
+			return
+		}
+	}
+
+	var fileInfo *storage.FileInfo
+	if bucket == "uploads" {
+		fileInfo, err = h.client.UploadFileEncrypted(bucket, key, data, contentType)
+	} else {
+		fileInfo, err = h.client.UploadFile(bucket, key, data, contentType)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"file": fileInfo}))
+	response := gin.H{"file": fileInfo, "key": key}
+	if generated != nil {
+		previewKey := key + ".preview.jpg"
+		var previewInfo *storage.FileInfo
+		if bucket == "uploads" {
+			previewInfo, err = h.client.UploadFileEncrypted(bucket, previewKey, generated.Preview, generated.PreviewType)
+		} else {
+			previewInfo, err = h.client.UploadFile(bucket, previewKey, generated.Preview, generated.PreviewType)
+		}
+		_ = previewInfo
+		if err != nil {
+			_ = h.client.DeleteFile(bucket, key)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("failed to store image preview"))
+			return
+		}
+		response["variants"] = &imageVariantResponse{
+			PreviewKey:  previewKey,
+			LQIP:        generated.LQIP,
+			Width:       generated.Width,
+			Height:      generated.Height,
+			ContentType: generated.PreviewType,
+		}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(response))
 }
 
 // UploadFileWithKey stores a file with an explicit key from the frontend.
@@ -164,7 +223,28 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		return
 	}
 
-	// Encrypt messenger attachments at rest
+	// Generate derivatives before writing, but persist the original first. If
+	// the derivative write fails we can remove the original and avoid returning
+	// a reference that cannot render its preview. Both objects are encrypted at
+	// rest and share the same private namespace.
+	var generated *media.ImageVariants
+	var variants *imageVariantResponse
+	if isImageBucket(bucket) && isImageKey(key) {
+		generated, err = media.GenerateImageVariants(data)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("invalid image"))
+			return
+		}
+		variants = &imageVariantResponse{
+			PreviewKey:  key + ".preview.jpg",
+			LQIP:        generated.LQIP,
+			Width:       generated.Width,
+			Height:      generated.Height,
+			ContentType: generated.PreviewType,
+		}
+	}
+
+	// Encrypt messenger attachments at rest.
 	var fileInfo *storage.FileInfo
 	if bucket == "uploads" {
 		fileInfo, err = h.client.UploadFileEncrypted(bucket, key, data, contentType)
@@ -176,10 +256,29 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+	if variants != nil {
+		if bucket == "uploads" {
+			_, err = h.client.UploadFileEncrypted(bucket, variants.PreviewKey, generated.Preview, generated.PreviewType)
+		} else {
+			_, err = h.client.UploadFile(bucket, variants.PreviewKey, generated.Preview, generated.PreviewType)
+		}
+		if err != nil {
+			// Best-effort rollback. A scheduled orphan cleanup is still advisable
+			// for process crashes between independent S3 operations.
+			_ = h.client.DeleteFile(bucket, key)
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("failed to store image preview"))
+			return
+		}
+	}
+
+	response := gin.H{
 		"file": fileInfo,
 		"key":  key,
-	}))
+	}
+	if variants != nil {
+		response["variants"] = variants
+	}
+	c.JSON(http.StatusOK, models.SuccessResponse(response))
 }
 
 func (h *StorageHandler) DownloadFile(c *gin.Context) {
@@ -206,6 +305,33 @@ func (h *StorageHandler) DownloadFile(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, contentType, data)
+}
+
+func isImageBucket(bucket string) bool {
+	switch bucket {
+	case "uploads", "content", "post-images", "avatars":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPreviewKey(key string) bool {
+	return strings.HasSuffix(strings.ToLower(key), ".preview.jpg")
+}
+
+func attachmentKeyForLookup(key string) string {
+	return strings.TrimSuffix(key, ".preview.jpg")
+}
+
+func isImageKey(key string) bool {
+	ext := strings.ToLower(filepath.Ext(key))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *StorageHandler) DeleteFile(c *gin.Context) {
@@ -236,6 +362,13 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 	if bucket == "uploads" {
+		// A derivative is never a user-facing attachment target. Rejecting it
+		// before the ownership query also prevents attachmentKeyForLookup from
+		// authorizing a preview delete as if it were the original object.
+		if isPreviewKey(key) {
+			c.AbortWithStatus(http.StatusForbidden)
+			return
+		}
 		if h.db == nil {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
@@ -247,7 +380,7 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 				FROM message_attachments a
 				JOIN chat_messages m ON m.id = a.message_id
 				WHERE a.url = $1 AND m.sender_user_id = $2
-			)`, key, claims.UserID).Scan(&owned)
+			)`, attachmentKeyForLookup(key), claims.UserID).Scan(&owned)
 		if err != nil || !owned {
 			c.AbortWithStatus(http.StatusForbidden)
 			return
@@ -260,6 +393,11 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	if err := h.client.DeleteFile(bucket, key); err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(err.Error()))
 		return
+	}
+	// Derivatives are private implementation details and must not become
+	// orphaned when the user removes the attachment reference.
+	if isImageBucket(bucket) && isImageKey(key) {
+		_ = h.client.DeleteFile(bucket, key+".preview.jpg")
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
@@ -327,7 +465,7 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 				JOIN chat_messages m ON m.id = a.message_id
 				JOIN chat_members cm ON cm.conversation_id = m.conversation_id
 				WHERE a.url = $1 AND cm.user_id = $2
-			)`, key, claims.UserID).Scan(&allowed)
+			)`, attachmentKeyForLookup(key), claims.UserID).Scan(&allowed)
 		if err != nil || !allowed {
 			c.AbortWithStatus(http.StatusForbidden)
 			return
@@ -347,7 +485,12 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 			}
 			return
 		}
-		c.Header("Cache-Control", "private, no-store")
+		if strings.HasSuffix(strings.ToLower(key), ".preview.jpg") {
+			c.Header("Cache-Control", "private, max-age=31536000, immutable")
+		} else {
+			c.Header("Cache-Control", "private, no-store")
+		}
+		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("Content-Disposition", "inline")
 		c.Data(http.StatusOK, contentType, data)
 		return
@@ -403,10 +546,17 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 	}
 	c.Header("Accept-Ranges", "bytes")
 	if bucket == "uploads" {
-		c.Header("Cache-Control", "private, no-store")
+		if strings.HasSuffix(strings.ToLower(key), ".preview.jpg") {
+			c.Header("Cache-Control", "private, max-age=31536000, immutable")
+		} else {
+			c.Header("Cache-Control", "private, no-store")
+		}
+	} else if isPreviewKey(key) {
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		c.Header("Cache-Control", "public, max-age=3600")
 	}
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 	c.Header("Access-Control-Allow-Headers", "Content-Type, Range")

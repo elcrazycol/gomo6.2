@@ -60,10 +60,30 @@ describe("renderAttachments", () => {
     expect(renderAttachments(null)).toBeNull();
   });
 
-  it("renders image attachments", () => {
+  it("keeps legacy image originals click-only when preview metadata is absent", () => {
     const attachments = [{ url: "img.jpg", type: "image" as const, mime: "image/jpeg", name: "photo", size: 1000 }];
     const { container } = render(<>{renderAttachments(attachments)}</>);
-    expect(container.querySelector("img")).toBeInTheDocument();
+    expect(container.querySelector("img")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Открыть фото" })).toBeInTheDocument();
+  });
+
+  it("renders preview image when derivative metadata is present", () => {
+    const attachments = [{
+      url: "img.jpg",
+      type: "image" as const,
+      mime: "image/jpeg",
+      name: "photo",
+      size: 1000,
+      meta: {
+        preview_key: "img.jpg.preview.jpg",
+        lqip: "data:image/jpeg;base64,lqip",
+        width: 800,
+        height: 600,
+        pipeline: "image-v2",
+      },
+    }];
+    const { container } = render(<>{renderAttachments(attachments)}</>);
+    expect(container.querySelector('img[src="img.jpg.preview.jpg"]')).toBeInTheDocument();
   });
 
   it("renders video attachments", () => {
@@ -85,13 +105,12 @@ describe("renderAttachments", () => {
     expect(screen.getByText("1.0 МБ")).toBeInTheDocument();
   });
 
-  it("renders multiple images as grid", () => {
+  it("renders multiple legacy images as click-only grid placeholders", () => {
     const attachments = [
       { url: "img1.jpg", type: "image" as const, mime: "image/jpeg", name: "a", size: 100 },
       { url: "img2.jpg", type: "image" as const, mime: "image/jpeg", name: "b", size: 100 },
     ];
-    const { container } = render(<>{renderAttachments(attachments)}</>);
-    const imgs = container.querySelectorAll("img");
-    expect(imgs.length).toBe(2);
+    render(<>{renderAttachments(attachments)}</>);
+    expect(screen.getAllByRole("button", { name: "Открыть фото" })).toHaveLength(2);
   });
 });

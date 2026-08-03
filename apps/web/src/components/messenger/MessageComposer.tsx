@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, type KeyboardEvent, type RefObjec
 import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic } from "lucide-react";
 import type { Attachment, MessageView } from "./types";
 import { messengerApi } from "@/services/messengerApi";
+import { prepareMessengerImage } from "@/lib/imageProcessing";
 
 const MAX_LENGTH = 4000;
 const TYPING_DEBOUNCE_MS = 1000;
@@ -36,24 +37,6 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function readImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
-  return new Promise((resolve) => {
-    const source = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(source);
-      resolve(image.naturalWidth > 0 && image.naturalHeight > 0
-        ? { width: image.naturalWidth, height: image.naturalHeight }
-        : null);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(source);
-      resolve(null);
-    };
-    image.src = source;
-  });
 }
 
 export const MessageComposer = memo(function MessageComposer({
@@ -189,20 +172,34 @@ export const MessageComposer = memo(function MessageComposer({
     const newAttachments: Attachment[] = [];
     for (const file of Array.from(files)) {
       try {
-        const { path } = await messengerApi.uploadFile(file);
         const type: Attachment["type"] = file.type.startsWith("image/") ? "image"
           : file.type.startsWith("video/") ? "video"
           : file.type.startsWith("audio/") ? "audio"
           : "file";
-
-        const dimensions = type === "image" ? await readImageDimensions(file) : null;
+        const prepared = type === "image" ? await prepareMessengerImage(file) : null;
+        const uploadSource = prepared?.file ?? file;
+        const uploaded = await messengerApi.uploadFile(uploadSource);
+        if (type === "image" && !uploaded.variants) {
+          throw new Error("Сервер не вернул preview для изображения");
+        }
+        const imageMeta = type === "image" && uploaded.variants
+          ? {
+              width: uploaded.variants.width,
+              height: uploaded.variants.height,
+              preview_key: uploaded.variants.preview_key,
+              lqip: uploaded.variants.lqip,
+              pipeline: "messenger-image-v2",
+              source_size: file.size,
+              stored_size: uploadSource.size,
+            }
+          : null;
         newAttachments.push({
-          url: path,
+          url: uploaded.path,
           type,
           name: file.name,
-          size: file.size,
-          mime: file.type || "application/octet-stream",
-          ...(dimensions ? { meta: JSON.stringify(dimensions) } : {}),
+          size: uploadSource.size,
+          mime: uploadSource.type || file.type || "application/octet-stream",
+          ...(imageMeta ? { meta: JSON.stringify(imageMeta) } : {}),
         });
       } catch (err) {
         console.error("Upload failed:", err);

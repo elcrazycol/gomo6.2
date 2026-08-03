@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { MediaPlayer } from "@/components/MediaPlayer";
@@ -23,6 +24,43 @@ export const parseAttachments = (raw: unknown): AttachmentMeta[] => {
  * Renders a list of attachments for threads/posts.
  * Extracted from Thread.tsx to reduce file size and enable reuse.
  */
+const ProgressiveContentImage = ({
+  url,
+  previewKey,
+  lqip,
+  alt,
+  onClick,
+}: {
+  url: string;
+  previewKey?: string;
+  lqip?: string;
+  alt: string;
+  onClick?: () => void;
+}) => {
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  const previewUrl = previewKey
+    ? (storageUrl("content", previewKey) || previewKey)
+    : null;
+  const originalUrl = storageUrl("content", url) || url;
+
+  useEffect(() => setPreviewLoaded(false), [previewUrl]);
+
+  return (
+    <button type="button" className="relative block w-full overflow-hidden rounded-lg border border-border bg-muted/30 cursor-zoom-in" onClick={onClick}>
+      {lqip && <img src={lqip} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-contain blur-xl scale-105 transition-opacity duration-500" style={{ opacity: previewLoaded ? 0 : 1 }} />}
+      {previewUrl ? <img
+        src={previewUrl}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        className="relative w-full max-h-[70vh] object-contain transition-[filter,opacity,transform] duration-500"
+        style={{ opacity: previewLoaded ? 1 : 0, filter: previewLoaded ? "blur(0)" : "blur(8px)", transform: previewLoaded ? "scale(1)" : "scale(1.02)" }}
+        onLoad={() => setPreviewLoaded(true)}
+      /> : <span className="flex min-h-40 items-center justify-center text-sm text-muted-foreground">Открыть фото</span>}
+    </button>
+  );
+};
+
 export const renderAttachments = (
   attachments: AttachmentMeta[] | undefined | null,
   onImageClick?: (urls: string[], index: number) => void,
@@ -44,7 +82,13 @@ export const renderAttachments = (
               className="w-20 h-20 sm:w-24 sm:h-24 border border-border rounded-md overflow-hidden bg-muted/40 cursor-pointer"
               onClick={() => onImageClick?.(imageUrls, idx)}
             >
-              <img src={url} alt={`img-${idx}`} className="w-full h-full object-cover" />
+              <ProgressiveContentImage
+                url={url}
+                previewKey={attachments.find((att) => att.type === "image" && (storageUrl("content", att.url) || att.url) === url)?.meta?.preview_key}
+                lqip={attachments.find((att) => att.type === "image" && (storageUrl("content", att.url) || att.url) === url)?.meta?.lqip}
+                alt={`img-${idx}`}
+                onClick={() => onImageClick?.(imageUrls, idx)}
+              />
             </div>
           ))}
         </div>
@@ -57,10 +101,11 @@ export const renderAttachments = (
           const imageIndex = imageUrls.indexOf(att.url);
           return (
             <figure key={idx} className="w-full">
-              <img
-                src={storageUrl("content", att.url) || att.url}
+              <ProgressiveContentImage
+                url={storageUrl("content", att.url) || att.url}
+                previewKey={att.meta?.preview_key}
+                lqip={att.meta?.lqip}
                 alt={att.name || `img-${idx}`}
-                className="w-full max-h-[70vh] object-contain rounded-lg border border-border bg-muted/30 cursor-pointer"
                 onClick={() => onImageClick?.(imageUrls, imageIndex)}
               />
             </figure>

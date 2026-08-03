@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Users, MessageSquare, ArrowRight, FileText, Image as ImageIcon, Mic, Video } from "lucide-react";
@@ -328,58 +328,118 @@ function getAttachmentIcon(type: Attachment["type"]) {
   }
 }
 
-function useAuthenticatedAttachmentUrl(attachment: Attachment): string | null {
+function parseImageMeta(attachment: Attachment): {
+  width?: number;
+  height?: number;
+  preview_key?: string;
+  lqip?: string;
+} {
+  if (!attachment.meta) return {};
+  try {
+    const parsed = JSON.parse(attachment.meta) as Record<string, unknown>;
+    return {
+      ...(typeof parsed.width === "number" ? { width: parsed.width } : {}),
+      ...(typeof parsed.height === "number" ? { height: parsed.height } : {}),
+      ...(typeof parsed.preview_key === "string" ? { preview_key: parsed.preview_key } : {}),
+      ...(typeof parsed.lqip === "string" && parsed.lqip.startsWith("data:image/") ? { lqip: parsed.lqip } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+const decodeImageWithTimeout = async (url: string, timeoutMs = 5000): Promise<void> => {
+  const image = new Image();
+  image.src = url;
+  if (typeof image.decode !== "function") return;
+
+  let timer: number | undefined;
+  try {
+    await Promise.race([
+      image.decode(),
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error("Image decode timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
+  }
+};
+
+function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedKey = attachment.url, enabled = true): string | null {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let createdUrl: string | null = null;
-    const sourceUrl = storageUrl("uploads", attachment.url);
-    const token = apiClient.getToken();
-
-    if (!sourceUrl || (!token && !apiClient.getCSRFToken())) {
+    const controller = new AbortController();
+    if (!enabled) {
       setObjectUrl(null);
-      return () => undefined;
+      return () => controller.abort();
     }
 
-    void fetch(sourceUrl, {
-      credentials: "include",
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);
-        return response.blob();
-      })
-      .then((blob) => {
-        if (cancelled) return;
-        createdUrl = URL.createObjectURL(blob);
-        setObjectUrl(createdUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setObjectUrl(null);
-      });
+    const sourceUrl = storageUrl("uploads", requestedKey);
+    const token = apiClient.getToken();
+    if (!sourceUrl || (!token && !apiClient.getCSRFToken())) {
+      setObjectUrl(null);
+      return () => controller.abort();
+    }
 
+    const load = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        let candidateUrl: string | null = null;
+        try {
+          const response = await fetch(sourceUrl, {
+            credentials: "include",
+            signal: controller.signal,
+            headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          });
+          if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);
+          const blob = await response.blob();
+          candidateUrl = URL.createObjectURL(blob);
+
+          // Decode before swapping the object URL into the DOM. This prevents
+          // a late decode hitch from interrupting scroll and makes the CSS
+          // blur-up transition begin only with a renderable preview.
+          if (blob.type.startsWith("image/")) {
+            await decodeImageWithTimeout(candidateUrl);
+          }
+          if (cancelled) {
+            URL.revokeObjectURL(candidateUrl);
+            return;
+          }
+          createdUrl = candidateUrl;
+          setObjectUrl(candidateUrl);
+          return;
+        } catch (error) {
+          if (candidateUrl) URL.revokeObjectURL(candidateUrl);
+          lastError = error;
+          if (controller.signal.aborted || attempt === 2) break;
+          await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+        }
+      }
+      if (!cancelled && !controller.signal.aborted) {
+        setObjectUrl(null);
+        console.debug("Attachment preview failed after retries", lastError);
+      }
+    };
+
+    void load();
     return () => {
       cancelled = true;
+      controller.abort();
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [attachment.url]);
+  }, [attachment.url, requestedKey, enabled]);
 
   return objectUrl;
 }
 
 function getAttachmentAspectRatio(attachment: Attachment): number {
-  if (attachment.meta) {
-    try {
-      const parsed = JSON.parse(attachment.meta) as { width?: unknown; height?: unknown };
-      if (typeof parsed.width === "number" && typeof parsed.height === "number" && parsed.width > 0 && parsed.height > 0) {
-        return parsed.width / parsed.height;
-      }
-    } catch {
-      // Older attachments contain non-JSON metadata. Use the stable fallback.
-    }
+  const parsed = parseImageMeta(attachment);
+  if (parsed.width && parsed.height && parsed.width > 0 && parsed.height > 0) {
+    return parsed.width / parsed.height;
   }
 
   // Old photos have no width/height in the payload. Use the remembered ratio
@@ -400,18 +460,39 @@ function getAttachmentDisplayWidth(aspectRatio: number, viewportHeight: number):
 }
 
 function AttachmentView({ attachment, fitToViewport = false }: { attachment: Attachment; fitToViewport?: boolean }) {
-  const url = useAuthenticatedAttachmentUrl(attachment);
+  const meta = useMemo(() => parseImageMeta(attachment), [attachment.meta]);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [isPreviewReady, setIsPreviewReady] = useState(false);
+  const [isNearViewport, setIsNearViewport] = useState(() => typeof IntersectionObserver === "undefined");
+  const imageRef = useRef<HTMLDivElement | null>(null);
+  // A legacy image may have no derivative metadata. Keep its original out of
+  // the message feed; it is fetched only after the lightbox is opened below.
+  // Non-image attachments retain their existing direct-preview behavior.
+  const previewKey = meta.preview_key || (attachment.type === "image" ? "" : attachment.url);
+  const shouldLazyLoadPreview = Boolean(meta.preview_key && (fitToViewport || attachment.type === "image"));
+  const previewEnabled = attachment.type === "image"
+    ? Boolean(meta.preview_key) && (isNearViewport || !shouldLazyLoadPreview)
+    : true;
+  const url = useAuthenticatedAttachmentUrl(attachment, previewKey, previewEnabled);
+  const originalUrl = useAuthenticatedAttachmentUrl(attachment, attachment.url, lightboxOpen);
   const [aspectRatio, setAspectRatio] = useState(() => getAttachmentAspectRatio(attachment));
   const [viewportHeight, setViewportHeight] = useState(() => typeof window === "undefined" ? 800 : window.innerHeight);
   const isVisual = attachment.type === "image" || attachment.type === "video";
 
   useEffect(() => {
-    if (!fitToViewport) return undefined;
+    const observer = meta.preview_key && typeof IntersectionObserver !== "undefined"
+      ? new IntersectionObserver(([entry]) => setIsNearViewport(entry.isIntersecting), { rootMargin: "320px" })
+      : null;
+    if (imageRef.current && observer) observer.observe(imageRef.current);
 
+    if (!fitToViewport) return () => observer?.disconnect();
     const handleViewportResize = () => setViewportHeight(window.innerHeight);
     window.addEventListener("resize", handleViewportResize, { passive: true });
-    return () => window.removeEventListener("resize", handleViewportResize);
-  }, [fitToViewport]);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, [fitToViewport, meta.preview_key]);
 
   const rememberMeasuredRatio = (ratio: number) => {
     if (ratio <= 0 || !Number.isFinite(ratio)) return;
@@ -437,10 +518,15 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
     }
   };
 
+  useEffect(() => {
+    setIsPreviewReady(false);
+  }, [url]);
+
   if (isVisual) {
     return (
       <div
-        className={`msg-attachment-image${url ? " is-loaded" : " is-loading"}`}
+        ref={imageRef}
+        className={`msg-attachment-image${isPreviewReady ? " is-loaded" : " is-loading"}`}
         style={{
           aspectRatio,
           "--attachment-ratio": aspectRatio,
@@ -449,11 +535,22 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
         aria-busy={!url}
       >
         {attachment.type === "image" ? (
-          url && <img src={url} alt={attachment.name} loading="lazy" onLoad={handleImageLoad} style={{ objectFit: "contain" }} />
+          <button type="button" className="msg-attachment-open" onClick={() => setLightboxOpen(true)} aria-label={`Открыть ${attachment.name}`}>
+            {meta.lqip && <img className="msg-attachment-lqip" src={meta.lqip} alt="" aria-hidden="true" />}
+            {url && <img className="msg-attachment-preview" src={url} alt={attachment.name} loading="lazy" decoding="async" fetchPriority="low" onLoad={(event) => { setIsPreviewReady(true); handleImageLoad(event); }} style={{ objectFit: "contain" }} />}
+            {!url && meta.lqip && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
+            {!url && !meta.lqip && <span className="msg-attachment-legacy-placeholder" aria-hidden="true">Открыть фото</span>}
+          </button>
         ) : (
-          url && <video src={url} controls preload="metadata" onLoadedMetadata={handleVideoMetadata} style={{ objectFit: "contain" }} />
+          url && <video src={url} controls preload="metadata" onLoadedMetadata={(event) => { setIsPreviewReady(true); handleVideoMetadata(event); }} style={{ objectFit: "contain" }} />
         )}
-        {!url && <span className="msg-attachment-loading-shimmer" aria-hidden="true" />}
+        {lightboxOpen && (
+          <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
+            <DialogContent className="msg-lightbox-content">
+              {originalUrl ? <img src={originalUrl} alt={attachment.name} className="msg-lightbox-image" decoding="async" fetchPriority="high" /> : <span className="msg-attachment-loading-shimmer" aria-label="Загрузка оригинала" />}
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     );
   }

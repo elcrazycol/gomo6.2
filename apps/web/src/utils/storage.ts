@@ -15,6 +15,7 @@
 //   const url = storageUrl("content", fileKey);
 
 import { apiClient } from "@/integrations/api/client";
+import { prepareMessengerImage } from "@/lib/imageProcessing";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -58,17 +59,49 @@ export const storageUrl = (bucket: string, keyOrUrl?: string | null): string | n
  *
  * Throws on failure (no error-object pattern — use try/catch).
  */
+export type UploadedImageVariants = {
+  preview_key: string;
+  lqip: string;
+  width: number;
+  height: number;
+  content_type: string;
+};
+
+export type UploadFileResult = {
+  path: string;
+  variants?: UploadedImageVariants;
+};
+
 export const uploadFile = async (
   bucket: string,
   key: string,
   file: File,
   token?: string,
-): Promise<{ path: string }> => {
+  prepareImage = true,
+): Promise<UploadFileResult> => {
   const safeBucket = bucket.trim();
-  const safeKey = key.replace(/^\/+/, "");
+  let safeKey = key.replace(/^\/+/, "");
+  let uploadSource = file;
+
+  // Keep all normal image upload callers on the same storage policy. Messenger
+  // and mediaUpload already prepare their files explicitly, so they pass false
+  // to avoid a second lossy encode.
+  const canPrepare = prepareImage && ["image/jpeg", "image/png", "image/webp", "image/avif"].includes(file.type);
+  if (canPrepare) {
+    try {
+      const prepared = await prepareMessengerImage(file);
+      uploadSource = prepared.file;
+      if (prepared.compressed && uploadSource.type === "image/webp") {
+        safeKey = safeKey.replace(/\.[^/.]+$/, ".webp");
+      }
+    } catch {
+      // Preserve existing upload behavior when a browser cannot decode an
+      // uncommon image format; the backend still validates and serves it.
+    }
+  }
 
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("file", uploadSource);
   formData.append("bucket", safeBucket);
   formData.append("key", safeKey);
 
@@ -87,13 +120,21 @@ export const uploadFile = async (
     body: formData,
   });
 
+  const body = typeof res.json === "function"
+    ? await res.json().catch(() => ({})) as {
+        data?: { key?: string; variants?: UploadedImageVariants };
+        error?: string;
+      }
+    : {};
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const message = ((body as Record<string, unknown>)?.error as string) || `Upload failed: ${res.status}`;
+    const message = body.error || `Upload failed: ${res.status}`;
     throw new Error(message);
   }
 
-  return { path: safeKey };
+  return {
+    path: body.data?.key || safeKey,
+    ...(body.data?.variants ? { variants: body.data.variants } : {}),
+  };
 };
 
 /**

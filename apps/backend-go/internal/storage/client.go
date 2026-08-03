@@ -279,6 +279,43 @@ func (s *StorageClient) GetFileEncrypted(bucket, key string) ([]byte, string, er
 	return decrypted, contentType, nil
 }
 
+// ListedObject is a single object returned to a maintenance callback.
+type ListedObject struct {
+	Key          string
+	LastModified time.Time
+}
+
+// ForEachObject streams object pages to a callback, keeping cleanup memory
+// bounded even when the bucket contains millions of objects.
+func (s *StorageClient) ForEachObject(ctx context.Context, bucket, prefix string, fn func(ListedObject) error) error {
+	if !IsAllowedBucket(bucket) {
+		return fmt.Errorf("bucket not allowed: %s", bucket)
+	}
+	paginator := s3.NewListObjectsV2Paginator(s.s3, &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(prefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, object := range page.Contents {
+			if object.Key == nil {
+				continue
+			}
+			modified := time.Time{}
+			if object.LastModified != nil {
+				modified = *object.LastModified
+			}
+			if err := fn(ListedObject{Key: aws.ToString(object.Key), LastModified: modified}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // ObjectExists checks that an object exists without downloading its body.
 func (s *StorageClient) ObjectExists(ctx context.Context, bucket, key string) (bool, error) {
 	if !IsAllowedBucket(bucket) {

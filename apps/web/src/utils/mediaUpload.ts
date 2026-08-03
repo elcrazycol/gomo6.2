@@ -1,6 +1,6 @@
 import { api } from "@/integrations/api/compat";
 import { uploadFile } from "@/utils/storage";
-import { compressImageWithMetadataRemoval } from "@/lib/imageProcessing";
+import { prepareMessengerImage } from "@/lib/imageProcessing";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toast } from "sonner";
 import * as mm from 'music-metadata';
@@ -19,11 +19,18 @@ export interface AttachmentMeta {
   album?: string; // audio album name
   duration?: number; // audio duration in seconds
   coverArt?: string; // audio cover art URL
+  meta?: {
+    preview_key: string;
+    lqip: string;
+    width: number;
+    height: number;
+    pipeline: string;
+    source_size?: number;
+    stored_size?: number;
+  };
 }
 
 // Оптимизированные настройки
-const MAX_IMAGE_DIMENSION = 1200; // Уменьшили для лучшего сжатия
-const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB для изображений
 const MAX_VIDEO_WIDTH = 1080; // Уменьшили для веба
 const MAX_VIDEO_HEIGHT = 1080;
 const MAX_VIDEO_BITRATE = "1200k"; // Уменьшили битрейт
@@ -78,23 +85,6 @@ const loadFFmpeg = async () => {
     workerURL: FF_WORKER_URL,
   });
   return ffmpegInstance;
-};
-
-const compressImage = async (file: File): Promise<File> => {
-  // Проверяем кэш
-  const cached = getCachedFile(file);
-  if (cached) return cached.file;
-
-  console.log('Compressing image:', file.name);
-  
-  // Адаптивное качество в зависимости от размера
-  const quality = file.size > MAX_IMAGE_SIZE ? 0.7 : 0.85;
-  const compressed = await compressImageWithMetadataRemoval(file, MAX_IMAGE_DIMENSION, quality, true);
-  
-  // Кэшируем результат
-  setCachedFile(file, { file: compressed });
-  
-  return compressed;
 };
 
 const transcodeVideoToWebm = async (file: File): Promise<{ file: File; poster?: string }> => {
@@ -208,7 +198,7 @@ const extractAudioMetadata = async (file: File): Promise<{
               const coverKey = `${session.user.id}/${timestamp}_${randomStr}.${ext}`;
 
               try {
-                await uploadFile('content', coverKey, coverFile);
+                await uploadFile('content', coverKey, coverFile, undefined, true);
                 coverArt = coverKey;
               } catch (e) {
                 console.error('Failed to upload cover art:', e);
@@ -311,7 +301,8 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
 
     try {
       if (type === "image") {
-        file = await compressImage(original);
+        const prepared = await prepareMessengerImage(original);
+        file = prepared.file;
       } else if (type === "video") {
         const transcoded = await transcodeVideoToWebm(original);
         file = transcoded.file;
@@ -351,7 +342,10 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
     // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access)
-    await uploadFile('content', key, file, session.access_token);
+    const uploaded = await uploadFile('content', key, file, session.access_token, false);
+    if (type === "image" && !uploaded.variants) {
+      throw new Error("Сервер не вернул preview для изображения");
+    }
 
     results.push({
       url: key,
@@ -360,6 +354,17 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       name: file.name,
       size: file.size,
       poster,
+      ...(type === "image" && uploaded.variants ? {
+        meta: {
+          preview_key: uploaded.variants.preview_key,
+          lqip: uploaded.variants.lqip,
+          width: uploaded.variants.width,
+          height: uploaded.variants.height,
+          pipeline: "image-v2",
+          source_size: original.size,
+          stored_size: file.size,
+        },
+      } : {}),
       ...(audioMetadata && {
         title: audioMetadata.title,
         artist: audioMetadata.artist,

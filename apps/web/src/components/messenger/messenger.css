@@ -1840,7 +1840,8 @@
 }
 
 .msg-attachment-image img,
-.msg-attachment-image video {
+.msg-attachment-image video,
+.msg-attachment-open {
   display: block;
   width: 100%;
   height: 100%;
@@ -1849,8 +1850,83 @@
   object-fit: contain;
 }
 
+.msg-attachment-open {
+  position: relative;
+  padding: 0;
+  border: 0;
+  cursor: zoom-in;
+  overflow: hidden;
+  background: transparent;
+}
+
+.msg-attachment-lqip,
+.msg-attachment-preview {
+  position: absolute;
+  inset: 0;
+  transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1), filter 520ms cubic-bezier(0.22, 1, 0.36, 1), transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, filter, transform;
+}
+
+.msg-attachment-lqip {
+  filter: blur(16px);
+  transform: scale(1.09);
+  opacity: 0.96;
+}
+
+.msg-attachment-preview {
+  opacity: 0;
+  filter: blur(8px);
+  transform: scale(1.025);
+}
+
+.msg-attachment-image.is-loaded .msg-attachment-lqip {
+  opacity: 0;
+  filter: blur(0);
+  transform: scale(1);
+}
+
+.msg-attachment-image.is-loaded .msg-attachment-preview {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+
+.msg-lightbox-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(96vw, 1400px);
+  max-width: none;
+  height: min(94dvh, 1000px);
+  padding: 12px;
+  border: 0;
+  background: rgb(0 0 0 / 0.92);
+}
+
+.msg-lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
 .msg-attachment-image.is-loading {
   min-height: 160px;
+}
+
+.msg-attachment-legacy-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: linear-gradient(135deg, hsl(var(--muted) / 0.7), hsl(var(--muted) / 0.35));
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .msg-attachment-loading-shimmer {

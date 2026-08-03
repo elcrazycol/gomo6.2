@@ -22,6 +22,7 @@ require (
 	github.com/redis/go-redis/v9 v9.6.3
 	github.com/swaggo/swag v1.16.4
 	golang.org/x/crypto v0.52.0
+	golang.org/x/image v0.32.0
 )
 
 require (
