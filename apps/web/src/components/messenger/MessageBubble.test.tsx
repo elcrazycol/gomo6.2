@@ -1,7 +1,13 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MessageBubble } from "./MessageBubble";
+import { rememberAttachmentAspectRatio, __resetAttachmentRatioCacheForTests } from "@/utils/attachmentRatioCache";
 import type { MessageView } from "./types";
+
+beforeEach(() => {
+  localStorage.clear();
+  __resetAttachmentRatioCacheForTests();
+});
 
 function createMessage(overrides: Partial<MessageView> = {}): MessageView {
   return {
@@ -161,6 +167,29 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".message-content-media")).toBeInTheDocument();
     expect(container.querySelector(".message-media-caption")).toHaveTextContent("пример фото");
     expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 1.3333333333333333");
+  });
+
+  it("uses the remembered aspect ratio for legacy photos without metadata", () => {
+    rememberAttachmentAspectRatio("user-1/messenger/legacy.jpg", 9 / 16);
+    const { container } = render(
+      <MessageBubble
+        message={createMessage({
+          content: "",
+          attachments: [{
+            url: "user-1/messenger/legacy.jpg",
+            type: "image",
+            name: "legacy.jpg",
+            size: 1200,
+            mime: "image/jpeg",
+          }],
+        })}
+        {...defaultProps}
+        isMine={true}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.is-media-bubble")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.is-media-bubble .msg-attachment-image")).toHaveStyle("aspect-ratio: 0.5625");
   });
 
   it("keeps quoted media in the regular bubble layout", () => {

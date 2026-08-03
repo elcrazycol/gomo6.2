@@ -11,6 +11,7 @@ import { MessageBubble } from "./MessageBubble";
 import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
+import { getAttachmentAspectRatio } from "@/utils/attachmentRatioCache";
 import type { Attachment, MessageView, ReceiptRow } from "./types";
 import { estimatePrependedHeight } from "./scrollUtils";
 
@@ -42,6 +43,11 @@ function estimateMessageHeight(msg: MessageView): number {
           } catch {
             // Keep the conservative placeholder ratio for legacy metadata.
           }
+        } else {
+          // Old photos carry no metadata; reuse the remembered ratio from a
+          // previous session so prepend compensation matches the real layout.
+          const remembered = getAttachmentAspectRatio(attachment.url);
+          if (remembered !== null) aspectRatio = remembered;
         }
         const mediaWidth = visualAttachments.length > 1 ? 320 : 640;
         return Math.max(maximum, Math.min(640, Math.max(160, mediaWidth / aspectRatio)));

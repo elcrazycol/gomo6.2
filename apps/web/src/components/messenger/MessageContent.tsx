@@ -7,6 +7,7 @@ import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
+import { getAttachmentAspectRatio as getCachedAspectRatio, rememberAttachmentAspectRatio, fallbackAttachmentAspectRatio } from "@/utils/attachmentRatioCache";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { EmojiInline } from "@/components/EmojiInline";
 import type { Attachment } from "./types";
@@ -381,6 +382,11 @@ function getAttachmentAspectRatio(attachment: Attachment): number {
     }
   }
 
+  // Old photos have no width/height in the payload. Use the remembered ratio
+  // from a previous session so the reserved space matches on re-opens.
+  const remembered = getCachedAspectRatio(attachment.url);
+  if (remembered !== null) return remembered;
+
   return attachment.type === "video" ? 16 / 9 : 4 / 3;
 }
 
@@ -391,7 +397,11 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 
   const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth, naturalHeight } = event.currentTarget;
-    if (naturalWidth > 0 && naturalHeight > 0) setAspectRatio(naturalWidth / naturalHeight);
+    if (naturalWidth > 0 && naturalHeight > 0) {
+      const ratio = naturalWidth / naturalHeight;
+      setAspectRatio(ratio);
+      rememberAttachmentAspectRatio(attachment.url, ratio, fallbackAttachmentAspectRatio(attachment.type === "video" ? "video" : "image"));
+    }
   };
 
   if (isVisual) {
