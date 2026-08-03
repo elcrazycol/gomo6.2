@@ -441,21 +441,12 @@ const Profile = () => {
     if (!userId) return [];
 
     try {
-      const token = (await api.auth.getSession()).data.session?.access_token;
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+      const { data, error } = await api.rpc('get_avatar_history', { user_uuid: userId });
+      if (error) throw new Error(error.message || 'Failed to load avatar history');
 
-      const res = await fetch('/api/rpc/get_avatar_history', {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_uuid: userId }),
-      });
-      const result = await res.json();
-
-      if (!res.ok) throw new Error(result.error || 'Failed to load avatar history');
-
-      const data = result.data ?? result;
-      setAvatarHistory((data || []) as AvatarHistoryItem[]);
-      return (data || []) as AvatarHistoryItem[];
+      const avatars = (data || []) as AvatarHistoryItem[];
+      setAvatarHistory(avatars);
+      return avatars;
     } catch (error) {
       console.error('Error loading avatar history:', error);
       return [];
@@ -536,20 +527,11 @@ const Profile = () => {
 
   const toggleAchievementPin = async (achievementId: string) => {
     try {
-      const token = (await api.auth.getSession()).data.session?.access_token;
-      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-
-      const res = await fetch('/api/rpc/toggle_achievement_pin', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          _user_id: userId,
-          _achievement_id: achievementId
-        }),
+      const { error } = await api.rpc('toggle_achievement_pin', {
+        _user_id: userId,
+        _achievement_id: achievementId,
       });
-
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to toggle pin');
+      if (error) throw new Error(error.message || 'Failed to toggle pin');
 
       // Reload achievements to reflect changes
       await loadAchievements();
@@ -715,22 +697,13 @@ const Profile = () => {
     if (!currentUser || currentUser.id !== userId) return;
 
     try {
-      const token = (await api.auth.getSession()).data.session?.access_token;
-      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-
-      const res = await fetch('/api/rpc/delete_avatar_from_history', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          avatar_id: avatarId,
-          requesting_user_id: currentUser.id
-        }),
+      const { data, error } = await api.rpc('delete_avatar_from_history', {
+        avatar_id: avatarId,
+        requesting_user_id: currentUser.id,
       });
-      const result = await res.json();
+      if (error) throw new Error(error.message || 'Failed to delete avatar');
 
-      if (!res.ok) throw new Error(result.error || 'Failed to delete avatar');
-
-      if (result.data) {
+      if (data) {
         toast.success("Аватар удален");
 
         // Reload history
@@ -751,16 +724,8 @@ const Profile = () => {
           setAvatarUrl(null);
         }
 
-        // Close gallery if no more avatars
-        const historyRes = await fetch('/api/rpc/get_avatar_history', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ user_uuid: userId }),
-        });
-        const historyDataResult = await historyRes.json();
-        const historyData = historyDataResult.data ?? historyDataResult;
-
-        if (!historyData || (historyData as AvatarHistoryItem[]).length === 0) {
+        // Close gallery if no more avatars.
+        if (historyResult.length === 0) {
           setShowAvatarGallery(false);
         }
       } else {

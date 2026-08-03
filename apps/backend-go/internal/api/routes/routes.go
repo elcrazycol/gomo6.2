@@ -299,20 +299,53 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		genericProtected.GET("/thread_custom_message_visits", universalHandler.HandleTableRequest)
 		genericProtected.GET("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
 
+		// Profile wall uses the universal CRUD handler for reads and mutations.
+		// Register every method here; registering GET only makes Gin return 404
+		// before the already-tested POST/PUT/DELETE handler is reached.
 		genericProtected.GET("/profile_wall_posts", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_posts", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_posts", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_posts", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_posts/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/profile_wall_post_comments", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_post_comments", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_post_comments", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_post_comments", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_post_comments/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/profile_wall_post_likes", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_post_likes", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_post_likes", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_post_likes", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_post_likes/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_post_reposts", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_post_reposts/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
+		genericProtected.POST("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_comment_likes", universalHandler.HandleTableRequest)
+		genericProtected.DELETE("/profile_wall_comment_likes/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/gomosub_invites", universalHandler.HandleTableRequest)
 		genericProtected.GET("/gomosub_invites/*path", universalHandler.HandleTableRequest)

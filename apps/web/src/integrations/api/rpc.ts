@@ -59,11 +59,13 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
         case 'get_or_create_direct_chat': {
           // Go handler returns the conversation ID as a plain JSON string, NOT {success, data}
           // e.g. `c.JSON(http.StatusOK, conversationID)` → body is just "conv-uuid"
-          const response = (await apiClient.rawRequest(`/api/rpc/${functionName}`, {
+          const response = await apiClient.rawRequest(`/api/rpc/${functionName}`, {
             method: 'POST',
             body: JSON.stringify(params || {}),
-          })) as unknown;
-          return { data: response, error: null };
+          });
+          // Most Go RPC handlers use the standard { success, data } envelope;
+          // keep the compatibility API consistent with the other RPC cases.
+          return { data: response.data ?? response, error: null };
         }
         case 'chat_mark_delivered':
         case 'chat_mark_read': {
