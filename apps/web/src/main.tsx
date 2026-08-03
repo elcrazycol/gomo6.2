@@ -7,22 +7,18 @@ import "./index.css";
 // Capture uncaught errors and unhandled promise rejections.
 const disposeGlobalErrorHandlers = setupGlobalErrorHandlers();
 
-// When a new service worker takes control (e.g. after a deployment),
-// reload the page so the new app shell and chunks are used.
+// A service worker update must not force-reload an active chat while the user
+// is scrolling. The new worker will take effect on the next normal navigation
+// or reload, without interrupting the current session.
 const setupServiceWorkerReload = (): (() => void) => {
-  const handler = () => {
-    window.location.reload();
-  };
-
   if ('serviceWorker' in navigator) {
+    const handler = () => {
+      console.info('[pwa] update ready; keeping the current page alive');
+    };
     navigator.serviceWorker.addEventListener('controllerchange', handler);
+    return () => navigator.serviceWorker.removeEventListener('controllerchange', handler);
   }
-
-  return () => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.removeEventListener('controllerchange', handler);
-    }
-  };
+  return () => undefined;
 };
 const disposeServiceWorkerReload = setupServiceWorkerReload();
 

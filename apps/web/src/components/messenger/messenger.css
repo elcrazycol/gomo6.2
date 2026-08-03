@@ -807,12 +807,7 @@
 
 .message-bubble {
   max-width: min(70%, 640px);
-  min-width: 0;
-  /* Reserve metadata space for every message. Switching between measured
-     inline/multiline modes made individual bubbles change height and could
-     even make the text appear to change size while scrolling. */
-  padding: 9px 12px 28px;
-  box-sizing: border-box;
+  min-width: 0;  padding: 9px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: 14px;
   background: hsl(var(--card));
@@ -1657,32 +1652,18 @@
 }
 
 .msg-attachment-image {
-  width: min(240px, 100%);
-  height: 180px;
-  aspect-ratio: 4 / 3;
+  max-width: 240px;
+  max-height: 300px;
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  background: hsl(var(--muted) / 0.35);
 }
 
-.msg-attachment-image img,
-.msg-attachment-image video,
-.msg-attachment-placeholder {
-  display: block;
-  width: 100%;
-  height: 100%;
+.msg-attachment-image img {
+  max-width: 100%;
+  max-height: 300px;
   object-fit: cover;
-}
-
-.msg-attachment-placeholder {
-  background: linear-gradient(110deg, hsl(var(--muted) / 0.2) 20%, hsl(var(--muted) / 0.5) 38%, hsl(var(--muted) / 0.2) 56%);
-  background-size: 200% 100%;
-  animation: attachment-placeholder-shimmer 1.4s linear infinite;
-}
-
-@keyframes attachment-placeholder-shimmer {
-  to { background-position: -200% 0; }
+  display: block;
 }
 
 .msg-attachment-file {
@@ -2369,12 +2350,7 @@
   .message-bubble {
     max-width: 88%;
     min-width: 0;
-    padding: 8px 10px 26px;
-  }
-
-  .msg-attachment-image {
-    width: min(240px, 100%);
-    height: min(180px, 56vw);
+    padding: 8px 10px;
   }
 
   .message-bubble p {

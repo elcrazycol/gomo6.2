@@ -12,6 +12,7 @@ import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
 import type { Attachment, MessageView, ReceiptRow } from "./types";
+import { estimatePrependedHeight } from "./scrollUtils";
 
 function estimateMessageHeight(msg: MessageView): number {
   const lines = Math.max(1, (msg.content.match(/\n/g)?.length ?? 0) + 1);
@@ -130,13 +131,11 @@ export const ChatView = memo(function ChatView({
   } | null>(null);
   const prependAnchorRef = useRef<{
     conversationId: string;
-    firstMessageId: string;
-    scrollTop: number;
-    scrollHeight: number;
+    boundaryMessageId: string;
+    estimatedDeltaApplied: boolean;
   } | null>(null);
   const applyingScrollRef = useRef(false);
   const scrollOperationRef = useRef(0);
-
   const virtualizer = useVirtualizer({
     count: messages.length,
     getScrollElement: () => scrollContainerRef.current,
@@ -144,9 +143,11 @@ export const ChatView = memo(function ChatView({
     getItemKey: (index) => messages[index]?.id ?? index,
     // Keep resize notifications on animation frames so media/link previews
     // are measured in one browser frame instead of several competing layouts.
+    // TanStack remains responsible for correcting measured-size differences.
     useAnimationFrameWithResizeObserver: true,
     overscan: 5,
   });
+
 
   // Auto-scroll to bottom — direct DOM for reliability
   const pinToBottom = useCallback(() => {
@@ -264,9 +265,9 @@ export const ChatView = memo(function ChatView({
     if (!el) return;
     if (!applyingScrollRef.current) scrollOperationRef.current += 1;
 
-    // Never cancel an in-flight anchor because the user keeps dragging. The
-    // next layout pass must still compensate for the newly inserted rows.
-    // Only the request token/conversation switch may invalidate it.
+    // Never rewrite the current scroll position from a stale request callback.
+    // The prepend layout effect below always applies its delta to this latest
+    // value, so a fast drag remains under the user's control.
 
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
     shouldAutoScroll.current = dist <= 32;
@@ -282,19 +283,23 @@ export const ChatView = memo(function ChatView({
       isLoadingMoreRef.current = true;
       const loadRequestId = ++loadMoreRequestRef.current;
       const loadConversationId = conversation.id;
+      const anchorBoundaryId = messages[0]?.id ?? "";
       prependAnchorRef.current = {
         conversationId: loadConversationId,
-        firstMessageId: messages[0]?.id ?? "",
-        scrollTop: el.scrollTop,
-        scrollHeight: el.scrollHeight,
+        boundaryMessageId: messages[0]?.id ?? "",
+        estimatedDeltaApplied: false,
       };
       loadMoreMessages(loadConversationId).then(() => {
         if (loadMoreRequestRef.current !== loadRequestId || initializedConversationRef.current !== loadConversationId) return;
         requestAnimationFrame(() => {
           if (loadMoreRequestRef.current !== loadRequestId || initializedConversationRef.current !== loadConversationId) return;
-          // The layout effect owns anchor reconciliation. Do not inspect
-          // `messages` here: this callback closes over the pre-request render.
+          // The layout effect applies the prepend estimate and clears the
+          // anchor after that one correction. Measured-size corrections are
+          // handled by TanStack itself.
           isLoadingMoreRef.current = false;
+          if (useMessengerStore.getState().messages[0]?.id === anchorBoundaryId) {
+            prependAnchorRef.current = null;
+          }
         });
       }).catch(() => {
         if (loadMoreRequestRef.current !== loadRequestId || initializedConversationRef.current !== loadConversationId) return;
@@ -304,32 +309,26 @@ export const ChatView = memo(function ChatView({
     }
   }, [hasMoreMessages, isLoadingMore, conversation?.id, loadMoreMessages, messages]);
 
-  // Keep the first visible history item at the same viewport position when
-  // older messages are prepended. This runs before paint, so the user never
-  // sees the intermediate jump. The anchor is refreshed once more after the
-  // browser has applied the new virtualizer measurements.
+  // Keep the current viewport stable when older rows are inserted. We apply
+  // only the estimate for rows actually added before the old boundary; later
+  // image/text measurement differences are left to TanStack's normal adjustment
+  // path, avoiding a second competing manual correction.
   useLayoutEffect(() => {
     const anchor = prependAnchorRef.current;
     const el = scrollContainerRef.current;
-    if (!anchor || !el || anchor.conversationId !== conversation?.id) return;
+    if (!anchor || !el || anchor.conversationId !== conversation?.id || anchor.estimatedDeltaApplied) return;
 
-    const firstId = messages[0]?.id;
-    if (!firstId || firstId === anchor.firstMessageId) return;
-
-    const heightDelta = el.scrollHeight - anchor.scrollHeight;
-    if (heightDelta <= 0) return;
-
+    const estimatedDelta = estimatePrependedHeight(messages, anchor.boundaryMessageId, estimateMessageHeight);
+    if (estimatedDelta <= 0) {
+      // The boundary can remain first while a realtime append arrives during
+      // the pending history request. Keep the anchor armed until the request
+      // callback confirms either a prepend or an empty response.
+      return;
+    }
     applyingScrollRef.current = true;
-    // Preserve the user's latest position, not the position captured when the
-    // request started. This remains correct even if they keep dragging while
-    // older rows are in flight.
-    el.scrollTop = el.scrollTop + heightDelta;
-    prependAnchorRef.current = {
-      ...anchor,
-      firstMessageId: firstId,
-      scrollTop: el.scrollTop,
-      scrollHeight: el.scrollHeight,
-    };
+    el.scrollTop = Math.max(0, el.scrollTop + estimatedDelta);
+    anchor.estimatedDeltaApplied = true;
+    prependAnchorRef.current = null;
     requestAnimationFrame(() => { applyingScrollRef.current = false; });
   }, [conversation?.id, messages]);
 
@@ -642,6 +641,7 @@ export const ChatView = memo(function ChatView({
                   <div
                     key={msg.id}
                     data-index={virtualRow.index}
+                    data-message-id={msg.id}
                     ref={virtualizer.measureElement}
                     style={{
                       position: "absolute",
@@ -684,6 +684,7 @@ export const ChatView = memo(function ChatView({
                 <div
                   key={msg.id}
                   data-index={virtualRow.index}
+                  data-message-id={msg.id}
                   ref={virtualizer.measureElement}
                   style={{
                     position: "absolute",

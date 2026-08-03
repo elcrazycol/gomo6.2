@@ -371,29 +371,18 @@ function useAuthenticatedAttachmentUrl(attachment: Attachment): string | null {
 function AttachmentView({ attachment }: { attachment: Attachment }) {
   const url = useAuthenticatedAttachmentUrl(attachment);
 
-  // Keep media geometry deterministic before the authenticated blob URL is
-  // ready. Without this, a virtualized row first renders as a file link and
-  // then changes height when the image/video arrives.
-  if (attachment.type === "image") {
+  if (attachment.type === "image" && url) {
     return (
-      <div className="msg-attachment-image" aria-label={url ? attachment.name : "Загрузка изображения"}>
-        {url ? (
-          <img src={url} alt={attachment.name} loading="lazy" />
-        ) : (
-          <span className="msg-attachment-placeholder" aria-hidden="true" />
-        )}
+      <div className="msg-attachment-image">
+        <img src={url} alt={attachment.name} loading="lazy" />
       </div>
     );
   }
 
-  if (attachment.type === "video") {
+  if (attachment.type === "video" && url) {
     return (
-      <div className="msg-attachment-image" aria-label={url ? attachment.name : "Загрузка видео"}>
-        {url ? (
-          <video src={url} controls preload="metadata" />
-        ) : (
-          <span className="msg-attachment-placeholder" aria-hidden="true" />
-        )}
+      <div className="msg-attachment-image">
+        <video src={url} controls preload="metadata" />
       </div>
     );
   }
