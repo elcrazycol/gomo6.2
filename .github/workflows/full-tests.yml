@@ -416,3 +416,58 @@ jobs:
       - name: Stop services
         if: always()
         run: docker compose down -v
+
+  privacy:
+    name: E2E Privacy Wall (REST + WS + media)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || 'main' }}
+
+      - name: Prepare local secrets and Garage config
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          bash scripts/generate-keys.sh --quiet .env
+          bash scripts/generate-garage-config.sh .env
+
+      - name: Start all services
+        run: |
+          set -euo pipefail
+          docker compose down -v 2>/dev/null || true
+          docker compose up -d --wait
+          # Give backend extra time for migrations + bucket bootstrap
+          sleep 15
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost/health; then
+              echo "Health OK"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          curl -f http://localhost/health || exit 1
+
+      - name: Run E2E privacy wall test
+        run: |
+          set -euo pipefail
+          bash scripts/e2e-privacy-wall.sh http://localhost
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          echo "=== Backend logs ===" && docker compose logs --tail=100 backend
+          echo "=== Garage logs ===" && docker compose logs --tail=30 garage
+          echo "=== Garage-init logs ===" && docker compose logs --tail=30 garage-init
+          echo "=== Caddy logs ===" && docker compose logs --tail=30 caddy
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

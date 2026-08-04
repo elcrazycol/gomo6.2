@@ -169,13 +169,59 @@ func TestUniversalPut_MissingFilter(t *testing.T) {
 func TestUniversalPut_NotFound(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`UPDATE privacy_settings SET show_online_status = \$1 WHERE user_id = \$2 RETURNING \*`).
-		WithArgs("false", "u1").
+	// The ownership scope adds user_id = caller (u1) in addition to the
+	// user_id=eq.u1 query filter.
+	mock.ExpectQuery(`(?s).*UPDATE privacy_settings SET show_online_status = \$1 WHERE .*user_id = \$2.*user_id = \$3.*RETURNING \*`).
+		WithArgs("false", "u1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "show_online_status"}))
 
 	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
 		"show_online_status": "false",
-	}, nil)
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── privacy_settings writes: ownership enforcement (anti-IDOR) ─────────────
+
+func TestUniversalPost_PrivacySettings_ForcesOwner(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// The client attempts to create/update privacy settings for a victim; the
+	// server must force user_id to the caller. INSERT columns are sorted
+	// alphabetically (private_profile, user_id), so the args order is fixed.
+	mock.ExpectQuery(`(?s).*INSERT INTO privacy_settings \(.*\).*VALUES \(.*\).*RETURNING \*`).
+		WithArgs("true", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "private_profile"}).
+			AddRow("1", "u1", true))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/privacy_settings", map[string]string{
+		"user_id":         "victim",
+		"private_profile": "true",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_PrivacySettings_CannotTouchForeignRow(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// An attacker tries to flip the victim's private_profile via a generic PUT.
+	// The ownership scope (user_id = attacker) AND the user_id=eq.victim filter
+	// can never match the victim's row → 404, nothing updated.
+	mock.ExpectQuery(`(?s).*UPDATE privacy_settings SET private_profile = \$1 WHERE .*user_id = \$2.*user_id = \$3.*RETURNING \*`).
+		WithArgs("true", "u1", "victim").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "private_profile"}))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.victim", map[string]string{
+		"private_profile": "true",
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusNotFound {

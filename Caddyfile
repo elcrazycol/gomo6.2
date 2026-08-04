@@ -93,11 +93,13 @@
 				}
 			}
 		}
-		# Messenger uploads are private and always go through the authenticated Go proxy.
-		# Keep this handler before the generic public bucket proxy.
+		# Messenger uploads and profile-wall media are private and always go
+		# through the authenticated Go proxy, which enforces chat membership and
+		# wall visibility (canViewUserWall). Keep this handler before the generic
+		# public bucket proxy.
 		@privateStorageGet {
 			method GET HEAD
-			path_regexp private_storage_read ^/storage/v1/object/uploads/(.+)$
+			path_regexp private_storage_read ^/storage/v1/object/(uploads|wall)/(.+)$
 		}
 		handle @privateStorageGet {
 			reverse_proxy backend:8080 {
@@ -111,6 +113,7 @@
 		@storageGet {
 			method GET HEAD
 			not path /storage/v1/object/uploads/*
+			not path /storage/v1/object/wall/*
 			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
 		}
 		handle @storageGet {
@@ -211,12 +214,13 @@
 		# path_regexp captures bucket (group 1) and key (group 2) from the URL.
 		# Host header is rewritten to <bucket>.storage.garage.localhost so Garage
 		# resolves the correct bucket in virtual-hosted style.
-		# Messenger uploads are private: send them to Go, which checks
-		# chat_members before reading from Garage. This must precede the
-		# generic public Garage website proxy below.
+		# Messenger uploads and profile-wall media are private: send them to Go,
+		# which checks chat_members and wall visibility (canViewUserWall) before
+		# reading from Garage. This must precede the generic public Garage
+		# website proxy below.
 		@privateStorageGet {
 			method GET HEAD
-			path_regexp private_storage_read ^/storage/v1/object/uploads/(.+)$
+			path_regexp private_storage_read ^/storage/v1/object/(uploads|wall)/(.+)$
 		}
 		handle @privateStorageGet {
 			reverse_proxy backend:8080 {
@@ -230,6 +234,7 @@
 		@storageGet {
 			method GET HEAD
 			not path /storage/v1/object/uploads/*
+			not path /storage/v1/object/wall/*
 			path_regexp storage_read ^/storage/v1/object/([^/]+)/(.+)$
 		}
 		handle @storageGet {

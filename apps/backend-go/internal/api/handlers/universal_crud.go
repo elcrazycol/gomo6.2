@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -545,7 +546,8 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 			}
 		}
 	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_comment_likes",
-		"user_daily_visits", "thread_custom_message_visits", "gomosub_rules_acceptance", "profile_customization":
+		"user_daily_visits", "thread_custom_message_visits", "gomosub_rules_acceptance", "profile_customization",
+		"privacy_settings":
 		// Single-owner tables: the owner is always the authenticated user.
 		userID := authenticatedUserID(c)
 		if userID == "" {
@@ -588,7 +590,8 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 		clauses = append(clauses, "(author_id = $"+strconv.Itoa(argIndex)+" OR user_id = $"+strconv.Itoa(argIndex)+")")
 		args = append(args, userID)
 		argIndex++
-	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_post_reposts", "profile_wall_comment_likes":
+	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_post_reposts", "profile_wall_comment_likes",
+		"privacy_settings":
 		userID := authenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -666,17 +669,22 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		return
 	}
 
-	// Build INSERT query
+	// Build INSERT query. Columns are sorted so the generated SQL is
+	// deterministic across runs (map iteration order is random in Go) — this
+	// keeps tests stable and cache keys predictable.
 	query := "INSERT INTO " + tableName + " ("
-	var columns []string
+	columns := make([]string, 0, len(data))
+	for column := range data {
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
 	var placeholders []string
 	var args []interface{}
 	argIndex := 1
 
-	for column, value := range data {
-		columns = append(columns, column)
+	for _, column := range columns {
 		placeholders = append(placeholders, "$"+strconv.Itoa(argIndex))
-		args = append(args, value)
+		args = append(args, data[column])
 		argIndex++
 	}
 

@@ -310,6 +310,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/privacy_settings", universalHandler.HandleTableRequest)
 		genericProtected.GET("/privacy_settings/*path", universalHandler.HandleTableRequest)
+		// Writes are ownership-scoped in enforcePostOwnership/enforceWallWriteScope:
+		// the user_id column is always forced to the authenticated caller.
+		genericProtected.PUT("/privacy_settings", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/privacy_settings/*path", universalHandler.HandleTableRequest)
+		genericProtected.POST("/privacy_settings", universalHandler.HandleTableRequest)
+		genericProtected.POST("/privacy_settings/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/user_daily_visits", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_daily_visits/*path", universalHandler.HandleTableRequest)

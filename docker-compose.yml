@@ -124,9 +124,10 @@ services:
           else
             echo "ERROR: bucket allow failed for $$bucket"
           fi
-          # The uploads bucket is private. It is served only through the
-          # authenticated Go proxy, never through Garage's website endpoint.
-          if [ "$$bucket" = "uploads" ]; then
+          # The uploads and wall buckets are private. They are served only
+          # through the authenticated Go proxy, never through Garage's
+          # website endpoint.
+          if [ "$$bucket" = "uploads" ] || [ "$$bucket" = "wall" ]; then
             if $$G bucket website --deny "$$bucket" 2>&1; then
               echo "  => website access disabled for $$bucket"
             else
