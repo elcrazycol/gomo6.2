@@ -312,7 +312,11 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	var threadAuthor string
 	_ = h.db.QueryRow("SELECT user_id FROM threads WHERE id = $1", req.ThreadID).Scan(&threadAuthor)
-	if threadAuthor != "" && threadAuthor != claims.UserID {
+	// Private posts (is_private = true) are DMs between the author and
+	// private_recipient_id. The thread author is not necessarily a participant in
+	// that DM, so no reply notification carrying a content snippet may reach them
+	// (it would leak the DM content via notifications REST + WS).
+	if threadAuthor != "" && threadAuthor != claims.UserID && !req.IsPrivate {
 		title := fmt.Sprintf("@%s ответил(а) в вашем треде", claims.Username)
 		shortContent := post.Content
 		if len(shortContent) > 100 {
@@ -527,14 +531,22 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	if h.wsHub != nil {
 		if hub, ok := h.wsHub.(*websocket.Hub); ok {
+			// Private boards must not leak into the global feed room: non-members
+			// would receive the thread title/content in realtime even though the
+			// thread is invisible to them via REST. Content is only attached for
+			// public boards; the hub additionally skips the feed broadcast when
+			// the event carries visibility=private.
 			threadData := map[string]interface{}{
 				"id":         thread.ID,
 				"board_id":   thread.BoardID,
 				"channel_id": thread.ChannelID,
 				"user_id":    thread.UserID,
 				"title":      thread.Title,
-				"content":    thread.Content,
 				"created_at": thread.CreatedAt,
+				"visibility": boardVisibility,
+			}
+			if boardVisibility != "private" {
+				threadData["content"] = thread.Content
 			}
 			if err := hub.PublishNewThread(threadData); err != nil {
 				fmt.Printf("[WebSocket] Error publishing new thread event: %v\n", err)

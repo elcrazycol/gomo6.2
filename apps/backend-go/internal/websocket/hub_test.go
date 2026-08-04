@@ -337,6 +337,61 @@ func TestHub_ForceUnsubscribeFromWallRooms_UnknownUsersNoop(t *testing.T) {
 	}
 }
 
+// H1-chat: leaving a conversation / being removed from a group must tear down
+// the live chat-room subscription, so the ex-member stops receiving decrypted
+// chat messages without reconnecting.
+func TestHub_ForceUnsubscribeFromChatRooms(t *testing.T) {
+	hub := NewHub(nil, nil)
+	leaver := newTestClient(hub, "user-b", "Bob")
+	otherMember := newTestClient(hub, "user-c", "Carol")
+
+	// Bob and Carol are subscribed to the group chat room; Bob also has another
+	// unrelated chat room subscription that must survive.
+	hub.SubscribeToRoom(leaver, "chat_conv-abc")
+	hub.SubscribeToRoom(otherMember, "chat_conv-abc")
+	hub.SubscribeToRoom(leaver, "chat_conv-other")
+
+	// Bob leaves / is removed from conv-abc.
+	hub.ForceUnsubscribeFromChatRooms("user-b", "conv-abc")
+
+	hub.mu.RLock()
+	_, leaverInRoom := hub.rooms["chat_conv-abc"][leaver]
+	_, otherInRoom := hub.rooms["chat_conv-abc"][otherMember]
+	hub.mu.RUnlock()
+
+	if leaverInRoom {
+		t.Error("ex-member Bob must be removed from chat_conv-abc")
+	}
+	if !otherInRoom {
+		t.Error("Carol (still a member) must remain subscribed to chat_conv-abc")
+	}
+	if leaver.Rooms["chat_conv-abc"] {
+		t.Error("client.Rooms must not keep the revoked chat room")
+	}
+	if !leaver.Rooms["chat_conv-other"] {
+		t.Error("unrelated chat room subscription must survive")
+	}
+}
+
+func TestHub_ForceUnsubscribeFromChatRooms_EmptyIDsNoop(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-b", "Bob")
+	hub.SubscribeToRoom(client, "chat_conv-abc")
+
+	// Empty or unrelated IDs must not panic or remove anything.
+	hub.ForceUnsubscribeFromChatRooms("", "conv-abc")
+	hub.ForceUnsubscribeFromChatRooms("user-b", "")
+	hub.ForceUnsubscribeFromChatRooms("user-x", "conv-abc")
+	hub.ForceUnsubscribeFromChatRooms("user-b", "conv-other")
+
+	hub.mu.RLock()
+	_, stillIn := hub.rooms["chat_conv-abc"][client]
+	hub.mu.RUnlock()
+	if !stillIn {
+		t.Error("Bob must remain subscribed when the call targets other conversations")
+	}
+}
+
 func TestHub_BroadcastToRoom(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client1 := newTestClient(hub, "user-1", "Alice")
@@ -737,6 +792,74 @@ func TestHandleRedisEvent_NewThread(t *testing.T) {
 		}
 	default:
 		t.Error("client in 'feed' room should receive NewThread event")
+	}
+}
+
+// H3: a thread created on a private board must never reach the global feed
+// room (any authenticated client can subscribe to "feed"), even though the
+// board room still receives the event to refresh that board's page.
+func TestHandleRedisEvent_NewThread_PrivateVisibilitySkipsFeed(t *testing.T) {
+	hub := NewHub(nil, nil)
+	feedClient := newTestClient(hub, "user-1", "Alice")
+	boardClient := newTestClient(hub, "user-2", "Bob")
+	hub.SubscribeToRoom(feedClient, "feed")
+	hub.SubscribeToRoom(boardClient, "board_board-priv")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewThread,
+		Payload: map[string]interface{}{
+			"id":         "thread-1",
+			"board_id":   "board-priv",
+			"title":      "Secret private thread",
+			"visibility": "private",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case <-feedClient.Send:
+		t.Error("feed client must NOT receive a private board thread event")
+	default:
+		// expected — private board content must not leak to the global feed
+	}
+
+	select {
+	case msg := <-boardClient.Send:
+		if !containsStr(string(msg), "new_thread") {
+			t.Errorf("expected 'new_thread' in board room, got: %s", string(msg))
+		}
+	default:
+		t.Error("board room client should receive the event")
+	}
+}
+
+func TestHandleRedisEvent_NewThread_PublicVisibilityReachesFeed(t *testing.T) {
+	hub := NewHub(nil, nil)
+	feedClient := newTestClient(hub, "user-1", "Alice")
+	hub.SubscribeToRoom(feedClient, "feed")
+
+	event := RealtimeEvent{
+		Type: MessageTypeNewThread,
+		Payload: map[string]interface{}{
+			"id":         "thread-1",
+			"board_id":   "board-pub",
+			"title":      "Public thread",
+			"visibility": "public",
+		},
+	}
+
+	hub.handleRedisEvent(event)
+	waitForBuffer()
+
+	select {
+	case msg := <-feedClient.Send:
+		if !containsStr(string(msg), "new_thread") {
+			t.Errorf("expected 'new_thread', got: %s", string(msg))
+		}
+	default:
+		t.Error("public board thread should reach the feed room")
 	}
 }
 

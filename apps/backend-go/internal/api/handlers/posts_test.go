@@ -35,8 +35,8 @@ func TestGetPosts_Success_NoFilter(t *testing.T) {
 		"user2", nil,
 	)
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*ORDER BY p\.created_at ASC.*LIMIT \$1 OFFSET \$2`).
-		WithArgs(100, 0).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+		WithArgs("", "", 100, 0).
 		WillReturnRows(rows)
 
 	handler.GetPosts(c)
@@ -71,8 +71,8 @@ func TestGetPosts_Success_WithThreadFilter(t *testing.T) {
 		"testuser", nil,
 	)
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.thread_id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs("550e8400-e29b-41d4-a716-446655440000", 100, 0).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.thread_id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+		WithArgs("550e8400-e29b-41d4-a716-446655440000", "", "", 100, 0).
 		WillReturnRows(rows)
 
 	handler.GetPosts(c)
@@ -107,8 +107,8 @@ func TestGetPosts_Success_WithIDFilter(t *testing.T) {
 		"testuser", nil,
 	)
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs("p1", 100, 0).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+		WithArgs("p1", "", "", 100, 0).
 		WillReturnRows(rows)
 
 	handler.GetPosts(c)
@@ -135,8 +135,8 @@ func TestGetPosts_Success_WithInFilter(t *testing.T) {
 		"testuser", nil,
 	)
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id IN \(\$1,\$2\).*ORDER BY p\.created_at ASC.*LIMIT \$3 OFFSET \$4`).
-		WithArgs("p1", "p2", 100, 0).
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id IN \(\$1,\$2\).*ORDER BY p\.created_at ASC.*LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+		WithArgs("p1", "p2", "", "", 100, 0).
 		WillReturnRows(rows)
 
 	handler.GetPosts(c)
@@ -151,7 +151,7 @@ func TestGetPosts_DBError(t *testing.T) {
 	c, w := newGETContext("/api/v1/posts", nil)
 
 	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*`).
-		WithArgs(100, 0).
+		WithArgs("", "", 100, 0).
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.GetPosts(c)
@@ -197,8 +197,8 @@ func TestGetPosts_Latest_Success(t *testing.T) {
 	)
 
 	// The DISTINCT ON subquery regex must match the generated SQL
-	mock.ExpectQuery(`SELECT \* FROM \(SELECT DISTINCT ON \(p\.thread_id\).*FROM posts p.*WHERE p\.thread_id IN \(\$1,\$2\).*ORDER BY p\.thread_id, p\.created_at DESC\) sub ORDER BY sub\.created_at DESC LIMIT \$3 OFFSET \$4`).
-		WithArgs("t1", "t2", 200, 0).
+	mock.ExpectQuery(`SELECT \* FROM \(SELECT DISTINCT ON \(p\.thread_id\).*FROM posts p.*WHERE p\.thread_id IN \(\$1,\$2\).*ORDER BY p\.thread_id, p\.created_at DESC\) sub ORDER BY sub\.created_at DESC LIMIT \$[0-9]+ OFFSET \$[0-9]+`).
+		WithArgs("t1", "t2", "", "", 200, 0).
 		WillReturnRows(rows)
 
 	handler.GetPosts(c)
@@ -237,8 +237,8 @@ func TestGetPost_Success(t *testing.T) {
 		"testuser", nil,
 	)
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1`).
-		WithArgs("p1").
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
+		WithArgs("p1", "").
 		WillReturnRows(row)
 
 	handler.GetPost(c)
@@ -261,8 +261,8 @@ func TestGetPost_NotFound(t *testing.T) {
 	c, w := newGETContext("/api/v1/posts/p1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1`).
-		WithArgs("p1").
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
+		WithArgs("p1", "").
 		WillReturnError(sql.ErrNoRows)
 
 	handler.GetPost(c)
@@ -272,13 +272,77 @@ func TestGetPost_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetPost_PrivatePost_AnonymousNotFound(t *testing.T) {
+	handler, mock := setupPostsHandler(t)
+	c, w := newGETContext("/api/v1/posts/p1", nil)
+	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
+
+	// Anonymous viewer: the WHERE predicate filters the private post out → 404.
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
+		WithArgs("p1", "").
+		WillReturnError(sql.ErrNoRows)
+
+	handler.GetPost(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for anonymous reading a private post, got %d", w.Code)
+	}
+}
+
+func TestGetPost_PrivatePost_StrangerNotFound(t *testing.T) {
+	handler, mock := setupPostsHandler(t)
+	claims := &auth.Claims{UserID: "u3", Username: "stranger"}
+	c, w := newGETContextWithClaims("/api/v1/posts/p1", nil, claims)
+	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
+
+	// Non-participant: the WHERE predicate filters the private post out → 404.
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
+		WithArgs("p1", "u3").
+		WillReturnError(sql.ErrNoRows)
+
+	handler.GetPost(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for stranger reading a private post, got %d", w.Code)
+	}
+}
+
+func TestGetPost_PrivatePost_RecipientSuccess(t *testing.T) {
+	handler, mock := setupPostsHandler(t)
+	claims := &auth.Claims{UserID: "u2", Username: "recipient"}
+	c, w := newGETContextWithClaims("/api/v1/posts/p1", nil, claims)
+	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
+
+	row := sqlmock.NewRows([]string{
+		"id", "thread_id", "user_id", "content", "content_json",
+		"image_url", "image_urls", "attachments", "reply_to",
+		"is_private", "private_recipient_id", "server_domain", "created_at", "is_remote",
+		"username", "avatar_url",
+	}).AddRow(
+		"p1", "t1", "u1", "DM content", nil,
+		nil, "[]", "[]", nil, true, "u2", "localhost:8080", time.Now(), false,
+		"testuser", nil,
+	)
+
+	// The private recipient sees the DM.
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
+		WithArgs("p1", "u2").
+		WillReturnRows(row)
+
+	handler.GetPost(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for the private recipient, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestGetPost_DBError(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
 	c, w := newGETContext("/api/v1/posts/p1", nil)
 	c.Params = []gin.Param{{Key: "id", Value: "p1"}}
 
-	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1`).
-		WithArgs("p1").
+	mock.ExpectQuery(`SELECT p\.id.*FROM posts p.*WHERE p\.id = \$1.*COALESCE\(p\.is_private`).
+		WithArgs("p1", "").
 		WillReturnError(sqlmock.ErrCancelled)
 
 	handler.GetPost(c)

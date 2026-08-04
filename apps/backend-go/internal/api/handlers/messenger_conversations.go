@@ -258,6 +258,13 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 		return
 	}
 
+	// H1-chat: revoke the live WebSocket subscription to chat_<convID>. The
+	// subscription was authorized at subscribe time based on membership that no
+	// longer exists — otherwise the ex-member keeps receiving decrypted messages.
+	if h.hub != nil {
+		h.hub.ForceUnsubscribeFromChatRooms(claims.UserID, conversationID)
+	}
+
 	queueAfterCommit(c, func() {
 		if h.hub == nil {
 			return
@@ -571,6 +578,12 @@ func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
 	}
 
 	h.dbFor(c).Exec(`DELETE FROM chat_members WHERE conversation_id = $1 AND user_id = $2`, groupID, userID)
+
+	// H1-chat: revoke the removed member's live WebSocket subscription to
+	// chat_<groupID> so they stop receiving decrypted group messages.
+	if h.hub != nil {
+		h.hub.ForceUnsubscribeFromChatRooms(userID, groupID)
+	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"removed": true}))
 }

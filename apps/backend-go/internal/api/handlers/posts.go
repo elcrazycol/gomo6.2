@@ -61,9 +61,11 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 
 	var args []interface{}
 	var conditions []string
+	hasThreadFilter := false
 
 	// Handle thread_id filter (eq.uuid or in.(uuid,...))
 	if threadID := c.Query("thread_id"); threadID != "" {
+		hasThreadFilter = true
 		if strings.HasPrefix(threadID, "eq.") {
 			tid := threadID[3:]
 			conditions = append(conditions, "p.thread_id = $"+strconv.Itoa(len(args)+1))
@@ -118,6 +120,23 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 			args = append(args, id)
 		}
 	}
+
+	// H2: private posts (is_private = true, i.e. a DM inside a thread) must only
+	// be visible to the author and the private recipient. The frontend hides them
+	// by render, but the API must not leak content to anyone else. Anonymous
+	// viewers (viewerID = "") see public posts only. The user_id columns are
+	// compared as text so an empty viewer ID (anonymous) yields a plain false
+	// instead of a UUID cast error.
+	claims := getClaims(c)
+	viewerID := ""
+	if claims != nil {
+		viewerID = claims.UserID
+	}
+	privacyCond := "(COALESCE(p.is_private, false) = false OR p.user_id::text = $" +
+		strconv.Itoa(len(args)+1) + " OR p.private_recipient_id::text = $" +
+		strconv.Itoa(len(args)+2) + ")"
+	conditions = append(conditions, privacyCond)
+	args = append(args, viewerID, viewerID)
 
 	// Apply WHERE conditions to non-latest query.
 	// For latest=true, query is rebuilt as a DISTINCT ON subquery below.
@@ -182,7 +201,7 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 	// Handle ordering (format: column.asc/column.desc) — supports multiple order params
 	if latest {
 		// Safeguard: latest=true requires thread_id=in.(...) to avoid full table scan
-		if len(conditions) == 0 {
+		if !hasThreadFilter {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("latest=true requires thread_id=in.(...) filter"))
 			return
 		}
@@ -314,6 +333,15 @@ func (h *PostsHandler) GetPosts(c *gin.Context) {
 func (h *PostsHandler) GetPost(c *gin.Context) {
 	id := c.Param("id")
 
+	// H2: private posts (is_private = true, i.e. a DM inside a thread) must only
+	// be visible to the author and the private recipient. A non-participant gets
+	// 404 (same as if the post did not exist).
+	claims := getClaims(c)
+	viewerID := ""
+	if claims != nil {
+		viewerID = claims.UserID
+	}
+
 	query := `
 		SELECT p.id, p.thread_id, p.user_id, p.content, p.content_json, p.image_url, p.image_urls, p.attachments,
 		       p.reply_to, p.is_private, p.private_recipient_id, p.server_domain, p.created_at, p.is_remote,
@@ -321,13 +349,14 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 		FROM posts p
 		LEFT JOIN users u ON p.user_id = u.id
 		WHERE p.id = $1
+		  AND (COALESCE(p.is_private, false) = false OR p.user_id::text = $2 OR p.private_recipient_id::text = $2)
 	`
 
 	var post models.Post
 	var username, avatarURL sql.NullString
 	var contentJSON []byte
 
-	err := h.db.QueryRow(query, id).Scan(
+	err := h.db.QueryRow(query, id, viewerID).Scan(
 		&post.ID, &post.ThreadID, &post.UserID, &post.Content, &contentJSON,
 		&post.ImageURL, &post.ImageURLs, &post.Attachments, &post.ReplyTo, &post.IsPrivate,
 		&post.PrivateRecipientID, &post.ServerDomain, &post.CreatedAt, &post.IsRemote,

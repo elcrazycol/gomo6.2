@@ -341,8 +341,14 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		h.BroadcastToRoom("feed", messageBytes)
 
 	case MessageTypeNewThread:
-		// Broadcast to global feed room
-		h.BroadcastToRoom("feed", messageBytes)
+		// Private boards must not leak into the global feed room: any authenticated
+		// client can subscribe to "feed", so a thread created on a private board
+		// would otherwise broadcast its title/creator to everyone online even
+		// though it is invisible to non-members via REST. The board room still
+		// receives the event (it only triggers a refetch on that board's page).
+		if visibility := extractRoomID(event.Payload, "visibility"); visibility != "private" {
+			h.BroadcastToRoom("feed", messageBytes)
+		}
 		// Also broadcast to board-specific room so board pages update in realtime
 		if boardID := extractRoomID(event.Payload, "board_id"); boardID != "" {
 			h.BroadcastToRoom(fmt.Sprintf("board_%s", boardID), messageBytes)
@@ -670,6 +676,37 @@ func (h *Hub) ForceUnsubscribeFromWallRooms(viewerID, targetID string) {
 		delete(roomClients, client)
 		delete(client.Rooms, room)
 		log.Printf("[WebSocket] Client %s force-unsubscribed from %s (friendship revoked)", client.Username, room)
+	}
+	if len(roomClients) == 0 {
+		delete(h.rooms, room)
+	}
+}
+
+// ForceUnsubscribeFromChatRooms revokes the live subscription of userID to the
+// chat room chat_<conversationID>. A chat-room subscription is authorized once
+// at subscribe time based on membership in chat_members; when that membership
+// is destroyed (LeaveConversation / RemoveGroupMember) the subscription must be
+// torn down, otherwise the ex-member keeps receiving new decrypted chat
+// messages with full content until they reconnect.
+func (h *Hub) ForceUnsubscribeFromChatRooms(userID, conversationID string) {
+	if userID == "" || conversationID == "" {
+		return
+	}
+	room := fmt.Sprintf("chat_%s", conversationID)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	roomClients, ok := h.rooms[room]
+	if !ok {
+		return
+	}
+	for client := range roomClients {
+		if client.UserID != userID {
+			continue
+		}
+		delete(roomClients, client)
+		delete(client.Rooms, room)
+		log.Printf("[WebSocket] Client %s force-unsubscribed from %s (membership revoked)", client.Username, room)
 	}
 	if len(roomClients) == 0 {
 		delete(h.rooms, room)
