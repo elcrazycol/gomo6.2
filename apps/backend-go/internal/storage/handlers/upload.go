@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/media"
@@ -281,32 +280,6 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(response))
 }
 
-func (h *StorageHandler) DownloadFile(c *gin.Context) {
-	bucket := c.Param("bucket")
-	key := c.Param("key")
-
-	if bucket == "" || key == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
-		return
-	}
-
-	// Decrypt messenger attachments
-	var data []byte
-	var contentType string
-	var err error
-	if bucket == "uploads" {
-		data, contentType, err = h.client.GetFileEncrypted(bucket, key)
-	} else {
-		data, contentType, err = h.client.GetFile(bucket, key)
-	}
-	if err != nil {
-		c.JSON(http.StatusNotFound, models.ErrorResponse("File not found"))
-		return
-	}
-
-	c.Data(http.StatusOK, contentType, data)
-}
-
 func isImageBucket(bucket string) bool {
 	switch bucket {
 	case "uploads", "content", "post-images", "avatars":
@@ -401,31 +374,6 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
-}
-
-func (h *StorageHandler) GetPresignedURL(c *gin.Context) {
-	bucket := c.Param("bucket")
-	key := c.Param("key")
-
-	if bucket == "" || key == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Bucket and key are required"))
-		return
-	}
-
-	expires := int64(3600)
-	if exp := c.Query("expires"); exp != "" {
-		if parsed, err := strconv.ParseInt(exp, 10, 64); err == nil {
-			expires = parsed
-		}
-	}
-
-	url, err := h.client.GetPresignedURL(bucket, key, time.Duration(expires)*time.Second)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Internal server error"))
-		return
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"url": url}))
 }
 
 // ServeObject streams an object from Garage through the API (same origin as the web app).

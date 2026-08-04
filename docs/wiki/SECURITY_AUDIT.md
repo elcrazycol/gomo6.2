@@ -44,7 +44,7 @@
 
 | ID | Пункт | Статус |
 |---|---|---|
-| **L1** | `DownloadFile` / `GetPresignedURL` — мёртвый код без ownership-проверок (не зарегистрированы в роутере, но при регистрации = обход приватного бакета) | ⏳ Открыт |
+| **L1** | `DownloadFile` / `GetPresignedURL` — мёртвый код без ownership-проверок (не зарегистрированы в роутере, но при регистрации = обход приватного бакета) | ✅ Закрыт — удалён весь пресайн-код: оба хендлера, `GetPresignedURL`/`GetPresignedPutURL` (0 вызовов), presigner-инфраструктура, типы `PresignedURLResponse`/`PresignUploadRequest`/`PresignUploadResponse` и мёртвый `UploadRequest`; `GARAGE_S3_PUBLIC_ENDPOINT` оставлен в oauth.go (buildAvatarURL) |
 | **L2** | Legacy `UploadFile` для публичных бакетов — контент-адресуемый MD5-ключ, не user-scoped | ⏳ Открыт |
 | **L3** | Rate limiters fail-open при Redis-сбое (кроме WS pre-auth) — осознанный выбор; добавить лог/метрики fail-open | ⏳ Открыт |
 | **L4** | Bot-токены: sha256 без соли (приемлемо при 32 байтах энтропии) | ⏳ Опционально |
@@ -60,6 +60,7 @@
 | `372cd34` | `chore(hooks): auto-set MESSENGER_ENCRYPTION_KEY for go test in pre-commit` |
 | `e4355af` | `fix(security): enforce ownership on wall CRUD (K1) and remove SVG icon customization (K2)` (17 файлов, 6 новых IDOR-тестов) |
 | *(не закоммичен)* | `fix(security): serverError вместо err.Error + per-IP лимитеры на auth endpoints` (21 файл) |
+| *(не закоммичен)* | `fix(security): remove dead presign/download code — DownloadFile, GetPresignedURL, GetPresignedPutURL, presigner infra (L1)` |
 
 ---
 

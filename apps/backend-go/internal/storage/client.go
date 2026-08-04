@@ -29,13 +29,11 @@ type FileInfo struct {
 	LastModified time.Time `json:"lastModified"`
 }
 
-// StorageClient talks to Garage over S3 API. Server-side ops use the internal endpoint;
-// presigned URLs for browsers use GARAGE_S3_PUBLIC_ENDPOINT when set (required when
-// the API runs in Docker and the browser cannot resolve docker hostnames).
+// StorageClient talks to Garage over S3 API. All object traffic is proxied
+// through the backend (ServeObject), so only the internal endpoint is used.
 type StorageClient struct {
-	s3        *s3.Client
-	presigner *s3.PresignClient
-	ctx       context.Context
+	s3  *s3.Client
+	ctx context.Context
 }
 
 func buildS3Client(endpoint, region, accessKey, secretKey string) (*s3.Client, error) {
@@ -73,46 +71,6 @@ func normalizeEndpoint(raw string) (string, error) {
 		return "", fmt.Errorf("endpoint must have a host (e.g. http://host:port)")
 	}
 	return strings.TrimSuffix(u.String(), "/"), nil
-}
-
-// corsOrigins returns the list of allowed CORS origins for presigned URLs.
-// Reads GARAGE_S3_CORS_ORIGINS as a comma-separated list; defaults to ["*"].
-func corsOrigins() []string {
-	raw := strings.TrimSpace(os.Getenv("GARAGE_S3_CORS_ORIGINS"))
-	if raw == "" {
-		return []string{"*"}
-	}
-	parts := strings.Split(raw, ",")
-	var origins []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			origins = append(origins, p)
-		}
-	}
-	if len(origins) == 0 {
-		return []string{"*"}
-	}
-	return origins
-}
-
-// browserReachableS3URL rewrites Docker-only hostnames in the S3 endpoint used for presigned URLs.
-// Browsers on the host cannot resolve Docker service names (garage, garage-proxy, etc.).
-func browserReachableS3URL(ep string) (string, error) {
-	u, err := url.Parse(ep)
-	if err != nil {
-		return ep, err
-	}
-	h := strings.ToLower(u.Hostname())
-	// Common Garage / compose hostnames that are not resolvable from the user's browser.
-	if h != "garage-proxy" && h != "garage" {
-		return ep, nil
-	}
-	port := u.Port()
-	if port == "" {
-		port = "3900"
-	}
-	return normalizeEndpoint(fmt.Sprintf("http://localhost:%s", port))
 }
 
 // loadEnvFile reads /garage-keys/s3.env and sets environment variables.
@@ -166,45 +124,15 @@ func NewStorageClient() (*StorageClient, error) {
 		return nil, fmt.Errorf("GARAGE_S3_ENDPOINT: %w", err)
 	}
 
-	publicRaw := strings.TrimSpace(os.Getenv("GARAGE_S3_PUBLIC_ENDPOINT"))
-	if publicRaw == "" {
-		publicRaw = endpoint
-		if u, perr := url.Parse(endpoint); perr == nil && strings.EqualFold(u.Hostname(), "garage-proxy") {
-			port := u.Port()
-			if port == "" {
-				port = "3900"
-			}
-			publicRaw = fmt.Sprintf("http://localhost:%s", port)
-		}
-	}
-	publicEP, err := normalizeEndpoint(publicRaw)
-	if err != nil {
-		return nil, fmt.Errorf("GARAGE_S3_PUBLIC_ENDPOINT: %w", err)
-	}
-	publicEP, err = browserReachableS3URL(publicEP)
-	if err != nil {
-		return nil, fmt.Errorf("public S3 URL for browser: %w", err)
-	}
-
 	s3Internal, err := buildS3Client(internalEP, region, accessKey, secretKey)
 	if err != nil {
 		return nil, fmt.Errorf("s3 client: %w", err)
 	}
-
-	// Always use a presigner bound to the browser-facing URL. Never reuse the internal
-	// client for presigning: string equality between public/internal can misbehave, and
-	// an outdated binary would otherwise emit garage-proxy in signed URLs.
-	s3Public, err := buildS3Client(publicEP, region, accessKey, secretKey)
-	if err != nil {
-		return nil, fmt.Errorf("s3 public presign client: %w", err)
-	}
-	presigner := s3.NewPresignClient(s3Public)
-	log.Printf("storage: S3 internal endpoint %s, presigned URLs use %s", internalEP, publicEP)
+	log.Printf("storage: S3 internal endpoint %s", internalEP)
 
 	s := &StorageClient{
-		s3:        s3Internal,
-		presigner: presigner,
-		ctx:       context.Background(),
+		s3:  s3Internal,
+		ctx: context.Background(),
 	}
 
 	s.bootstrapBucketsBestEffort()
@@ -441,42 +369,4 @@ func (s *StorageClient) DeleteFile(bucket, key string) error {
 		return fmt.Errorf("delete: %w", err)
 	}
 	return nil
-}
-
-// GetPresignedURL returns a GET URL for clients that must talk to Garage directly (rare here).
-func (s *StorageClient) GetPresignedURL(bucket, key string, expiry time.Duration) (string, error) {
-	if !IsAllowedBucket(bucket) {
-		return "", fmt.Errorf("bucket not allowed: %s", bucket)
-	}
-	if err := ValidateObjectKey(key); err != nil {
-		return "", err
-	}
-
-	out, err := s.presigner.PresignGetObject(s.ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	}, s3.WithPresignExpires(expiry))
-	if err != nil {
-		return "", fmt.Errorf("presign get: %w", err)
-	}
-	return out.URL, nil
-}
-
-// GetPresignedPutURL returns a PUT URL for direct browser uploads to Garage.
-func (s *StorageClient) GetPresignedPutURL(bucket, key string, contentType string, expiry time.Duration) (string, error) {
-	if !IsAllowedBucket(bucket) {
-		return "", fmt.Errorf("bucket not allowed: %s", bucket)
-	}
-	if err := ValidateObjectKey(key); err != nil {
-		return "", err
-	}
-	out, err := s.presigner.PresignPutObject(s.ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
-		ContentType: aws.String(contentType),
-	}, s3.WithPresignExpires(expiry))
-	if err != nil {
-		return "", fmt.Errorf("presign put: %w", err)
-	}
-	return out.URL, nil
 }

@@ -247,32 +247,6 @@ func TestUploadFileWithKey_NoFile(t *testing.T) {
 	}
 }
 
-// ------- DownloadFile -------
-
-func TestDownloadFile_MissingBucket(t *testing.T) {
-	h := setupStorageHandler(t)
-	c, w := newStorageContext(http.MethodGet, "/storage/v1/object//key",
-		map[string]string{"key": "test.png"})
-
-	h.DownloadFile(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d. Body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestDownloadFile_MissingKey(t *testing.T) {
-	h := setupStorageHandler(t)
-	c, w := newStorageContext(http.MethodGet, "/storage/v1/object/uploads/",
-		map[string]string{"bucket": "uploads"})
-
-	h.DownloadFile(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d. Body: %s", w.Code, w.Body.String())
-	}
-}
-
 // ------- DeleteFile -------
 
 func TestDeleteFile_PublicBucket_NotOwned(t *testing.T) {
@@ -318,32 +292,6 @@ func TestDeleteFile_MissingKey(t *testing.T) {
 		map[string]string{"bucket": "uploads"})
 
 	h.DeleteFile(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d. Body: %s", w.Code, w.Body.String())
-	}
-}
-
-// ------- GetPresignedURL -------
-
-func TestGetPresignedURL_MissingBucket(t *testing.T) {
-	h := setupStorageHandler(t)
-	c, w := newStorageContext(http.MethodGet, "/storage/v1/presign//key",
-		map[string]string{"key": "test.png"})
-
-	h.GetPresignedURL(c)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d. Body: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestGetPresignedURL_MissingKey(t *testing.T) {
-	h := setupStorageHandler(t)
-	c, w := newStorageContext(http.MethodGet, "/storage/v1/presign/uploads/",
-		map[string]string{"bucket": "uploads"})
-
-	h.GetPresignedURL(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d. Body: %s", w.Code, w.Body.String())

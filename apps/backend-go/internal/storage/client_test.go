@@ -3,80 +3,11 @@ package storage
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/aws/smithy-go"
 )
-
-// =============================================================================
-// corsOrigins
-// =============================================================================
-
-func TestCorsOrigins_Default(t *testing.T) {
-	// No env var set → should return ["*"]
-	origins := corsOrigins()
-	if len(origins) != 1 || origins[0] != "*" {
-		t.Errorf("expected [\"*\"], got %v", origins)
-	}
-}
-
-func TestCorsOrigins_CustomEnv(t *testing.T) {
-	os.Setenv("GARAGE_S3_CORS_ORIGINS", "http://localhost,http://127.0.0.1")
-	defer os.Unsetenv("GARAGE_S3_CORS_ORIGINS")
-
-	origins := corsOrigins()
-	if len(origins) != 2 {
-		t.Fatalf("expected 2 origins, got %d: %v", len(origins), origins)
-	}
-	if origins[0] != "http://localhost" || origins[1] != "http://127.0.0.1" {
-		t.Errorf("unexpected origins: %v", origins)
-	}
-}
-
-func TestCorsOrigins_EmptyEnv(t *testing.T) {
-	os.Setenv("GARAGE_S3_CORS_ORIGINS", "")
-	defer os.Unsetenv("GARAGE_S3_CORS_ORIGINS")
-
-	origins := corsOrigins()
-	if len(origins) != 1 || origins[0] != "*" {
-		t.Errorf("expected [\"*\"] for empty env, got %v", origins)
-	}
-}
-
-func TestCorsOrigins_WhitespaceOnlyEnv(t *testing.T) {
-	os.Setenv("GARAGE_S3_CORS_ORIGINS", "  ,  ,  ")
-	defer os.Unsetenv("GARAGE_S3_CORS_ORIGINS")
-
-	origins := corsOrigins()
-	if len(origins) != 1 || origins[0] != "*" {
-		t.Errorf("expected [\"*\"] for whitespace-only env, got %v", origins)
-	}
-}
-
-func TestCorsOrigins_SingleOrigin(t *testing.T) {
-	os.Setenv("GARAGE_S3_CORS_ORIGINS", "https://example.com")
-	defer os.Unsetenv("GARAGE_S3_CORS_ORIGINS")
-
-	origins := corsOrigins()
-	if len(origins) != 1 || origins[0] != "https://example.com" {
-		t.Errorf("expected [\"https://example.com\"], got %v", origins)
-	}
-}
-
-func TestCorsOrigins_WhitespaceAroundOrigins(t *testing.T) {
-	os.Setenv("GARAGE_S3_CORS_ORIGINS", " http://a.com , https://b.com , ")
-	defer os.Unsetenv("GARAGE_S3_CORS_ORIGINS")
-
-	origins := corsOrigins()
-	if len(origins) != 2 {
-		t.Fatalf("expected 2 origins, got %d: %v", len(origins), origins)
-	}
-	if origins[0] != "http://a.com" || origins[1] != "https://b.com" {
-		t.Errorf("unexpected origins after trimming: %v", origins)
-	}
-}
 
 // =============================================================================
 // normalizeEndpoint
@@ -143,95 +74,6 @@ func TestNormalizeEndpoint_TrimmedWhitespace(t *testing.T) {
 	}
 	if got != "http://localhost:3900" {
 		t.Errorf("got %q, want %q", got, "http://localhost:3900")
-	}
-}
-
-// =============================================================================
-// browserReachableS3URL
-// =============================================================================
-
-func TestBrowserReachableS3URL_Garage(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "garage hostname",
-			input:    "http://garage:3900",
-			expected: "http://localhost:3900",
-		},
-		{
-			name:     "garage-proxy hostname",
-			input:    "http://garage-proxy:3900",
-			expected: "http://localhost:3900",
-		},
-		{
-			name:     "garage-proxy on port 80",
-			input:    "http://garage-proxy",
-			expected: "http://localhost:3900",
-		},
-		{
-			name:     "garage on port 80",
-			input:    "http://garage",
-			expected: "http://localhost:3900",
-		},
-		{
-			name:     "custom port on garage",
-			input:    "http://garage:3901",
-			expected: "http://localhost:3901",
-		},
-		{
-			name:     "other hostname unchanged",
-			input:    "http://s3.amazonaws.com",
-			expected: "http://s3.amazonaws.com",
-		},
-		{
-			name:     "localhost unchanged",
-			input:    "http://localhost:3900",
-			expected: "http://localhost:3900",
-		},
-		{
-			name:     "public endpoint unchanged",
-			input:    "https://cdn.example.com",
-			expected: "https://cdn.example.com",
-		},
-		{
-			name:     "trailing slash cleaned",
-			input:    "http://garage:3900/",
-			expected: "http://localhost:3900",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := browserReachableS3URL(tt.input)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.expected {
-				t.Errorf("browserReachableS3URL(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestBrowserReachableS3URL_CaseInsensitive(t *testing.T) {
-	// Garage → lowercase comparison; "GARAGE" should be treated as Docker hostname
-	got, err := browserReachableS3URL("http://GARAGE:3900")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "http://localhost:3900" {
-		t.Errorf("expected case-insensitive match, got %q", got)
-	}
-
-	got, err = browserReachableS3URL("http://Garage-Proxy:3900")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "http://localhost:3900" {
-		t.Errorf("expected case-insensitive match for garage-proxy, got %q", got)
 	}
 }
 
@@ -401,9 +243,7 @@ func TestIsNotFound_WrappedError(t *testing.T) {
 }
 
 // =============================================================================
-// TODO: ensureBucketCORS и GetPresignedPutURL требуют integration-тестов
-// с реальным Garage. Mocking *s3.Client без интерфейса невозможен —
-// s3.Client — concrete type из AWS SDK v2.
+// loadAllowedBuckets
 // =============================================================================
 
 func TestLoadAllowedBuckets_Defaults(t *testing.T) {
