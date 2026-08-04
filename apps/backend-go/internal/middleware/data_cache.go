@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/cache"
 	"github.com/redis/go-redis/v9"
 )
@@ -79,8 +80,20 @@ func DataCacheMiddleware(redisClient *redis.Client, ttl time.Duration) gin.Handl
 		// Determine TTL based on path (threads/posts=30s, boards/profiles=5min)
 		effectiveTTL := cacheTTLByPath(c.Request.URL.Path, ttl)
 
-		// Build cache key from path and query params
-		cacheKey := fmt.Sprintf("data:%s?%s", c.Request.URL.Path, c.Request.URL.RawQuery)
+		// Build cache key from path, query params AND the viewer identity.
+		// Responses to authenticated endpoints (profile walls, friends, privacy
+		// settings, likes, reposts, subscriptions) depend on WHO is asking: a wall
+		// filtered for a friend is different from the same wall filtered for a
+		// stranger, and an anonymous visitor must never receive a cache entry that
+		// was populated by an authenticated user. The claims are populated by
+		// OptionalAuthMiddleware, which MUST run before this middleware (routes.go).
+		viewer := "anon"
+		if claimsValue, ok := c.Get("claims"); ok {
+			if claims, ok2 := claimsValue.(*auth.Claims); ok2 && claims != nil && claims.UserID != "" {
+				viewer = claims.UserID
+			}
+		}
+		cacheKey := fmt.Sprintf("data:%s?%s|viewer=%s", c.Request.URL.Path, c.Request.URL.RawQuery, viewer)
 
 		// Try to get cached response
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

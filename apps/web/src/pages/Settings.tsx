@@ -999,11 +999,21 @@ const Settings = () => {
                             />
                           </div>
                           <div className="flex items-center justify-between">
-                            <span>Скрывать стену</span>
+                            <div className="flex items-center gap-2">
+                              <span>Скрывать стену</span>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>При включённом приватном профиле стена всегда скрыта от не-друзей — это гарантировано на сервере и не может быть отключено</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
                             <Switch
-                              checked={privacySettings.private_hide_wall}
+                              checked={privacySettings.private_profile ? true : privacySettings.private_hide_wall}
                               onCheckedChange={(value) => updatePrivacySetting('private_hide_wall', value)}
-                              disabled={privacyLoading || !privacySettings.private_profile}
+                              disabled={privacyLoading || privacySettings.private_profile}
                             />
                           </div>
                           <div className="flex items-center justify-between">

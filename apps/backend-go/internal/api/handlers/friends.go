@@ -38,6 +38,11 @@ func invalidateFriendCaches(redisClient *redis.Client, user1ID, user2ID string) 
 	}
 	patterns := []string{
 		"data:/api/v1/friends*",
+		// Purge wall cache entries cached under these two viewers: after
+		// unfriending, the ex-friend must not keep receiving the private wall
+		// from cache (the key embeds the viewer identity).
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*viewer=%s*", user1ID),
+		fmt.Sprintf("data:/api/v1/profile_wall_posts*viewer=%s*", user2ID),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

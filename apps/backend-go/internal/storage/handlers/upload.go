@@ -282,7 +282,7 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 
 func isImageBucket(bucket string) bool {
 	switch bucket {
-	case "uploads", "content", "post-images", "avatars":
+	case "uploads", "content", "post-images", "avatars", "wall":
 		return true
 	default:
 		return false

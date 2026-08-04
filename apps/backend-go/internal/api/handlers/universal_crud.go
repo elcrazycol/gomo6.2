@@ -412,6 +412,98 @@ func scanRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
 	return result, nil
 }
 
+// wallOwnerVisibleToViewer reports whether viewerID may interact with the wall
+// of ownerID: the owner themself, owners of non-private profiles, or mutual
+// friends. This mirrors the REST read predicate (profileWallFinishSelectQuery)
+// so the write path enforces the exact same privacy rule.
+func (h *UniversalHandler) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
+	if viewerID == ownerID {
+		return true, nil
+	}
+	var private bool
+	err := h.db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", ownerID).Scan(&private)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// No privacy settings row means the profile is not private.
+			return true, nil
+		}
+		return false, err
+	}
+	if !private {
+		return true, nil
+	}
+	var friend bool
+	err = h.db.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM friendships
+		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+	)`, viewerID, ownerID).Scan(&friend)
+	if err != nil {
+		return false, err
+	}
+	return friend, nil
+}
+
+// enforceWallTargetPrivacy rejects interactions with walls that the caller may
+// not view: posting on a private wall, commenting on/liking a post of a private
+// wall, or reposting a private wall post onto the caller's own wall.
+// It writes the HTTP response and returns false when the request is rejected.
+func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName string, data map[string]interface{}, userID string) bool {
+	// Resolve the wall owner this interaction targets.
+	var wallOwner string
+	switch tableName {
+	case "profile_wall_posts":
+		wallOwner, _ = data["user_id"].(string)
+	case "profile_wall_post_comments", "profile_wall_post_likes":
+		if postID, ok := data["post_id"].(string); ok && postID != "" {
+			_ = h.db.QueryRowContext(c.Request.Context(),
+				"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
+		}
+	case "profile_wall_comment_likes":
+		if commentID, ok := data["comment_id"].(string); ok && commentID != "" {
+			_ = h.db.QueryRowContext(c.Request.Context(), `
+				SELECT wp.user_id
+				FROM profile_wall_post_comments c
+				JOIN profile_wall_posts wp ON wp.id = c.post_id
+				WHERE c.id = $1`, commentID).Scan(&wallOwner)
+		}
+	case "profile_wall_post_reposts":
+		// post_id references the ORIGINAL post being reposted — its wall owner
+		// must be visible to the caller, otherwise private content could be
+		// mirrored onto a public wall.
+		if postID, ok := data["post_id"].(string); ok && postID != "" {
+			_ = h.db.QueryRowContext(c.Request.Context(),
+				"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
+		}
+		// reposted_wall_post_id is the copy placed on the caller's own wall — it
+		// must belong to the caller, otherwise cross-links to other users' posts
+		// could be forged on the repost record.
+		if copyID, ok := data["reposted_wall_post_id"].(string); ok && copyID != "" {
+			var copyOwner string
+			err := h.db.QueryRowContext(c.Request.Context(),
+				"SELECT user_id FROM profile_wall_posts WHERE id = $1", copyID).Scan(&copyOwner)
+			if err == nil && copyOwner != "" && copyOwner != userID {
+				c.JSON(http.StatusForbidden, models.ErrorResponse("Invalid repost target"))
+				return false
+			}
+		}
+	default:
+		return true
+	}
+	if wallOwner == "" || wallOwner == userID {
+		return true
+	}
+	visible, err := h.wallOwnerVisibleToViewer(userID, wallOwner)
+	if err != nil {
+		serverError(c, "check wall privacy", err)
+		return false
+	}
+	if !visible {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("This wall is private"))
+		return false
+	}
+	return true
+}
+
 // enforcePostOwnership forces ownership columns of user-owned tables to the
 // authenticated user so a client can never impersonate another user on write.
 // It writes the HTTP response and returns false when the request is rejected.
@@ -424,7 +516,8 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 			return false
 		}
 		// The author is always the caller. The wall owner may be another user,
-		// but only when their privacy settings allow posts from others.
+		// but only when their privacy settings allow posts from others AND the
+		// caller may view the wall (private walls require friendship).
 		data["author_id"] = userID
 		wallOwner, _ := data["user_id"].(string)
 		if wallOwner == "" {
@@ -432,6 +525,9 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 			data["user_id"] = userID
 		}
 		if wallOwner != userID {
+			if !h.enforceWallTargetPrivacy(c, tableName, data, userID) {
+				return false
+			}
 			var allowed bool
 			err := h.db.QueryRowContext(c.Request.Context(),
 				`SELECT COALESCE(allow_wall_posts_from_others, true) FROM privacy_settings WHERE user_id = $1`,
@@ -457,6 +553,9 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 			return false
 		}
 		data["user_id"] = userID
+		if !h.enforceWallTargetPrivacy(c, tableName, data, userID) {
+			return false
+		}
 	case "profile_wall_post_reposts":
 		// Reposts are always authored by and placed on the caller's own wall;
 		// wall_user_id must never be client-controlled (foreign-wall bypass).
@@ -467,6 +566,9 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 		}
 		data["user_id"] = userID
 		data["wall_user_id"] = userID
+		if !h.enforceWallTargetPrivacy(c, tableName, data, userID) {
+			return false
+		}
 	}
 	return true
 }

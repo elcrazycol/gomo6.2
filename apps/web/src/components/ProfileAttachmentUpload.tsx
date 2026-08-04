@@ -10,6 +10,12 @@ interface ProfileAttachmentUploadProps {
   value: AttachmentMeta[];
   onChange: (attachments: AttachmentMeta[]) => void;
   maxFiles?: number;
+  /**
+   * Storage bucket for the uploads. Defaults to the public "content" bucket
+   * (threads/posts). Wall attachments pass bucket="wall" so photos land in the
+   * private, authorization-gated bucket.
+   */
+  bucket?: string;
 }
 
 interface UploadingFile {
@@ -33,7 +39,7 @@ const iconFor = (type: string) => {
   }
 };
 
-export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6 }: ProfileAttachmentUploadProps) => {
+export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket = "content" }: ProfileAttachmentUploadProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -81,7 +87,7 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6 }: Profi
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       
-      const uploaded = await uploadAttachments(files);
+      const uploaded = await uploadAttachments(files, bucket);
       const updated = [...value, ...uploaded];
       onChange(updated);
       

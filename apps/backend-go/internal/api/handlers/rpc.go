@@ -112,23 +112,26 @@ func (h *RPCHandler) canWriteChannel(userID string, channelID string) (bool, err
 // @Router       /rpc/toggle_wall_post_pin [get]
 // @Security     BearerAuth
 func (h *RPCHandler) ToggleWallPostPin(c *gin.Context) {
-	postID := c.Query("_post_id")
-	userID := c.Query("_user_id")
+	// The acting user is ALWAYS the authenticated caller. The _user_id query
+	// parameter is client-controlled and must never be trusted: otherwise any
+	// authenticated user could pin/unpin posts on someone else's wall by
+	// passing the victim's ID.
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+	userID := claims.UserID
 
-	if postID == "" || userID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("_post_id and _user_id parameters required"))
+	postID := c.Query("_post_id")
+	if postID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("_post_id parameter required"))
 		return
 	}
 
 	_, err := uuid.Parse(postID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid post ID format"))
-		return
-	}
-
-	_, err = uuid.Parse(userID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user ID format"))
 		return
 	}
 
@@ -558,6 +561,14 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 // @Router       /rpc/toggle_achievement_pin [post]
 // @Security     BearerAuth
 func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
+	// The acting user is ALWAYS the authenticated caller; _user_id in the body is
+	// client-controlled and must never be trusted for authorization.
+	claims, ok := bearerClaims(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Authorization required"))
+		return
+	}
+
 	var req struct {
 		UserID        string `json:"_user_id"`
 		AchievementID string `json:"_achievement_id"`
@@ -568,13 +579,15 @@ func (h *RPCHandler) ToggleAchievementPin(c *gin.Context) {
 		return
 	}
 
-	if req.UserID == "" || req.AchievementID == "" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("_user_id and _achievement_id are required"))
+	req.UserID = claims.UserID
+
+	if req.AchievementID == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("_achievement_id is required"))
 		return
 	}
 
-	if _, err := uuid.Parse(req.UserID); err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid user_id format"))
+	if _, err := uuid.Parse(req.AchievementID); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid achievement_id format"))
 		return
 	}
 

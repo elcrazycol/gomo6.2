@@ -99,11 +99,17 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 	// The route is authenticated in production. Apply the same visibility
 	// predicate to every row, including repost lookups that do not carry a
 	// user_id filter, so private walls cannot be enumerated by post ID.
+	//
+	// Privacy guarantee: when the wall owner has private_profile = true, the wall
+	// is visible ONLY to the owner and mutual friends. Sub-settings such as
+	// private_hide_wall must NOT be able to re-open the wall — private profile
+	// means private wall, period. This predicate is intentionally duplicated in
+	// the write path (enforcePostOwnership) and the WebSocket room gate so every
+	// channel (REST, WS, media serving) enforces the same rule.
 	viewerArg := "$" + strconv.Itoa(ai)
 	clauses = append(clauses, "("+
 		ownerColumn+" = "+viewerArg+
 		" OR COALESCE("+privacyAlias+".private_profile, false) = false"+
-		" OR COALESCE("+privacyAlias+".private_hide_wall, false) = false"+
 		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
 	args = append(args, claims.UserID)
 

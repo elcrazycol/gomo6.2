@@ -33,6 +33,37 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 		return
 	}
 
+	// Privacy: avatar history is profile content. If the target has a private
+	// profile with private_hide_avatar, only the owner and mutual friends may
+	// list it — otherwise a stranger could harvest every historical avatar URL
+	// (photos) of a private user.
+	viewerID := ""
+	if claims, ok := bearerClaims(c); ok {
+		viewerID = claims.UserID
+	}
+	if viewerID != req.UserUUID {
+		ps, err := GetPrivacySettings(h.db, req.UserUUID)
+		if err != nil {
+			serverError(c, "handler error", err)
+			return
+		}
+		if ps.PrivateProfile && ps.PrivateHideAvatar {
+			c.JSON(http.StatusOK, models.SuccessResponse([]map[string]interface{}{}))
+			return
+		}
+		if ps.PrivateProfile {
+			isFriend, err := IsMutualFriend(h.db, viewerID, req.UserUUID)
+			if err != nil {
+				serverError(c, "handler error", err)
+				return
+			}
+			if !isFriend {
+				c.JSON(http.StatusOK, models.SuccessResponse([]map[string]interface{}{}))
+				return
+			}
+		}
+	}
+
 	rows, err := h.db.Query(`
 		SELECT id, avatar_url, uploaded_at, is_current
 		FROM avatar_history

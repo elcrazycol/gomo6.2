@@ -551,13 +551,51 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 		return conversationID != "" && h.isMemberOfConversation(userID, conversationID)
 	case room == "feed":
 		return true
-	case strings.HasPrefix(room, "profile_wall_"), strings.HasPrefix(room, "profile_now_playing_"):
+	case strings.HasPrefix(room, "profile_wall_"):
+		targetID := strings.TrimPrefix(room, "profile_wall_")
+		return targetID != "" && h.canViewWallRoom(userID, targetID)
+	case strings.HasPrefix(room, "profile_now_playing_"):
 		return true
 	default:
 		// Thread/board rooms are public realtime content, but arbitrary room
 		// names must not become an implicit broadcast subscription primitive.
 		return isPublicRoom(room)
 	}
+}
+
+// canViewWallRoom reports whether userID may receive realtime events for a
+// profile wall. Public walls are open to any authenticated user; private walls
+// require ownership or a mutual friendship. This mirrors the REST visibility
+// predicate (profileWallFinishSelectQuery) so a stranger cannot subscribe to
+// private wall events (new/update/delete posts carry full content + image URLs).
+func (h *Hub) canViewWallRoom(userID, targetID string) bool {
+	if h.db == nil {
+		return false
+	}
+	if userID == targetID {
+		return true
+	}
+	var private bool
+	err := h.db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", targetID).Scan(&private)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// No privacy settings row means the profile is not private.
+			return true
+		}
+		return false
+	}
+	if !private {
+		return true
+	}
+	var friend bool
+	err = h.db.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM friendships
+		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+	)`, userID, targetID).Scan(&friend)
+	if err != nil {
+		return false
+	}
+	return friend
 }
 
 func isPublicRoom(room string) bool {

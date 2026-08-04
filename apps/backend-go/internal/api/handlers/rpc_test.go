@@ -469,6 +469,8 @@ func TestToggleWallPostPin_Pin(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	c, w := newRPCGETContext(map[string]string{"_post_id": postID, "_user_id": userID})
+	// The acting identity comes from claims, NOT the client-controlled _user_id.
+	c.Set("claims", &auth.Claims{UserID: userID})
 	h.ToggleWallPostPin(c)
 
 	if w.Code != http.StatusOK {
@@ -491,6 +493,8 @@ func TestToggleWallPostPin_Unpin(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	c, w := newRPCGETContext(map[string]string{"_post_id": postID, "_user_id": userID})
+	// The acting identity comes from claims, NOT the client-controlled _user_id.
+	c.Set("claims", &auth.Claims{UserID: userID})
 	h.ToggleWallPostPin(c)
 
 	if w.Code != http.StatusOK {
@@ -507,6 +511,8 @@ func TestToggleWallPostPin_NotOwner(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "is_pinned"}).AddRow("other_user", false))
 
 	c, w := newRPCGETContext(map[string]string{"_post_id": postID, "_user_id": "660e8400-e29b-41d4-a716-446655440001"})
+	// The attacker cannot pass the victim's ID: identity is taken from claims.
+	c.Set("claims", &auth.Claims{UserID: "660e8400-e29b-41d4-a716-446655440001"})
 	h.ToggleWallPostPin(c)
 
 	if w.Code != http.StatusOK {
@@ -527,6 +533,12 @@ func TestGetAvatarHistory_Success(t *testing.T) {
 	h, mock := setupRPCHandler(t)
 
 	userID := "660e8400-e29b-41d4-a716-446655440001"
+	// Privacy gate: target profile is NOT private, so the history is returned.
+	mock.ExpectQuery(`(?s).*FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8"}).
+			AddRow(false, true, true, true, true, true, true, true))
+
 	mock.ExpectQuery(`(?s).*SELECT id, avatar_url, uploaded_at, is_current.*FROM avatar_history.*WHERE user_id = \$1.*ORDER BY uploaded_at DESC`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "avatar_url", "uploaded_at", "is_current"}).
@@ -585,7 +597,7 @@ func TestToggleAchievementPin_Pin(t *testing.T) {
 	c, w := newRPCPostContext(map[string]string{
 		"_user_id":        userID,
 		"_achievement_id": achievementID,
-	}, nil)
+	}, &auth.Claims{UserID: userID})
 	h.ToggleAchievementPin(c)
 
 	if w.Code != http.StatusOK {
@@ -610,7 +622,7 @@ func TestToggleAchievementPin_Unpin(t *testing.T) {
 	c, w := newRPCPostContext(map[string]string{
 		"_user_id":        userID,
 		"_achievement_id": achievementID,
-	}, nil)
+	}, &auth.Claims{UserID: userID})
 	h.ToggleAchievementPin(c)
 
 	if w.Code != http.StatusOK {
@@ -635,7 +647,7 @@ func TestToggleAchievementPin_MaxPinned(t *testing.T) {
 	c, w := newRPCPostContext(map[string]string{
 		"_user_id":        userID,
 		"_achievement_id": achievementID,
-	}, nil)
+	}, &auth.Claims{UserID: userID})
 	h.ToggleAchievementPin(c)
 
 	if w.Code != http.StatusBadRequest {

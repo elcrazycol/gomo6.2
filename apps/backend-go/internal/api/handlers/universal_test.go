@@ -314,6 +314,11 @@ func TestUniversalPost_UpsertGomosubRules(t *testing.T) {
 func TestUniversalPost_UpsertWallPostLikes(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
+	// Wall visibility gate: post1 belongs to u1 (the caller) → allowed.
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("post1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+
 	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_likes.*VALUES.*ON CONFLICT.*DO UPDATE SET user_id = EXCLUDED.user_id.*RETURNING \*`).
 		WithArgs("post1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id"}).
@@ -498,6 +503,12 @@ func TestUniversalPost_WallPosts_OwnWall(t *testing.T) {
 func TestUniversalPost_WallPosts_ForbiddenForeignWall(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
+	// Privacy gate first: u2's profile is not private, so the wall-post check
+	// proceeds to allow_wall_posts_from_others (which is false here).
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\) FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"private"}).AddRow(false))
+
 	mock.ExpectQuery(`SELECT COALESCE\(allow_wall_posts_from_others, true\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
 		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(false))
@@ -516,6 +527,11 @@ func TestUniversalPost_WallPosts_ForbiddenForeignWall(t *testing.T) {
 
 func TestUniversalPost_WallPosts_AllowedForeignWall(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
+
+	// Privacy gate first: u2's profile is not private → allowed.
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\) FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"private"}).AddRow(false))
 
 	mock.ExpectQuery(`SELECT COALESCE\(allow_wall_posts_from_others, true\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
@@ -552,6 +568,11 @@ func TestUniversalPost_WallPosts_RequiresAuth(t *testing.T) {
 
 func TestUniversalPost_Likes_ForcesOwner(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
+
+	// Wall visibility gate: post1 belongs to u1 (the caller) → allowed.
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("post1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
 
 	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_likes.*VALUES.*ON CONFLICT.*DO UPDATE SET user_id = EXCLUDED.user_id.*RETURNING \*`).
 		WithArgs("post1", "u1").
@@ -617,7 +638,15 @@ func TestUniversalDelete_WallPosts_OwnershipScope(t *testing.T) {
 func TestUniversalPost_Reposts_ForcesWallOwner(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_reposts \(.*post_id.*user_id.*wall_user_id.*\).*RETURNING \*`).
+	// Wall visibility gate: the reposted source post1 belongs to u1 (the caller)
+	// → allowed.
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("post1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+
+	// Column order in the generated INSERT is map-iteration dependent (random),
+	// so the regex must not assume an order.
+	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_reposts \(.*\).*VALUES \(.*\).*RETURNING \*`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "wall_user_id"}).
 			AddRow("r1", "post1", "u1", "u1"))
 

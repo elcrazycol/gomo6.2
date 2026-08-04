@@ -1,5 +1,5 @@
 import { api } from "@/integrations/api/compat";
-import { uploadFile } from "@/utils/storage";
+import { storageUrl, uploadFile } from "@/utils/storage";
 import { prepareMessengerImage } from "@/lib/imageProcessing";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toast } from "sonner";
@@ -280,7 +280,7 @@ const inferType = (file: File): AttachmentType => {
   return "file";
 };
 
-export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]> => {
+export const uploadAttachments = async (files: File[], bucket: string = "content"): Promise<AttachmentMeta[]> => {
   const { data: { session } } = await api.auth.getSession();
   if (!session?.user) throw new Error("Нужно войти для загрузки");
   const user = session.user;
@@ -342,13 +342,23 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
     // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access)
-    const uploaded = await uploadFile('content', key, file, session.access_token, false);
+    const uploaded = await uploadFile(bucket, key, file, session.access_token, false);
     if (type === "image" && !uploaded.variants) {
       throw new Error("Сервер не вернул preview для изображения");
     }
 
+    // Private buckets (e.g. "wall") are served through an authorized endpoint.
+    // Store the FULL storage path in the attachment so every render site that
+    // resolves via storageUrl() passes it through unchanged, regardless of the
+    // bucket argument it uses for legacy bare keys.
+    const storedUrl = bucket === "content" ? key : storageUrl(bucket, key) || key;
+    const storedPreview =
+      bucket === "content" || !uploaded.variants
+        ? uploaded.variants?.preview_key
+        : storageUrl(bucket, uploaded.variants.preview_key) || undefined;
+
     results.push({
-      url: key,
+      url: storedUrl,
       type,
       mime: file.type,
       name: file.name,
@@ -356,7 +366,7 @@ export const uploadAttachments = async (files: File[]): Promise<AttachmentMeta[]
       poster,
       ...(type === "image" && uploaded.variants ? {
         meta: {
-          preview_key: uploaded.variants.preview_key,
+          preview_key: storedPreview,
           lqip: uploaded.variants.lqip,
           width: uploaded.variants.width,
           height: uploaded.variants.height,

@@ -224,7 +224,7 @@ export const CreateWallPost = ({
                 </Button>
               </EmojiPicker>
 
-              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} />
+              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} bucket="wall" />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:text-xs">

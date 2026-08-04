@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 )
 
@@ -47,13 +48,35 @@ func (h *SearchHandler) Search(c *gin.Context) {
 
 	result := SearchResult{}
 
+	// Viewer identity (anonymous when no token). Used to strip avatars of
+	// private-profile users: search must never leak a photo that the profile
+	// endpoint hides. Nil for anonymous — passing an empty string into a
+	// UUID-typed comparison would make Postgres throw a cast error, and passing
+	// NULL into `u.id <> $2` would silently re-expose avatars.
+	var viewerID interface{}
+	if claims, ok := c.Get("claims"); ok {
+		if uc, ok2 := claims.(*auth.Claims); ok2 && uc != nil && uc.UserID != "" {
+			viewerID = uc.UserID
+		}
+	}
+
 	// ── Users (profiles) ──────────────────────────────────────────────
+	// Anonymous ($2 IS NULL) → strip avatar for private profiles.
+	// Authenticated non-friend → strip avatar unless owner or mutual friend.
 	result.Users = h.searchTable(
-		`SELECT id, username, display_name, avatar_url
-		 FROM users
-		 WHERE is_remote = false AND search_vector @@ plainto_tsquery('russian', $1)
-		 ORDER BY ts_rank(search_vector, plainto_tsquery('russian', $1)) DESC
-		 LIMIT 24`, q)
+		`SELECT u.id, u.username, u.display_name,
+		        CASE WHEN ps.private_profile IS TRUE AND ps.private_hide_avatar IS TRUE
+		                  AND ($2::uuid IS NULL OR (u.id <> $2::uuid AND NOT EXISTS (
+		                      SELECT 1 FROM friendships f
+		                      WHERE (f.user1_id = u.id AND f.user2_id = $2::uuid)
+		                         OR (f.user1_id = $2::uuid AND f.user2_id = u.id)
+		                  )))
+		             THEN NULL ELSE u.avatar_url END AS avatar_url
+		 FROM users u
+		 LEFT JOIN privacy_settings ps ON ps.user_id = u.id
+		 WHERE u.is_remote = false AND u.search_vector @@ plainto_tsquery('russian', $1)
+		 ORDER BY ts_rank(u.search_vector, plainto_tsquery('russian', $1)) DESC
+		 LIMIT 24`, q, viewerID)
 
 	// ── Boards (gomosubs + regular boards) ───────────────────────────
 	result.Boards = h.searchTable(

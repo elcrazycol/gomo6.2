@@ -213,12 +213,16 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// REST compatibility routes
 	rest := router.Group("/api/v1")
 	{
-		// Apply data caching middleware for GET requests (2 minute TTL)
-		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
 		// Global rate limiting for public endpoints (200 req/min per IP)
 		rest.Use(middleware.GlobalRateLimitMiddleware(globalRateLimiter))
-		// Populate claims if auth token is present (does not block anonymous requests)
+		// Populate claims if auth token is present (does not block anonymous requests).
+		// MUST run BEFORE DataCacheMiddleware: the cache key is bound to the viewer
+		// identity (see data_cache.go), otherwise per-user responses (profile walls,
+		// friends, privacy settings, likes) would be cached across users and even
+		// served to anonymous visitors on cache hits.
 		rest.Use(middleware.OptionalAuthMiddlewareWithDB(authService, db))
+		// Apply data caching middleware for GET requests (2 minute TTL)
+		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
 
 		// Search endpoint (full-text, public)
 		rest.GET("/search", searchHandler.Search)
@@ -560,8 +564,33 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 			// check in Gin's middleware chain rather than invoking middleware from
 			// inside the object handler. This preserves the normal c.Next() order.
 			storagePublic.GET("/object/:bucket/*key", func(c *gin.Context) {
-				if c.Param("bucket") == "uploads" && !middleware.AuthenticateRequest(c, authService, db) {
-					return
+				bucket := c.Param("bucket")
+				if bucket == "uploads" || bucket == "wall" {
+					if !middleware.AuthenticateRequest(c, authService, db) {
+						return
+					}
+					if bucket == "wall" {
+						// Wall media keys are <wallOwnerID>/<random>.<ext>. Serve the
+						// object only when the caller may view that user's wall:
+						// owner, non-private profile, or mutual friend. This is the
+						// same predicate as the wall read path, so private photos
+						// cannot be fetched by URL guessing.
+						key := strings.TrimPrefix(c.Param("key"), "/")
+						ownerID := key
+						if idx := strings.Index(ownerID, "/"); idx > 0 {
+							ownerID = ownerID[:idx]
+						}
+						viewerID := ""
+						if claimsValue, ok := c.Get("claims"); ok {
+							if claims, ok2 := claimsValue.(*auth.Claims); ok2 && claims != nil {
+								viewerID = claims.UserID
+							}
+						}
+						if ownerID == "" || viewerID == "" || !canViewUserWall(db, viewerID, ownerID) {
+							c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+							return
+						}
+					}
 				}
 				c.Next()
 			}, func(c *gin.Context) {
@@ -717,4 +746,29 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
 	}
 
+}
+
+// canViewUserWall reports whether viewerID may view the wall of ownerID
+// (owner, non-private profile, or mutual friend). Used by the private "wall"
+// media bucket so photos are never served to strangers even when the key is
+// known. Mirrors the wall read predicate in profileWallFinishSelectQuery.
+func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
+	if viewerID == ownerID {
+		return true
+	}
+	var private bool
+	if err := db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", ownerID).Scan(&private); err != nil {
+		return err == sql.ErrNoRows
+	}
+	if !private {
+		return true
+	}
+	var friend bool
+	if err := db.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM friendships
+		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+	)`, viewerID, ownerID).Scan(&friend); err != nil {
+		return false
+	}
+	return friend
 }
