@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/lib/pq"
@@ -42,7 +43,23 @@ type UserStatusResponse struct {
 func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 	onlineUserIDs := h.hub.GetOnlineUsers()
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"online_users": onlineUserIDs, "count": len(onlineUserIDs)}))
+	// M2: a private profile must not be discoverable as "online" by
+	// non-friends. Filter the public list per viewer so private profiles only
+	// appear for their owners and mutual friends.
+	viewerID := ""
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
+			viewerID = uc.UserID
+		}
+	}
+	filtered := onlineUserIDs[:0]
+	for _, id := range onlineUserIDs {
+		if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && !shouldFilter {
+			filtered = append(filtered, id)
+		}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"online_users": filtered, "count": len(filtered)}))
 }
 
 // GetUserStatus returns the online status of a specific user
@@ -59,6 +76,21 @@ func (h *UserStatusHandler) GetOnlineUsers(c *gin.Context) {
 // @Router       /users/{id}/status [get]
 func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 	userID := c.Param("id")
+
+	// M1: a private profile must hide online status and last_seen from
+	// non-friends — the same rule the profile endpoint applies. Without this,
+	// a stranger learns the target's last activity time via /users/:id/status
+	// even though /profiles/:id hides it.
+	viewerID := ""
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
+			viewerID = uc.UserID
+		}
+	}
+	if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
+		c.JSON(http.StatusOK, UserStatusResponse{UserID: userID, IsOnline: false})
+		return
+	}
 
 	// Query user status and privacy settings
 	query := `
@@ -133,6 +165,15 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 		return
 	}
 
+	// M1: hide online status and last_seen of private profiles from non-friends
+	// in the bulk endpoint as well (same rule as GetUserStatus).
+	viewerID := ""
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
+			viewerID = uc.UserID
+		}
+	}
+
 	// Build query with placeholders
 	query := `
 		SELECT u.id, u.is_online, u.last_seen_at,
@@ -162,6 +203,14 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 			&showStatus,
 		)
 		if err != nil {
+			continue
+		}
+
+		// Private profile + non-friend → strip online state and last_seen.
+		if shouldFilter, _, ferr := ShouldFilterPrivateProfile(h.db, viewerID, status.UserID); ferr == nil && shouldFilter {
+			status.IsOnline = false
+			status.LastSeen = nil
+			statuses = append(statuses, status)
 			continue
 		}
 

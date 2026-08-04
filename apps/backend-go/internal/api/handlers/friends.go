@@ -509,6 +509,16 @@ func (h *FriendsHandler) RemoveFriend(c *gin.Context) {
 		AND status = 'accepted'
 	`, claims.UserID, targetUserID)
 
+	// H1: revoke live WebSocket subscriptions to each other's wall rooms. A
+	// subscription authorized under the old friendship must not keep receiving
+	// private wall events (full content + image URLs) after the friendship is
+	// destroyed. Both directions are torn down because either side may have
+	// been subscribed to the other's wall.
+	if h.hub != nil {
+		h.hub.ForceUnsubscribeFromWallRooms(claims.UserID, targetUserID)
+		h.hub.ForceUnsubscribeFromWallRooms(targetUserID, claims.UserID)
+	}
+
 	// Invalidate caches for both users
 	invalidateFriendCaches(h.redis, claims.UserID, targetUserID)
 

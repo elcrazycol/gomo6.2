@@ -383,7 +383,10 @@ func (h *GiftsHandler) GetUserGifts(c *gin.Context) {
 			viewerID = uc.UserID
 		}
 	}
-	canView, err := CanViewUserContent(h.db, viewerID, recipientID)
+	// L2: honor the dedicated private_hide_gifts setting on top of profile
+	// visibility. A user who hides gifts must not show them to non-friends even
+	// when the rest of the profile is public.
+	canView, err := CanViewUserGifts(h.db, viewerID, recipientID)
 	if err != nil {
 		serverError(c, "handler error", err)
 		return

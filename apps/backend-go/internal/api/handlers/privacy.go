@@ -57,7 +57,10 @@ func IsMutualFriend(db *sql.DB, viewerID, targetID string) (bool, error) {
 }
 
 // ShouldFilterPrivateProfile returns true if the target user has private_profile enabled
-// and the viewer is not the owner and not a mutual friend.
+// and the viewer is not the owner and not a mutual friend. Anonymous visitors
+// (viewerID == "") are never the owner or a friend, so they must be filtered:
+// previously an empty viewer was treated as "no filtering", which let anonymous
+// clients read the bio/garma/last_seen of private profiles in full.
 func ShouldFilterPrivateProfile(db *sql.DB, viewerID, targetID string) (bool, *PrivacySettings, error) {
 	ps, err := GetPrivacySettings(db, targetID)
 	if err != nil {
@@ -66,8 +69,13 @@ func ShouldFilterPrivateProfile(db *sql.DB, viewerID, targetID string) (bool, *P
 	if !ps.PrivateProfile {
 		return false, ps, nil
 	}
-	if viewerID == "" || viewerID == targetID {
+	// Only the profile owner may view it in full; an empty viewer (anonymous)
+	// or any non-friend is filtered.
+	if viewerID != "" && viewerID == targetID {
 		return false, ps, nil
+	}
+	if viewerID == "" {
+		return true, ps, nil
 	}
 	isFriend, err := IsMutualFriend(db, viewerID, targetID)
 	if err != nil {
@@ -101,6 +109,29 @@ func CanViewUserAchievements(db *sql.DB, viewerID, targetUserID string) (bool, e
 		return true, nil
 	}
 	if settings.PrivateHideAchievements {
+		return false, nil
+	}
+	if !settings.PrivateProfile {
+		return true, nil
+	}
+	if viewerID == "" {
+		return false, nil
+	}
+	return IsMutualFriend(db, viewerID, targetUserID)
+}
+
+// CanViewUserGifts applies both profile visibility and the dedicated
+// private_hide_gifts setting, mirroring CanViewUserAchievements. A public
+// profile that hides gifts must still keep them from non-friends.
+func CanViewUserGifts(db *sql.DB, viewerID, targetUserID string) (bool, error) {
+	settings, err := GetPrivacySettings(db, targetUserID)
+	if err != nil {
+		return false, err
+	}
+	if viewerID == targetUserID {
+		return true, nil
+	}
+	if settings.PrivateHideGifts {
 		return false, nil
 	}
 	if !settings.PrivateProfile {

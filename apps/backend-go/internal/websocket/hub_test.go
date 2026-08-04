@@ -278,6 +278,65 @@ func TestHub_UnsubscribeFromRoom(t *testing.T) {
 	}
 }
 
+// H1: revoking a friendship must tear down live wall-room subscriptions, so an
+// ex-friend stops receiving private wall events without reconnecting.
+func TestHub_ForceUnsubscribeFromWallRooms(t *testing.T) {
+	hub := NewHub(nil, nil)
+	exFriend := newTestClient(hub, "user-b", "Bob")
+	otherViewer := newTestClient(hub, "user-c", "Carol")
+	owner := newTestClient(hub, "user-a", "Alice")
+
+	// Both Bob and Carol are subscribed to Alice's wall room.
+	hub.SubscribeToRoom(exFriend, "profile_wall_user-a")
+	hub.SubscribeToRoom(otherViewer, "profile_wall_user-a")
+	// Alice subscribed to Bob's wall room (reverse direction).
+	hub.SubscribeToRoom(owner, "profile_wall_user-b")
+
+	// Alice removes Bob from friends.
+	hub.ForceUnsubscribeFromWallRooms("user-b", "user-a")
+	hub.ForceUnsubscribeFromWallRooms("user-a", "user-b")
+
+	hub.mu.RLock()
+	_, exInRoom := hub.rooms["profile_wall_user-a"][exFriend]
+	_, otherInRoom := hub.rooms["profile_wall_user-a"][otherViewer]
+	_, ownerInReverse := hub.rooms["profile_wall_user-b"][owner]
+	hub.mu.RUnlock()
+
+	if exInRoom {
+		t.Error("ex-friend Bob must be removed from Alice's wall room")
+	}
+	if !otherInRoom {
+		t.Error("Carol (still authorized) must remain subscribed to Alice's wall room")
+	}
+	if ownerInReverse {
+		t.Error("Alice must be removed from Bob's wall room after unfriending Bob")
+	}
+	if exFriend.Rooms["profile_wall_user-a"] {
+		t.Error("client.Rooms must not keep the revoked room")
+	}
+	if !otherViewer.Rooms["profile_wall_user-a"] {
+		t.Error("Carol's client.Rooms must keep the room")
+	}
+}
+
+func TestHub_ForceUnsubscribeFromWallRooms_UnknownUsersNoop(t *testing.T) {
+	hub := NewHub(nil, nil)
+	client := newTestClient(hub, "user-b", "Bob")
+	hub.SubscribeToRoom(client, "profile_wall_user-a")
+
+	// Empty or unrelated IDs must not panic or remove anything.
+	hub.ForceUnsubscribeFromWallRooms("", "user-a")
+	hub.ForceUnsubscribeFromWallRooms("user-b", "")
+	hub.ForceUnsubscribeFromWallRooms("user-x", "user-a")
+
+	hub.mu.RLock()
+	_, stillIn := hub.rooms["profile_wall_user-a"][client]
+	hub.mu.RUnlock()
+	if !stillIn {
+		t.Error("Bob must remain subscribed when the call targets other users")
+	}
+}
+
 func TestHub_BroadcastToRoom(t *testing.T) {
 	hub := NewHub(nil, nil)
 	client1 := newTestClient(hub, "user-1", "Alice")

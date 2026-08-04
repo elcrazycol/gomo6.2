@@ -645,6 +645,37 @@ func (h *Hub) UnsubscribeFromRoom(client *Client, room string) {
 	log.Printf("[WebSocket] Client %s unsubscribed from room %s", client.Username, room)
 }
 
+// ForceUnsubscribeFromWallRooms revokes every live subscription of viewerID to
+// the private wall rooms of targetID (profile_wall_<targetID>). A wall-room
+// subscription is authorized once at subscribe time based on the friendship
+// that existed then; when that friendship is destroyed (RemoveFriend) the
+// subscription must be torn down, otherwise the ex-friend keeps receiving
+// new/update/delete wall events with full content and image URLs.
+func (h *Hub) ForceUnsubscribeFromWallRooms(viewerID, targetID string) {
+	if viewerID == "" || targetID == "" {
+		return
+	}
+	room := fmt.Sprintf("profile_wall_%s", targetID)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	roomClients, ok := h.rooms[room]
+	if !ok {
+		return
+	}
+	for client := range roomClients {
+		if client.UserID != viewerID {
+			continue
+		}
+		delete(roomClients, client)
+		delete(client.Rooms, room)
+		log.Printf("[WebSocket] Client %s force-unsubscribed from %s (friendship revoked)", client.Username, room)
+	}
+	if len(roomClients) == 0 {
+		delete(h.rooms, room)
+	}
+}
+
 // BroadcastToRoom sends a message to all clients in a specific room
 func (h *Hub) BroadcastToRoom(room string, message []byte) {
 	started := time.Now()
@@ -808,6 +839,19 @@ func (h *Hub) updateUserOnlineStatus(userID string, isOnline bool) {
 
 // broadcastUserStatus broadcasts user online/offline status to all clients
 func (h *Hub) broadcastUserStatus(userID, username string, isOnline bool) {
+	// M3: private profiles must not leak online state to everyone on the
+	// platform. The status events carry user_id + username and are broadcast
+	// to every connected client, so for a private profile the safest behavior
+	// is to not publish the event at all — friends still learn the status via
+	// the authenticated /users/:id/status and /users/status/bulk endpoints
+	// (which now apply the same privacy rule).
+	if h.db != nil {
+		var private bool
+		if err := h.db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", userID).Scan(&private); err == nil && private {
+			return
+		}
+	}
+
 	var messageType string
 	if isOnline {
 		messageType = MessageTypeUserOnline

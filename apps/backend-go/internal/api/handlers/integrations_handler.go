@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/integrations"
 	"github.com/gomo6/backend/internal/websocket"
 	"github.com/redis/go-redis/v9"
@@ -325,6 +326,20 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 	userID := c.Param("user_id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		return
+	}
+
+	// L1: a private profile must not leak its current activity (what the user
+	// is listening to) to non-friends. The now-playing endpoint is public, so
+	// apply the same privacy predicate used by profiles.
+	viewerID := ""
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
+			viewerID = uc.UserID
+		}
+	}
+	if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, userID); err == nil && shouldFilter {
+		c.JSON(http.StatusOK, &integrations.NowPlayingResponse{IsConnected: false})
 		return
 	}
 

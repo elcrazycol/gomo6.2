@@ -10,6 +10,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/websocket"
 )
@@ -180,6 +181,83 @@ func TestGetUserStatus_PrivacyHidden(t *testing.T) {
 	}
 	if status.LastSeen != nil {
 		t.Fatal("expected nil last_seen when privacy hides status")
+	}
+}
+
+// M1: a private profile must not leak last_seen to an authenticated non-friend.
+func TestGetUserStatus_PrivateProfileNonFriend(t *testing.T) {
+	h, mock := setupUserStatusHandler(t)
+
+	userID := "550e8400-e29b-41d4-a716-446655440009"
+
+	// ShouldFilterPrivateProfile → GetPrivacySettings: private_profile=true
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\),`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"private_profile", "private_hide_avatar", "private_hide_wall",
+			"private_hide_threads", "private_hide_stats", "private_hide_friends",
+			"private_hide_gifts", "private_hide_achievements",
+		}).AddRow(true, true, true, true, true, true, true, true))
+
+	// IsMutualFriend: viewer is not a friend
+	mock.ExpectQuery(`SELECT EXISTS\(`).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := newStatusGETContext(userID)
+	c.Set("claims", &auth.Claims{UserID: "viewer-999", Username: "stranger"})
+	h.GetUserStatus(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var status UserStatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	if status.IsOnline {
+		t.Fatal("expected is_online = false for private profile viewed by non-friend")
+	}
+	if status.LastSeen != nil {
+		t.Fatal("expected nil last_seen for private profile viewed by non-friend")
+	}
+	if status.UserID != userID {
+		t.Fatalf("expected userID %q, got %q", userID, status.UserID)
+	}
+}
+
+// H-anon: anonymous visitors must also be filtered from private profiles.
+func TestGetUserStatus_PrivateProfileAnonymous(t *testing.T) {
+	h, mock := setupUserStatusHandler(t)
+
+	userID := "550e8400-e29b-41d4-a716-446655440010"
+
+	// Anonymous: GetPrivacySettings says private_profile=true → filter without
+	// friendship lookup (no viewer identity).
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\),`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"private_profile", "private_hide_avatar", "private_hide_wall",
+			"private_hide_threads", "private_hide_stats", "private_hide_friends",
+			"private_hide_gifts", "private_hide_achievements",
+		}).AddRow(true, true, true, true, true, true, true, true))
+
+	c, w := newStatusGETContext(userID)
+	h.GetUserStatus(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var status UserStatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	if status.IsOnline {
+		t.Fatal("expected is_online = false for anonymous viewer of private profile")
+	}
+	if status.LastSeen != nil {
+		t.Fatal("expected nil last_seen for anonymous viewer of private profile")
 	}
 }
 
