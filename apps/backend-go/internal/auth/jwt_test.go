@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -433,7 +434,7 @@ func TestGenerateToken_Unique(t *testing.T) {
 func TestGenerateTokenPair_Success(t *testing.T) {
 	svc := NewAuthService()
 
-	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 	if err != nil {
 		t.Fatalf("GenerateTokenPair failed: %v", err)
 	}
@@ -460,8 +461,8 @@ func TestGenerateTokenPair_Success(t *testing.T) {
 func TestGenerateTokenPair_UniqueRefreshTokens(t *testing.T) {
 	svc := NewAuthService()
 
-	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
-	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
+	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 
 	if pair1.RefreshToken == pair2.RefreshToken {
 		t.Fatal("refresh tokens must be unique")
@@ -479,7 +480,7 @@ func TestRefreshTokenExists_NoRedis(t *testing.T) {
 func TestRefreshAccessToken_NoRedis(t *testing.T) {
 	svc := NewAuthService()
 
-	_, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "any-token")
+	_, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", "any-token")
 	if err == nil {
 		t.Fatal("RefreshAccessToken should fail without Redis")
 	}
@@ -646,7 +647,7 @@ func TestSetRedis_Nil(t *testing.T) {
 func TestGenerateTokenPair_StoresInRedis(t *testing.T) {
 	svc, mr := setupRedisAuthService(t)
 
-	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 	if err != nil {
 		t.Fatalf("GenerateTokenPair failed: %v", err)
 	}
@@ -673,7 +674,7 @@ func TestGenerateTokenPair_StoresInRedis(t *testing.T) {
 func TestRefreshTokenExists_WithRedis_Exists(t *testing.T) {
 	svc, _ := setupRedisAuthService(t)
 
-	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 
 	if !svc.refreshTokenExists("user-123", pair.RefreshToken) {
 		t.Fatal("refreshTokenExists should return true for just-stored token")
@@ -692,7 +693,7 @@ func TestRefreshTokenExists_WithRedis_WrongHash(t *testing.T) {
 	svc, _ := setupRedisAuthService(t)
 
 	// Store one token, check for different token
-	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 
 	// Slightly different token should not match
 	if svc.refreshTokenExists("user-123", pair.RefreshToken+"x") {
@@ -703,7 +704,7 @@ func TestRefreshTokenExists_WithRedis_WrongHash(t *testing.T) {
 func TestDeleteRefreshToken_WithRedis(t *testing.T) {
 	svc, mr := setupRedisAuthService(t)
 
-	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 
 	hash := sha256.Sum256([]byte(pair.RefreshToken))
 	key := fmt.Sprintf("refresh:user-123:%x", hash)
@@ -724,14 +725,14 @@ func TestDeleteRefreshToken_WithRedis(t *testing.T) {
 func TestRefreshAccessToken_WithRedis_Success(t *testing.T) {
 	svc, mr := setupRedisAuthService(t)
 
-	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 	oldRefreshToken := pair.RefreshToken
 
 	// Calculate old key to verify deletion
 	oldHash := sha256.Sum256([]byte(oldRefreshToken))
 	oldKey := fmt.Sprintf("refresh:user-123:%x", oldHash)
 
-	newPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", oldRefreshToken)
+	newPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", oldRefreshToken)
 	if err != nil {
 		t.Fatalf("RefreshAccessToken failed: %v", err)
 	}
@@ -763,7 +764,7 @@ func TestRefreshAccessToken_WithRedis_Success(t *testing.T) {
 func TestRefreshAccessToken_WithRedis_InvalidToken(t *testing.T) {
 	svc, _ := setupRedisAuthService(t)
 
-	_, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "nonexistent")
+	_, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", "nonexistent")
 	if err == nil {
 		t.Fatal("RefreshAccessToken should fail for non-existent token")
 	}
@@ -881,11 +882,11 @@ func TestRevokeAllRefreshTokens_WithRedis(t *testing.T) {
 	svc, mr := setupRedisAuthService(t)
 
 	// Create multiple refresh tokens for the same user
-	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
-	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
+	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 
 	// Also create a token for another user (should NOT be affected)
-	pairOther, _ := svc.GenerateTokenPair("user-456", "bob", "gomo6.wtf")
+	pairOther, _ := svc.GenerateTokenPair("user-456", "bob", "gomo6.wtf", "session-test")
 
 	hash1 := sha256.Sum256([]byte(pair1.RefreshToken))
 	hash2 := sha256.Sum256([]byte(pair2.RefreshToken))
@@ -927,8 +928,8 @@ func TestRevokeAllRefreshTokens_NoTokens(t *testing.T) {
 func TestGenerateTokenPair_WithRedis_UniqueHashes(t *testing.T) {
 	svc, mr := setupRedisAuthService(t)
 
-	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
-	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf")
+	pair1, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
+	pair2, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 
 	hash1 := sha256.Sum256([]byte(pair1.RefreshToken))
 	hash2 := sha256.Sum256([]byte(pair2.RefreshToken))
@@ -961,4 +962,102 @@ func TestDeleteRefreshToken_NilRedis(t *testing.T) {
 
 	// Should not panic
 	svc.deleteRefreshToken("user-123", "any-token")
+}
+
+// =============================================================================
+// Session-bound tokens (stable device identity)
+// =============================================================================
+
+func TestGenerateTokenPair_CarriesSessionID(t *testing.T) {
+	svc := NewAuthService()
+
+	pair, err := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-abc123")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+	if pair.SessionID != "session-abc123" {
+		t.Errorf("expected SessionID session-abc123, got %q", pair.SessionID)
+	}
+	if pair.AccessJTI == "" {
+		t.Fatal("expected non-empty AccessJTI")
+	}
+
+	// The access token must carry the sid claim so middleware can mark the
+	// current device without any Redis lookup.
+	claims, err := svc.ValidateToken(pair.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if claims.SessionID != "session-abc123" {
+		t.Errorf("expected claims.SessionID session-abc123, got %q", claims.SessionID)
+	}
+	if claims.ID != pair.AccessJTI {
+		t.Errorf("expected AccessJTI to equal access-token jti, got %q vs %q", pair.AccessJTI, claims.ID)
+	}
+}
+
+func TestGenerateToken_NoSessionBinding(t *testing.T) {
+	svc := NewAuthService()
+
+	// OAuth/API tokens must not carry a session id.
+	token, err := svc.GenerateToken("user-123", "alice", "gomo6.wtf")
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+	claims, err := svc.ValidateToken(token)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if claims.SessionID != "" {
+		t.Errorf("expected empty SessionID for plain tokens, got %q", claims.SessionID)
+	}
+}
+
+func TestRefreshAccessToken_PreservesSessionID(t *testing.T) {
+	svc, _ := setupRedisAuthService(t)
+
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-stable")
+
+	newPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-stable", pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("RefreshAccessToken failed: %v", err)
+	}
+	if newPair.SessionID != "session-stable" {
+		t.Errorf("rotation must preserve the session id, got %q", newPair.SessionID)
+	}
+	claims, err := svc.ValidateToken(newPair.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if claims.SessionID != "session-stable" {
+		t.Errorf("rotated access token must keep the sid claim, got %q", claims.SessionID)
+	}
+	if newPair.AccessJTI == pair.AccessJTI {
+		t.Error("rotated access token must get a fresh jti")
+	}
+}
+
+func TestDeleteRefreshTokenByHash_WithRedis(t *testing.T) {
+	svc, mr := setupRedisAuthService(t)
+
+	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-abc")
+	hash := sha256.Sum256([]byte(pair.RefreshToken))
+	hashHex := hex.EncodeToString(hash[:])
+
+	key := fmt.Sprintf("refresh:user-123:%s", hashHex)
+	if !mr.Exists(key) {
+		t.Fatal("refresh token should exist before delete")
+	}
+
+	svc.DeleteRefreshTokenByHash("user-123", hashHex)
+
+	if mr.Exists(key) {
+		t.Fatal("refresh token should be deleted by hash")
+	}
+}
+
+func TestDeleteRefreshTokenByHash_NoRedis(t *testing.T) {
+	svc := NewAuthService()
+	// Should not panic
+	svc.DeleteRefreshTokenByHash("user-123", "deadbeef")
 }

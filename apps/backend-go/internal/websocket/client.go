@@ -43,6 +43,7 @@ type Client struct {
 	Send          chan []byte
 	UserID        string
 	Username      string
+	SessionID     string // stable user_sessions.id from the access token's sid claim
 	Rooms         map[string]bool
 	authenticated bool
 	authService   *auth.AuthService
@@ -244,6 +245,13 @@ func (c *Client) readPump() {
 				c.trySend(msgBytes)
 			}
 
+			// App-level pings double as a heartbeat: keep the per-session
+			// online marker alive so a crash never leaves a ghost "online"
+			// device (the marker expires within 5 minutes without this).
+			if c.SessionID != "" {
+				go c.Hub.touchSessionOnline(c.UserID, c.SessionID)
+			}
+
 		default:
 			log.Printf("[WebSocket] Unknown message type: %s", message.Type)
 		}
@@ -308,6 +316,7 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	c.Hub.mu.Lock()
 	c.UserID = claims.UserID
 	c.Username = claims.Username
+	c.SessionID = claims.SessionID
 	if c.Username == "" {
 		c.Username = claims.UserID
 		if len(c.Username) > 8 {
@@ -320,6 +329,12 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	// Broadcast online status and update DB
 	go c.Hub.updateUserOnlineStatus(c.UserID, true)
 	go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
+
+	// Mark this exact session as online (drives the per-device indicator in
+	// "Devices & sessions") and refresh its last activity timestamp.
+	if c.SessionID != "" {
+		go c.Hub.markSessionOnline(c.UserID, c.SessionID)
+	}
 
 	log.Printf("[WebSocket] Authenticated user: %s (%s)", c.Username, c.UserID)
 

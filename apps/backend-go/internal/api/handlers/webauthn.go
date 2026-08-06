@@ -384,14 +384,11 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 		domain = "localhost:8080"
 	}
 
-	tokenPair, err := h.authService.GenerateTokenPair(authedUserID, authedUsername, domain)
+	tokenPair, err := createLoginSession(h.db, h.redis, h.authService, authedUserID, authedUsername, domain, c.GetHeader("User-Agent"), c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-
-	// Track session
-	createSessionDB(h.db, h.redis, authedUserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"user":          authedUser,

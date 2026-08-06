@@ -34,9 +34,12 @@ export interface SessionInfo {
   browser_name: string;
   device_type: string;
   ip_address: string;
+  country_code: string;
+  country_name: string;
   created_at: string;
   last_active_at: string;
   is_current: boolean;
+  online: boolean;
 }
 
 // APIResponse wrapper (not from OpenAPI — hand-written generic for {success, data, error} format)

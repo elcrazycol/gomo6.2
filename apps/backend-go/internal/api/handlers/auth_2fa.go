@@ -101,15 +101,12 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		cancel()
 	}
 
-	// Generate token pair (access + refresh)
-	tokenPair, err := h.authService.GenerateTokenPair(claims.UserID, claims.Username, claims.Domain)
+	// Generate token pair bound to a new stable session
+	tokenPair, err := h.createLoginSession(claims.UserID, claims.Username, claims.Domain, c.GetHeader("User-Agent"), c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-
-	// Track session
-	h.createSession(claims.UserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 	middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	resp := gin.H{

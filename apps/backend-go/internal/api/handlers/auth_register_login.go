@@ -97,15 +97,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Generate token pair (access + refresh)
-	tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)
+	// Generate token pair bound to a new stable session
+	tokenPair, err := h.createLoginSession(user.ID, user.Username, user.Domain, c.GetHeader("User-Agent"), c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-
-	// Track session
-	h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	c.JSON(http.StatusCreated, models.SuccessResponse(gin.H{
@@ -229,13 +226,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 				if expiresAt, ok := trustedDevices[deviceHash]; ok {
 					if time.Now().Unix() < expiresAt {
 						// Device is trusted, skip 2FA
-						tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)
+						tokenPair, err := h.createLoginSession(user.ID, user.Username, user.Domain, c.GetHeader("User-Agent"), c.ClientIP())
 						if err != nil {
 							c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 							return
 						}
-
-						h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 						middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 						c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
@@ -266,14 +261,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// No 2FA, generate token pair directly
-	tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)
+	// No 2FA, generate token pair bound to a new stable session
+	tokenPair, err := h.createLoginSession(user.ID, user.Username, user.Domain, c.GetHeader("User-Agent"), c.ClientIP())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
-
-	h.createSession(user.ID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 	middleware.SetAuthCookies(c, user.ID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{

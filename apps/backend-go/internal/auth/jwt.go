@@ -16,17 +16,23 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	Domain   string `json:"domain"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	Domain    string `json:"domain"`
+	SessionID string `json:"sid,omitempty"` // stable user_sessions.id; empty for OAuth/bot tokens
 	jwt.RegisteredClaims
 }
 
 // TokenPair is returned on login/register — contains both an access token
-// (short-lived JWT) and a refresh token (opaque, 7 days).
+// (short-lived JWT) and a refresh token (opaque, 7 days). SessionID is the
+// stable session this pair belongs to; AccessJTI is the jti of the access
+// token (used for instant revocation). AccessJTI is intentionally never
+// serialized to clients.
 type TokenPair struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	SessionID    string `json:"-"`
+	AccessJTI    string `json:"-"`
 	ExpiresIn    int64  `json:"expires_in"` // seconds until access token expires
 }
 
@@ -73,13 +79,15 @@ func GetJWTSecret() string {
 	return secret
 }
 
-// GenerateToken creates an access token with a 1-hour TTL and unique jti.
-func (a *AuthService) GenerateToken(userID, username, domain string) (string, error) {
+// generateAccessToken creates an access token with a 1-hour TTL, a unique jti
+// and the stable session id (if any). Returns the token and its jti.
+func (a *AuthService) generateAccessToken(userID, username, domain, sessionID string) (string, string, error) {
 	now := time.Now()
 	claims := Claims{
-		UserID:   userID,
-		Username: username,
-		Domain:   domain,
+		UserID:    userID,
+		Username:  username,
+		Domain:    domain,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(1 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -88,13 +96,25 @@ func (a *AuthService) GenerateToken(userID, username, domain string) (string, er
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(a.jwtSecret)
+	signed, err := token.SignedString(a.jwtSecret)
+	if err != nil {
+		return "", "", err
+	}
+	return signed, claims.ID, nil
 }
 
-// GenerateTokenPair creates both an access token (1h) and a refresh token (7 days).
-// The refresh token hash is stored in Redis (if available) for later validation.
-func (a *AuthService) GenerateTokenPair(userID, username, domain string) (*TokenPair, error) {
-	accessToken, err := a.GenerateToken(userID, username, domain)
+// GenerateToken creates an access token with a 1-hour TTL and unique jti.
+// The token carries no session binding (used by OAuth and API clients).
+func (a *AuthService) GenerateToken(userID, username, domain string) (string, error) {
+	token, _, err := a.generateAccessToken(userID, username, domain, "")
+	return token, err
+}
+
+// GenerateTokenPair creates both an access token (1h) and a refresh token (7 days)
+// bound to the given stable session id. The refresh token hash is stored in
+// Redis (if available) for later validation.
+func (a *AuthService) GenerateTokenPair(userID, username, domain, sessionID string) (*TokenPair, error) {
+	accessToken, accessJTI, err := a.generateAccessToken(userID, username, domain, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +136,8 @@ func (a *AuthService) GenerateTokenPair(userID, username, domain string) (*Token
 	return &TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		SessionID:    sessionID,
+		AccessJTI:    accessJTI,
 		ExpiresIn:    3600, // 1 hour
 	}, nil
 }
@@ -135,14 +157,16 @@ func (a *AuthService) ValidateRefreshToken(userID, refreshToken string) bool {
 
 // RefreshAccessToken validates a refresh token, generates a new pair first,
 // then deletes the old token (safe rotation — no window where user loses access).
-func (a *AuthService) RefreshAccessToken(userID, username, domain, refreshToken string) (*TokenPair, error) {
+// The new pair stays bound to the same sessionID so the device identity never
+// changes across rotations.
+func (a *AuthService) RefreshAccessToken(userID, username, domain, sessionID, refreshToken string) (*TokenPair, error) {
 	// Step 1: Check the old refresh token exists
 	if !a.refreshTokenExists(userID, refreshToken) {
 		return nil, ErrRefreshTokenNotFound
 	}
 
 	// Step 2: Generate the new pair FIRST
-	pair, err := a.GenerateTokenPair(userID, username, domain)
+	pair, err := a.GenerateTokenPair(userID, username, domain, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate new token pair: %w", err)
 	}
@@ -151,6 +175,20 @@ func (a *AuthService) RefreshAccessToken(userID, username, domain, refreshToken 
 	a.deleteRefreshToken(userID, refreshToken)
 
 	return pair, nil
+}
+
+// DeleteRefreshTokenByHash removes a stored refresh token given its SHA-256 hex
+// hash (as kept in user_sessions.refresh_hash). Used when revoking a session
+// whose raw refresh token is not available to the caller.
+func (a *AuthService) DeleteRefreshTokenByHash(userID, refreshHash string) {
+	if a.redis == nil || refreshHash == "" {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	a.redis.Del(ctx, fmt.Sprintf("refresh:%s:%s", userID, refreshHash))
 }
 
 func generateRefreshToken() (string, error) {

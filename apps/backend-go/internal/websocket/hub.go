@@ -41,6 +41,7 @@ const (
 	MessageTypeMessageDeleted = "message_deleted"
 	MessageTypeReadReceipt    = "read_receipt"
 	MessageTypeChatTyping     = "chat_typing"
+	MessageTypeSessionRevoked = "session_revoked"
 
 	// Redis channels
 	RedisChannelPosts         = "realtime:posts"
@@ -240,7 +241,24 @@ func (h *Hub) removeClientLocked(client *Client) bool {
 	if client.Conn != nil {
 		_ = client.Conn.Close()
 	}
+	// Clear the per-session online marker and record the last activity time —
+	// but only when no OTHER connection of the same session remains (the same
+	// device may legitimately hold several tabs/connections).
+	if client.SessionID != "" && !h.sessionStillConnected(client.UserID, client.SessionID) {
+		go h.markSessionOffline(client.UserID, client.SessionID)
+	}
 	return true
+}
+
+// sessionStillConnected reports whether any other client of the same session
+// is still registered. The caller must hold h.mu.
+func (h *Hub) sessionStillConnected(userID, sessionID string) bool {
+	for c := range h.clients {
+		if c.UserID == userID && c.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 // Stop gracefully shuts down the Hub.
@@ -279,7 +297,7 @@ func (h *Hub) subscribeToRedis() {
 				continue
 			}
 			if msg.Channel == RedisChannelUserRevoke {
-				h.disconnectUser(msg.Payload)
+				h.handleRevoke(msg.Payload)
 				continue
 			}
 
@@ -294,6 +312,30 @@ func (h *Hub) subscribeToRedis() {
 	}
 }
 
+// handleRevoke processes a session-revocation event from Redis. The payload is
+// either a JSON object {"user_id": ..., "session_id": ...} (session-scoped
+// kick) or a bare user id (legacy full-user kick).
+func (h *Hub) handleRevoke(payload string) {
+	payload = strings.TrimSpace(payload)
+	if payload == "" {
+		return
+	}
+	var evt struct {
+		UserID    string `json:"user_id"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &evt); err == nil && evt.UserID != "" {
+		if evt.SessionID != "" {
+			h.disconnectSession(evt.UserID, evt.SessionID)
+		} else {
+			h.disconnectUser(evt.UserID)
+		}
+		return
+	}
+	// Legacy payload: a bare user id.
+	h.disconnectUser(payload)
+}
+
 // disconnectUser closes every local WebSocket owned by a revoked user.
 // The hub lock protects all indexes; Client.closeSend is idempotent.
 func (h *Hub) disconnectUser(userID string) {
@@ -306,6 +348,34 @@ func (h *Hub) disconnectUser(userID string) {
 		if client.UserID == userID {
 			h.removeClientLocked(client)
 		}
+	}
+	h.mu.Unlock()
+}
+
+// disconnectSession closes every local WebSocket belonging to one exact session
+// (device). Before disconnecting, the kicked device receives a
+// session_revoked message so the app can force-logout immediately instead of
+// silently reconnecting with a dead token.
+func (h *Hub) disconnectSession(userID, sessionID string) {
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	if userID == "" || sessionID == "" {
+		return
+	}
+	h.mu.Lock()
+	for client := range h.clients {
+		if client.UserID != userID || client.SessionID != sessionID {
+			continue
+		}
+		msg := Message{
+			Type:      MessageTypeSessionRevoked,
+			Data:      mustMarshalJSON(map[string]string{"session_id": sessionID}),
+			Timestamp: time.Now().Unix(),
+		}
+		if b, err := json.Marshal(msg); err == nil {
+			client.trySend(b)
+		}
+		h.removeClientLocked(client)
 	}
 	h.mu.Unlock()
 }
@@ -845,6 +915,55 @@ func (h *Hub) GetClientByUserID(userID string) *Client {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.presence[userID]
+}
+
+// markSessionOnline flags this exact session as online in Redis and refreshes
+// its last_active_at. The marker carries a 5-minute TTL which is refreshed by
+// app-level pings, so a server crash never leaves a ghost "online" device.
+func (h *Hub) markSessionOnline(userID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	if h.redis != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		h.redis.Set(ctx, fmt.Sprintf("ws:online:%s:%s", userID, sessionID), "1", 5*time.Minute)
+		cancel()
+	}
+	h.touchSessionActivity(userID, sessionID)
+}
+
+// touchSessionOnline refreshes the TTL of the per-session online marker.
+func (h *Hub) touchSessionOnline(userID, sessionID string) {
+	if h.redis == nil || sessionID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	h.redis.Expire(ctx, fmt.Sprintf("ws:online:%s:%s", userID, sessionID), 5*time.Minute)
+	cancel()
+}
+
+// markSessionOffline clears the per-session online marker and records the last
+// activity time ("последняя активность" in the devices list).
+func (h *Hub) markSessionOffline(userID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	if h.redis != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		h.redis.Del(ctx, fmt.Sprintf("ws:online:%s:%s", userID, sessionID))
+		cancel()
+	}
+	h.touchSessionActivity(userID, sessionID)
+}
+
+// touchSessionActivity bumps user_sessions.last_active_at for a session.
+func (h *Hub) touchSessionActivity(userID, sessionID string) {
+	if h.db == nil || sessionID == "" {
+		return
+	}
+	if _, err := h.db.Exec(`UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND user_id = $2`, sessionID, userID); err != nil {
+		log.Printf("[WebSocket] failed to update session activity: %v", err)
+	}
 }
 
 // updateUserOnlineStatus updates user's online status in database with debouncing

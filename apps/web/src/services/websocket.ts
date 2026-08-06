@@ -45,6 +45,7 @@ export type WebSocketMessageType =
   | 'chat_typing'
   | 'group_updated'
   | 'now_playing'
+  | 'session_revoked'
   | 'disconnected';
 
 export interface WebSocketMessage {
@@ -91,6 +92,13 @@ class WebSocketService {
     // Resubscribe to rooms after server confirms auth
     this.on('connected', () => {
       this.resubscribeRooms();
+    });
+
+    // The server closed this connection because the session was revoked from
+    // the "Devices & sessions" page (or via logout elsewhere). Force the app
+    // to log out immediately instead of silently reconnecting with a dead token.
+    this.on('session_revoked', () => {
+      window.dispatchEvent(new CustomEvent('auth:expired'));
     });
   }
 

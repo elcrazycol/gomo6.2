@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -13,86 +15,182 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
-	"github.com/gomo6/backend/internal/middleware"
+	"github.com/gomo6/backend/internal/geo"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/redis/go-redis/v9"
 )
 
 const maxSessionsPerUser = 10
 
-// ─── Session helpers ──────────────────────────────────────────────────────────
+// ─── Session identity helpers ────────────────────────────────────────────────
 
-// SessionIDFromRefreshToken computes the session ID (64-char hex SHA-256) from a refresh token.
-func SessionIDFromRefreshToken(refreshToken string) string {
-	hash := sha256.Sum256([]byte(refreshToken))
-	return hex.EncodeToString(hash[:])
+// sessionRow is the DB-backed identity of one logged-in device.
+type sessionRow struct {
+	ID          string
+	RefreshHash string
+	AccessJTI   string
 }
 
-// createSessionDB inserts a new session row and marks it as current in Redis.
-func createSessionDB(db *sql.DB, rdb *redis.Client, userID, refreshToken, userAgent, ip string) {
-	sessionID := SessionIDFromRefreshToken(refreshToken)
+// sha256hex returns the hex SHA-256 of a refresh token — the stable key used in
+// both user_sessions.refresh_hash and the Redis refresh-token store.
+func sha256hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// newSessionID returns a fresh opaque session id (32 hex chars). It is
+// deliberately unrelated to any token, so the device identity survives token
+// rotation for the whole session lifetime.
+func newSessionID() string {
+	return randomHex(32)
+}
+
+// createLoginSession mints a fresh token pair bound to a NEW stable session and
+// persists the session row. This is the single entry point for every login
+// path (password, 2FA, passkey, trusted device, registration).
+func createLoginSession(db *sql.DB, rdb *redis.Client, authService *auth.AuthService, userID, username, domain, userAgent, ip string) (*auth.TokenPair, error) {
+	sessionID := newSessionID()
+	pair, err := authService.GenerateTokenPair(userID, username, domain, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	insertSessionRow(db, userID, sessionID, sha256hex(pair.RefreshToken), pair.AccessJTI, userAgent, ip)
+	cleanupOldSessions(db, rdb, authService, userID)
+	return pair, nil
+}
+
+// insertSessionRow persists a session row. Errors are logged-away: session
+// tracking is best-effort and must never break the login itself.
+func insertSessionRow(db *sql.DB, userID, sessionID, refreshHash, accessJTI, userAgent, ip string) {
 	osName, browserName, deviceType := parseUserAgent(userAgent)
-
-	db.Exec(`INSERT INTO user_sessions (id, user_id, user_agent, os_name, browser_name, device_type, ip_address)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	countryCode, countryName := geo.Lookup(ip)
+	if _, err := db.Exec(`INSERT INTO user_sessions
+		(id, user_id, refresh_hash, access_jti, user_agent, os_name, browser_name, device_type, ip_address, country_code, country_name)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::inet, $10, $11)
 		ON CONFLICT (id) DO NOTHING`,
-		sessionID, userID, userAgent, osName, browserName, deviceType, ip)
-
-	if rdb != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		rdb.Set(ctx, fmt.Sprintf("current:%s:%s", userID, sessionID), "1", 1*time.Hour)
-	}
-
-	cleanupOldSessionsDB(db, rdb, userID, sessionID)
-}
-
-// deleteSessionDB removes a session from DB and Redis.
-func deleteSessionDB(db *sql.DB, rdb *redis.Client, userID, sessionID string) {
-	db.Exec(`DELETE FROM user_sessions WHERE id = $1 AND user_id = $2`, sessionID, userID)
-
-	if rdb != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer cancel()
-		rdb.Del(ctx, fmt.Sprintf("refresh:%s:%s", userID, sessionID))
-		rdb.Del(ctx, fmt.Sprintf("current:%s:%s", userID, sessionID))
+		sessionID, userID, refreshHash, accessJTI, userAgent, osName, browserName, deviceType, ip, countryCode, countryName); err != nil {
+		log.Printf("[sessions] failed to insert session row for user %s: %v", userID, err)
 	}
 }
 
-// cleanupOldSessionsDB keeps at most maxSessionsPerUser sessions, removing the oldest.
-func cleanupOldSessionsDB(db *sql.DB, rdb *redis.Client, userID, currentSessionID string) {
-	rows, err := db.Query(`SELECT id FROM user_sessions WHERE user_id = $1 ORDER BY last_active_at DESC`, userID)
+// cleanupOldSessions keeps at most maxSessionsPerUser sessions per user, fully
+// revoking the oldest ones beyond the cap (refresh tokens + access tokens too,
+// otherwise a capped device could silently resurrect by refreshing).
+func cleanupOldSessions(db *sql.DB, rdb *redis.Client, authSvc *auth.AuthService, userID string) {
+	rows, err := db.Query(`SELECT id, refresh_hash, access_jti FROM user_sessions WHERE user_id = $1 ORDER BY last_active_at DESC`, userID)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 
-	var ids []string
+	var all []sessionRow
 	for rows.Next() {
-		var id string
-		if rows.Scan(&id) == nil {
-			ids = append(ids, id)
+		var s sessionRow
+		if rows.Scan(&s.ID, &s.RefreshHash, &s.AccessJTI) == nil {
+			all = append(all, s)
 		}
 	}
 
-	if len(ids) <= maxSessionsPerUser {
+	if len(all) <= maxSessionsPerUser {
 		return
 	}
 
-	toDelete := ids[maxSessionsPerUser:]
-	for _, id := range toDelete {
-		deleteSessionDB(db, rdb, userID, id)
+	for _, s := range all[maxSessionsPerUser:] {
+		revokeSession(db, rdb, authSvc, userID, s)
 	}
 }
 
-// ─── AuthHandler methods (convenience wrappers) ──────────────────────────────
-
-func (h *AuthHandler) createSession(userID, refreshToken, userAgent, ip string) {
-	createSessionDB(h.db, h.redis, userID, refreshToken, userAgent, ip)
+// revokeSession kills a single session everywhere at once:
+//  1. blacklists its current access token  → REST requests die immediately;
+//  2. deletes its refresh token            → it can never refresh again;
+//  3. deletes the row                      → it disappears from the list;
+//  4. publishes a realtime kick            → live WebSockets are closed.
+func revokeSession(db *sql.DB, rdb *redis.Client, authSvc *auth.AuthService, userID string, s sessionRow) {
+	if authSvc != nil {
+		if s.AccessJTI != "" {
+			// Any access token issued for this session expires within 1h of its
+			// own issuance, so blacklisting for 1h is airtight.
+			authSvc.BlacklistToken(s.AccessJTI, time.Now().Add(time.Hour))
+		}
+		if s.RefreshHash != "" {
+			authSvc.DeleteRefreshTokenByHash(userID, s.RefreshHash)
+		}
+	}
+	if db != nil {
+		db.Exec(`DELETE FROM user_sessions WHERE id = $1 AND user_id = $2`, s.ID, userID)
+	}
+	publishSessionRevoke(rdb, userID, s.ID)
 }
 
-func (h *AuthHandler) deleteSession(userID, sessionID string) {
-	deleteSessionDB(h.db, h.redis, userID, sessionID)
+// publishSessionRevoke tells every backend instance to disconnect the live
+// WebSockets belonging to this exact session.
+func publishSessionRevoke(rdb *redis.Client, userID, sessionID string) {
+	if rdb == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"user_id": userID, "session_id": sessionID})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	rdb.Publish(ctx, "user:revoke", payload)
+}
+
+// publishUserRevoke tells every backend instance to disconnect ALL live
+// WebSockets of a user (legacy full logout paths).
+func publishUserRevoke(rdb *redis.Client, userID string) {
+	if rdb == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"user_id": userID})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	rdb.Publish(ctx, "user:revoke", payload)
+}
+
+// loadSessionRows returns every session row of a user.
+func loadSessionRows(db *sql.DB, userID string) []sessionRow {
+	rows, err := db.Query(`SELECT id, refresh_hash, access_jti FROM user_sessions WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var out []sessionRow
+	for rows.Next() {
+		var s sessionRow
+		if rows.Scan(&s.ID, &s.RefreshHash, &s.AccessJTI) == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// fetchSessionByID returns a session row owned by the user, or sql.ErrNoRows.
+func fetchSessionByID(db *sql.DB, userID, sessionID string) (sessionRow, error) {
+	var s sessionRow
+	err := db.QueryRow(`SELECT id, refresh_hash, access_jti FROM user_sessions WHERE id = $1 AND user_id = $2`, sessionID, userID).
+		Scan(&s.ID, &s.RefreshHash, &s.AccessJTI)
+	return s, err
+}
+
+// findSessionByRefreshHash returns the session whose current refresh token has
+// the given hash, or sql.ErrNoRows. This is how rotation keeps identity.
+func findSessionByRefreshHash(db *sql.DB, userID, refreshHash string) (sessionRow, error) {
+	var s sessionRow
+	err := db.QueryRow(`SELECT id, refresh_hash, access_jti FROM user_sessions WHERE user_id = $1 AND refresh_hash = $2`, userID, refreshHash).
+		Scan(&s.ID, &s.RefreshHash, &s.AccessJTI)
+	return s, err
+}
+
+// ─── AuthHandler convenience wrappers ────────────────────────────────────────
+
+func (h *AuthHandler) createLoginSession(userID, username, domain, userAgent, ip string) (*auth.TokenPair, error) {
+	return createLoginSession(h.db, h.redis, h.authService, userID, username, domain, userAgent, ip)
+}
+
+func (h *AuthHandler) revokeSessions(userID string, rows []sessionRow) {
+	for _, s := range rows {
+		revokeSession(h.db, h.redis, h.authService, userID, s)
+	}
 }
 
 // ─── User-Agent parsing ───────────────────────────────────────────────────────
@@ -106,6 +204,10 @@ func parseUserAgent(ua string) (osName, browserName, deviceType string) {
 	}
 
 	switch {
+	// iPhone/iPad first: their user agents contain "Mac OS X" ("like Mac OS
+	// X"), so the iOS check must win over the generic macOS match.
+	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad"):
+		osName = "iOS"
 	case strings.Contains(ua, "Windows"):
 		osName = "Windows"
 	case strings.Contains(ua, "Mac OS"):
@@ -114,8 +216,6 @@ func parseUserAgent(ua string) (osName, browserName, deviceType string) {
 		osName = "Linux"
 	case strings.Contains(ua, "Android"):
 		osName = "Android"
-	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad"):
-		osName = "iOS"
 	default:
 		osName = "Unknown"
 	}
@@ -157,9 +257,12 @@ type sessionResponse struct {
 	BrowserName  string `json:"browser_name"`
 	DeviceType   string `json:"device_type"`
 	IPAddress    string `json:"ip_address"`
+	CountryCode  string `json:"country_code"`
+	CountryName  string `json:"country_name"`
 	CreatedAt    string `json:"created_at"`
 	LastActiveAt string `json:"last_active_at"`
 	IsCurrent    bool   `json:"is_current"`
+	Online       bool   `json:"online"`
 }
 
 // ListSessions returns all sessions for the current user.
@@ -171,10 +274,18 @@ func (h *AuthHandler) ListSessions(c *gin.Context) {
 		return
 	}
 	claims := claimsI.(*auth.Claims)
+	currentSessionID := claims.SessionID
+
+	// Seeing the list is itself activity: keep the current device's
+	// last_active_at honest so "последняя активность" is real.
+	if currentSessionID != "" {
+		h.db.Exec(`UPDATE user_sessions SET last_active_at = NOW() WHERE id = $1 AND user_id = $2`, currentSessionID, claims.UserID)
+	}
 
 	rows, err := h.db.Query(`
 		SELECT id, user_agent, os_name, browser_name, device_type,
 			COALESCE(ip_address::text, '') as ip_address,
+			country_code, country_name,
 			created_at, last_active_at
 		FROM user_sessions
 		WHERE user_id = $1
@@ -190,15 +301,18 @@ func (h *AuthHandler) ListSessions(c *gin.Context) {
 	for rows.Next() {
 		var s sessionResponse
 		if err := rows.Scan(&s.ID, &s.UserAgent, &s.OSName, &s.BrowserName,
-			&s.DeviceType, &s.IPAddress, &s.CreatedAt, &s.LastActiveAt); err != nil {
+			&s.DeviceType, &s.IPAddress, &s.CountryCode, &s.CountryName,
+			&s.CreatedAt, &s.LastActiveAt); err != nil {
 			continue
 		}
 
+		s.IsCurrent = currentSessionID != "" && s.ID == currentSessionID
+
 		if h.redis != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			val, err := h.redis.Get(ctx, fmt.Sprintf("current:%s:%s", claims.UserID, s.ID)).Result()
+			val, err := h.redis.Exists(ctx, fmt.Sprintf("ws:online:%s:%s", claims.UserID, s.ID)).Result()
 			cancel()
-			s.IsCurrent = err == nil && val != ""
+			s.Online = err == nil && val > 0
 		}
 
 		sessions = append(sessions, s)
@@ -211,7 +325,7 @@ func (h *AuthHandler) ListSessions(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(sessions))
 }
 
-// DeleteSession removes a single session.
+// DeleteSession removes a single session and instantly revokes it.
 // DELETE /api/v1/auth/sessions/:id
 func (h *AuthHandler) DeleteSession(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
@@ -227,38 +341,35 @@ func (h *AuthHandler) DeleteSession(c *gin.Context) {
 		return
 	}
 
-	var sessionExists bool
-	h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM user_sessions WHERE id = $1 AND user_id = $2)`,
-		sessionID, claims.UserID).Scan(&sessionExists)
-
-	if !sessionExists {
+	row, err := fetchSessionByID(h.db, claims.UserID, sessionID)
+	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("Session not found"))
 		return
 	}
-
-	isCurrent := false
-	if h.redis != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		val, err := h.redis.Get(ctx, fmt.Sprintf("current:%s:%s", claims.UserID, sessionID)).Result()
-		cancel()
-		isCurrent = err == nil && val != ""
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
+		return
 	}
 
-	h.deleteSession(claims.UserID, sessionID)
-	middleware.InvalidateAuthCache(h.redis, claims.UserID)
+	wasCurrent := claims.SessionID != "" && claims.SessionID == sessionID
 
-	if isCurrent && claims.ExpiresAt != nil {
+	revokeSession(h.db, h.redis, h.authService, claims.UserID, row)
+
+	// If the caller just killed their own session, also blacklist the access
+	// token they are using right now (it predates the row's stored jti only if
+	// it was issued after the last rotation — blacklisting both is harmless).
+	if wasCurrent && claims.ID != "" && claims.ExpiresAt != nil {
 		h.authService.BlacklistToken(claims.ID, claims.ExpiresAt.Time)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"ok":          true,
-		"is_current":  isCurrent,
-		"was_current": isCurrent,
+		"is_current":  wasCurrent,
+		"was_current": wasCurrent,
 	}))
 }
 
-// DeleteAllOtherSessions removes all sessions except the current one.
+// DeleteAllOtherSessions removes every session except the current one.
 // DELETE /api/v1/auth/sessions
 func (h *AuthHandler) DeleteAllOtherSessions(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
@@ -268,62 +379,19 @@ func (h *AuthHandler) DeleteAllOtherSessions(c *gin.Context) {
 	}
 	claims := claimsI.(*auth.Claims)
 
-	// Find current session ID by scanning Redis
-	var currentSessionID string
-	if h.redis != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		iter := h.redis.Scan(ctx, 0, fmt.Sprintf("current:%s:*", claims.UserID), 100).Iterator()
-		for iter.Next(ctx) {
-			key := iter.Val()
-			parts := strings.Split(key, ":")
-			if len(parts) == 3 {
-				currentSessionID = parts[2]
-				break
-			}
-		}
-		cancel()
-	}
+	currentSessionID := claims.SessionID
+	rows := loadSessionRows(h.db, claims.UserID)
 
-	if currentSessionID == "" {
-		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
-		h.authService.RevokeAllRefreshTokens(claims.UserID)
-		middleware.InvalidateAuthCache(h.redis, claims.UserID)
-		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": 0}))
-		return
-	}
-
-	result, err := h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1 AND id != $2`,
-		claims.UserID, currentSessionID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
-		return
-	}
-	deleted, _ := result.RowsAffected()
-
-	middleware.InvalidateAuthCache(h.redis, claims.UserID)
-
-	if h.redis != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		iter := h.redis.Scan(ctx, 0, fmt.Sprintf("refresh:%s:*", claims.UserID), 100).Iterator()
-		for iter.Next(ctx) {
-			key := iter.Val()
-			parts := strings.Split(key, ":")
-			if len(parts) == 3 && parts[2] != currentSessionID {
-				h.redis.Del(ctx, key)
-			}
-		}
-
-		iter2 := h.redis.Scan(ctx, 0, fmt.Sprintf("current:%s:*", claims.UserID), 100).Iterator()
-		for iter2.Next(ctx) {
-			key := iter2.Val()
-			parts := strings.Split(key, ":")
-			if len(parts) == 3 && parts[2] != currentSessionID {
-				h.redis.Del(ctx, key)
-			}
+	others := make([]sessionRow, 0, len(rows))
+	for _, s := range rows {
+		if s.ID != currentSessionID {
+			others = append(others, s)
 		}
 	}
 
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": deleted}))
+	h.revokeSessions(claims.UserID, others)
+
+	// A pure-bearer/API caller has no session row of its own; the rows we found
+	// belong to its other devices. Nothing further to revoke.
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"deleted": len(others)}))
 }

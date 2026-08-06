@@ -1,12 +1,9 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
-	"strings"
-	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
@@ -99,33 +96,32 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	}
 
 	// M2 (security audit): a password change must terminate every other
-	// session. The current device keeps working — its HttpOnly refresh cookie
-	// identifies the current session row (session id = SHA-256 of the refresh
-	// token), so only refresh tokens and session rows of the other devices are
-	// revoked. Without a refresh cookie (API/bot caller using a bearer token)
-	// every session is revoked and the caller re-authenticates.
-	currentSessionID := ""
-	if rt, err := c.Cookie(middleware.RefreshTokenCookie); err == nil && rt != "" {
-		currentSessionID = SessionIDFromRefreshToken(rt)
-	}
-	if currentSessionID != "" {
-		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1 AND id != $2`, userClaims.UserID, currentSessionID)
-		if h.redis != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
-			for _, pattern := range []string{"refresh:%s:*", "current:%s:*"} {
-				iter := h.redis.Scan(ctx, 0, fmt.Sprintf(pattern, userClaims.UserID), 100).Iterator()
-				for iter.Next(ctx) {
-					parts := strings.Split(iter.Val(), ":")
-					if len(parts) == 3 && parts[2] != currentSessionID {
-						h.redis.Del(ctx, iter.Val())
-					}
-				}
+	// session. The current device keeps working — its session id comes from the
+	// sid claim (or the HttpOnly refresh cookie), so only the refresh tokens,
+	// access tokens, rows and live WebSockets of the OTHER devices are revoked.
+	// Without any session identity (API/bot caller using a bearer token) every
+	// session is revoked and the caller re-authenticates.
+	currentSessionID := userClaims.SessionID
+	if currentSessionID == "" {
+		if rt, err := c.Cookie(middleware.RefreshTokenCookie); err == nil && rt != "" {
+			if s, err := findSessionByRefreshHash(h.db, userClaims.UserID, sha256hex(rt)); err == nil {
+				currentSessionID = s.ID
 			}
 		}
+	}
+	rows := loadSessionRows(h.db, userClaims.UserID)
+	others := make([]sessionRow, 0, len(rows))
+	for _, s := range rows {
+		if s.ID != currentSessionID {
+			others = append(others, s)
+		}
+	}
+	if currentSessionID == "" {
+		// No identity — revoke every session row found (they all belong to
+		// other devices of the user).
+		h.revokeSessions(userClaims.UserID, rows)
 	} else {
-		h.authService.RevokeAllRefreshTokens(userClaims.UserID)
-		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, userClaims.UserID)
+		h.revokeSessions(userClaims.UserID, others)
 	}
 	middleware.InvalidateAuthCache(h.redis, userClaims.UserID)
 

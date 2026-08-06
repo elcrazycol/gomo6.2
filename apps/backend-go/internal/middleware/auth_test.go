@@ -185,8 +185,13 @@ func TestAuthMiddleware_BlacklistedToken_NoRedis(t *testing.T) {
 }
 
 // TestAuthMiddleware_WrongUserToken verifies a token for a different service is rejected.
+// The secrets are pinned explicitly: when JWT_SECRET exists in the environment
+// (e.g. a local .env export), two bare NewAuthService() calls would share one
+// secret and this test would silently pass a foreign token.
 func TestAuthMiddleware_DifferentServiceToken(t *testing.T) {
+	t.Setenv("JWT_SECRET", "test-secret-a-that-is-definitely-32-bytes-aaaa")
 	svcA := auth.NewAuthService()
+	t.Setenv("JWT_SECRET", "test-secret-b-that-is-definitely-32-bytes-bbbb")
 	svcB := auth.NewAuthService()
 
 	token, err := svcA.GenerateToken("user-123", "alice", "gomo6.wtf")

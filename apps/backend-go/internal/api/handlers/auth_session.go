@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
@@ -76,11 +76,21 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		}
 	}
 
-	// Compute old session ID before rotation
-	oldSessionID := SessionIDFromRefreshToken(req.RefreshToken)
+	// Compute the hash of the refresh token BEFORE rotation so the session row
+	// can be located and rotated in place (stable device identity).
+	oldHash := sha256hex(req.RefreshToken)
+	row, rowErr := findSessionByRefreshHash(h.db, claims.UserID, oldHash)
+	hasSession := rowErr == nil
+	sessionID := ""
+	if hasSession {
+		sessionID = row.ID
+	} else {
+		// Legacy session without a row — mint a fresh identity.
+		sessionID = newSessionID()
+	}
 
-	// Validate and rotate refresh token
-	tokenPair, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, req.RefreshToken)
+	// Validate and rotate refresh token (stays bound to the same sessionID).
+	tokenPair, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, sessionID, req.RefreshToken)
 	if err != nil {
 		// Only revoke all sessions if the refresh token was found but generation
 		// failed (potential token theft). "Not found" is benign (already used, expired).
@@ -94,9 +104,33 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	// Update session in DB: delete old record, create new one with new refresh token
-	h.db.Exec(`DELETE FROM user_sessions WHERE id = $1 AND user_id = $2`, oldSessionID, claims.UserID)
-	h.createSession(claims.UserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
+	if hasSession {
+		// The previous access token is superseded: blacklist it so a revoked or
+		// rotated session can never hold two live access tokens at once.
+		if row.AccessJTI != "" {
+			h.authService.BlacklistToken(row.AccessJTI, time.Now().Add(time.Hour))
+		}
+		// Rotate the session row in place — the id NEVER changes.
+		res, execErr := h.db.Exec(`UPDATE user_sessions
+			SET refresh_hash = $1, access_jti = $2, user_agent = $3,
+				ip_address = NULLIF($4, '')::inet, last_active_at = NOW()
+			WHERE id = $5 AND user_id = $6`,
+			sha256hex(tokenPair.RefreshToken), tokenPair.AccessJTI, c.GetHeader("User-Agent"), c.ClientIP(), row.ID, claims.UserID)
+		if execErr == nil {
+			if n, _ := res.RowsAffected(); n == 0 {
+				// The row vanished between lookup and rotation — the session was
+				// revoked concurrently. Fail closed instead of handing out a fresh
+				// identity for a dead device.
+				h.authService.DeleteRefreshTokenByHash(claims.UserID, sha256hex(tokenPair.RefreshToken))
+				c.JSON(http.StatusUnauthorized, models.ErrorResponse("Session has been revoked. Please log in again."))
+				return
+			}
+		}
+	} else {
+		// Legacy session whose row predates stable session ids — mint a fresh one.
+		insertSessionRow(h.db, claims.UserID, tokenPair.SessionID, sha256hex(tokenPair.RefreshToken), tokenPair.AccessJTI, c.GetHeader("User-Agent"), c.ClientIP())
+		cleanupOldSessions(h.db, h.redis, h.authService, claims.UserID)
+	}
 	middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
@@ -106,12 +140,13 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}))
 }
 
-// Logout blacklists the access token and revokes all refresh tokens.
+// Logout blacklists the access token and revokes the CURRENT session (this
+// device only). Other devices stay logged in.
 // POST /api/v1/auth/logout
 //
 // Logout godoc
 // @Summary      Log out
-// @Description  Blacklist access token and revoke all refresh tokens
+// @Description  Blacklist access token and revoke the current session
 // @Tags         Auth
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -159,15 +194,29 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		h.authService.BlacklistToken(claims.ID, claims.ExpiresAt.Time)
 	}
 
-	// Revoke all refresh tokens for this user
-	h.authService.RevokeAllRefreshTokens(claims.UserID)
-	middleware.InvalidateAuthCache(h.redis, claims.UserID)
-
-	// Delete all sessions from DB
-	h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
-	if h.redis != nil {
-		_ = h.redis.Publish(context.Background(), "user:revoke", claims.UserID).Err()
+	// Identify the current session: prefer the sid claim, fall back to the
+	// HttpOnly refresh cookie for browser reloads after the access cookie
+	// expired. Logout only ever kills THIS device.
+	currentSessionID := claims.SessionID
+	if currentSessionID == "" {
+		if rt, err := c.Cookie(middleware.RefreshTokenCookie); err == nil && rt != "" {
+			if s, err := findSessionByRefreshHash(h.db, claims.UserID, sha256hex(rt)); err == nil {
+				currentSessionID = s.ID
+			}
+		}
 	}
+
+	if currentSessionID != "" {
+		if row, err := fetchSessionByID(h.db, claims.UserID, currentSessionID); err == nil {
+			revokeSession(h.db, h.redis, h.authService, claims.UserID, row)
+		}
+	} else {
+		// No identifiable session row (pure bearer/API client): revoke everything.
+		h.authService.RevokeAllRefreshTokens(claims.UserID)
+		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, claims.UserID)
+		publishUserRevoke(h.redis, claims.UserID)
+	}
+	middleware.InvalidateAuthCache(h.redis, claims.UserID)
 	middleware.ClearAuthCookies(c)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
