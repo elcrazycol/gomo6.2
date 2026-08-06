@@ -298,6 +298,15 @@ func (h *UniversalHandler) handleGet(c *gin.Context, tableName string) {
 		results = append(results, row)
 	}
 
+	// L6: sanitize user-supplied customization CSS on read as well, so rows
+	// written before server-side sanitization existed are neutralized for
+	// every viewer (defense-in-depth alongside the write-path sanitizer).
+	if tableName == "profile_customization" {
+		for _, row := range results {
+			sanitizeProfileCustomizationRow(row)
+		}
+	}
+
 	c.JSON(http.StatusOK, models.SuccessResponse(results))
 }
 
@@ -369,6 +378,21 @@ RETURNING *`
 		if !hasUID {
 			return "", nil, false
 		}
+		// L6: user-supplied CSS is never trusted — sanitize it down to the
+		// allow-list before it reaches the DB, because the stored value is later
+		// rendered inline on every viewer's screen.
+		usernameCSS := data["username_css"]
+		if s, ok := usernameCSS.(string); ok {
+			usernameCSS = sanitizeProfileCSS(s)
+		}
+		badgeText := data["profile_badge_text"]
+		if s, ok := badgeText.(string); ok {
+			badgeText = sanitizeProfileBadgeText(s)
+		}
+		badgeCSS := data["profile_badge_css"]
+		if s, ok := badgeCSS.(string); ok {
+			badgeCSS = sanitizeProfileCSS(s)
+		}
 		q := `INSERT INTO profile_customization (user_id, username_css, profile_badge_text, profile_badge_css, updated_at)
 VALUES ($1, $2, $3, $4, NOW())
 ON CONFLICT (user_id) DO UPDATE SET
@@ -379,9 +403,9 @@ ON CONFLICT (user_id) DO UPDATE SET
 RETURNING *`
 		return q, []interface{}{
 			uid,
-			data["username_css"],
-			data["profile_badge_text"],
-			data["profile_badge_css"],
+			usernameCSS,
+			badgeText,
+			badgeCSS,
 		}, true
 	default:
 		return "", nil, false
@@ -414,23 +438,27 @@ func scanRowToMap(rows *sql.Rows) (map[string]interface{}, error) {
 }
 
 // wallOwnerVisibleToViewer reports whether viewerID may interact with the wall
-// of ownerID: the owner themself, owners of non-private profiles, or mutual
-// friends. This mirrors the REST read predicate (profileWallFinishSelectQuery)
-// so the write path enforces the exact same privacy rule.
+// of ownerID: the owner themself, owners of non-private profiles who have not
+// hidden their wall (private_hide_wall), or mutual friends. This mirrors the
+// REST read predicate (profileWallFinishSelectQuery) so the write path enforces
+// the exact same privacy rule.
 func (h *UniversalHandler) wallOwnerVisibleToViewer(viewerID, ownerID string) (bool, error) {
 	if viewerID == ownerID {
 		return true, nil
 	}
-	var private bool
-	err := h.db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", ownerID).Scan(&private)
+	var private, hideWall bool
+	err := h.db.QueryRow(
+		"SELECT COALESCE(private_profile, false), COALESCE(private_hide_wall, false) FROM privacy_settings WHERE user_id = $1", ownerID,
+	).Scan(&private, &hideWall)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// No privacy settings row means the profile is not private.
+			// No privacy settings row means the profile is public and the wall
+			// is not hidden.
 			return true, nil
 		}
 		return false, err
 	}
-	if !private {
+	if !private && !hideWall {
 		return true, nil
 	}
 	var friend bool
@@ -455,25 +483,66 @@ func (h *UniversalHandler) enforceWallTargetPrivacy(c *gin.Context, tableName st
 	case "profile_wall_posts":
 		wallOwner, _ = data["user_id"].(string)
 	case "profile_wall_post_comments", "profile_wall_post_likes":
-		if postID, ok := data["post_id"].(string); ok && postID != "" {
-			_ = h.db.QueryRowContext(c.Request.Context(),
-				"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
+		// L5: the target post must exist. A nonexistent post would leave
+		// wallOwner empty and let the `wallOwner == ""` guard below pass,
+		// creating an orphan comment/like whose post is gone — and such orphans
+		// were readable by everyone (the LEFT JOIN read path had no wall owner
+		// to compare against). Fail closed: missing post → 404.
+		postID, _ := data["post_id"].(string)
+		if postID == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("post_id is required"))
+			return false
+		}
+		err := h.db.QueryRowContext(c.Request.Context(),
+			"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
+			} else {
+				serverError(c, "lookup wall post", err)
+			}
+			return false
 		}
 	case "profile_wall_comment_likes":
-		if commentID, ok := data["comment_id"].(string); ok && commentID != "" {
-			_ = h.db.QueryRowContext(c.Request.Context(), `
-				SELECT wp.user_id
-				FROM profile_wall_post_comments c
-				JOIN profile_wall_posts wp ON wp.id = c.post_id
-				WHERE c.id = $1`, commentID).Scan(&wallOwner)
+		// L5: same fail-closed rule — the commented post must exist. The JOIN
+		// also rejects likes on orphan comments whose post is already gone.
+		commentID, _ := data["comment_id"].(string)
+		if commentID == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("comment_id is required"))
+			return false
+		}
+		err := h.db.QueryRowContext(c.Request.Context(), `
+			SELECT wp.user_id
+			FROM profile_wall_post_comments c
+			JOIN profile_wall_posts wp ON wp.id = c.post_id
+			WHERE c.id = $1`, commentID).Scan(&wallOwner)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall comment not found"))
+			} else {
+				serverError(c, "lookup wall comment", err)
+			}
+			return false
 		}
 	case "profile_wall_post_reposts":
-		// post_id references the ORIGINAL post being reposted — its wall owner
-		// must be visible to the caller, otherwise private content could be
-		// mirrored onto a public wall.
-		if postID, ok := data["post_id"].(string); ok && postID != "" {
-			_ = h.db.QueryRowContext(c.Request.Context(),
-				"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
+		// post_id references the ORIGINAL post being reposted — it must exist
+		// and its wall owner must be visible to the caller, otherwise private
+		// content could be mirrored onto a public wall (and a dangling repost
+		// would be readable by everyone, exactly like an orphan comment).
+		postID, _ := data["post_id"].(string)
+		if postID == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("post_id is required"))
+			return false
+		}
+		err := h.db.QueryRowContext(c.Request.Context(),
+			"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&wallOwner)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, models.ErrorResponse("Wall post not found"))
+			} else {
+				serverError(c, "lookup wall post", err)
+			}
+			return false
 		}
 		// reposted_wall_post_id is the copy placed on the caller's own wall — it
 		// must belong to the caller, otherwise cross-links to other users' posts
@@ -618,6 +687,24 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	// K1: force ownership so writes cannot impersonate another user.
 	if !h.enforcePostOwnership(c, tableName, data) {
 		return
+	}
+
+	// H1 (security audit): joining a board on your own must create the default
+	// membership — a client-supplied role_id would let anyone promote themselves
+	// to a privileged role or inherit another board's permission set.
+	if tableName == "gomosub_memberships" {
+		if uid, _ := data["user_id"].(string); uid != "" && uid == authenticatedUserID(c) {
+			if rid, ok := data["role_id"]; ok && rid != nil && fmt.Sprint(rid) != "" {
+				c.JSON(http.StatusForbidden, models.ErrorResponse("Joining a board cannot assign a role"))
+				return
+			}
+		}
+	}
+
+	// H1: channel_permissions has no board_id column — the request board_id is
+	// only consumed by the permission check, never stored.
+	if tableName == "channel_permissions" {
+		delete(data, "board_id")
 	}
 
 	if upsertQuery, upsertArgs, useUpsert := upsertInsertQuery(tableName, data); useUpsert {
@@ -803,6 +890,35 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		}
 	}
 
+	// L5: a comment's target post is fixed at creation. A generic PUT must not
+	// be able to re-point post_id onto another (possibly nonexistent) post —
+	// that would bypass the POST-time privacy check (enforceWallTargetPrivacy)
+	// and could forge orphan comments on a foreign wall.
+	if tableName == "profile_wall_post_comments" {
+		delete(data, "post_id")
+	}
+
+	// H1 (security audit): a membership role must belong to the board of the
+	// membership being modified — a cross-board role reference would inherit
+	// another board's permission set.
+	if tableName == "gomosub_memberships" {
+		if rid, ok := data["role_id"]; ok && rid != nil && fmt.Sprint(rid) != "" {
+			if boardID := gomosubBoardIDFromRequest(c); boardID != "" {
+				var valid bool
+				if err := h.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM gomosub_roles WHERE id = $1 AND board_id = $2)`, fmt.Sprint(rid), boardID).Scan(&valid); err != nil || !valid {
+					c.JSON(http.StatusForbidden, models.ErrorResponse("Role does not belong to this board"))
+					return
+				}
+			}
+		}
+	}
+
+	// H1: channel_permissions has no board_id column — the request board_id is
+	// only consumed by the permission check and the board scope, never stored.
+	if tableName == "channel_permissions" {
+		delete(data, "board_id")
+	}
+
 	// Build UPDATE query
 	query := "UPDATE " + tableName + " SET "
 	var updates []string
@@ -831,11 +947,29 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		return
 	}
 
+	// H1 (security audit): gomosub management writes must be bound to the board
+	// that granted the permission. Otherwise a moderator of any board could
+	// modify records of any other board by passing their own board_id.
+	if isGomosubManagementTable(tableName) {
+		if boardID := gomosubBoardIDFromRequest(c); boardID != "" {
+			clause, arg := gomosubBoardScopeClause(tableName, boardID, argIndex)
+			clauses = append(clauses, clause)
+			args = append(args, arg)
+			argIndex++
+		}
+	}
+
 	for key, values := range c.Request.URL.Query() {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
 		if !isValidColumnName(key) {
+			continue
+		}
+		// H1: for gomosub management tables, board_id is consumed by the board
+		// scope above — adding it again from the query would duplicate the clause
+		// (and would be an undefined column on channel_permissions).
+		if isGomosubManagementTable(tableName) && key == "board_id" {
 			continue
 		}
 		for _, rawValue := range values {
@@ -963,11 +1097,24 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		return
 	}
 
+	// H1 (security audit): same board binding as PUT — see handlePut.
+	if isGomosubManagementTable(tableName) {
+		if boardID := gomosubBoardIDFromRequest(c); boardID != "" {
+			clauses = append(clauses, "board_id = $"+strconv.Itoa(argIndex))
+			args = append(args, boardID)
+			argIndex++
+		}
+	}
+
 	for key, values := range c.Request.URL.Query() {
 		if key == "select" || key == "order" || key == "limit" || key == "offset" || key == "or" {
 			continue
 		}
 		if !isValidColumnName(key) {
+			continue
+		}
+		// H1: board_id is consumed by the board scope above (see handlePut).
+		if isGomosubManagementTable(tableName) && key == "board_id" {
 			continue
 		}
 		for _, rawValue := range values {

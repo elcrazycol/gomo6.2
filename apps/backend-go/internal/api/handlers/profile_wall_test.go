@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -465,6 +466,18 @@ func TestUniversalPost_ProfileWallPost(t *testing.T) {
 func TestUniversalPost_ProfileWallComment(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
+	// L5: the wall-privacy gate resolves the post's owner first; the post must
+	// exist (otherwise the comment would be an orphan readable by everyone).
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("post1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+
+	// post1 belongs to u1, commenter is u2 → check u1's wall visibility
+	// (public profile, wall not hidden → visible).
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"private", "hide_wall"}).AddRow(false, false))
+
 	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_comments \(.*\).*VALUES \(.*\).*RETURNING \*`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content"}).
@@ -507,6 +520,12 @@ func TestUniversalPost_ProfileWallComment(t *testing.T) {
 func TestUniversalPost_ProfileWallPostLike(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
+	// L5: the wall-privacy gate resolves the post's owner first; the post must
+	// exist. post1 belongs to u1 (the caller) → allowed without a privacy check.
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("post1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+
 	mock.ExpectQuery(`(?s).*INSERT INTO profile_wall_post_likes.*VALUES.*ON CONFLICT.*DO UPDATE SET user_id = EXCLUDED.user_id.*RETURNING \*`).
 		WithArgs("post1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id"}).
@@ -532,6 +551,144 @@ func TestUniversalPost_ProfileWallPostLike_InvalidBody(t *testing.T) {
 
 	if w.Code != 400 {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// ─── L5: orphan-comment hardening ───────────────────────────────────────────
+
+// TestHandleProfileWallCommentsGet_UsesInnerJoin is a regression guard for the
+// L5 leak: the comment read query must INNER JOIN the parent post so that a
+// comment whose post has been deleted (orphan) is dropped instead of passing
+// the privacy predicate with a NULL wall owner.
+func TestHandleProfileWallCommentsGet_UsesInnerJoin(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c.*INNER JOIN profile_wall_posts wp ON wp\.id = c\.post_id.*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "created_at", "updated_at", "author"}))
+
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_post_comments", nil, &auth.Claims{UserID: "viewer"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_ProfileWallComment_PostNotFound(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// L5: commenting on a nonexistent post must be rejected (fail-closed), not
+	// silently creating an orphan comment readable by everyone.
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("ghost-post").
+		WillReturnError(sql.ErrNoRows)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_comments", map[string]string{
+		"post_id": "ghost-post",
+		"content": "orphan attempt",
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_ProfileWallComment_MissingPostID(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_comments", map[string]string{
+		"content": "no post reference",
+	}, &auth.Claims{UserID: "u2"})
+	h.HandleTableRequest(c)
+	_ = mock
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_ProfileWallPostLike_PostNotFound(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("ghost-post").
+		WillReturnError(sql.ErrNoRows)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_likes", map[string]string{
+		"post_id": "ghost-post",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_CommentLike_CommentNotFound(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// L5: liking a comment whose (post) chain is gone must be rejected.
+	mock.ExpectQuery(`(?s).*SELECT wp\.user_id.*FROM profile_wall_post_comments c JOIN profile_wall_posts wp.*WHERE c\.id = \$1`).
+		WithArgs("ghost-comment").
+		WillReturnError(sql.ErrNoRows)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_comment_likes", map[string]string{
+		"comment_id": "ghost-comment",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_Repost_PostNotFound(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// L5: reposting a nonexistent post would create a dangling repost readable
+	// by everyone — reject it.
+	mock.ExpectQuery(`SELECT user_id FROM profile_wall_posts WHERE id = \$1`).
+		WithArgs("ghost-post").
+		WillReturnError(sql.ErrNoRows)
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/profile_wall_post_reposts", map[string]string{
+		"post_id": "ghost-post",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_ProfileWallComment_CannotMovePost(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// L5: the client tries to re-point the comment onto another post via a
+	// generic PUT; post_id must be dropped from the SET clause (the target post
+	// is fixed at creation), so the UPDATE stays scoped to the caller's own
+	// comment and only content changes.
+	mock.ExpectQuery(`(?s).*UPDATE profile_wall_post_comments SET content = \$1 WHERE user_id = \$2 AND id = \$3.*RETURNING \*`).
+		WithArgs("updated", "u1", "c1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content"}).
+			AddRow("c1", "post1", "u1", "updated"))
+
+	// Enrichment fetch
+	authorJSON := `{"username": "commenter", "avatar_url": null}`
+	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE c\.id = \$1`).
+		WithArgs("c1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "content_json", "created_at", "updated_at", "author"}).
+			AddRow("c1", "post1", "u1", "updated", nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", authorJSON))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_post_comments?id=eq.c1", map[string]string{
+		"content": "updated",
+		"post_id": "victim-post",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

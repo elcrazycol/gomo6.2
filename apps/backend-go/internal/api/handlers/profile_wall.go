@@ -37,12 +37,18 @@ LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
 
 // handleProfileWallPostCommentsGet — GET comments with author.
 func (h *UniversalHandler) handleProfileWallPostCommentsGet(c *gin.Context) {
+	// L5: the join to the parent post must be INNER, not LEFT. The privacy
+	// predicate below compares wp.user_id (the wall owner) against the viewer;
+	// with a LEFT JOIN a comment whose post has been deleted leaves wp.user_id
+	// NULL, so COALESCE(NULL, false) = false makes the predicate pass and the
+	// orphan comment becomes readable by every authenticated user. An INNER
+	// JOIN drops such orphans entirely.
 	query := `
 SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
-LEFT JOIN profile_wall_posts wp ON wp.id = c.post_id
+INNER JOIN profile_wall_posts wp ON wp.id = c.post_id
 LEFT JOIN privacy_settings ps ON ps.user_id = wp.user_id
 `
 	h.profileWallFinishSelectQuery(c, query, "c", 1, "wp.user_id", "ps")
@@ -100,16 +106,18 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 	// predicate to every row, including repost lookups that do not carry a
 	// user_id filter, so private walls cannot be enumerated by post ID.
 	//
-	// Privacy guarantee: when the wall owner has private_profile = true, the wall
-	// is visible ONLY to the owner and mutual friends. Sub-settings such as
-	// private_hide_wall must NOT be able to re-open the wall — private profile
-	// means private wall, period. This predicate is intentionally duplicated in
-	// the write path (enforcePostOwnership) and the WebSocket room gate so every
-	// channel (REST, WS, media serving) enforces the same rule.
+	// Privacy guarantee: a wall is visible to the owner, to mutual friends, and
+	// to everyone else ONLY when the profile is public AND the owner has not
+	// hidden the wall (private_hide_wall). private_profile = true always means
+	// a private wall (the sub-settings can never re-open it), and for public
+	// profiles private_hide_wall = true hides the wall from non-friends — the
+	// toggle must not be a no-op. This predicate is intentionally duplicated in
+	// the write path (enforcePostOwnership), the WebSocket room gate and the
+	// media route (canViewUserWall) so every channel enforces the same rule.
 	viewerArg := "$" + strconv.Itoa(ai)
 	clauses = append(clauses, "("+
 		ownerColumn+" = "+viewerArg+
-		" OR COALESCE("+privacyAlias+".private_profile, false) = false"+
+		" OR (COALESCE("+privacyAlias+".private_profile, false) = false AND COALESCE("+privacyAlias+".private_hide_wall, false) = false)"+
 		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
 	args = append(args, claims.UserID)
 
