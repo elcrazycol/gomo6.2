@@ -172,7 +172,14 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	log.Printf("[Drops] Config request from %s, hasSig=%v, publicKey=%v",
 		c.ClientIP(), sigHeader != "", h.publicKey != nil)
 
-	if h.publicKey != nil && sigHeader != "" {
+	// C2 (security audit): the config request must be authenticated one way or
+	// another — either a valid DePay signature (server-to-server proxy from the
+	// DePay platform, which carries no browser cookies) or an authenticated
+	// browser session with user_id bound to the caller. Anonymous unsigned
+	// requests are rejected so nobody can mint pending payment rows for
+	// arbitrary users.
+	sigValid := false
+	if sigHeader != "" && h.publicKey != nil {
 		sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
 		if err != nil {
 			sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
@@ -186,10 +193,11 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 				log.Printf("[Drops] Config signature verification FAILED: %v", err)
 			} else {
 				log.Printf("[Drops] Config signature verified OK")
+				sigValid = true
 			}
 		}
 	} else if h.publicKey == nil {
-		log.Printf("[Drops] WARNING: No public key loaded, skipping config signature verification")
+		log.Printf("[Drops] WARNING: No public key loaded — unsigned config requests will be rejected")
 	}
 
 	var req DropsConfigRequest
@@ -206,6 +214,21 @@ func (h *DropsHandler) DropsConfig(c *gin.Context) {
 	if req.UserID == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("user_id is required"))
 		return
+	}
+
+	// Signed requests come from the trusted DePay platform (it holds the
+	// signing key), so the payload's user_id is trusted as-is. Unsigned
+	// requests must come from an authenticated browser session whose user_id
+	// matches the caller.
+	if !sigValid {
+		claims := ensureAuth(c)
+		if claims == nil {
+			return
+		}
+		if req.UserID != claims.UserID {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("user_id must match the authenticated user"))
+			return
+		}
 	}
 	var userExists bool
 	if err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", req.UserID).Scan(&userExists); err != nil || !userExists {
@@ -316,31 +339,37 @@ func (h *DropsHandler) DropsCallback(c *gin.Context) {
 	}
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(rawBody))
 
-	if h.publicKey != nil {
-		sigHeader := c.GetHeader("x-signature")
-		if sigHeader == "" {
-			log.Printf("[Drops] WARNING: No signature on callback")
-		} else {
-			sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
-			if err != nil {
-				sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
-			}
-			if err != nil {
-				log.Printf("[Drops] Callback signature decode failed: %v", err)
-			} else {
-				hash := sha256.Sum256(rawBody)
-				opts := &rsa.PSSOptions{SaltLength: 64, Hash: crypto.SHA256}
-				if err := rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, opts); err != nil {
-					log.Printf("[Drops] Callback signature verification FAILED: %v", err)
-					c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
-					return
-				}
-				log.Printf("[Drops] Callback signature verified OK")
-			}
-		}
-	} else {
-		log.Printf("[Drops] WARNING: No public key loaded, skipping callback signature verification")
+	// C1 (security audit): fail closed. The webhook credits real money-backed
+	// currency, so a callback without a valid DePay signature must never be
+	// processed — missing key, missing header or bad signature are all rejections.
+	if h.publicKey == nil {
+		log.Printf("[Drops] WARNING: DEPAY_PUBLIC_KEY not configured — rejecting callback")
+		c.JSON(http.StatusServiceUnavailable, models.ErrorResponse("Callback verification unavailable"))
+		return
 	}
+	sigHeader := c.GetHeader("x-signature")
+	if sigHeader == "" {
+		log.Printf("[Drops] WARNING: No signature on callback — rejecting")
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Missing signature"))
+		return
+	}
+	sigBytes, err := base64.RawURLEncoding.DecodeString(sigHeader)
+	if err != nil {
+		sigBytes, err = base64.StdEncoding.DecodeString(sigHeader)
+	}
+	if err != nil {
+		log.Printf("[Drops] Callback signature decode failed: %v", err)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
+		return
+	}
+	hash := sha256.Sum256(rawBody)
+	opts := &rsa.PSSOptions{SaltLength: 64, Hash: crypto.SHA256}
+	if err := rsa.VerifyPSS(h.publicKey, crypto.SHA256, hash[:], sigBytes, opts); err != nil {
+		log.Printf("[Drops] Callback signature verification FAILED: %v", err)
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid signature"))
+		return
+	}
+	log.Printf("[Drops] Callback signature verified OK")
 
 	var req DePayCallbackRequest
 	if err := json.Unmarshal(rawBody, &req); err != nil {
@@ -524,9 +553,26 @@ type ManualVerifyRequest struct {
 // @Failure      404 {object} models.APIResponse
 // @Router       /drops/manual-verify [post]
 // @Security     BearerAuth
+// isAdminUser reports whether the user holds the platform 'admin' role.
+func (h *DropsHandler) isAdminUser(userID string) bool {
+	var count int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, userID).Scan(&count); err != nil {
+		return false
+	}
+	return count > 0
+}
+
 func (h *DropsHandler) ManualVerify(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
+		return
+	}
+
+	// C2 (security audit): manual crediting must be an admin action. A regular
+	// user can otherwise credit drops against a pending row they created
+	// themselves without ever paying.
+	if !h.isAdminUser(claims.UserID) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Admin access required"))
 		return
 	}
 	userID := claims.UserID
