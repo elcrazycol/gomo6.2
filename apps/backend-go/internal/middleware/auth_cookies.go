@@ -50,7 +50,14 @@ func SetAuthCookies(c *gin.Context, userID, accessToken, refreshToken string, ma
 	http.SetCookie(c.Writer, &http.Cookie{Name: AccessTokenCookie, Value: accessToken, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: secure, SameSite: sameSite})
 	http.SetCookie(c.Writer, &http.Cookie{Name: RefreshTokenCookie, Value: refreshToken, Path: "/api/v1/auth", MaxAge: 7 * 24 * 60 * 60, HttpOnly: true, Secure: secure, SameSite: sameSite})
 	http.SetCookie(c.Writer, &http.Cookie{Name: RefreshUserCookie, Value: userID, Path: "/api/v1/auth", MaxAge: 7 * 24 * 60 * 60, HttpOnly: true, Secure: secure, SameSite: sameSite})
-	http.SetCookie(c.Writer, &http.Cookie{Name: CSRFTokenCookie, Value: csrf, Path: "/", MaxAge: maxAge, HttpOnly: false, Secure: secure, SameSite: sameSite})
+	// The CSRF cookie is the only client-readable session hint (HttpOnly cookies
+	// cannot be inspected by JS). Give it the refresh cookie's 7-day lifetime so
+	// a user idle for more than the 1h access-token window can still be restored
+	// by /auth/refresh: after both the access and CSRF cookies expire there is no
+	// readable hint left and getCurrentUser() short-circuits to "logged out" even
+	// though the 7-day refresh cookie is still valid. SameSite=Strict keeps the
+	// double-submit CSRF check effective across that extended lifetime.
+	http.SetCookie(c.Writer, &http.Cookie{Name: CSRFTokenCookie, Value: csrf, Path: "/", MaxAge: 7 * 24 * 60 * 60, HttpOnly: false, Secure: secure, SameSite: sameSite})
 }
 
 func ClearAuthCookies(c *gin.Context) {

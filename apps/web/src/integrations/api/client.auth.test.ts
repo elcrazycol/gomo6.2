@@ -113,7 +113,7 @@ describe("ApiClient auth methods", () => {
       expect(apiClient.getToken()).toBe("full-token");
     });
 
-    it("passes device_id when provided", async () => {
+    it("passes device_token when provided", async () => {
       mockFetch({
         success: true,
         data: {
@@ -122,12 +122,12 @@ describe("ApiClient auth methods", () => {
         },
       });
 
-      await apiClient.login("testuser", "pass", "device-abc");
+      await apiClient.login("testuser", "pass", "device-token-abc");
 
       const callBody = JSON.parse(
         (fetch as any).mock.calls[0][1].body,
       );
-      expect(callBody.device_id).toBe("device-abc");
+      expect(callBody.device_token).toBe("device-token-abc");
     });
 
     it("sets needs_2fa flag without saving token", async () => {
@@ -250,7 +250,7 @@ describe("ApiClient auth methods", () => {
       const result = await apiClient.verify2FA(
         "partial-token",
         "123456",
-        "device-abc",
+        "device-token-abc",
         true,
       );
 
@@ -261,7 +261,7 @@ describe("ApiClient auth methods", () => {
           body: JSON.stringify({
             token: "partial-token",
             code: "123456",
-            device_id: "device-abc",
+            device_token: "device-token-abc",
             trust_device: true,
           }),
         }),
@@ -286,7 +286,7 @@ describe("ApiClient auth methods", () => {
   // ─── TOTP methods ───────────────────────────────────────────────────────────
 
   describe("TOTP methods", () => {
-    it("setupTOTP calls POST /api/v1/auth/2fa/setup", async () => {
+    it("setupTOTP calls POST /api/v1/auth/2fa/setup with current password", async () => {
       apiClient.setToken("test-token");
       mockFetch({
         success: true,
@@ -296,11 +296,14 @@ describe("ApiClient auth methods", () => {
         },
       });
 
-      const result = await apiClient.setupTOTP();
+      const result = await apiClient.setupTOTP("current-pass");
 
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/auth/2fa/setup"),
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ password: "current-pass" }),
+        }),
       );
       expect(result.secret).toBe("JBSWY3DPEHPK3PXP");
     });
@@ -328,15 +331,18 @@ describe("ApiClient auth methods", () => {
       expect(result.recovery_codes).toEqual(["code1", "code2"]);
     });
 
-    it("disableTOTP calls POST /api/v1/auth/2fa/disable", async () => {
+    it("disableTOTP calls POST /api/v1/auth/2fa/disable with current code", async () => {
       apiClient.setToken("test-token");
       mockFetch({ success: true, data: { ok: true } });
 
-      await apiClient.disableTOTP();
+      await apiClient.disableTOTP("123456");
 
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/auth/2fa/disable"),
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ code: "123456" }),
+        }),
       );
     });
 

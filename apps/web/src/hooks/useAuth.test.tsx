@@ -7,10 +7,16 @@ import { useAuth, useSession } from "./useAuth";
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
 const mockGetCurrentUser = vi.fn();
+const mockGetToken = vi.fn();
+const mockGetCSRFToken = vi.fn();
+const mockTryRefreshToken = vi.fn();
 
 vi.mock("@/integrations/api/client", () => ({
   apiClient: {
     getCurrentUser: (...args: any[]) => mockGetCurrentUser(...args),
+    getToken: (...args: any[]) => mockGetToken(...args),
+    getCSRFToken: (...args: any[]) => mockGetCSRFToken(...args),
+    tryRefreshToken: (...args: any[]) => mockTryRefreshToken(...args),
   },
 }));
 
@@ -124,10 +130,12 @@ describe("useSession", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockGetToken.mockReturnValue(null);
+    mockGetCSRFToken.mockReturnValue(null);
+    mockTryRefreshToken.mockResolvedValue(null);
   });
 
-  it("returns session with token when user is authenticated", async () => {
-    localStorage.setItem("auth_token", "test-token-123");
+  it("returns session with in-memory token when user is authenticated", async () => {
     mockGetCurrentUser.mockResolvedValue({
       id: "user-1",
       username: "testuser",
@@ -137,6 +145,7 @@ describe("useSession", () => {
       is_remote: false,
       is_anonymous: false,
     });
+    mockGetToken.mockReturnValue("test-token-123");
 
     const { result } = renderHook(() => useSession(), {
       wrapper: createWrapper(),
@@ -149,6 +158,32 @@ describe("useSession", () => {
     expect(result.current.session).not.toBeNull();
     expect(result.current.session?.user?.username).toBe("testuser");
     expect(result.current.session?.access_token).toBe("test-token-123");
+    expect(mockTryRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it("restores the token from cookies after a page reload", async () => {
+    mockGetCurrentUser.mockResolvedValue({
+      id: "user-1",
+      username: "testuser",
+      email: "test@gomo6.local",
+      domain: "gomo6.wtf",
+      created_at: "2024-01-01T00:00:00Z",
+      is_remote: false,
+      is_anonymous: false,
+    });
+    mockGetCSRFToken.mockReturnValue("csrf-token");
+    mockTryRefreshToken.mockResolvedValue("fresh-token");
+
+    const { result } = renderHook(() => useSession(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.session?.access_token).toBe("fresh-token");
+    expect(mockTryRefreshToken).toHaveBeenCalledOnce();
   });
 
   it("returns null session when apiClient returns null", async () => {
@@ -165,10 +200,10 @@ describe("useSession", () => {
     expect(result.current.session).toBeNull();
     // getCurrentUser is called by the queryFn (useSession doesn't gate on localStorage)
     expect(mockGetCurrentUser).toHaveBeenCalledTimes(1);
+    expect(mockTryRefreshToken).not.toHaveBeenCalled();
   });
 
   it("returns falsy session when getCurrentUser throws", async () => {
-    localStorage.setItem("auth_token", "expired-token");
     mockGetCurrentUser.mockRejectedValue(new Error("Unauthorized"));
 
     const { result } = renderHook(() => useSession(), {

@@ -12,6 +12,9 @@ const mockVerifyAndEnableTOTP = vi.fn();
 const mockDisableTOTP = vi.fn();
 const mockGet2FAStatus = vi.fn();
 const mockUpdatePassword = vi.fn();
+const mockGetToken = vi.fn();
+const mockGetCSRFToken = vi.fn();
+const mockTryRefreshToken = vi.fn();
 
 vi.mock("@/integrations/api/client", () => ({
   apiClient: {
@@ -25,8 +28,11 @@ vi.mock("@/integrations/api/client", () => ({
     disableTOTP: (...args: any[]) => mockDisableTOTP(...args),
     get2FAStatus: (...args: any[]) => mockGet2FAStatus(...args),
     updatePassword: (...args: any[]) => mockUpdatePassword(...args),
+    getToken: (...args: any[]) => mockGetToken(...args),
+    getCSRFToken: (...args: any[]) => mockGetCSRFToken(...args),
+    tryRefreshToken: (...args: any[]) => mockTryRefreshToken(...args),
   },
-  getDeviceId: () => "test-device-id",
+  getDeviceToken: () => "test-device-token",
 }));
 
 // ─── Module under test ───────────────────────────────────────────────────────
@@ -39,6 +45,9 @@ describe("apiAuth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    mockGetToken.mockReturnValue(null);
+    mockGetCSRFToken.mockReturnValue(null);
+    mockTryRefreshToken.mockResolvedValue(null);
   });
 
   // ─── signUp ─────────────────────────────────────────────────────────────────
@@ -102,7 +111,7 @@ describe("apiAuth", () => {
   // ─── signInWithPassword ─────────────────────────────────────────────────────
 
   describe("signInWithPassword", () => {
-    it("calls apiClient.login with username, password, deviceId", async () => {
+    it("calls apiClient.login with username, password, deviceToken", async () => {
       mockLogin.mockResolvedValue({
         token: "token-1",
         user: { id: "user-1", username: "testuser" },
@@ -116,7 +125,7 @@ describe("apiAuth", () => {
       expect(mockLogin).toHaveBeenCalledWith(
         "testuser",
         "secret123",
-        "test-device-id",
+        "test-device-token",
       );
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.data?.session?.access_token).toBe("token-1");
@@ -168,8 +177,7 @@ describe("apiAuth", () => {
   // ─── getUser ────────────────────────────────────────────────────────────────
 
   describe("getUser", () => {
-    it("returns user when token exists and getCurrentUser succeeds", async () => {
-      localStorage.setItem("auth_token", "token-1");
+    it("returns user when getCurrentUser succeeds", async () => {
       mockGetCurrentUser.mockResolvedValue({
         id: "user-1",
         username: "testuser",
@@ -182,16 +190,17 @@ describe("apiAuth", () => {
       expect(result.error).toBeNull();
     });
 
-    it("returns null user when no token", async () => {
+    it("returns null user when no session", async () => {
+      mockGetCurrentUser.mockResolvedValue(null);
+
       const result = await apiAuth.getUser();
 
-      expect(mockGetCurrentUser).not.toHaveBeenCalled();
+      expect(mockGetCurrentUser).toHaveBeenCalledOnce();
       expect(result.data?.user).toBeNull();
       expect(result.error).toBeNull();
     });
 
     it("returns null user when getCurrentUser throws", async () => {
-      localStorage.setItem("auth_token", "token-expired");
       mockGetCurrentUser.mockRejectedValue(new Error("Token expired"));
 
       const result = await apiAuth.getUser();
@@ -204,12 +213,12 @@ describe("apiAuth", () => {
   // ─── getSession ─────────────────────────────────────────────────────────────
 
   describe("getSession", () => {
-    it("returns session when user is logged in", async () => {
-      localStorage.setItem("auth_token", "token-1");
+    it("returns session when user is logged in with an in-memory token", async () => {
       mockGetCurrentUser.mockResolvedValue({
         id: "user-1",
         username: "testuser",
       });
+      mockGetToken.mockReturnValue("token-1");
 
       const result = await apiAuth.getSession();
 
@@ -218,23 +227,50 @@ describe("apiAuth", () => {
         username: "testuser",
       });
       expect(result.data?.session?.access_token).toBe("token-1");
+      expect(mockTryRefreshToken).not.toHaveBeenCalled();
       expect(result.error).toBeNull();
     });
 
-    it("returns null session when no token", async () => {
+    it("restores the token from cookies after a page reload", async () => {
+      // Simulate a reload: user resolves via the HttpOnly cookie session, but
+      // the in-memory token is empty while the readable CSRF cookie hints that
+      // a browser session exists.
+      mockGetCurrentUser.mockResolvedValue({
+        id: "user-1",
+        username: "testuser",
+      });
+      mockGetToken.mockReturnValue(null);
+      mockGetCSRFToken.mockReturnValue("csrf-token");
+      mockTryRefreshToken.mockResolvedValue("fresh-token");
+
       const result = await apiAuth.getSession();
 
-      expect(result.data?.session).toBeNull();
+      expect(mockTryRefreshToken).toHaveBeenCalledOnce();
+      expect(result.data?.session?.access_token).toBe("fresh-token");
+      expect(result.data?.session?.user).toEqual({
+        id: "user-1",
+        username: "testuser",
+      });
       expect(result.error).toBeNull();
     });
 
-    it("returns null session when getCurrentUser returns null", async () => {
-      localStorage.setItem("auth_token", "token-1");
+    it("returns null session when no session hint exists", async () => {
       mockGetCurrentUser.mockResolvedValue(null);
 
       const result = await apiAuth.getSession();
 
       expect(result.data?.session).toBeNull();
+      expect(mockTryRefreshToken).not.toHaveBeenCalled();
+      expect(result.error).toBeNull();
+    });
+
+    it("returns null session when getCurrentUser returns null", async () => {
+      mockGetCurrentUser.mockResolvedValue(null);
+
+      const result = await apiAuth.getSession();
+
+      expect(result.data?.session).toBeNull();
+      expect(mockTryRefreshToken).not.toHaveBeenCalled();
       expect(result.error).toBeNull();
     });
   });
@@ -253,7 +289,7 @@ describe("apiAuth", () => {
       expect(mockVerify2FA).toHaveBeenCalledWith(
         "partial-token",
         "123456",
-        "test-device-id",
+        "test-device-token",
         true,
       );
       expect(result.data?.session?.access_token).toBe("full-token");
@@ -280,7 +316,7 @@ describe("apiAuth", () => {
       expect(mockVerify2FA).toHaveBeenCalledWith(
         "partial-token",
         "123456",
-        "test-device-id",
+        "test-device-token",
         undefined,
       );
     });
@@ -289,15 +325,15 @@ describe("apiAuth", () => {
   // ─── setupTOTP ──────────────────────────────────────────────────────────────
 
   describe("setupTOTP", () => {
-    it("calls apiClient.setupTOTP and returns result", async () => {
+    it("calls apiClient.setupTOTP with the current password and returns result", async () => {
       mockSetupTOTP.mockResolvedValue({
         secret: "JBSWY3DPEHPK3PXP",
         uri: "otpauth://totp/gomo6:testuser?secret=...",
       });
 
-      const result = await apiAuth.setupTOTP();
+      const result = await apiAuth.setupTOTP("current-pass");
 
-      expect(mockSetupTOTP).toHaveBeenCalledOnce();
+      expect(mockSetupTOTP).toHaveBeenCalledWith("current-pass");
       expect(result.data?.secret).toBe("JBSWY3DPEHPK3PXP");
       expect(result.error).toBeNull();
     });
@@ -305,7 +341,7 @@ describe("apiAuth", () => {
     it("returns error on failure", async () => {
       mockSetupTOTP.mockRejectedValue(new Error("Already enabled"));
 
-      const result = await apiAuth.setupTOTP();
+      const result = await apiAuth.setupTOTP("current-pass");
 
       expect(result.data).toBeNull();
       expect(result.error?.message).toBe("Already enabled");
@@ -342,12 +378,12 @@ describe("apiAuth", () => {
   // ─── disableTOTP ────────────────────────────────────────────────────────────
 
   describe("disableTOTP", () => {
-    it("calls apiClient.disableTOTP and returns ok", async () => {
+    it("calls apiClient.disableTOTP with the current code and returns ok", async () => {
       mockDisableTOTP.mockResolvedValue(undefined);
 
-      const result = await apiAuth.disableTOTP();
+      const result = await apiAuth.disableTOTP("123456");
 
-      expect(mockDisableTOTP).toHaveBeenCalledOnce();
+      expect(mockDisableTOTP).toHaveBeenCalledWith("123456");
       expect(result.data).toEqual({ ok: true });
       expect(result.error).toBeNull();
     });
@@ -355,7 +391,7 @@ describe("apiAuth", () => {
     it("returns error on failure", async () => {
       mockDisableTOTP.mockRejectedValue(new Error("Cannot disable"));
 
-      const result = await apiAuth.disableTOTP();
+      const result = await apiAuth.disableTOTP("123456");
 
       expect(result.data).toBeNull();
       expect(result.error?.message).toBe("Cannot disable");

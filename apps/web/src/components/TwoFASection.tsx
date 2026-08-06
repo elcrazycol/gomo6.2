@@ -19,6 +19,12 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
   const [verifying, setVerifying] = useState(false);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
+  // M1 (security audit): enrolling and disabling 2FA require proof of the
+  // current password (setup) or a current 2FA/recovery code (disable).
+  const [setupPassword, setSetupPassword] = useState("");
+  const [showSetupPassword, setShowSetupPassword] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
+  const [showDisableInput, setShowDisableInput] = useState(false);
 
   useEffect(() => {
     loadStatus();
@@ -41,14 +47,20 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
   };
 
   const handleSetup = async () => {
+    if (!setupPassword) {
+      toast.error("Введите текущий пароль для настройки 2FA");
+      return;
+    }
     try {
-      const { data, error } = await api.auth.setupTOTP();
+      const { data, error } = await api.auth.setupTOTP(setupPassword);
       if (error) throw error;
       if (data) {
         setSetupUri(data.uri);
         setSetupSecret(data.secret);
         setHasPendingSecret(true);
         setShowRecoveryCodes(false);
+        setSetupPassword("");
+        setShowSetupPassword(false);
       }
     } catch (error) {
       const errObj = error as Record<string, unknown>;
@@ -85,18 +97,21 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
   };
 
   const handleDisable = async () => {
-    if (!confirm("Вы уверены, что хотите отключить 2FA? Это снизит безопасность вашего аккаунта.")) {
+    if (disableCode.length < 6) {
+      toast.error("Введите 6-значный код из аутентификатора (или код восстановления)");
       return;
     }
 
     try {
-      await api.auth.disableTOTP();
+      await api.auth.disableTOTP(disableCode);
       setIsEnabled(false);
       setHasPendingSecret(false);
       setSetupUri("");
       setSetupSecret("");
       setRecoveryCodes(null);
       setShowRecoveryCodes(false);
+      setDisableCode("");
+      setShowDisableInput(false);
       toast.success("2FA отключена");
     } catch (error) {
       const errObj = error as Record<string, unknown>;
@@ -240,11 +255,67 @@ export const TwoFASection = ({ userId }: TwoFASectionProps) => {
         <Button
           variant={isEnabled ? "destructive" : "default"}
           size="sm"
-          onClick={isEnabled ? handleDisable : handleSetup}
+          onClick={() => {
+            if (isEnabled) {
+              setShowDisableInput(true);
+            } else {
+              setShowSetupPassword(true);
+            }
+          }}
         >
           {isEnabled ? "Отключить" : "Включить 2FA"}
         </Button>
       </div>
+
+      {/* Confirm disable with a current 2FA/recovery code (M1) */}
+      {showDisableInput && (
+        <div className="bg-card border border-border p-3 rounded space-y-2">
+          <Label htmlFor="disable-totp" className="text-xs">
+            Введите текущий код 2FA (или код восстановления) для отключения
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="disable-totp"
+              type="text"
+              inputMode="numeric"
+              value={disableCode}
+              onChange={(e) => setDisableCode(e.target.value.replace(/\s+/g, ''))}
+              placeholder="000000"
+              className="text-center text-lg tracking-widest font-mono"
+            />
+            <Button variant="destructive" size="sm" onClick={handleDisable}>
+              Подтвердить отключение
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowDisableInput(false); setDisableCode(""); }}>
+              Отмена
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm setup with the current password (M1) */}
+      {showSetupPassword && (
+        <div className="bg-card border border-border p-3 rounded space-y-2">
+          <Label htmlFor="setup-password" className="text-xs">
+            Введите текущий пароль для включения 2FA
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="setup-password"
+              type="password"
+              value={setupPassword}
+              onChange={(e) => setSetupPassword(e.target.value)}
+              placeholder="Текущий пароль"
+            />
+            <Button size="sm" onClick={handleSetup}>
+              Подтвердить
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { setShowSetupPassword(false); setSetupPassword(""); }}>
+              Отмена
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

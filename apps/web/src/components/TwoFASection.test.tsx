@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { toast } from "sonner";
@@ -32,6 +32,40 @@ function renderComponent(userId = "user-1") {
   return render(<TwoFASection userId={userId} />);
 }
 
+const setupResult = {
+  secret: "JBSWY3DPEHPK3PXP",
+  uri: "otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP",
+};
+
+// Clicks "Включить 2FA", proves the current password, and waits for the
+// QR/secret setup screen (M1: setup requires the current password).
+async function startSetup() {
+  await userEvent.click(screen.getByText("Включить 2FA"));
+  await userEvent.type(screen.getByPlaceholderText("Текущий пароль"), "current-pass");
+  await userEvent.click(screen.getByText("Подтвердить"));
+  await waitFor(() => {
+    expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
+  });
+}
+
+// Clicks "Включить 2FA" and confirms the current password (no assertion on
+// the resulting screen — used by failure-path tests).
+async function submitSetupPassword() {
+  await userEvent.click(screen.getByText("Включить 2FA"));
+  await userEvent.type(screen.getByPlaceholderText("Текущий пароль"), "current-pass");
+  await userEvent.click(screen.getByText("Подтвердить"));
+}
+
+// Replaces jsdom's read-only navigator.clipboard with a controllable mock.
+function mockClipboard() {
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    configurable: true,
+    writable: true,
+  });
+  return (navigator.clipboard as unknown as { writeText: ReturnType<typeof vi.fn> }).writeText;
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("TwoFASection", () => {
@@ -46,7 +80,6 @@ describe("TwoFASection", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete (window as any).confirm;
     delete (navigator as any).clipboard;
   });
 
@@ -117,16 +150,10 @@ describe("TwoFASection", () => {
     consoleSpy.mockRestore();
   });
 
-  // ─── Setup flow ─────────────────────────────────────────────────────────────
+  // ─── Setup flow (M1: requires current password) ─────────────────────────────
 
-  it("opens setup UI when 'Включить 2FA' is clicked", async () => {
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "JBSWY3DPEHPK3PXP",
-        uri: "otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP",
-      },
-      error: null,
-    });
+  it("asks for the current password before starting setup", async () => {
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
 
     renderComponent();
 
@@ -136,16 +163,33 @@ describe("TwoFASection", () => {
 
     await userEvent.click(screen.getByText("Включить 2FA"));
 
+    // Password gate is shown, setupTOTP is NOT called yet
+    expect(
+      screen.getByLabelText("Введите текущий пароль для включения 2FA"),
+    ).toBeInTheDocument();
+    expect(mockSetupTOTP).not.toHaveBeenCalled();
+  });
+
+  it("opens setup UI after the current password is confirmed", async () => {
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
+
+    renderComponent();
+
     await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
+      expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
+
+    await startSetup();
+
+    // setupTOTP is called with the current password
+    expect(mockSetupTOTP).toHaveBeenCalledWith("current-pass");
 
     // Should show QR code
     const qrImg = screen.getByAltText("QR Code for 2FA");
     expect(qrImg).toBeInTheDocument();
     expect(qrImg).toHaveAttribute(
       "src",
-      expect.stringContaining(encodeURIComponent("otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP")),
+      expect.stringContaining(encodeURIComponent(setupResult.uri)),
     );
 
     // Should show secret key
@@ -171,7 +215,8 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Включить 2FA"));
+    // The setup call fails, so the QR screen never appears — only the toast.
+    await submitSetupPassword();
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith(
@@ -183,15 +228,7 @@ describe("TwoFASection", () => {
   // ─── Verify flow ────────────────────────────────────────────────────────────
 
   it("verifies 2FA code and shows recovery codes on success", async () => {
-    // Step 1: Setup
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "JBSWY3DPEHPK3PXP",
-        uri: "otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP",
-      },
-      error: null,
-    });
-    // Step 2: Verify
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
     mockVerifyAndEnableTOTP.mockResolvedValue({
       data: {
         enabled: true,
@@ -206,19 +243,12 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    // Start setup
-    await userEvent.click(screen.getByText("Включить 2FA"));
+    await startSetup();
 
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
-
-    // Enter verify code
     const codeInput = screen.getByLabelText(
       /Введите 6-значный код из аутентификатора/,
     );
     await userEvent.type(codeInput, "123456");
-
     await userEvent.click(screen.getByText("Подтвердить"));
 
     // Should show recovery codes
@@ -235,13 +265,7 @@ describe("TwoFASection", () => {
   });
 
   it("validates verify code minimum length (6 chars)", async () => {
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "JBSWY3DPEHPK3PXP",
-        uri: "otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP",
-      },
-      error: null,
-    });
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
 
     renderComponent();
 
@@ -249,37 +273,23 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Включить 2FA"));
+    await startSetup();
 
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
-
-    // Enter only 5 digits
     const codeInput = screen.getByLabelText(
       /Введите 6-значный код из аутентификатора/,
     );
     await userEvent.type(codeInput, "12345");
 
-    // Button should be disabled
+    // Button should be disabled with < 6 digits
     expect(screen.getByText("Подтвердить")).toBeDisabled();
 
-    // The handleVerifyAndEnable won't even be called because button is disabled
-    // Let's try to programmatically trigger it by adding the 6th digit
+    // Adding the 6th digit enables it
     await userEvent.type(codeInput, "6");
-
-    // Now button should be enabled
     expect(screen.getByText("Подтвердить")).not.toBeDisabled();
   });
 
   it("shows 'Проверка...' loading on verify button while verifying", async () => {
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "SECRET",
-        uri: "otpauth://totp/gomo6:testuser?secret=SECRET",
-      },
-      error: null,
-    });
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
     // Don't resolve verify promise to keep verifying state
     mockVerifyAndEnableTOTP.mockReturnValue(new Promise(() => {}));
 
@@ -289,11 +299,7 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Включить 2FA"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
+    await startSetup();
 
     const codeInput = screen.getByLabelText(
       /Введите 6-значный код из аутентификатора/,
@@ -306,13 +312,7 @@ describe("TwoFASection", () => {
   });
 
   it("shows error toast on verify failure", async () => {
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "JBSWY3DPEHPK3PXP",
-        uri: "otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP",
-      },
-      error: null,
-    });
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
     mockVerifyAndEnableTOTP.mockResolvedValue({
       data: null,
       error: { message: "Invalid code" },
@@ -324,11 +324,7 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Включить 2FA"));
-
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
+    await startSetup();
 
     const codeInput = screen.getByLabelText(
       /Введите 6-значный код из аутентификатора/,
@@ -346,16 +342,9 @@ describe("TwoFASection", () => {
   // ─── Secret key copy ────────────────────────────────────────────────────────
 
   it("copies secret key to clipboard when clicked and shows toast", async () => {
-    // Set up clipboard mock for this test
-    (navigator as any).clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    const writeText = mockClipboard();
 
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "JBSWY3DPEHPK3PXP",
-        uri: "otpauth://totp/gomo6:testuser?secret=JBSWY3DPEHPK3PXP",
-      },
-      error: null,
-    });
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
 
     renderComponent();
 
@@ -363,32 +352,22 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Включить 2FA"));
+    await startSetup();
 
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
-
-    // Click the secret key input
     const secretInput = screen.getByDisplayValue("JBSWY3DPEHPK3PXP");
-    await userEvent.click(secretInput);
+    fireEvent.click(secretInput);
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("JBSWY3DPEHPK3PXP");
+    // The click handler must have run (the toast fires regardless of clipboard)
     expect(toast.success).toHaveBeenCalledWith("Секрет скопирован");
+    expect(writeText).toHaveBeenCalledWith("JBSWY3DPEHPK3PXP");
   });
 
   // ─── Recovery codes: copy all ───────────────────────────────────────────────
 
   it("copies all recovery codes to clipboard", async () => {
-    (navigator as any).clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    const writeText = mockClipboard();
 
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "SECRET",
-        uri: "otpauth://totp/gomo6:testuser?secret=SECRET",
-      },
-      error: null,
-    });
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
     mockVerifyAndEnableTOTP.mockResolvedValue({
       data: {
         enabled: true,
@@ -403,10 +382,7 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Включить 2FA"));
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
+    await startSetup();
 
     const codeInput = screen.getByLabelText(
       /Введите 6-значный код из аутентификатора/,
@@ -420,9 +396,9 @@ describe("TwoFASection", () => {
       ).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByText("Скопировать все"));
+    fireEvent.click(screen.getByText("Скопировать все"));
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("CODE-1\nCODE-2");
+    expect(writeText).toHaveBeenCalledWith("CODE-1\nCODE-2");
     expect(toast.success).toHaveBeenCalledWith(
       "Коды скопированы в буфер обмена",
     );
@@ -431,13 +407,7 @@ describe("TwoFASection", () => {
   // ─── Recovery codes: close ──────────────────────────────────────────────────
 
   it("closes recovery codes view and shows enabled state", async () => {
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "SECRET",
-        uri: "otpauth://totp/gomo6:testuser?secret=SECRET",
-      },
-      error: null,
-    });
+    mockSetupTOTP.mockResolvedValue({ data: setupResult, error: null });
     mockVerifyAndEnableTOTP.mockResolvedValue({
       data: {
         enabled: true,
@@ -453,10 +423,7 @@ describe("TwoFASection", () => {
     });
 
     // Full flow: setup → verify → recovery codes
-    await userEvent.click(screen.getByText("Включить 2FA"));
-    await waitFor(() => {
-      expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();
-    });
+    await startSetup();
     await userEvent.type(
       screen.getByLabelText(/Введите 6-значный код из аутентификатора/),
       "123456",
@@ -477,10 +444,32 @@ describe("TwoFASection", () => {
     });
   });
 
-  // ─── Disable 2FA ────────────────────────────────────────────────────────────
+  // ─── Disable 2FA (M1: requires current 2FA/recovery code) ──────────────────
 
-  it("disables 2FA when confirm returns true", async () => {
-    (window as any).confirm = vi.fn().mockReturnValue(true);
+  it("asks for a current 2FA code before disabling", async () => {
+    mockGet2FAStatus.mockResolvedValue({
+      data: { enabled: true, has_pending_secret: false },
+      error: null,
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText("✅ 2FA включена")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Отключить"));
+
+    // Code gate is shown, disableTOTP is NOT called yet
+    expect(
+      screen.getByLabelText(
+        "Введите текущий код 2FA (или код восстановления) для отключения",
+      ),
+    ).toBeInTheDocument();
+    expect(mockDisableTOTP).not.toHaveBeenCalled();
+  });
+
+  it("disables 2FA when a valid code is entered", async () => {
     mockGet2FAStatus.mockResolvedValue({
       data: { enabled: true, has_pending_secret: false },
       error: null,
@@ -494,11 +483,15 @@ describe("TwoFASection", () => {
     });
 
     await userEvent.click(screen.getByText("Отключить"));
-
-    expect(window.confirm).toHaveBeenCalledWith(
-      "Вы уверены, что хотите отключить 2FA? Это снизит безопасность вашего аккаунта.",
+    await userEvent.type(
+      screen.getByLabelText(
+        "Введите текущий код 2FA (или код восстановления) для отключения",
+      ),
+      "123456",
     );
-    expect(mockDisableTOTP).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByText("Подтвердить отключение"));
+
+    expect(mockDisableTOTP).toHaveBeenCalledWith("123456");
 
     await waitFor(() => {
       expect(screen.getByText("❌ 2FA отключена")).toBeInTheDocument();
@@ -506,8 +499,7 @@ describe("TwoFASection", () => {
     expect(toast.success).toHaveBeenCalledWith("2FA отключена");
   });
 
-  it("does not disable 2FA when confirm returns false", async () => {
-    (window as any).confirm = vi.fn().mockReturnValue(false);
+  it("does not disable 2FA when cancelled", async () => {
     mockGet2FAStatus.mockResolvedValue({
       data: { enabled: true, has_pending_secret: false },
       error: null,
@@ -520,15 +512,14 @@ describe("TwoFASection", () => {
     });
 
     await userEvent.click(screen.getByText("Отключить"));
+    await userEvent.click(screen.getByText("Отмена"));
 
-    expect(window.confirm).toHaveBeenCalledOnce();
     expect(mockDisableTOTP).not.toHaveBeenCalled();
     // Should still show enabled state
     expect(screen.getByText("✅ 2FA включена")).toBeInTheDocument();
   });
 
   it("shows error toast when disable fails", async () => {
-    (window as any).confirm = vi.fn().mockReturnValue(true);
     mockGet2FAStatus.mockResolvedValue({
       data: { enabled: true, has_pending_secret: false },
       error: null,
@@ -542,13 +533,19 @@ describe("TwoFASection", () => {
     });
 
     await userEvent.click(screen.getByText("Отключить"));
+    await userEvent.type(
+      screen.getByLabelText(
+        "Введите текущий код 2FA (или код восстановления) для отключения",
+      ),
+      "123456",
+    );
+    await userEvent.click(screen.getByText("Подтвердить отключение"));
 
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledWith(
         "Ошибка отключения 2FA: Server error",
       );
     });
-
   });
 
   // ─── Setup from pending state ───────────────────────────────────────────────
@@ -559,6 +556,10 @@ describe("TwoFASection", () => {
       data: { enabled: false, has_pending_secret: true },
       error: null,
     });
+    mockSetupTOTP.mockResolvedValue({
+      data: { secret: "NEW-SECRET", uri: "otpauth://totp/gomo6:testuser?secret=NEW-SECRET" },
+      error: null,
+    });
 
     renderComponent();
 
@@ -567,17 +568,10 @@ describe("TwoFASection", () => {
       expect(screen.getByText("Включить 2FA")).toBeInTheDocument();
     });
 
-    // Click to continue setup (but since has_pending_secret=true but setupUri is empty,
-    // clicking setup will call setupTOTP again to get fresh URI)
-    mockSetupTOTP.mockResolvedValue({
-      data: {
-        secret: "NEW-SECRET",
-        uri: "otpauth://totp/gomo6:testuser?secret=NEW-SECRET",
-      },
-      error: null,
-    });
-
+    // Click to continue setup; the password gate must be passed first
     await userEvent.click(screen.getByText("Включить 2FA"));
+    await userEvent.type(screen.getByPlaceholderText("Текущий пароль"), "current-pass");
+    await userEvent.click(screen.getByText("Подтвердить"));
 
     await waitFor(() => {
       expect(screen.getByText("Настройка 2FA")).toBeInTheDocument();

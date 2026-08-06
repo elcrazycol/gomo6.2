@@ -48,9 +48,15 @@ export function useSession() {
     queryFn: async () => {
       const user = await apiClient.getCurrentUser();
       if (!user) return null;
+      // Restore the in-memory token from the HttpOnly cookie session after a
+      // page reload, so raw fetches that embed Bearer access_token keep working.
+      let accessToken = apiClient.getToken();
+      if (!accessToken && apiClient.getCSRFToken()) {
+        accessToken = await apiClient.tryRefreshToken();
+      }
       return {
         user,
-        access_token: apiClient.getToken(),
+        access_token: accessToken,
       };
     },
     staleTime: 5 * 60 * 1000,

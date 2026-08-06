@@ -731,32 +731,23 @@ describe("ApiClient", () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Chunk 7: getDeviceId()
+  // Chunk 7: getDeviceToken()
   // ═══════════════════════════════════════════════════════════════════════════
 
-  describe("getDeviceId", () => {
-    it("returns existing device_id from localStorage", async () => {
-      localStorage.setItem("device_id", "existing-id");
-      const { getDeviceId } = await import("./client");
-      expect(getDeviceId()).toBe("existing-id");
+  describe("getDeviceToken", () => {
+    it("returns existing device_token from localStorage", async () => {
+      localStorage.setItem("device_token", "server-token-1");
+      const { getDeviceToken } = await import("./client");
+      expect(getDeviceToken()).toBe("server-token-1");
     });
 
-    it("generates new device_id if none stored", async () => {
-      localStorage.removeItem("device_id");
-      const { getDeviceId } = await import("./client");
-      const id = getDeviceId();
+    it("returns empty string when none stored (never generates client-side)", async () => {
+      localStorage.removeItem("device_token");
+      const { getDeviceToken } = await import("./client");
+      const token = getDeviceToken();
 
-      expect(id).toMatch(/^device_/);
-      expect(localStorage.getItem("device_id")).toBe(id);
-    });
-
-    it("returns same device_id on subsequent calls", async () => {
-      localStorage.removeItem("device_id");
-      const { getDeviceId } = await import("./client");
-      const id1 = getDeviceId();
-      const id2 = getDeviceId();
-
-      expect(id1).toBe(id2);
+      expect(token).toBe("");
+      expect(localStorage.getItem("device_token")).toBeNull();
     });
   });
 });

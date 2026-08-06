@@ -19,6 +19,13 @@ func TestSetupTOTP_Success(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
+	// M1: enrolling 2FA must prove knowledge of the current password. Here the
+	// account has no password hash (OAuth-only account), so the check is skipped.
+	mock.ExpectQuery(`(?s).*SELECT password_hash, totp_enabled FROM users WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"password_hash", "totp_enabled"}).
+			AddRow(nil, false))
+
 	mock.ExpectExec(`(?s).*UPDATE users SET totp_secret.*WHERE id.*`).
 		WithArgs(sqlmock.AnyArg(), "u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -49,11 +56,30 @@ func TestDisableTOTP_Success(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
+	// M1: disabling 2FA requires a current TOTP code or recovery code. Use a
+	// recovery code (>10 chars) to avoid TOTP time-window flakiness.
+	recoveryCode := "abcd-ef01-2345-test"
+	codeHashBytes := sha256.Sum256([]byte(recoveryCode))
+	codeHash := hex.EncodeToString(codeHashBytes[:])
+
+	secret := "JBSWY3DPEHPK3PXP"
+	mock.ExpectQuery(`(?s).*SELECT totp_secret, totp_enabled FROM users WHERE id.*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"totp_secret", "totp_enabled"}).
+			AddRow(secret, true))
+
+	// Recovery code found and marked used
+	mock.ExpectQuery(`(?s).*UPDATE user_recovery_codes.*RETURNING id.*`).
+		WithArgs("u1", codeHash).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("rc-1"))
+
 	mock.ExpectExec(`(?s).*UPDATE users SET totp_secret.*WHERE id.*`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	c, w := newPOSTContext("/auth/v1/disable-totp", nil, claims, nil)
+	c, w := newPOSTContext("/auth/v1/disable-totp", map[string]string{
+		"code": recoveryCode,
+	}, claims, nil)
 	h.DisableTOTP(c)
 
 	if w.Code != http.StatusOK {

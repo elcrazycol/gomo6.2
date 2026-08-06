@@ -53,10 +53,28 @@ function base64URLEncode(buffer: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
-// Token storage
+// Token storage — in-memory only (M5 security audit). Access/refresh tokens
+// never touch Web Storage, so a page XSS cannot exfiltrate the OAuth session.
+// A page reload therefore requires a fresh login; the backend still issues
+// HttpOnly cookies for the main app session where applicable.
 const TOKEN_KEY = "dev_oauth_access_token";
 const REFRESH_KEY = "dev_oauth_refresh_token";
 const USER_KEY = "dev_oauth_user";
+
+let memoryAccessToken: string | null = null;
+let memoryRefreshToken: string | null = null;
+let memoryUser: OAuthUser | null = null;
+
+// One-time migration cleanup: older builds persisted the token pair and user
+// profile to localStorage. Drop any leftovers on load so secrets never linger
+// in Web Storage for an XSS to steal, even if the page never logs out.
+try {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
+} catch {
+  // localStorage may be unavailable (private mode, sandboxed iframe)
+}
 
 export interface OAuthUser {
   sub: string;
@@ -67,37 +85,40 @@ export interface OAuthUser {
 }
 
 export function saveTokens(accessToken: string, refreshToken?: string) {
-  localStorage.setItem(TOKEN_KEY, accessToken);
+  memoryAccessToken = accessToken;
   if (refreshToken) {
-    localStorage.setItem(REFRESH_KEY, refreshToken);
+    memoryRefreshToken = refreshToken;
   }
 }
 
 export function getAccessToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return memoryAccessToken;
 }
 
 export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_KEY);
+  return memoryRefreshToken;
 }
 
 export function clearTokens() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(REFRESH_KEY);
-  localStorage.removeItem(USER_KEY);
+  memoryAccessToken = null;
+  memoryRefreshToken = null;
+  memoryUser = null;
+  // Best-effort removal of any legacy persisted copy.
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(USER_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function saveUser(user: OAuthUser) {
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  memoryUser = user;
 }
 
 export function getSavedUser(): OAuthUser | null {
-  try {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+  return memoryUser;
 }
 
 // Initiate login — generates PKCE and redirects to authorize endpoint

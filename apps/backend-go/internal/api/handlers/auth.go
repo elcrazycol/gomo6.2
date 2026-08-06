@@ -50,6 +50,47 @@ func (h *AuthHandler) recordFailedAttempt(email string) {
 	h.redis.Expire(ctx, lockKey, 15*time.Minute)
 }
 
+// maxAuthActionAttempts bounds wrong-password/wrong-code guesses on sensitive
+// authenticated endpoints (password change, 2FA setup/disable). These endpoints
+// are password oracles for a session holder, so they need the same per-account
+// throttle as the login path — keyed by user ID, not IP, because the attacker
+// uses a fixed stolen session.
+const maxAuthActionAttempts = 5
+
+// isAuthActionLocked reports whether the per-account throttle for sensitive
+// auth actions has been exhausted.
+func (h *AuthHandler) isAuthActionLocked(userID string) bool {
+	if h.redis == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	n, err := h.redis.Get(ctx, fmt.Sprintf("auth_action_lock:%s", userID)).Int()
+	return err == nil && n >= maxAuthActionAttempts
+}
+
+// recordAuthActionFailure increments the per-account counter.
+func (h *AuthHandler) recordAuthActionFailure(userID string) {
+	if h.redis == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	key := fmt.Sprintf("auth_action_lock:%s", userID)
+	h.redis.Incr(ctx, key)
+	h.redis.Expire(ctx, key, 15*time.Minute)
+}
+
+// clearAuthActionLock resets the counter after a successful verification.
+func (h *AuthHandler) clearAuthActionLock(userID string) {
+	if h.redis == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	h.redis.Del(ctx, fmt.Sprintf("auth_action_lock:%s", userID))
+}
+
 // randomHex generates a random hex string of the given length.
 func randomHex(length int) string {
 	b := make([]byte, (length+1)/2)

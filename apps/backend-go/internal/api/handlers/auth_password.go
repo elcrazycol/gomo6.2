@@ -1,13 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -67,10 +71,19 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	// Accounts without a password (OAuth / passkey-only) may set a first
 	// password; accounts with one must prove knowledge of it first.
 	if storedHash.Valid && storedHash.String != "" {
-		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(body.CurrentPassword)) != nil {
+		// M1 (security audit): this endpoint is a password oracle for a session
+		// holder — bound the guesses per account like the login path so a stolen
+		// session cannot brute-force the current password.
+		if h.isAuthActionLocked(userClaims.UserID) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
 			return
 		}
+		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(body.CurrentPassword)) != nil {
+			h.recordAuthActionFailure(userClaims.UserID)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			return
+		}
+		h.clearAuthActionLock(userClaims.UserID)
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(body.Password), 12)
@@ -84,6 +97,37 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 		serverError(c, "update password hash", err)
 		return
 	}
+
+	// M2 (security audit): a password change must terminate every other
+	// session. The current device keeps working — its HttpOnly refresh cookie
+	// identifies the current session row (session id = SHA-256 of the refresh
+	// token), so only refresh tokens and session rows of the other devices are
+	// revoked. Without a refresh cookie (API/bot caller using a bearer token)
+	// every session is revoked and the caller re-authenticates.
+	currentSessionID := ""
+	if rt, err := c.Cookie(middleware.RefreshTokenCookie); err == nil && rt != "" {
+		currentSessionID = SessionIDFromRefreshToken(rt)
+	}
+	if currentSessionID != "" {
+		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1 AND id != $2`, userClaims.UserID, currentSessionID)
+		if h.redis != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			defer cancel()
+			for _, pattern := range []string{"refresh:%s:*", "current:%s:*"} {
+				iter := h.redis.Scan(ctx, 0, fmt.Sprintf(pattern, userClaims.UserID), 100).Iterator()
+				for iter.Next(ctx) {
+					parts := strings.Split(iter.Val(), ":")
+					if len(parts) == 3 && parts[2] != currentSessionID {
+						h.redis.Del(ctx, iter.Val())
+					}
+				}
+			}
+		}
+	} else {
+		h.authService.RevokeAllRefreshTokens(userClaims.UserID)
+		h.db.Exec(`DELETE FROM user_sessions WHERE user_id = $1`, userClaims.UserID)
+	}
+	middleware.InvalidateAuthCache(h.redis, userClaims.UserID)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"ok": true}))
 }

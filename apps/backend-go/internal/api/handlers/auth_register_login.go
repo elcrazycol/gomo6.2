@@ -118,7 +118,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 // Login checks password and returns either a full token (no 2FA) or
 // a partial token (needs 2FA verification).
-// If device_id is provided and is trusted, 2FA is skipped.
+// If device_token is provided and is trusted (an opaque token previously
+// issued by Verify2FA), 2FA is skipped.
 // Login godoc
 // @Summary      Log in
 // @Description  Authenticate with username and password. Returns tokens or partial token if 2FA is enabled.
@@ -131,11 +132,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Username string `json:"username"`
-		Email    string `json:"email"` // backward compat: old frontend sends email
-		Password string `json:"password"`
-		DeviceID string `json:"device_id,omitempty"`
-		Website  string `json:"website,omitempty"` // Honeypot field — must be empty
+		Username    string `json:"username"`
+		Email       string `json:"email"` // backward compat: old frontend sends email
+		Password    string `json:"password"`
+		DeviceToken string `json:"device_token,omitempty"`
+		Website     string `json:"website,omitempty"` // Honeypot field — must be empty
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -157,23 +158,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Check account lockout
-	if h.redis != nil {
-		lockKey := fmt.Sprintf("lockout:%s", loginIdentifier)
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		attempts, err := h.redis.Get(ctx, lockKey).Int()
-		cancel()
-		if err == nil && attempts >= 5 {
-			c.JSON(http.StatusTooManyRequests, models.ErrorResponse("Account temporarily locked. Try again in 15 minutes."))
-			return
-		}
-	}
-
 	// Get user from database
 	query := `
 		SELECT id, username, display_name, email, domain, password_hash, totp_enabled, totp_secret, trusted_devices, created_at
 		FROM users
-		WHERE username = $1
+		WHERE username = $1 OR email = $1
 	`
 
 	var user models.User
@@ -192,6 +181,22 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
 		return
+	}
+
+	// M3 (security audit): account lockout applies only to real accounts and
+	// its response is indistinguishable from a wrong password. Checking before
+	// the user lookup let anyone freeze an arbitrary identifier (even a
+	// non-existent one) and revealed which identifiers had been locked via the
+	// 429/401 difference — i.e. username enumeration.
+	if h.redis != nil {
+		lockKey := fmt.Sprintf("lockout:%s", loginIdentifier)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		attempts, err := h.redis.Get(ctx, lockKey).Int()
+		cancel()
+		if err == nil && attempts >= 5 {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+			return
+		}
 	}
 
 	// Check password
@@ -214,11 +219,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Check if 2FA is enabled and device is trusted
 	if totpEnabled {
-		// Check if device is trusted
-		if req.DeviceID != "" && trustedDevicesJSON != nil && *trustedDevicesJSON != "" {
+		// H2 (security audit): trusted devices are server-issued opaque tokens.
+		// The map is keyed by SHA-256 of the token, so a client-chosen string
+		// can never match and a leaked DB dump does not expose usable tokens.
+		if req.DeviceToken != "" && trustedDevicesJSON != nil && *trustedDevicesJSON != "" {
 			var trustedDevices map[string]int64
 			if err := json.Unmarshal([]byte(*trustedDevicesJSON), &trustedDevices); err == nil {
-				if expiresAt, ok := trustedDevices[req.DeviceID]; ok {
+				deviceHash := hashDeviceID(req.DeviceToken)
+				if expiresAt, ok := trustedDevices[deviceHash]; ok {
 					if time.Now().Unix() < expiresAt {
 						// Device is trusted, skip 2FA
 						tokenPair, err := h.authService.GenerateTokenPair(user.ID, user.Username, user.Domain)

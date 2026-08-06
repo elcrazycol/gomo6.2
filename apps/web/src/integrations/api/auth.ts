@@ -1,6 +1,6 @@
 // Auth module — extracted from client_simple.ts
 // Provides api.auth compatibility layer backed by Go backend
-import { apiClient, getDeviceId } from './client';
+import { apiClient, getDeviceToken } from './client';
 import { useNotificationStore } from '@/stores/notificationStore';
 
 export const apiAuth = {
@@ -18,8 +18,8 @@ export const apiAuth = {
   },
   signInWithPassword: async ({ username, password }: { username: string; password: string }) => {
     try {
-      const deviceId = getDeviceId();
-      const result = await apiClient.login(username, password, deviceId);
+      const deviceToken = getDeviceToken();
+      const result = await apiClient.login(username, password, deviceToken);
       
       if (result.needs_2fa) {
         return { 
@@ -49,7 +49,14 @@ export const apiAuth = {
   getSession: async () => {
     try {
       const user = await apiClient.getCurrentUser();
-      const token = apiClient.getToken();
+      // After a page reload the in-memory token is empty, but the browser
+      // session still lives in HttpOnly cookies. Refresh once so Bearer-style
+      // raw fetches (which read access_token from the session) keep working.
+      // tryRefreshToken no-ops when no session hint (CSRF cookie) exists.
+      let token = apiClient.getToken();
+      if (user && !token && apiClient.getCSRFToken()) {
+        token = await apiClient.tryRefreshToken();
+      }
       return { data: { session: user ? { user, access_token: token } : null }, error: null };
     } catch (_e) {
       return { data: { session: null }, error: null };
@@ -66,16 +73,26 @@ export const apiAuth = {
   },
   verify2FA: async (partialToken: string, code: string, trustDevice?: boolean) => {
     try {
-      const deviceId = getDeviceId();
-      const result = await apiClient.verify2FA(partialToken, code, deviceId, trustDevice);
+      const deviceToken = getDeviceToken();
+      const result = await apiClient.verify2FA(partialToken, code, deviceToken, trustDevice);
+      // H2 (security audit): persist the server-issued opaque device token so
+      // future logins from this browser can skip 2FA. The backend only ever
+      // accepts tokens it minted itself, never a client-chosen id.
+      if (trustDevice && result.device_token) {
+        try {
+          localStorage.setItem('device_token', result.device_token);
+        } catch {
+          // localStorage unavailable — 2FA will simply be asked again next time
+        }
+      }
       return { data: { session: { access_token: result.token } }, error: null };
     } catch (error) {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  setupTOTP: async () => {
+  setupTOTP: async (password: string) => {
     try {
-      const result = await apiClient.setupTOTP();
+      const result = await apiClient.setupTOTP(password);
       return { data: result, error: null };
     } catch (error) {
       return { data: null, error: { message: (error as Error).message } };
@@ -89,9 +106,9 @@ export const apiAuth = {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  disableTOTP: async () => {
+  disableTOTP: async (code: string) => {
     try {
-      await apiClient.disableTOTP();
+      await apiClient.disableTOTP(code);
       return { data: { ok: true }, error: null };
     } catch (error) {
       return { data: null, error: { message: (error as Error).message } };

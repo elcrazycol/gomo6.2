@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +16,7 @@ import (
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/pquerna/otp/totp"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Verify2FA validates a TOTP code after password login.
@@ -49,6 +52,20 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 		return
 	}
 
+	// M4 (security audit): bound per-login-attempt throttling. The key is the
+	// partial token's jti, so a brute force cannot exhaust the whole account and
+	// a failed attempt can never be replayed against another login attempt.
+	if h.redis != nil && claims.ID != "" {
+		lockKey := fmt.Sprintf("2fa_lock:%s", claims.ID)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		attempts, _ := h.redis.Get(ctx, lockKey).Int()
+		cancel()
+		if attempts >= max2FAAttempts {
+			c.JSON(http.StatusTooManyRequests, models.ErrorResponse("Too many attempts. Please log in again."))
+			return
+		}
+	}
+
 	// Verify user has 2FA enabled
 	var totpSecret *string
 	var totpEnabled bool
@@ -63,8 +80,25 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 	// Validate TOTP code (also try recovery codes)
 	valid, err := h.validateTOTPWithRecovery(claims.UserID, *totpSecret, req.Code)
 	if err != nil || !valid {
+		// M4: count this failed attempt against the partial token's lockout key.
+		if h.redis != nil && claims.ID != "" {
+			lockKey := fmt.Sprintf("2fa_lock:%s", claims.ID)
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			n, _ := h.redis.Incr(ctx, lockKey).Result()
+			if n == 1 {
+				h.redis.Expire(ctx, lockKey, 15*time.Minute)
+			}
+			cancel()
+		}
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid 2FA code"))
 		return
+	}
+
+	// M4: successful verification clears the attempt counter for this login.
+	if h.redis != nil && claims.ID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		h.redis.Del(ctx, fmt.Sprintf("2fa_lock:%s", claims.ID))
+		cancel()
 	}
 
 	// Generate token pair (access + refresh)
@@ -78,17 +112,26 @@ func (h *AuthHandler) Verify2FA(c *gin.Context) {
 	h.createSession(claims.UserID, tokenPair.RefreshToken, c.GetHeader("User-Agent"), c.ClientIP())
 	middleware.SetAuthCookies(c, claims.UserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
-	// Optionally trust the device
-	if req.TrustDevice && req.DeviceID != "" {
-		h.trustDevice(claims.UserID, req.DeviceID)
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+	resp := gin.H{
 		"token":         tokenPair.AccessToken,
 		"refresh_token": tokenPair.RefreshToken,
 		"expires_in":    tokenPair.ExpiresIn,
-	}))
+	}
+
+	// H2 (security audit): trusted devices are opaque tokens issued by the
+	// server, never client-chosen strings. The plaintext token is returned once
+	// so the client can store it; only its SHA-256 hash is persisted.
+	if req.TrustDevice {
+		if deviceToken, err := h.trustDevice(claims.UserID); err == nil && deviceToken != "" {
+			resp["device_token"] = deviceToken
+		}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(resp))
 }
+
+// max2FAAttempts bounds TOTP guesses per login attempt before a lockout.
+const max2FAAttempts = 5
 
 // SetupTOTP generates a new TOTP secret for the authenticated user and returns the provisioning URI.
 //
@@ -108,6 +151,41 @@ func (h *AuthHandler) SetupTOTP(c *gin.Context) {
 		return
 	}
 	userClaims := claims.(*auth.Claims)
+
+	// M1 (security audit): enrolling a new authenticator must prove knowledge of
+	// the current password when the account has one, and must not silently
+	// replace an already-enabled 2FA with an unverified secret.
+	var req struct {
+		Password string `json:"password"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	var storedHash sql.NullString
+	var totpEnabled bool
+	if err := h.db.QueryRow(
+		`SELECT password_hash, totp_enabled FROM users WHERE id = $1`, userClaims.UserID,
+	).Scan(&storedHash, &totpEnabled); err != nil {
+		serverError(c, "load account state", err)
+		return
+	}
+	if totpEnabled {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("2FA is already enabled. Disable it first."))
+		return
+	}
+	if storedHash.Valid && storedHash.String != "" {
+		// M1 (security audit): the enrollment password check is a password
+		// oracle for a session holder — throttle per account like login.
+		if h.isAuthActionLocked(userClaims.UserID) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			return
+		}
+		if bcrypt.CompareHashAndPassword([]byte(storedHash.String), []byte(req.Password)) != nil {
+			h.recordAuthActionFailure(userClaims.UserID)
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Текущий пароль неверен"))
+			return
+		}
+		h.clearAuthActionLock(userClaims.UserID)
+	}
 
 	// Generate a new TOTP key
 	key, err := totp.Generate(totp.GenerateOpts{
@@ -174,12 +252,21 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 		return
 	}
 
-	// Validate the TOTP code
-	valid, err := h.validateTOTP(*totpSecret, req.Code)
-	if err != nil || !valid {
+	// M1 (security audit): throttle the enable-code endpoint with the same
+	// per-account counter as setup/disable/password, so a session holder cannot
+	// brute-force the verification code.
+	if h.isAuthActionLocked(userClaims.UserID) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid code. Please try again."))
 		return
 	}
+	// Validate the TOTP code
+	valid, err := h.validateTOTP(*totpSecret, req.Code)
+	if err != nil || !valid {
+		h.recordAuthActionFailure(userClaims.UserID)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid code. Please try again."))
+		return
+	}
+	h.clearAuthActionLock(userClaims.UserID)
 
 	// Enable 2FA
 	_, err = h.db.Exec(
@@ -204,7 +291,7 @@ func (h *AuthHandler) VerifyAndEnableTOTP(c *gin.Context) {
 //
 // DisableTOTP godoc
 // @Summary      Disable TOTP
-// @Description  Disable 2FA for the authenticated user
+// @Description  Disable 2FA for the authenticated user (requires a valid 2FA or recovery code)
 // @Tags         Auth
 // @Produce      json
 // @Success      200 {object} models.APIResponse
@@ -219,7 +306,51 @@ func (h *AuthHandler) DisableTOTP(c *gin.Context) {
 	}
 	userClaims := claims.(*auth.Claims)
 
-	_, err := h.db.Exec(
+	// M1 (security audit): disabling 2FA must prove possession of the current
+	// authenticator (or a recovery code). A stolen session alone must never be
+	// able to silently strip the account's strongest protection.
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Code) == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Current 2FA code is required"))
+		return
+	}
+
+	var totpSecret *string
+	var totpEnabled bool
+	if err := h.db.QueryRow(
+		`SELECT totp_secret, totp_enabled FROM users WHERE id = $1`, userClaims.UserID,
+	).Scan(&totpSecret, &totpEnabled); err != nil {
+		serverError(c, "load 2fa state", err)
+		return
+	}
+	if !totpEnabled || totpSecret == nil || *totpSecret == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("2FA is not enabled for this account"))
+		return
+	}
+	// M1 (security audit): same per-account throttle as the other sensitive
+	// auth actions — a stolen session must not be able to brute-force the TOTP
+	// or recovery code needed to strip 2FA.
+	if h.isAuthActionLocked(userClaims.UserID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid 2FA code"))
+		return
+	}
+	valid, err := h.validateTOTPWithRecovery(userClaims.UserID, *totpSecret, req.Code)
+	if err != nil {
+		// A DB failure inside recovery-code lookup is not a wrong code — do not
+		// burn a lockout attempt on infrastructure errors.
+		serverError(c, "validate 2fa code", err)
+		return
+	}
+	if !valid {
+		h.recordAuthActionFailure(userClaims.UserID)
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid 2FA code"))
+		return
+	}
+	h.clearAuthActionLock(userClaims.UserID)
+
+	_, err = h.db.Exec(
 		`UPDATE users SET totp_secret = NULL, totp_enabled = false, trusted_devices = '{}'::jsonb WHERE id = $1`,
 		userClaims.UserID,
 	)
@@ -294,14 +425,26 @@ func (h *AuthHandler) validateTOTPWithRecovery(userID, secret, code string) (boo
 	return result, nil
 }
 
-func (h *AuthHandler) trustDevice(userID, deviceID string) {
-	// Read current trusted devices
+// hashDeviceID derives the storage key for a device token. Only the hash is
+// ever persisted, so a database leak does not expose usable device tokens.
+func hashDeviceID(deviceID string) string {
+	h := sha256.Sum256([]byte(deviceID))
+	return hex.EncodeToString(h[:])
+}
+
+// trustDevice issues an unpredictable device token (stored as a SHA-256 hash)
+// so 2FA cannot be bypassed with a guessed, leaked or client-chosen string.
+// Returns the plaintext token — the caller returns it to the client exactly once.
+func (h *AuthHandler) trustDevice(userID string) (string, error) {
+	token := randomHex(32) // 64 hex chars, ~256 bits of entropy
+	deviceHash := hashDeviceID(token)
+
 	var trustedDevicesJSON *string
 	err := h.db.QueryRow(
 		`SELECT trusted_devices FROM users WHERE id = $1`, userID,
 	).Scan(&trustedDevicesJSON)
-	if err != nil {
-		return
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
 	}
 
 	trustedDevices := make(map[string]int64)
@@ -309,11 +452,25 @@ func (h *AuthHandler) trustDevice(userID, deviceID string) {
 		json.Unmarshal([]byte(*trustedDevicesJSON), &trustedDevices)
 	}
 
+	// Prune expired entries and cap the map size.
+	now := time.Now().Unix()
+	for k, exp := range trustedDevices {
+		if now >= exp {
+			delete(trustedDevices, k)
+		}
+	}
+	if len(trustedDevices) >= 20 {
+		return "", fmt.Errorf("too many trusted devices")
+	}
+
 	// Trust for 30 days
-	trustedDevices[deviceID] = time.Now().Add(30 * 24 * time.Hour).Unix()
+	trustedDevices[deviceHash] = now + 30*24*60*60
 
 	data, _ := json.Marshal(trustedDevices)
-	h.db.Exec(`UPDATE users SET trusted_devices = $1 WHERE id = $2`, string(data), userID)
+	if _, err := h.db.Exec(`UPDATE users SET trusted_devices = $1 WHERE id = $2`, string(data), userID); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 // generateAndStoreRecoveryCodes creates 8 recovery codes, stores their hashes in the DB,

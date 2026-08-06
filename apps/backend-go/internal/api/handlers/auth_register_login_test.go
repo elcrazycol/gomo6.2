@@ -288,7 +288,10 @@ func TestLogin_With2FA_TrustedDevice(t *testing.T) {
 	}
 
 	futureExpiry := time.Now().Add(30 * 24 * time.Hour).Unix()
-	trustedDevices := map[string]int64{"my-device-1": futureExpiry}
+	// H2: the trusted-device map is keyed by the SHA-256 of a server-issued
+	// opaque token — a client-chosen string can never match.
+	deviceToken := "server-issued-device-token"
+	trustedDevices := map[string]int64{hashDeviceID(deviceToken): futureExpiry}
 	trustedJSON, _ := json.Marshal(trustedDevices)
 	trustedStr := string(trustedJSON)
 
@@ -298,9 +301,9 @@ func TestLogin_With2FA_TrustedDevice(t *testing.T) {
 			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now()))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
-		"email":     "test@example.com",
-		"password":  "vE7xKp2mNq9rLw5t",
-		"device_id": "my-device-1",
+		"email":        "test@example.com",
+		"password":     "vE7xKp2mNq9rLw5t",
+		"device_token": deviceToken,
 	}, nil, nil)
 	h.Login(c)
 
@@ -336,7 +339,8 @@ func TestLogin_With2FA_ExpiredTrustedDevice(t *testing.T) {
 	}
 
 	expiredExpiry := time.Now().Add(-1 * time.Hour).Unix()
-	trustedDevices := map[string]int64{"old-device": expiredExpiry}
+	deviceToken := "server-issued-device-token"
+	trustedDevices := map[string]int64{hashDeviceID(deviceToken): expiredExpiry}
 	trustedJSON, _ := json.Marshal(trustedDevices)
 	trustedStr := string(trustedJSON)
 
@@ -346,9 +350,9 @@ func TestLogin_With2FA_ExpiredTrustedDevice(t *testing.T) {
 			AddRow("u1", "testuser", "testuser", "test@example.com", "localhost:8080", string(realHashBytes), true, nil, &trustedStr, time.Now()))
 
 	c, w := newPOSTContext("/auth/v1/login", map[string]string{
-		"email":     "test@example.com",
-		"password":  "vE7xKp2mNq9rLw5t",
-		"device_id": "old-device",
+		"email":        "test@example.com",
+		"password":     "vE7xKp2mNq9rLw5t",
+		"device_token": deviceToken,
 	}, nil, nil)
 	h.Login(c)
 

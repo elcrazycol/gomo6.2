@@ -266,11 +266,11 @@ class ApiClient {
   async login(
     username: string,
     password: string,
-    deviceId?: string
+    deviceToken?: string
   ): Promise<AuthResponse & { needs_2fa?: boolean }> {
     const body: Record<string, string | boolean> = { username, password };
-    if (deviceId) {
-      body.device_id = deviceId;
+    if (deviceToken) {
+      body.device_token = deviceToken;
     }
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/login', {
@@ -289,10 +289,10 @@ class ApiClient {
     return data as unknown as AuthResponse & { needs_2fa?: boolean };
   }
 
-  async verify2FA(token: string, code: string, deviceId?: string, trustDevice?: boolean): Promise<AuthResponse> {
+  async verify2FA(token: string, code: string, deviceToken?: string, trustDevice?: boolean): Promise<AuthResponse & { device_token?: string }> {
     const body: Record<string, string | boolean> = { token, code };
-    if (deviceId) {
-      body.device_id = deviceId;
+    if (deviceToken) {
+      body.device_token = deviceToken;
     }
     if (trustDevice) {
       body.trust_device = true;
@@ -308,7 +308,7 @@ class ApiClient {
       this.setTokens(data.token as string, (data.refresh_token as string) || null);
     }
 
-    return data as unknown as AuthResponse;
+    return data as unknown as AuthResponse & { device_token?: string };
   }
 
   // Last known good user profile (survives network errors)
@@ -380,9 +380,10 @@ class ApiClient {
   }
 
   // 2FA Methods
-  async setupTOTP(): Promise<TOTPSetupResponse> {
+  async setupTOTP(password: string): Promise<TOTPSetupResponse> {
     const response = await this.request<TOTPSetupResponse>('/api/v1/auth/2fa/setup', {
       method: 'POST',
+      body: JSON.stringify({ password }),
     });
     return response.data as TOTPSetupResponse;
   }
@@ -395,9 +396,10 @@ class ApiClient {
     return response.data as { enabled: boolean; recovery_codes?: string[] };
   }
 
-  async disableTOTP(): Promise<void> {
+  async disableTOTP(code: string): Promise<void> {
     await this.request<unknown>('/api/v1/auth/2fa/disable', {
       method: 'POST',
+      body: JSON.stringify({ code }),
     });
   }
 
@@ -718,14 +720,16 @@ function removeLegacyStoredTokens(): void {
 // Create singleton instance
 export const apiClient = new ApiClient();
 
-// Generate a device ID (stable per browser)
-export function getDeviceId(): string {
-  let deviceId = localStorage.getItem('device_id');
-  if (!deviceId) {
-    deviceId = 'device_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-    localStorage.setItem('device_id', deviceId);
+// Read the server-issued trusted-device token (opaque, ~256 bits of entropy,
+// set by verify-2fa when the user checks "trust this device"). Never generate
+// one client-side: the backend only accepts tokens it minted (matched by
+// SHA-256), so a client-chosen string can never skip 2FA.
+export function getDeviceToken(): string {
+  try {
+    return localStorage.getItem('device_token') || '';
+  } catch {
+    return '';
   }
-  return deviceId;
 }
 
 export default apiClient;
