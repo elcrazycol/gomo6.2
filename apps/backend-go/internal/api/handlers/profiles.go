@@ -177,7 +177,10 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			profiles[i].Email = nil
 		}
 		shouldFilter, ps, err := ShouldFilterPrivateProfile(h.db, viewerID, profiles[i].ID)
-		if err == nil && shouldFilter {
+		if err != nil {
+			continue
+		}
+		if shouldFilter {
 			if ps.PrivateHideAvatar {
 				profiles[i].AvatarURL = nil
 			}
@@ -188,6 +191,28 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 			profiles[i].ThreadCount = nil
 			profiles[i].IsOnline = false
 			profiles[i].LastSeen = nil
+			continue
+		}
+		// H3 (security audit): the avatar/stats toggles must also apply to
+		// PUBLIC profiles — otherwise "hide avatar"/"hide stats" is a no-op
+		// for the majority of users. Owner and mutual friends always see them.
+		if !ps.PrivateProfile && viewerID != profiles[i].ID {
+			if ps.PrivateHideAvatar || ps.PrivateHideStats {
+				isFriend := false
+				if viewerID != "" {
+					isFriend, _ = IsMutualFriend(h.db, viewerID, profiles[i].ID)
+				}
+				if ps.PrivateHideAvatar && !isFriend {
+					profiles[i].AvatarURL = nil
+				}
+				if ps.PrivateHideStats && !isFriend {
+					profiles[i].Garma = nil
+					profiles[i].PostCount = nil
+					profiles[i].ThreadCount = nil
+					profiles[i].IsOnline = false
+					profiles[i].LastSeen = nil
+				}
+			}
 		}
 	}
 
@@ -262,6 +287,25 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 		profile.ThreadCount = nil
 		profile.IsOnline = false
 		profile.LastSeen = nil
+	} else if err == nil && !ps.PrivateProfile && viewerID != id {
+		// H3 (security audit): public-profile avatar/stats toggles must not be
+		// no-ops. Owner and mutual friends always see them.
+		if ps.PrivateHideAvatar || ps.PrivateHideStats {
+			isFriend := false
+			if viewerID != "" {
+				isFriend, _ = IsMutualFriend(h.db, viewerID, id)
+			}
+			if ps.PrivateHideAvatar && !isFriend {
+				profile.AvatarURL = nil
+			}
+			if ps.PrivateHideStats && !isFriend {
+				profile.Garma = nil
+				profile.PostCount = nil
+				profile.ThreadCount = nil
+				profile.IsOnline = false
+				profile.LastSeen = nil
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(profile))

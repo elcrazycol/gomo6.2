@@ -255,7 +255,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// Drops packages (public)
 		rest.GET("/drops/packages", dropsHandler.GetDropsPackages)
 
-		// DePay integration (public — no auth, signature verified by handler)
+		// DePay integration. Both handlers authenticate the request themselves:
+		// /drops/callback requires a valid DePay signature (fail-closed, C1),
+		// /drops/config accepts either a valid DePay signature or an
+		// authenticated session with user_id bound to the caller (C2). The
+		// OptionalAuthMiddleware above populates claims from cookie/Bearer so
+		// the browser widget flow works without extra middleware here.
 		rest.POST("/drops/config", dropsHandler.DropsConfig)
 		rest.POST("/drops/callback", dropsHandler.DropsCallback)
 
@@ -748,25 +753,50 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	if wsHandler != nil {
 		router.GET("/ws", wsHandler.HandleWebSocket)
 
-		// Debug endpoint for online users count (protected, admin only in production)
-		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), wsHandler.GetOnlineUsers)
+		// Debug endpoint for online users count. M7 (security audit): the raw
+		// list of online user IDs is global presence data, so it is gated to
+		// platform admins instead of every authenticated user.
+		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), adminOnlyMiddleware(db), wsHandler.GetOnlineUsers)
 	}
 
 }
 
+// adminOnlyMiddleware rejects the request unless the authenticated user holds
+// the platform 'admin' role. Used to gate ops/debug endpoints such as /ws/stats
+// that would otherwise expose global presence data to every user.
+func adminOnlyMiddleware(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claimsValue, exists := c.Get("claims")
+		claims, ok := claimsValue.(*auth.Claims)
+		if !exists || !ok || claims == nil || claims.UserID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			c.Abort()
+			return
+		}
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = $1 AND role = 'admin'`, claims.UserID).Scan(&count); err != nil || count == 0 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 // canViewUserWall reports whether viewerID may view the wall of ownerID
-// (owner, non-private profile, or mutual friend). Used by the private "wall"
-// media bucket so photos are never served to strangers even when the key is
-// known. Mirrors the wall read predicate in profileWallFinishSelectQuery.
+// (owner, public profile whose wall is not hidden (private_hide_wall), or
+// mutual friend). Used by the private "wall" media bucket so photos are never
+// served to strangers even when the key is known. Mirrors the wall read
+// predicate in profileWallFinishSelectQuery.
 func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 	if viewerID == ownerID {
 		return true
 	}
-	var private bool
-	if err := db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", ownerID).Scan(&private); err != nil {
+	var private, hideWall bool
+	if err := db.QueryRow("SELECT COALESCE(private_profile, false), COALESCE(private_hide_wall, false) FROM privacy_settings WHERE user_id = $1", ownerID).Scan(&private, &hideWall); err != nil {
 		return err == sql.ErrNoRows
 	}
-	if !private {
+	if !private && !hideWall {
 		return true
 	}
 	var friend bool

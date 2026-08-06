@@ -21,10 +21,10 @@ func GetPrivacySettings(db *sql.DB, userID string) (*PrivacySettings, error) {
 	var ps PrivacySettings
 	err := db.QueryRow(`
 		SELECT COALESCE(private_profile, false),
-		       COALESCE(private_hide_avatar, true),
-		       COALESCE(private_hide_wall, true),
+		       COALESCE(private_hide_avatar, false),
+		       COALESCE(private_hide_wall, false),
 		       COALESCE(private_hide_threads, true),
-		       COALESCE(private_hide_stats, true),
+		       COALESCE(private_hide_stats, false),
 		       COALESCE(private_hide_friends, true),
 		       COALESCE(private_hide_gifts, true),
 		       COALESCE(private_hide_achievements, true)

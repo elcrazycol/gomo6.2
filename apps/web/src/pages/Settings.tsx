@@ -35,10 +35,14 @@ const defaultPrivacySettings = {
     time: false,
   },
   private_profile: false,
-  private_hide_avatar: true,
-  private_hide_wall: true,
+  // H3 (security audit): these three toggles now apply to PUBLIC profiles too.
+  // DB defaults are FALSE (migrations 082/083) and existing public rows were
+  // backfilled to FALSE, so the defaults here must match — otherwise new users
+  // would be created with hidden walls/avatars/stats they never asked for.
+  private_hide_avatar: false,
+  private_hide_wall: false,
   private_hide_threads: true,
-  private_hide_stats: true,
+  private_hide_stats: false,
   private_hide_friends: true,
   private_hide_gifts: true,
   private_hide_achievements: true,

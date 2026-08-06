@@ -198,10 +198,13 @@ const Profile = () => {
   const [giftCatalog, setGiftCatalog] = useState<GiftCatalogItem[]>([]);
   const [giftCount, setGiftCount] = useState(0);
   const [privateProfile, setPrivateProfile] = useState(false);
-  const [privateHideAvatar, setPrivateHideAvatar] = useState(true);
-  const [privateHideWall, setPrivateHideWall] = useState(true);
+  // H3 (security audit): hide toggles default to FALSE, matching the new DB
+  // defaults (migrations 082/083) — a missing value means "visible", not
+  // "hidden", for public profiles.
+  const [privateHideAvatar, setPrivateHideAvatar] = useState(false);
+  const [privateHideWall, setPrivateHideWall] = useState(false);
   const [privateHideThreads, setPrivateHideThreads] = useState(true);
-  const [privateHideStats, setPrivateHideStats] = useState(true);
+  const [privateHideStats, setPrivateHideStats] = useState(false);
   const [privateHideFriends, setPrivateHideFriends] = useState(true);
   const [privateHideGifts, setPrivateHideGifts] = useState(true);
   const [privateHideAchievements, setPrivateHideAchievements] = useState(true);
@@ -385,10 +388,10 @@ const Profile = () => {
           ...(privacyData.stats_visibility || {}),
         });
         setPrivateProfile(privacyData.private_profile ?? false);
-        setPrivateHideAvatar(privacyData.private_hide_avatar ?? true);
-        setPrivateHideWall(privacyData.private_hide_wall ?? true);
+        setPrivateHideAvatar(privacyData.private_hide_avatar ?? false);
+        setPrivateHideWall(privacyData.private_hide_wall ?? false);
         setPrivateHideThreads(privacyData.private_hide_threads ?? true);
-        setPrivateHideStats(privacyData.private_hide_stats ?? true);
+        setPrivateHideStats(privacyData.private_hide_stats ?? false);
         setPrivateHideFriends(privacyData.private_hide_friends ?? true);
         setPrivateHideGifts(privacyData.private_hide_gifts ?? true);
         setPrivateHideAchievements(privacyData.private_hide_achievements ?? true);

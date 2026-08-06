@@ -549,11 +549,12 @@ func TestUniversalPost_WallPosts_OwnWall(t *testing.T) {
 func TestUniversalPost_WallPosts_ForbiddenForeignWall(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	// Privacy gate first: u2's profile is not private, so the wall-post check
-	// proceeds to allow_wall_posts_from_others (which is false here).
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\) FROM privacy_settings WHERE user_id = \$1`).
+	// Privacy gate first: u2's profile is public and the wall is not hidden, so
+	// the wall-post check proceeds to allow_wall_posts_from_others (which is
+	// false here).
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
-		WillReturnRows(sqlmock.NewRows([]string{"private"}).AddRow(false))
+		WillReturnRows(sqlmock.NewRows([]string{"private", "hide_wall"}).AddRow(false, false))
 
 	mock.ExpectQuery(`SELECT COALESCE\(allow_wall_posts_from_others, true\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
@@ -574,10 +575,11 @@ func TestUniversalPost_WallPosts_ForbiddenForeignWall(t *testing.T) {
 func TestUniversalPost_WallPosts_AllowedForeignWall(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	// Privacy gate first: u2's profile is not private → allowed.
-	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\) FROM privacy_settings WHERE user_id = \$1`).
+	// Privacy gate first: u2's profile is public and the wall is not hidden →
+	// allowed.
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\), COALESCE\(private_hide_wall, false\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
-		WillReturnRows(sqlmock.NewRows([]string{"private"}).AddRow(false))
+		WillReturnRows(sqlmock.NewRows([]string{"private", "hide_wall"}).AddRow(false, false))
 
 	mock.ExpectQuery(`SELECT COALESCE\(allow_wall_posts_from_others, true\) FROM privacy_settings WHERE user_id = \$1`).
 		WithArgs("u2").
@@ -722,6 +724,157 @@ func TestUniversalPut_WallPosts_CannotMoveToForeignWall(t *testing.T) {
 	c, w := newUniversalRequestContext("PUT", "/api/v1/profile_wall_posts?id=eq.post1", map[string]string{
 		"content": "updated",
 		"user_id": "victim",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── H1: gomosub management writes are board-scoped (IDOR fix) ──────────────
+
+func TestUniversalPut_GomosubChannel_CrossBoardRejected(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// u1 owns board "myboard" → permission granted for that board only.
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs("myboard").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("u1"))
+
+	// The UPDATE must be bound to board_id = myboard; the victim channel belongs
+	// to another board, so no row matches → 404, nothing modified.
+	mock.ExpectQuery(`(?s).*UPDATE channels SET .* WHERE board_id = \$[0-9]+ AND id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id", "name"}))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/channels?id=eq.victim-channel&board_id=eq.myboard", map[string]string{
+		"name": "hacked",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalDelete_GomosubRole_CrossBoardRejected(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs("myboard").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("u1"))
+
+	// Deleting a role of another board must not match the board-scoped WHERE.
+	mock.ExpectQuery(`(?s).*DELETE FROM gomosub_roles WHERE board_id = \$[0-9]+ AND id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id"}))
+
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/gomosub_roles?id=eq.victim-role&board_id=eq.myboard", nil, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_ChannelPermissions_BoardScoped(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs("myboard").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("u1"))
+
+	// channel_permissions has no board_id column — the scope goes through the
+	// referenced channel's board, and the board_id query param must not be
+	// turned into a (nonexistent) column filter.
+	mock.ExpectQuery(`(?s).*UPDATE channel_permissions SET .* WHERE channel_id IN \(SELECT id FROM channels WHERE board_id = \$[0-9]+\) AND id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "channel_id", "can_read"}).
+			AddRow("perm1", "chan1", true))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/channel_permissions?id=eq.perm1&board_id=eq.myboard", map[string]string{
+		"can_read": "true",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_GomosubMemberships_SelfJoinRoleRejected(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	// A self-join (user_id == caller) must never carry a role_id — otherwise
+	// anyone could promote themselves to a privileged role on any board.
+	c, w := newUniversalRequestContext("POST", "/api/v1/gomosub_memberships", map[string]string{
+		"board_id": "b1",
+		"user_id":  "u1",
+		"role_id":  "admin-role",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPost_GomosubMemberships_SelfJoinWithoutRole(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// Legitimate self-join without a role still works (default member).
+	mock.ExpectQuery(`(?s).*INSERT INTO gomosub_memberships.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id", "user_id"}).
+			AddRow("m1", "b1", "u1"))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/gomosub_memberships", map[string]string{
+		"board_id": "b1",
+		"user_id":  "u1",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_GomosubMemberships_ForeignRoleRejected(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("u1"))
+
+	// The role belongs to another board → the membership update is rejected.
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_roles WHERE id = \$1 AND board_id = \$2\)`).
+		WithArgs("foreign-role", "b1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/gomosub_memberships?board_id=eq.b1&user_id=eq.u1", map[string]string{
+		"role_id": "foreign-role",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUniversalPut_GomosubMemberships_SameBoardRole(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`SELECT owner_id FROM boards WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow("u1"))
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM gomosub_roles WHERE id = \$1 AND board_id = \$2\)`).
+		WithArgs("my-role", "b1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(`(?s).*UPDATE gomosub_memberships SET role_id = \$1 WHERE board_id = \$[0-9]+ AND user_id = \$[0-9]+.*RETURNING \*`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id", "user_id", "role_id"}).
+			AddRow("m1", "b1", "u1", "my-role"))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/gomosub_memberships?board_id=eq.b1&user_id=eq.u1", map[string]string{
+		"role_id": "my-role",
 	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 

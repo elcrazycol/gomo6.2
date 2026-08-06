@@ -570,9 +570,10 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 }
 
 // canViewWallRoom reports whether userID may receive realtime events for a
-// profile wall. Public walls are open to any authenticated user; private walls
-// require ownership or a mutual friendship. This mirrors the REST visibility
-// predicate (profileWallFinishSelectQuery) so a stranger cannot subscribe to
+// profile wall. Walls of public profiles are open to any authenticated user
+// unless the owner hid the wall (private_hide_wall); private walls require
+// ownership or a mutual friendship. This mirrors the REST visibility predicate
+// (profileWallFinishSelectQuery) so a stranger cannot subscribe to hidden or
 // private wall events (new/update/delete posts carry full content + image URLs).
 func (h *Hub) canViewWallRoom(userID, targetID string) bool {
 	if h.db == nil {
@@ -581,16 +582,19 @@ func (h *Hub) canViewWallRoom(userID, targetID string) bool {
 	if userID == targetID {
 		return true
 	}
-	var private bool
-	err := h.db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", targetID).Scan(&private)
+	var private, hideWall bool
+	err := h.db.QueryRow(
+		"SELECT COALESCE(private_profile, false), COALESCE(private_hide_wall, false) FROM privacy_settings WHERE user_id = $1", targetID,
+	).Scan(&private, &hideWall)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			// No privacy settings row means the profile is not private.
+			// No privacy settings row means the profile is public and the wall
+			// is not hidden.
 			return true
 		}
 		return false
 	}
-	if !private {
+	if !private && !hideWall {
 		return true
 	}
 	var friend bool

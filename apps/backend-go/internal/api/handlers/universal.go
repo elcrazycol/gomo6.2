@@ -332,6 +332,38 @@ func extractRecordID(urlPath string, tableName string) string {
 	return trimmed
 }
 
+// gomosubBoardIDFromRequest extracts the board_id that authorized a gomosub
+// management write (query param first, then JSON body). Returns "" when
+// absent — self-join/self-leave flows legitimately omit it.
+func gomosubBoardIDFromRequest(c *gin.Context) string {
+	boardID := strings.TrimPrefix(c.Query("board_id"), "eq.")
+	if boardID == "" && c.Request.Body != nil {
+		bodyBytes, err := io.ReadAll(c.Request.Body)
+		if err == nil {
+			c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			var body map[string]interface{}
+			if json.Unmarshal(bodyBytes, &body) == nil {
+				if bid, ok := body["board_id"].(string); ok {
+					boardID = strings.TrimPrefix(bid, "eq.")
+				}
+			}
+		}
+	}
+	return boardID
+}
+
+// gomosubBoardScopeClause returns the WHERE fragment that confines a gomosub
+// management write to the board that granted the permission (H1). Most gomosub
+// tables carry their own board_id column; channel_permissions does not, so it
+// is scoped through the board of the channel it references.
+func gomosubBoardScopeClause(tableName, boardID string, argIndex int) (string, interface{}) {
+	ph := "$" + strconv.Itoa(argIndex)
+	if tableName == "channel_permissions" {
+		return "channel_id IN (SELECT id FROM channels WHERE board_id = " + ph + ")", boardID
+	}
+	return "board_id = " + ph, boardID
+}
+
 // isGomosubManagementTable returns true if the table requires gomosub permission checks.
 func isGomosubManagementTable(table string) bool {
 	switch table {
