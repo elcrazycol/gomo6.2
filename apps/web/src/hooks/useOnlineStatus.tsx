@@ -6,13 +6,19 @@ export const useOnlineStatus = (userId: string | undefined) => {
     if (!userId) return;
 
     const setStatus = async (online: boolean) => {
-      await api
-        .from("profiles")
-        .update({
-          is_online: online,
-          last_seen_at: online ? new Date().toISOString() : new Date().toISOString(),
-        })
-        .eq("id", userId);
+      try {
+        await api
+          .from("profiles")
+          .update({
+            is_online: online,
+            last_seen_at: online ? new Date().toISOString() : new Date().toISOString(),
+          })
+          .eq("id", userId);
+      } catch {
+        // Presence heartbeat is best-effort: a transient 429/5xx/401 is
+        // retried by the next 25s tick. Swallow it so the setInterval callback
+        // never surfaces an unhandled promise rejection.
+      }
     };
 
     const goOnline = () => setStatus(true);

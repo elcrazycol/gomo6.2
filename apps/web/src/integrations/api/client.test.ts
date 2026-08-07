@@ -257,6 +257,21 @@ describe("ApiClient", () => {
       await expect(apiClient.request("/api/v1/test")).rejects.toThrow();
     });
 
+    it("body that claims JSON but is malformed surfaces a clean error, not a SyntaxError", async () => {
+      // Server double-write: two JSON documents concatenated. The body stream
+      // must be read once and parsed defensively — never json() then text().
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          '{"success":false,"error":"Internal server error"}{"error":"Internal server error"}',
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await expect(apiClient.request("/api/v1/test")).rejects.toThrow(
+        "Internal server error",
+      );
+    });
+
     it("HTTP error (non-401) throws with status", async () => {
       mockFetchError("Not found", 404);
 
@@ -457,10 +472,73 @@ describe("ApiClient", () => {
       );
       expect(apiClient.getToken()).toBeNull();
       expect(handler).toHaveBeenCalled();
-      // Initial attempt + exactly one retry with the fresh token — no loop.
-      expect(fetch).toHaveBeenCalledTimes(2);
+      // Initial attempt + one retry with the fresh token + the forced second
+      // refresh (which is also rejected) — bounded, never an infinite loop.
+      expect(fetch).toHaveBeenCalledTimes(3);
 
       window.removeEventListener("auth:expired", handler);
+    });
+
+    it("retry-401 after a successful refresh forces a second refresh and recovers (cross-tab race)", async () => {
+      // Regression for the production "random logout" loop. Two tabs share the
+      // same cookie session; when both refresh at token expiry, the backend
+      // blacklists the previous access JTI from the shared session row — so
+      // tab B's refresh can blacklist the token tab A's refresh just issued.
+      // Tab A's retry then 401s. The client must NOT treat that as "session
+      // revoked": it forces a SECOND refresh and retries, recovering the
+      // perfectly healthy session.
+      // The token is FRESH but blacklisted (another tab poisoned it), so the
+      // proactive-refresh guard does not fire and the request itself 401s.
+      const blacklisted = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+      apiClient.setTokens(blacklisted, "refresh-xyz");
+
+      let callCount = 0;
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        callCount++;
+        if (url.includes("/api/v1/auth/refresh")) {
+          // The session is alive — refresh always succeeds.
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                success: true,
+                data: { token: `fresh-token-${callCount}` },
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+          );
+        }
+        if (callCount === 1 || callCount === 2) {
+          // #1: initial request — 401, the held token is blacklisted.
+          // #2: first retry — the client reuses the same fresh-but-blacklisted
+          // token (tryRefreshToken no-ops on a fresh token), 401 again.
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: "Unauthorized" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, data: { id: "resource-1" } }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      });
+
+      const result = await apiClient.request("/api/v1/protected");
+      expect(result.data).toEqual({ id: "resource-1" });
+      // initial(1, 401) + retry with blacklisted token(2, 401) + forced
+      // refresh(3) + retry with the genuinely new token(4) = 4 calls.
+      expect(callCount).toBe(4);
+      // No logout — the session survived the race and now holds a fresh token.
+      expect(apiClient.getToken()).not.toBeNull();
     });
   });
 

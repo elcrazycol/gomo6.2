@@ -366,7 +366,6 @@ func TestLogout_WithoutSessionIdentity_RevokesEverything(t *testing.T) {
 
 func TestRefresh_KeepsSessionAndRefreshToken(t *testing.T) {
 	h, mock, mr := setupAuthHandlerWithRedis(t)
-	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
 	// Mint a real token pair for session sess-1 (stored in miniredis).
 	pair1, err := h.authService.GenerateTokenPair("u1", "testuser", "localhost:8080", "sess-1")
@@ -374,6 +373,18 @@ func TestRefresh_KeepsSessionAndRefreshToken(t *testing.T) {
 		t.Fatalf("GenerateTokenPair failed: %v", err)
 	}
 	oldHash := sha256hex(pair1.RefreshToken)
+
+	// Bearer/API client: the refresh request presents its (still valid) access
+	// token, so claims.ID carries its JTI — that token is the one being
+	// superseded and MUST be blacklisted. Validate the minted token to get the
+	// real claims (ID is populated from the jti claim on parse).
+	claims, err := h.authService.ValidateToken(pair1.AccessToken)
+	if err != nil {
+		t.Fatalf("ValidateToken failed: %v", err)
+	}
+	if claims.ID != pair1.AccessJTI {
+		t.Fatalf("expected claims.ID to carry the access jti, got %q", claims.ID)
+	}
 
 	// The refresh handler finds the session row by refresh_hash and refreshes
 	// it in place — the session id NEVER changes.
@@ -422,10 +433,56 @@ func TestRefresh_KeepsSessionAndRefreshToken(t *testing.T) {
 	if !mr.Exists(oldKey) {
 		t.Error("refresh token must stay valid after refresh (no rotation)")
 	}
-	// The superseded access token is blacklisted so a session can never hold
-	// two live access tokens at once.
+	// The access token presented with THIS request (claims.ID) is superseded
+	// and blacklisted so a session can never hold two live access tokens once.
 	if !mr.Exists("blacklist:" + pair1.AccessJTI) {
-		t.Error("superseded access token must be blacklisted on refresh")
+		t.Error("presented (superseded) access token must be blacklisted on refresh")
+	}
+}
+
+func TestRefresh_BrowserCookieFlow_DoesNotBlacklistConcurrentTabToken(t *testing.T) {
+	// Regression for the production logout loop: the client logged users out at
+	// random moments even though every /auth/refresh returned 200. Two tabs
+	// share the same cookie session (same refresh token, same session row).
+	// When both refresh at token expiry:
+	//   tab A refresh -> issues JTI_A, writes access_jti=JTI_A to the row
+	//   tab B refresh -> reads the row (now JTI_A!) and blacklisted it
+	//   tab A retries with its fresh JTI_A -> 401 -> client force-logs out
+	// Browser cookie refreshes present no access token (claims.ID == ""), so the
+	// handler must NOT blacklist whatever JTI sits in the shared session row.
+	h, mock, mr := setupAuthHandlerWithRedis(t)
+
+	pair1, err := h.authService.GenerateTokenPair("u1", "testuser", "localhost:8080", "sess-1")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+	oldHash := sha256hex(pair1.RefreshToken)
+
+	// Browser cookie flow: claims come from the refresh-user cookie and carry
+	// NO access-token JTI.
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	// The shared session row already holds the JTI issued by ANOTHER tab's
+	// concurrent refresh (JTI-A). This refresh must not touch it.
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1", oldHash).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
+			AddRow("sess-1", oldHash, "JTI-from-other-tab"))
+	mock.ExpectExec(`UPDATE user_sessions`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "sess-1", "u1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	c, w := newPOSTContext("/auth/v1/refresh", map[string]string{
+		"refresh_token": pair1.RefreshToken,
+	}, claims, nil)
+	h.Refresh(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// The other tab's fresh access token must survive this refresh untouched.
+	if mr.Exists("blacklist:JTI-from-other-tab") {
+		t.Error("cookie refresh must NOT blacklist a concurrent tab's fresh access token")
 	}
 }
 

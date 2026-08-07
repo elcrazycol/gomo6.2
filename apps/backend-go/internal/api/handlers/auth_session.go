@@ -108,10 +108,21 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	}
 
 	if hasSession {
-		// The previous access token is superseded: blacklist it so a revoked or
-		// rotated session can never hold two live access tokens at once.
-		if row.AccessJTI != "" {
-			h.authService.BlacklistToken(row.AccessJTI, time.Now().Add(time.Hour))
+		// Blacklist the access token that was actually presented with THIS
+		// request (claims.ID, populated for Bearer/API clients) — never the JTI
+		// read from the shared session row. The row's JTI is overwritten by
+		// every refresh of this session, so concurrent refreshes from multiple
+		// tabs race on it: tab B's refresh can read tab A's just-issued JTI from
+		// the row and blacklist it, making tab A's retry fail with 401 and the
+		// frontend force-logout a perfectly healthy session (observed on prod:
+		// refresh always 200, yet the client kept getting logged out).
+		// Browser cookie refreshes present no access token (claims.ID == ""), so
+		// nothing is blacklisted here — the superseded access cookie is replaced
+		// by SetAuthCookies below and expires within its short TTL. Instant
+		// revocation still works: Logout/DeleteSession blacklist the row's
+		// current JTI when the session is explicitly killed.
+		if claims.ID != "" {
+			h.authService.BlacklistToken(claims.ID, time.Now().Add(time.Hour))
 		}
 		// Rotate the session row in place — the id NEVER changes.
 		res, execErr := h.db.Exec(`UPDATE user_sessions

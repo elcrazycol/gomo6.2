@@ -126,17 +126,23 @@ class ApiClient {
   }
 
   /** Try to refresh the access token using the HttpOnly refresh cookie or legacy token. */
-  async tryRefreshToken(): Promise<string | null> {
+  async tryRefreshToken(force = false): Promise<string | null> {
     // If there is neither a legacy token nor a browser session hint, avoid a
     // pointless network request. The refresh token itself is HttpOnly, while
     // the CSRF cookie is the deliberately readable session hint.
     if (!this.refreshToken && !this.getCSRFToken()) return null;
 
-    // Deduplicate concurrent refresh attempts
+    // Deduplicate concurrent refresh attempts. This join is honored even for
+    // a FORCED refresh: if another caller already has a network refresh in
+    // flight, its result is used instead of firing a duplicate request. Only
+    // the fresh-token and cooldown short-circuits below are bypassed by force.
     if (this.refreshPromise) return this.refreshPromise;
 
     // No-op when we already hold a fresh access token: nothing to refresh.
-    if (this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt - 60 * 1000) {
+    // A FORCED refresh (second chance after a retry-401) bypasses this: the
+    // token we hold was just rejected, so it must be replaced by a real
+    // network refresh, not returned as-is.
+    if (!force && this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt - 60 * 1000) {
       return this.token;
     }
 
@@ -144,7 +150,10 @@ class ApiClient {
     // call getSession()/getCurrentUser() on mount and every 401 path triggers
     // a refresh; without this guard a single page load fires dozens of refresh
     // requests (observed on prod: ~1 refresh per 5s around the clock).
-    if (this.lastRefreshAt && Date.now() - this.lastRefreshAt < 10 * 1000 && this.token) {
+    // A FORCED refresh skips the cooldown: it is the recovery path after a
+    // concurrent refresh (another tab) blacklisted our just-issued token, and
+    // waiting out 10s would strand the user on a logout screen.
+    if (!force && this.lastRefreshAt && Date.now() - this.lastRefreshAt < 10 * 1000 && this.token) {
       return this.token;
     }
 
@@ -234,15 +243,16 @@ class ApiClient {
         credentials: 'include',
       });
 
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
+      // Read the body once, then parse. Must NOT call response.json() and on
+      // failure fall back to response.text(): after a failed json() the body
+      // stream is already consumed and text() rejects. A body that claims
+      // application/json but is not (upstream proxy error page, server
+      // double-write) must surface as a clean error object, not a SyntaxError.
+      const text = await response.text();
       let data;
-
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        // For non-JSON responses, create error object
-        const text = await response.text();
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
         data = { error: text || `HTTP ${response.status}` };
       }
 
@@ -270,28 +280,31 @@ class ApiClient {
       // A public login/register request must surface its own 401. Refresh is
       // only meaningful when this request already had a browser or bearer session.
       if (err.status === 401 && hadAuth) {
-        const oldToken = this.token;
-        const newToken = await this.tryRefreshToken();
-        // Retry only when the refresh produced NEW credentials, or when a
-        // parallel caller already refreshed and we now hold a fresh token
-        // (this request was in flight with the stale one). Retrying with the
-        // same cooldown-limited stale token would loop forever.
-        if (newToken && (newToken !== oldToken || tokenIsFresh())) {
-          try {
-            return await doFetch();
-          } catch (retryError) {
-            const re = retryError as Error & { status?: number };
-            if (re.status === 401) {
-              // A fresh, cryptographically-valid token rejected twice means it
-              // was blacklisted (session revoked from another device): the
-              // backend returns 403 for permission denials and 401 only for
-              // auth failure. Terminate with a logout — never loop.
-              this.clearTokens();
-              window.dispatchEvent(new CustomEvent('auth:expired'));
-              throw new Error('Session expired. Please log in again.');
+        const tokenAtCatch = this.token;
+        let refreshedToken = await this.tryRefreshToken();
+        // Refresh + retry, with a bounded second chance. The SECOND (forced)
+        // cycle exists because a concurrent refresh in ANOTHER tab can
+        // blacklist the token our first refresh just issued (the backend
+        // supersedes the previous access token on every refresh). The retry
+        // then 401s and the user gets force-logged out of a perfectly healthy
+        // session — observed on prod as random "logged out, logged back in"
+        // cycles while /auth/refresh kept returning 200. A genuinely revoked
+        // session fails every refresh with 401/403 and still ends in a logout,
+        // so this can never loop forever.
+        for (let attempt = 0; attempt < 2 && refreshedToken; attempt++) {
+          if (refreshedToken !== tokenAtCatch || tokenIsFresh()) {
+            try {
+              return await doFetch();
+            } catch (retryError) {
+              const re = retryError as Error & { status?: number };
+              if (re.status !== 401) throw retryError;
+              // 401 again — fall through to a forced second refresh.
             }
-            throw retryError;
           }
+          // Session already known-dead (previous real refresh was rejected):
+          // do not waste a network call, go straight to the logout below.
+          if (this.lastRefreshAuthFailed) break;
+          refreshedToken = await this.tryRefreshToken(true);
         }
         // Genuinely dead session: the refresh endpoint rejected us (401/403),
         // or there was no refresh path at all. Force logout.

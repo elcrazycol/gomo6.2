@@ -5,8 +5,8 @@ import { uploadFile } from "@/utils/storage";
 const BASE = "/api/v1/messenger";
 const TOKEN = () => apiClient.getToken() ?? "";
 
-async function tryRefreshToken(): Promise<string | null> {
-  return apiClient.tryRefreshToken();
+async function tryRefreshToken(force = false): Promise<string | null> {
+  return apiClient.tryRefreshToken(force);
 }
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -37,14 +37,27 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
     return await doFetch(TOKEN());
   } catch (e) {
     const err = e as Error & { status?: number };
-    // On 401, try to refresh the token and retry once
+    // On 401, refresh and retry, with a bounded second chance. The second
+    // (forced) cycle exists because a concurrent refresh in ANOTHER tab can
+    // blacklist the token our first refresh just issued (the backend
+    // supersedes the previous access token on every refresh); the retry then
+    // 401s and the user gets logged out of a healthy session. A genuinely
+    // revoked session fails every refresh with 401/403, so this stays bounded.
     if (err.status === 401) {
-      const oldToken = TOKEN();
-      const newToken = await tryRefreshToken();
-      // Retry only when the refresh produced NEW credentials; retrying with
-      // the same token (cooldown-limited) would loop forever.
-      if (newToken && newToken !== oldToken) {
-        return await doFetch(newToken);
+      // Same bounded two-chance refresh as client.ts: a concurrent refresh in
+      // another tab can blacklist the token our first refresh just issued, so
+      // a single retry-401 must not fail the request. A genuinely revoked
+      // session fails every refresh with 401/403, so this stays bounded.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const newToken = await tryRefreshToken(attempt > 0);
+        if (!newToken) break;
+        try {
+          return await doFetch(newToken);
+        } catch (retryError) {
+          const re = retryError as Error & { status?: number };
+          if (re.status !== 401) throw retryError;
+          // 401 again — fall through to a forced second refresh.
+        }
       }
       // Genuinely dead session: refresh rejected us (401/403) or there is no
       // refresh path at all. Force logout only in that case — a transient
