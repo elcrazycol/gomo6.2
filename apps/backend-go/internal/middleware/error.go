@@ -10,6 +10,15 @@ func ErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
+		// Only synthesize a response for errors the handler did NOT already
+		// serialize. Handlers that call serverError()/AbortWithStatusJSON write
+		// the body themselves (pushing the error to c.Errors purely for logs);
+		// appending a second JSON document here corrupted every client's parse
+		// ("Unexpected non-whitespace character after JSON") on 5xx responses.
+		if c.Writer.Written() || c.IsAborted() {
+			return
+		}
+
 		// Check for errors
 		for _, err := range c.Errors {
 			switch e := err.Err.(type) {

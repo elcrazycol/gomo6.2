@@ -20,6 +20,14 @@ export interface ClientErrorReport {
 const MAX_MESSAGE_LENGTH = 4000;
 const MAX_STACK_LENGTH = 16000;
 
+// Rate-limit the backend report channel: an error storm (e.g. a rate-limited
+// page flooding every endpoint) would otherwise POST /client-errors per error,
+// each of which can itself fail — amplifying the very load we are reporting.
+const MIN_REPORT_INTERVAL_MS = 5000;
+const MAX_REPORTS_PER_SESSION = 200;
+let lastReportAt = 0;
+let reportCount = 0;
+
 function truncate(value: string, max: number): string {
   if (!value) return value;
   return value.length > max ? value.slice(0, max) : value;
@@ -54,10 +62,16 @@ export function logClientError(
   };
 
   // Always log to console so devtools can see it.
-  // eslint-disable-next-line no-console
   console.error('[ClientError]', report.type, report.message, error);
 
-  // Send to backend in the background; don't block or throw.
+  // Send to backend in the background; don't block or throw. Throttled so a
+  // burst of identical failures reports once per window instead of spamming.
+  const now = Date.now();
+  if (now - lastReportAt < MIN_REPORT_INTERVAL_MS || reportCount >= MAX_REPORTS_PER_SESSION) {
+    return;
+  }
+  lastReportAt = now;
+  reportCount += 1;
   try {
     fetch(LOG_ENDPOINT, {
       method: 'POST',

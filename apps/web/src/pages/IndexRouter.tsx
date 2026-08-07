@@ -188,13 +188,21 @@ const Index = () => {
 
   const handleAcceptTerms = async () => {
     if (!user) return;
-    
-    await api
+
+    // The backend accepts the write idempotently (ON CONFLICT upsert). Only
+    // close the dialog on success — otherwise the user would be told they
+    // accepted while the row was never stored and the dialog re-appears.
+    const { error } = await api
       .from("user_terms_acceptance")
       .insert({
         user_id: user.id,
       });
-    
+
+    if (error) {
+      toast.error("Не удалось сохранить согласие. Попробуй ещё раз.");
+      return;
+    }
+
     setShowTerms(false);
     setTermsAccepted(true);
     toast.success("Спасибо за согласие с правилами");

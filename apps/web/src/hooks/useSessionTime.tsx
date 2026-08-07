@@ -69,38 +69,17 @@ export function useSessionTime(userId: string | null) {
           return;
         }
 
-        const { data: sessionData, error: fetchError } = await api
+        // Send the DELTA in a single atomic upsert. The backend accumulates
+        // total_minutes on (user_id, session_date), so concurrent flushes (timer
+        // + visibility/unload handlers overlapping) can neither trip the unique
+        // constraint (plain INSERT -> 500) nor lose minutes (read-then-write race).
+        const { error: upsertError } = await api
           .from("user_session_time")
-          .select("id, total_minutes")
-          .eq("user_id", userId)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (fetchError) {
-          console.error("[Session] Error fetching session time:", fetchError);
-          return;
-        }
-
-        const currentTotal = sessionData?.total_minutes || 0;
-        const newTotal = currentTotal + wholeMinutes;
-
-        const updatePayload = {
-          total_minutes: newTotal,
-          updated_at: new Date().toISOString(),
-        };
-
-        const sessionRowId = sessionData?.id;
-        const { error: upsertError } = sessionRowId
-          ? await api
-              .from("user_session_time")
-              .update(updatePayload)
-              .eq("id", sessionRowId)
-          : await api.from("user_session_time").insert({
-              user_id: userId,
-              ...updatePayload,
-              session_date: new Date().toISOString().split("T")[0],
-            });
+          .upsert({
+            user_id: userId,
+            session_date: new Date().toISOString().split("T")[0],
+            total_minutes: wholeMinutes,
+          });
 
         if (upsertError) {
           console.error("[Session] Error updating session time:", upsertError);

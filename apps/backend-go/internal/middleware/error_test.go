@@ -127,6 +127,31 @@ func TestErrorHandler_MultipleErrors_FirstProcessed(t *testing.T) {
 	}
 }
 
+func TestErrorHandler_SkipWhenHandlerAlreadyWroteResponse(t *testing.T) {
+	c, w := setupErrorContext()
+
+	// Simulate serverError(): the handler writes its own JSON body, aborts,
+	// and pushes the error only for logging. ErrorHandler must NOT append a
+	// second body — that corrupted the payload into "Unexpected non-whitespace
+	// character after JSON" for every client on 5xx responses.
+	c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "Internal server error"})
+	c.Abort()
+	c.Error(errors.New("pq: duplicate key value violates unique constraint"))
+
+	ErrorHandler()(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response must be a single valid JSON document, got %q: %v", w.Body.String(), err)
+	}
+	if resp["error"] != "Internal server error" {
+		t.Errorf("expected the handler's error message, got %q", resp["error"])
+	}
+}
+
 func TestNewHTTPError(t *testing.T) {
 	err := NewHTTPError(http.StatusTeapot, "I'm a teapot")
 

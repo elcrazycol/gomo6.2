@@ -59,7 +59,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	registerRateLimiter := middleware.NewAuthRateLimiter(redis, 5, time.Minute)   // 5/min per IP for register (anti abuse)
 	verify2FARateLimiter := middleware.NewAuthRateLimiter(redis, 20, time.Minute) // 20/min per IP for the 2FA step
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
-	globalRateLimiter := middleware.NewGlobalRateLimiter(redis, 200, time.Minute) // 200 req/min per IP for public endpoints
+	globalRateLimiter := middleware.NewGlobalRateLimiter(redis, 300, time.Minute) // 300 req/min per IP for public endpoints
 	// Upload limits: per-user request rate + hourly byte quota. Redis-backed so
 	// the budget holds across instances and /storage/v1/upload cannot be used to
 	// exhaust object storage.

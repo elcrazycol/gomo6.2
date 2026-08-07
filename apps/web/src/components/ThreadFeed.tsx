@@ -50,6 +50,12 @@ export const ThreadFeed = ({
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Backoff for the infinite-scroll sentinel: when a load fails (e.g. the API
+  // answers 429 rate-limit or 5xx), the sentinel stays visible and the observer
+  // would otherwise hammer the endpoint in a tight loop. Suppress observer-
+  // triggered loads for 15s after any error; the feed recovers on its own once
+  // the endpoint clears.
+  const nextLoadMoreAtRef = useRef(0);
 
   const fetchLikesBatch = useCallback(async (threadIds: string[]) => {
     if (!threadIds.length) return;
@@ -170,6 +176,7 @@ export const ThreadFeed = ({
       setHasMore(hasMoreData && nextCursor !== null);
     } catch (error) {
       if ((error as Error).name === 'AbortError') return;
+      nextLoadMoreAtRef.current = Date.now() + 15 * 1000;
       console.error("Error in loadThreads:", error);
     } finally {
       setLoading(false);
@@ -185,7 +192,13 @@ export const ThreadFeed = ({
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+        if (
+          entries[0].isIntersecting &&
+          hasMore &&
+          !loadingMore &&
+          !loading &&
+          Date.now() >= nextLoadMoreAtRef.current
+        ) {
           loadThreads(true);
         }
       },

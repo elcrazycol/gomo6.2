@@ -12,19 +12,25 @@ describe("messengerApi", () => {
   });
 
   function mockFetch(data: unknown, status = 200) {
+    const body = JSON.stringify({ success: status < 400, data, error: status >= 400 ? "test error" : undefined });
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: status >= 200 && status < 300,
       status,
       headers: new Headers({ "Content-Type": "application/json" }),
-      json: async () => ({ success: status < 400, data, error: status >= 400 ? "test error" : undefined }),
+      // Real Response exposes both text() and json(); the API client reads
+      // text() first and parses it, so mocks must provide it too.
+      text: async () => body,
+      json: async () => JSON.parse(body),
     } as Response);
   }
 
   function mockFetchRaw(response: unknown, status = 200) {
+    const body = JSON.stringify(response);
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: status >= 200 && status < 300,
       status,
       headers: new Headers({ "Content-Type": "application/json" }),
+      text: async () => body,
       json: async () => response,
     } as Response);
   }

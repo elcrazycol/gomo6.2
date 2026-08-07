@@ -328,6 +328,57 @@ func upsertInsertQuery(tableName string, data map[string]interface{}) (query str
 ON CONFLICT (user_id, visit_date) DO UPDATE SET user_id = EXCLUDED.user_id
 RETURNING *`
 		return q, []interface{}{uid, vd}, true
+	case "user_terms_acceptance":
+		// Accepting the rules must be idempotent: the client fires the insert
+		// on every TermsOfService accept, and multiple tabs / retries race on
+		// the UNIQUE(user_id) constraint — a plain INSERT 500'd on the second
+		// write, so a user could "accept" forever without a stored row.
+		uid, hasUID := data["user_id"]
+		if !hasUID {
+			return "", nil, false
+		}
+		termsVersion := data["terms_version"]
+		if termsVersion == nil || termsVersion == "" {
+			termsVersion = "1.0"
+		}
+		q := `INSERT INTO user_terms_acceptance (user_id, terms_version) VALUES ($1, $2)
+ON CONFLICT (user_id) DO UPDATE SET terms_version = EXCLUDED.terms_version
+RETURNING *`
+		return q, []interface{}{uid, termsVersion}, true
+	case "user_session_time":
+		// Flushes fire from timers + visibility/unload handlers and can overlap.
+		// The client sends the DELTA in total_minutes; accumulate atomically so
+		// concurrent flushes neither trip UNIQUE(user_id, session_date) nor lose
+		// minutes (a plain INSERT 500'd on the duplicate key, and a naive
+		// read-then-write raced into lost updates).
+		uid, hasUID := data["user_id"]
+		if !hasUID {
+			return "", nil, false
+		}
+		sd := data["session_date"]
+		if sd == nil || sd == "" {
+			sd = time.Now().UTC().Format("2006-01-02")
+		}
+		minutes := int64(0)
+		switch v := data["total_minutes"].(type) {
+		case float64:
+			minutes = int64(v)
+		case int:
+			minutes = int64(v)
+		case int64:
+			minutes = v
+		case string:
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				minutes = n
+			}
+		}
+		q := `INSERT INTO user_session_time (user_id, session_date, total_minutes, updated_at)
+VALUES ($1, $2::date, $3, NOW())
+ON CONFLICT (user_id, session_date) DO UPDATE SET
+  total_minutes = user_session_time.total_minutes + EXCLUDED.total_minutes,
+  updated_at = NOW()
+RETURNING *`
+		return q, []interface{}{uid, sd, minutes}, true
 	case "thread_custom_message_visits":
 		uid, uok := data["user_id"]
 		tid, tok := data["thread_id"]
@@ -740,6 +791,20 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*user_id=eq.%s*", uid))
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/gomosub_rules_acceptance*board_id=eq.%s*", bid))
 			cache.InvalidateByPattern(h.redis, "data:/api/v1/gomosub_rules_acceptance?*")
+		}
+
+		// Invalidate terms acceptance cache so the dialog doesn't re-appear after accepting
+		if tableName == "user_terms_acceptance" && h.redis != nil {
+			uid := fmt.Sprint(result["user_id"])
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/user_terms_acceptance*user_id=eq.%s*", uid))
+			cache.InvalidateByPattern(h.redis, "data:/api/v1/user_terms_acceptance?*")
+		}
+
+		// Keep profile stats in sync when session time accumulates via upsert
+		if tableName == "user_session_time" {
+			if uid := rowUserID(result["user_id"]); uid != "" {
+				RecomputeUserProfileStats(h.db, uid)
+			}
 		}
 
 		// Invalidate profile customization cache on upsert
