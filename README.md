@@ -1,7 +1,7 @@
 <h1 align="center">Gomo6</h1>
 
 <p align="center">
-  <strong>Social platform with messenger, OAuth, audio podcasts, streaming and bots</strong>
+  <strong>Open source social platform with messenger</strong>
 </p>
 
 <p align="center">
@@ -22,6 +22,11 @@
   <img src="https://img.shields.io/badge/caddy-2-0A6ED1?style=flat-square" alt="Caddy">
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/github/commit-activity/m/elcrazycol/gomo6.2?style=for-the-badge&logo=github">
+  <img src="https://img.shields.io/github/last-commit/elcrazycol/gomo6.2?style=for-the-badge&logo=github">
+  <img src="https://img.shields.io/github/commits-since/elcrazycol/gomo6.2/latest?style=for-the-badge&logo=github">
+</p>
 ---
 
 ## About
