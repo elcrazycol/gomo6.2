@@ -73,9 +73,12 @@ func insertSessionRow(db *sql.DB, userID, sessionID, refreshHash, accessJTI, use
 	}
 }
 
-// cleanupOldSessions keeps at most maxSessionsPerUser sessions per user, fully
-// revoking the oldest ones beyond the cap (refresh tokens + access tokens too,
-// otherwise a capped device could silently resurrect by refreshing).
+// cleanupOldSessions keeps at most maxSessionsPerUser sessions per user. Only
+// sessions whose refresh token is ALREADY dead (expired / revoked / missing)
+// are reaped: a live refresh token means the device is still in use, and the
+// cap must never log a working device out just because the user logged in on
+// another one. Dead rows are fully revoked (refresh token + access token +
+// row + live websockets) so they cannot resurrect on their next refresh.
 func cleanupOldSessions(db *sql.DB, rdb *redis.Client, authSvc *auth.AuthService, userID string) {
 	rows, err := db.Query(`SELECT id, refresh_hash, access_jti FROM user_sessions WHERE user_id = $1 ORDER BY last_active_at DESC`, userID)
 	if err != nil {
@@ -96,7 +99,12 @@ func cleanupOldSessions(db *sql.DB, rdb *redis.Client, authSvc *auth.AuthService
 	}
 
 	for _, s := range all[maxSessionsPerUser:] {
-		revokeSession(db, rdb, authSvc, userID, s)
+		// Never reap a session with a live refresh token — the device is
+		// actively usable even if it is the oldest beyond the cap. Only rows
+		// whose token is already gone are dead weight.
+		if s.RefreshHash == "" || authSvc == nil || !authSvc.RefreshTokenExistsByHash(userID, s.RefreshHash) {
+			revokeSession(db, rdb, authSvc, userID, s)
+		}
 	}
 }
 

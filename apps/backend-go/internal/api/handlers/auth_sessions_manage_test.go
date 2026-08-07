@@ -503,12 +503,56 @@ func TestRefresh_RowDeletedConcurrently_FailsClosed(t *testing.T) {
 	}
 }
 
-func TestCleanupOldSessions_FullyRevokesBeyondCap(t *testing.T) {
+func TestCleanupOldSessions_ReapsOnlyDeadSessionsBeyondCap(t *testing.T) {
 	h, mock, mr := setupAuthHandlerWithRedis(t)
 
-	const total = maxSessionsPerUser + 1 // 11 rows: newest first, oldest last
+	// 11 rows: newest first, oldest last. Every row has a LIVE refresh token
+	// except s11 (the oldest, beyond the cap) whose token is already gone.
+	const total = maxSessionsPerUser + 1
 	rowRows := sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"})
 	for i := 1; i <= total; i++ {
+		id := fmt.Sprintf("s%02d", i)
+		rowRows = rowRows.AddRow(id, "rh-"+id, "jti-"+id)
+		if i < total {
+			// s01..s10 hold live refresh tokens → must survive the cap.
+			if err := mr.Set("refresh:u1:rh-"+id, "1"); err != nil {
+				t.Fatalf("seed failed: %v", err)
+			}
+		}
+	}
+
+	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+		WithArgs("u1").
+		WillReturnRows(rowRows)
+	// Only the dead oldest session (beyond the cap) is revoked: row deleted.
+	mock.ExpectExec(`DELETE FROM user_sessions`).WithArgs("s11", "u1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	cleanupOldSessions(h.db, h.redis, h.authService, "u1")
+
+	// The dead session must be FULLY gone.
+	if !mr.Exists("blacklist:jti-s11") {
+		t.Error("dead capped session's access token must be blacklisted")
+	}
+	// The LIVE sessions beyond the cap must stay completely untouched — the cap
+	// must never log a working device out just because the user logged in
+	// somewhere else (that is what caused the production logout cascade).
+	if mr.Exists("blacklist:jti-s10") {
+		t.Error("live capped session's access token must not be blacklisted")
+	}
+	if !mr.Exists("refresh:u1:rh-s10") {
+		t.Error("live capped session's refresh token must survive")
+	}
+	if mr.Exists("blacklist:jti-s01") {
+		t.Error("kept session's access token must not be blacklisted")
+	}
+}
+
+func TestCleanupOldSessions_UnderCap_DoesNothing(t *testing.T) {
+	h, mock, mr := setupAuthHandlerWithRedis(t)
+
+	rowRows := sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"})
+	for i := 1; i <= maxSessionsPerUser; i++ {
 		id := fmt.Sprintf("s%02d", i)
 		rowRows = rowRows.AddRow(id, "rh-"+id, "jti-"+id)
 		if err := mr.Set("refresh:u1:rh-"+id, "1"); err != nil {
@@ -519,26 +563,14 @@ func TestCleanupOldSessions_FullyRevokesBeyondCap(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
 		WithArgs("u1").
 		WillReturnRows(rowRows)
-	// Only the oldest session (beyond the cap) is revoked: its row deleted.
-	mock.ExpectExec(`DELETE FROM user_sessions`).WithArgs("s11", "u1").
-		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	cleanupOldSessions(h.db, h.redis, h.authService, "u1")
 
-	// The capped session must be FULLY dead: refresh token gone + access token
-	// blacklisted, so it cannot resurrect on its next refresh.
-	if mr.Exists("refresh:u1:rh-s11") {
-		t.Error("capped session's refresh token must be deleted")
-	}
-	if !mr.Exists("blacklist:jti-s11") {
-		t.Error("capped session's access token must be blacklisted")
-	}
-	// The kept sessions must stay untouched.
-	if !mr.Exists("refresh:u1:rh-s01") {
-		t.Error("kept session's refresh token must survive")
-	}
-	if mr.Exists("blacklist:jti-s01") {
-		t.Error("kept session's access token must not be blacklisted")
+	// Nothing beyond the cap → nothing revoked, nothing blacklisted.
+	for i := 1; i <= maxSessionsPerUser; i++ {
+		if mr.Exists(fmt.Sprintf("blacklist:jti-s%02d", i)) {
+			t.Errorf("session s%02d must not be blacklisted under the cap", i)
+		}
 	}
 }
 

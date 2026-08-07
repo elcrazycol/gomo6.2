@@ -177,6 +177,22 @@ func (a *AuthService) RefreshAccessToken(userID, username, domain, sessionID, re
 	return pair, nil
 }
 
+// RefreshTokenExistsByHash reports whether a refresh token whose SHA-256 hex
+// hash is refreshHash is still stored for the user. Used by the session cap to
+// tell live sessions (refresh token present) apart from dead rows (token
+// expired/revoked), so the cap only reaps the dead ones.
+func (a *AuthService) RefreshTokenExistsByHash(userID, refreshHash string) bool {
+	if a.redis == nil || refreshHash == "" {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	val, err := a.redis.Get(ctx, fmt.Sprintf("refresh:%s:%s", userID, refreshHash)).Result()
+	return err == nil && val != ""
+}
+
 // DeleteRefreshTokenByHash removes a stored refresh token given its SHA-256 hex
 // hash (as kept in user_sessions.refresh_hash). Used when revoking a session
 // whose raw refresh token is not available to the caller.
