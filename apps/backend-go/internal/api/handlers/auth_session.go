@@ -76,8 +76,9 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		}
 	}
 
-	// Compute the hash of the refresh token BEFORE rotation so the session row
-	// can be located and rotated in place (stable device identity).
+	// Compute the hash of the refresh token so the session row can be located
+	// and updated in place (stable device identity). The refresh token itself is
+	// NOT rotated — see RefreshAccessToken.
 	oldHash := sha256hex(req.RefreshToken)
 	row, rowErr := findSessionByRefreshHash(h.db, claims.UserID, oldHash)
 	hasSession := rowErr == nil
@@ -89,7 +90,9 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		sessionID = newSessionID()
 	}
 
-	// Validate and rotate refresh token (stays bound to the same sessionID).
+	// Validate and issue a fresh access token. The opaque refresh token is NOT
+	// rotated (stable session identity): concurrent refreshes from multiple
+	// tabs/components all succeed instead of racing each other into a 401.
 	tokenPair, err := h.authService.RefreshAccessToken(claims.UserID, claims.Username, claims.Domain, sessionID, req.RefreshToken)
 	if err != nil {
 		// Only revoke all sessions if the refresh token was found but generation

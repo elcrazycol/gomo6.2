@@ -362,9 +362,9 @@ func TestLogout_WithoutSessionIdentity_RevokesEverything(t *testing.T) {
 	}
 }
 
-// ─── Refresh (rotation keeps the same device) ────────────────────────────────
+// ─── Refresh (stable session, no token rotation) ─────────────────────────────
 
-func TestRefresh_RotatesInPlaceKeepingSession(t *testing.T) {
+func TestRefresh_KeepsSessionAndRefreshToken(t *testing.T) {
 	h, mock, mr := setupAuthHandlerWithRedis(t)
 	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
 
@@ -375,8 +375,8 @@ func TestRefresh_RotatesInPlaceKeepingSession(t *testing.T) {
 	}
 	oldHash := sha256hex(pair1.RefreshToken)
 
-	// The refresh handler finds the session row by refresh_hash and rotates it
-	// in place — the id NEVER changes.
+	// The refresh handler finds the session row by refresh_hash and refreshes
+	// it in place — the session id NEVER changes.
 	mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
 		WithArgs("u1", oldHash).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
@@ -405,23 +405,66 @@ func TestRefresh_RotatesInPlaceKeepingSession(t *testing.T) {
 		t.Fatal("expected a new access token")
 	}
 
-	// The rotated token must still belong to sess-1.
+	// The refreshed token must still belong to sess-1.
 	newClaims, err := h.authService.ValidateToken(resp.Data.Token)
 	if err != nil {
-		t.Fatalf("rotated token invalid: %v", err)
+		t.Fatalf("refreshed token invalid: %v", err)
 	}
 	if newClaims.SessionID != "sess-1" {
-		t.Fatalf("rotation must preserve the session id, got %q", newClaims.SessionID)
+		t.Fatalf("refresh must preserve the session id, got %q", newClaims.SessionID)
 	}
 
-	// Old refresh token consumed; new one stored; old access token blacklisted
-	// so a session can never hold two live access tokens.
+	// No rotation: the SAME refresh token stays valid for its full 3-day
+	// lifetime, so parallel refreshes (multiple tabs/components on reload) all
+	// succeed instead of racing each other into a 401. It dies only on logout
+	// or session revocation.
 	oldKey := "refresh:u1:" + oldHash
-	if mr.Exists(oldKey) {
-		t.Error("old refresh token must be deleted after rotation")
+	if !mr.Exists(oldKey) {
+		t.Error("refresh token must stay valid after refresh (no rotation)")
 	}
+	// The superseded access token is blacklisted so a session can never hold
+	// two live access tokens at once.
 	if !mr.Exists("blacklist:" + pair1.AccessJTI) {
-		t.Error("superseded access token must be blacklisted on rotation")
+		t.Error("superseded access token must be blacklisted on refresh")
+	}
+}
+
+func TestRefresh_TwoSequentialRefreshes_BothSucceed(t *testing.T) {
+	h, mock, mr := setupAuthHandlerWithRedis(t)
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+
+	pair1, err := h.authService.GenerateTokenPair("u1", "testuser", "localhost:8080", "sess-1")
+	if err != nil {
+		t.Fatalf("GenerateTokenPair failed: %v", err)
+	}
+	oldHash := sha256hex(pair1.RefreshToken)
+
+	// Two refreshes with the SAME refresh token — the exact sequence that raced
+	// on page load (getSession + multiple 401 fallbacks) and logged users out
+	// while refresh tokens were rotated. Both must succeed and the shared token
+	// must stay alive for the whole exchange.
+	for i := 0; i < 2; i++ {
+		mock.ExpectQuery(`SELECT id, refresh_hash, access_jti FROM user_sessions`).
+			WithArgs("u1", oldHash).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "refresh_hash", "access_jti"}).
+				AddRow("sess-1", oldHash, pair1.AccessJTI))
+		mock.ExpectExec(`UPDATE user_sessions`).
+			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "sess-1", "u1").
+			WillReturnResult(sqlmock.NewResult(1, 1))
+
+		c, w := newPOSTContext("/auth/v1/refresh", map[string]string{
+			"refresh_token": pair1.RefreshToken,
+		}, claims, nil)
+		h.Refresh(c)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("refresh #%d: expected 200, got %d: %s", i+1, w.Code, w.Body.String())
+		}
+	}
+
+	// The shared refresh token must still be alive in Redis after both refreshes.
+	if !mr.Exists("refresh:u1:" + oldHash) {
+		t.Error("refresh token must survive multiple sequential refreshes")
 	}
 }
 

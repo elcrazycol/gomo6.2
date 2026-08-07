@@ -39,14 +39,21 @@ async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
     const err = e as Error & { status?: number };
     // On 401, try to refresh the token and retry once
     if (err.status === 401) {
+      const oldToken = TOKEN();
       const newToken = await tryRefreshToken();
-      if (newToken) {
+      // Retry only when the refresh produced NEW credentials; retrying with
+      // the same token (cooldown-limited) would loop forever.
+      if (newToken && newToken !== oldToken) {
         return await doFetch(newToken);
       }
-      // Refresh failed — force logout
-      apiClient.clearTokens();
-      window.dispatchEvent(new CustomEvent('auth:expired'));
-      throw new Error("Сессия истекла — обнови страницу (F5)");
+      // Genuinely dead session: refresh rejected us (401/403) or there is no
+      // refresh path at all. Force logout only in that case — a transient
+      // network/5xx refresh failure must NOT log the user out.
+      if (apiClient.getRefreshAuthFailed() || (!TOKEN() && !apiClient.getCSRFToken())) {
+        apiClient.clearTokens();
+        window.dispatchEvent(new CustomEvent('auth:expired'));
+        throw new Error("Сессия истекла — обнови страницу (F5)");
+      }
     }
     throw e;
   }

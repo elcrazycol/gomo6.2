@@ -38,8 +38,10 @@ describe("ApiClient", () => {
     vi.clearAllMocks();
     localStorage.clear();
     apiClient.clearToken();
-    // Force-clear the singleton's internal refreshPromise
+    // Force-clear the singleton's internal refresh state
     (apiClient as any).refreshPromise = null;
+    (apiClient as any).lastRefreshAt = 0;
+    (apiClient as any).lastRefreshAuthFailed = false;
     // Always have fetch as a spy so assertions don't blow up
     global.fetch = vi.fn();
   });
@@ -149,12 +151,58 @@ describe("ApiClient", () => {
       expect(result).toBeNull();
     });
 
-    it("returns null on network error", async () => {
+    it("keeps current session on network error (no forced logout)", async () => {
       apiClient.setTokens("access", "refresh-xyz");
       mockFetchNetworkError();
 
       const result = await apiClient.tryRefreshToken();
+      expect(result).toBe("access");
+      expect(apiClient.getRefreshAuthFailed()).toBe(false);
+    });
+
+    it("keeps current session on 5xx refresh (no forced logout)", async () => {
+      apiClient.setTokens("access", "refresh-xyz");
+      mockFetchError("Internal Server Error", 500);
+
+      const result = await apiClient.tryRefreshToken();
+      expect(result).toBe("access");
+      expect(apiClient.getRefreshAuthFailed()).toBe(false);
+    });
+
+    it("marks session as dead on 401 refresh", async () => {
+      apiClient.setTokens("access", "refresh-xyz");
+      mockFetchError("Invalid refresh token", 401);
+
+      const result = await apiClient.tryRefreshToken();
       expect(result).toBeNull();
+      expect(apiClient.getRefreshAuthFailed()).toBe(true);
+    });
+
+    it("does not hit the network when a fresh token is already held", async () => {
+      const exp = Math.floor(Date.now() / 1000) + 3600; // valid for another hour
+      const token = makeJwt({ exp });
+      apiClient.setTokens(token, "refresh-xyz");
+
+      const result = await apiClient.tryRefreshToken();
+      expect(result).toBe(token);
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("cooldown: repeated refreshes within 10s reuse the current token", async () => {
+      apiClient.setTokens("old-access", "refresh-token-abc");
+      mockFetch({
+        success: true,
+        data: { token: "new-access", refresh_token: "refresh-token-abc" },
+      });
+
+      const first = await apiClient.tryRefreshToken();
+      expect(first).toBe("new-access");
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      // A second refresh attempt right after must NOT hit the network again.
+      const second = await apiClient.tryRefreshToken();
+      expect(second).toBe("new-access");
+      expect(fetch).toHaveBeenCalledTimes(1);
     });
 
     it("keeps old refresh token when server omits new one", async () => {
@@ -312,6 +360,105 @@ describe("ApiClient", () => {
       );
       expect(apiClient.getToken()).toBeNull();
       expect(handler).toHaveBeenCalled();
+
+      window.removeEventListener("auth:expired", handler);
+    });
+
+    it("cooldown-limited refresh after a dead-session 401 still forces logout", async () => {
+      // The last real refresh was rejected with 401 (session dead) and we are
+      // now inside the 10s cooldown: tryRefreshToken returns the stale token
+      // without hitting the network. The dead-session fact must survive that
+      // path, or the user strands on a permanent 401 storm instead of being
+      // redirected to /auth.
+      const exp = Math.floor(Date.now() / 1000) - 60; // already expired
+      apiClient.setTokens(makeJwt({ exp }), "refresh-xyz");
+      (apiClient as any).lastRefreshAt = Date.now();
+      (apiClient as any).lastRefreshAuthFailed = true;
+
+      mockFetchError("Unauthorized", 401);
+
+      const handler = vi.fn();
+      window.addEventListener("auth:expired", handler);
+
+      await expect(apiClient.request("/api/v1/protected")).rejects.toThrow(
+        "Session expired",
+      );
+      expect(apiClient.getToken()).toBeNull();
+      expect(handler).toHaveBeenCalled();
+      // The cooldown path must NOT have triggered a network refresh.
+      expect(fetch).not.toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/auth/refresh"),
+        expect.anything(),
+      );
+
+      window.removeEventListener("auth:expired", handler);
+    });
+
+    it("retries when a parallel refresh already produced a fresh token", async () => {
+      // This request was in flight with a stale token while another component
+      // refreshed it. The 401 must be retried with the now-fresh in-memory
+      // token instead of being surfaced as an error.
+      const stale = makeJwt({ exp: Math.floor(Date.now() / 1000) - 60 });
+      const fresh = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+      apiClient.setTokens(stale, "refresh-xyz");
+
+      let callCount = 0;
+      global.fetch = vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // The parallel refresh lands while this request is in flight.
+          apiClient.setTokens(fresh, "refresh-xyz");
+          return Promise.resolve(
+            new Response(JSON.stringify({ error: "Unauthorized" }), {
+              status: 401,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ success: true, data: { id: "resource-1" } }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      });
+
+      const result = await apiClient.request("/api/v1/protected");
+      expect(result.data).toEqual({ id: "resource-1" });
+      expect(callCount).toBe(2);
+    });
+
+    it("fresh-token 401 twice force-logs out (revoked session), no infinite loop", async () => {
+      // A fresh, non-expired token rejected by the server means it was
+      // blacklisted (session revoked from another device): the backend returns
+      // 403 for permission denials and 401 only for auth failure. The retried
+      // request must terminate with a logout instead of looping forever.
+      const fresh = makeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+      apiClient.setTokens(fresh, "refresh-xyz");
+
+      // A fresh Response per call — the body can only be read once.
+      global.fetch = vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      const handler = vi.fn();
+      window.addEventListener("auth:expired", handler);
+
+      await expect(apiClient.request("/api/v1/protected")).rejects.toThrow(
+        "Session expired",
+      );
+      expect(apiClient.getToken()).toBeNull();
+      expect(handler).toHaveBeenCalled();
+      // Initial attempt + exactly one retry with the fresh token — no loop.
+      expect(fetch).toHaveBeenCalledTimes(2);
 
       window.removeEventListener("auth:expired", handler);
     });

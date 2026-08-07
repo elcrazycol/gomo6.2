@@ -13,6 +13,7 @@ export function useSpotifyAuthorPolling() {
   useEffect(() => {
     if (!apiClient.getToken() && !apiClient.getCSRFToken()) return;
 
+    // Once flipped to false, every later tick is a no-op (no network call).
     let active = true;
 
     const poll = async () => {
@@ -21,14 +22,18 @@ export function useSpotifyAuthorPolling() {
         await apiClient.request("/api/v1/integrations/spotify/me/state");
         // Response triggers WS publish on backend if state changed.
         // We don't need the data here — visitors receive it via WebSocket.
-      } catch {
-        // Silent fail — will retry on next tick
+      } catch (err) {
+        // 503 = Spotify is not configured on the server (nothing will change
+        // until the server is configured) and 401 = logged out. Polling either
+        // forever would just spam the console, so stop in both cases.
+        // Other errors (network, 5xx) — retry on the next tick.
+        const status = (err as { status?: number } | null)?.status;
+        if (status === 503 || status === 401) active = false;
       }
     };
 
     // Initial poll after a short delay (don't compete with page load)
     const initialTimeout = setTimeout(poll, 3000);
-
     // Poll every 10s
     const interval = setInterval(poll, 10000);
 

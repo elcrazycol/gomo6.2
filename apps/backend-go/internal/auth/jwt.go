@@ -24,7 +24,7 @@ type Claims struct {
 }
 
 // TokenPair is returned on login/register — contains both an access token
-// (short-lived JWT) and a refresh token (opaque, 7 days). SessionID is the
+// (short-lived JWT) and a refresh token (opaque, 3 days). SessionID is the
 // stable session this pair belongs to; AccessJTI is the jti of the access
 // token (used for instant revocation). AccessJTI is intentionally never
 // serialized to clients.
@@ -110,7 +110,7 @@ func (a *AuthService) GenerateToken(userID, username, domain string) (string, er
 	return token, err
 }
 
-// GenerateTokenPair creates both an access token (1h) and a refresh token (7 days)
+// GenerateTokenPair creates both an access token (1h) and a refresh token (3 days)
 // bound to the given stable session id. The refresh token hash is stored in
 // Redis (if available) for later validation.
 func (a *AuthService) GenerateTokenPair(userID, username, domain, sessionID string) (*TokenPair, error) {
@@ -124,13 +124,15 @@ func (a *AuthService) GenerateTokenPair(userID, username, domain, sessionID stri
 		return nil, err
 	}
 
-	// Store refresh token hash in Redis with 7-day TTL
+	// Store refresh token hash in Redis with 3-day TTL. Refresh tokens are NOT
+	// rotated (see RefreshAccessToken), so a short lifetime bounds the theft
+	// window of a captured token — 3 days is the deliberate tradeoff.
 	if a.redis != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
 		hash := sha256.Sum256([]byte(refreshToken))
 		key := fmt.Sprintf("refresh:%s:%s", userID, hex.EncodeToString(hash[:]))
-		a.redis.Set(ctx, key, "1", 7*24*time.Hour)
+		a.redis.Set(ctx, key, "1", 3*24*time.Hour)
 	}
 
 	return &TokenPair{
@@ -155,26 +157,39 @@ func (a *AuthService) ValidateRefreshToken(userID, refreshToken string) bool {
 	return userID != "" && refreshToken != "" && a.refreshTokenExists(userID, refreshToken)
 }
 
-// RefreshAccessToken validates a refresh token, generates a new pair first,
-// then deletes the old token (safe rotation — no window where user loses access).
-// The new pair stays bound to the same sessionID so the device identity never
-// changes across rotations.
+// RefreshAccessToken validates a refresh token and issues a fresh ACCESS token
+// only. The opaque refresh token is deliberately NOT rotated: it stays valid for
+// its whole 3-day lifetime (bounded by the Redis TTL and the HttpOnly cookie
+// MaxAge) and is killed only on logout/session revocation.
+//
+// Why no rotation? The browser fires several /auth/refresh calls concurrently
+// on page load (getSession + auth/me 401 fallbacks from multiple components).
+// With rotation, the first request consumes the shared refresh cookie and every
+// parallel request that read the same pre-rotation value gets a 401, which the
+// frontend treats as "session expired" — logging the user out on reload. A
+// stable refresh token makes concurrent refreshes all succeed; it is a 256-bit
+// random in an HttpOnly SameSite=Strict cookie, so the only way to obtain it is
+// from the browser itself. Access tokens still rotate on every refresh and the
+// previous access jti is blacklisted, so revocation stays instant.
 func (a *AuthService) RefreshAccessToken(userID, username, domain, sessionID, refreshToken string) (*TokenPair, error) {
-	// Step 1: Check the old refresh token exists
+	// Step 1: Check the refresh token still exists
 	if !a.refreshTokenExists(userID, refreshToken) {
 		return nil, ErrRefreshTokenNotFound
 	}
 
-	// Step 2: Generate the new pair FIRST
-	pair, err := a.GenerateTokenPair(userID, username, domain, sessionID)
+	// Step 2: Generate a new access token bound to the same session
+	accessToken, accessJTI, err := a.generateAccessToken(userID, username, domain, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate new token pair: %w", err)
+		return nil, fmt.Errorf("failed to generate new access token: %w", err)
 	}
 
-	// Step 3: Delete the old refresh token only after new one is generated
-	a.deleteRefreshToken(userID, refreshToken)
-
-	return pair, nil
+	return &TokenPair{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken, // unchanged — the session identity is stable
+		SessionID:    sessionID,
+		AccessJTI:    accessJTI,
+		ExpiresIn:    3600, // 1 hour
+	}, nil
 }
 
 // RefreshTokenExistsByHash reports whether a refresh token whose SHA-256 hex
@@ -229,21 +244,6 @@ func (a *AuthService) refreshTokenExists(userID, refreshToken string) bool {
 
 	val, err := a.redis.Get(ctx, key).Result()
 	return err == nil && val != ""
-}
-
-// deleteRefreshToken removes a specific refresh token from Redis (used during rotation).
-func (a *AuthService) deleteRefreshToken(userID, refreshToken string) {
-	if a.redis == nil {
-		return
-	}
-
-	hash := sha256.Sum256([]byte(refreshToken))
-	key := fmt.Sprintf("refresh:%s:%s", userID, hex.EncodeToString(hash[:]))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	a.redis.Del(ctx, key)
 }
 
 // RevokeAllRefreshTokens removes all refresh tokens for a user (logout all sessions).

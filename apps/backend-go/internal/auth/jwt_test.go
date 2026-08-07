@@ -664,10 +664,10 @@ func TestGenerateTokenPair_StoresInRedis(t *testing.T) {
 		t.Errorf("expected '1', got %q", val)
 	}
 
-	// Verify TTL is set (7 days)
+	// Verify TTL is set (3 days)
 	ttl := mr.TTL(key)
-	if ttl < 6*24*time.Hour || ttl > 7*24*time.Hour {
-		t.Errorf("expected TTL ~7 days, got %v", ttl)
+	if ttl < 2*24*time.Hour || ttl > 3*24*time.Hour {
+		t.Errorf("expected TTL ~3 days, got %v", ttl)
 	}
 }
 
@@ -701,34 +701,13 @@ func TestRefreshTokenExists_WithRedis_WrongHash(t *testing.T) {
 	}
 }
 
-func TestDeleteRefreshToken_WithRedis(t *testing.T) {
-	svc, mr := setupRedisAuthService(t)
-
-	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
-
-	hash := sha256.Sum256([]byte(pair.RefreshToken))
-	key := fmt.Sprintf("refresh:user-123:%x", hash)
-
-	// Verify token exists before delete
-	if _, err := mr.Get(key); err != nil {
-		t.Fatalf("token should exist before delete: %v", err)
-	}
-
-	svc.deleteRefreshToken("user-123", pair.RefreshToken)
-
-	// Verify token is deleted
-	if mr.Exists(key) {
-		t.Fatal("token should be deleted after deleteRefreshToken")
-	}
-}
-
 func TestRefreshAccessToken_WithRedis_Success(t *testing.T) {
 	svc, mr := setupRedisAuthService(t)
 
 	pair, _ := svc.GenerateTokenPair("user-123", "alice", "gomo6.wtf", "session-test")
 	oldRefreshToken := pair.RefreshToken
 
-	// Calculate old key to verify deletion
+	// Calculate the key to verify it survives refresh (no rotation)
 	oldHash := sha256.Sum256([]byte(oldRefreshToken))
 	oldKey := fmt.Sprintf("refresh:user-123:%x", oldHash)
 
@@ -737,27 +716,33 @@ func TestRefreshAccessToken_WithRedis_Success(t *testing.T) {
 		t.Fatalf("RefreshAccessToken failed: %v", err)
 	}
 
-	// New pair should have new tokens
+	// A fresh access token must be issued
 	if newPair.AccessToken == "" {
 		t.Fatal("new access token should not be empty")
 	}
-	if newPair.RefreshToken == "" {
-		t.Fatal("new refresh token should not be empty")
-	}
-	if newPair.RefreshToken == oldRefreshToken {
-		t.Fatal("new refresh token must be different from old one")
+	if newPair.AccessToken == pair.AccessToken {
+		t.Fatal("access token must rotate on refresh")
 	}
 
-	// Old refresh token should be deleted
-	if mr.Exists(oldKey) {
-		t.Fatal("old refresh token should be deleted after rotation")
+	// The refresh token is stable: NOT rotated. Concurrent refreshes from
+	// multiple tabs must never invalidate each other (that race logged users
+	// out on page reload).
+	if newPair.RefreshToken != oldRefreshToken {
+		t.Fatalf("refresh token must stay stable across refreshes, got a new one")
 	}
 
-	// New refresh token should be stored
-	newHash := sha256.Sum256([]byte(newPair.RefreshToken))
-	newKey := fmt.Sprintf("refresh:user-123:%x", newHash)
-	if !mr.Exists(newKey) {
-		t.Fatal("new refresh token should be stored in Redis")
+	// The old refresh key must still exist after refresh
+	if !mr.Exists(oldKey) {
+		t.Fatal("refresh token key should survive refresh (no rotation)")
+	}
+
+	// A second concurrent refresh with the same token must also succeed.
+	secondPair, err := svc.RefreshAccessToken("user-123", "alice", "gomo6.wtf", "session-test", oldRefreshToken)
+	if err != nil {
+		t.Fatalf("second concurrent refresh failed: %v", err)
+	}
+	if secondPair.RefreshToken != oldRefreshToken {
+		t.Fatal("second refresh must keep the same refresh token")
 	}
 }
 
@@ -955,13 +940,6 @@ func TestRefreshTokenExists_NilRedis(t *testing.T) {
 	if svc.refreshTokenExists("user-123", "any-token") {
 		t.Fatal("refreshTokenExists should return false without Redis")
 	}
-}
-
-func TestDeleteRefreshToken_NilRedis(t *testing.T) {
-	svc := NewAuthService() // no Redis
-
-	// Should not panic
-	svc.deleteRefreshToken("user-123", "any-token")
 }
 
 // =============================================================================

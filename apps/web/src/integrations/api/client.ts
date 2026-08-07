@@ -71,6 +71,8 @@ class ApiClient {
   private refreshToken: string | null = null;
   private tokenExpiresAt: number | null = null;
   private refreshPromise: Promise<string | null> | null = null;
+  private lastRefreshAt = 0;
+  private lastRefreshAuthFailed = false;
 
   constructor() {
     // Browser auth is restored from HttpOnly cookies by the backend. Access and
@@ -133,6 +135,28 @@ class ApiClient {
     // Deduplicate concurrent refresh attempts
     if (this.refreshPromise) return this.refreshPromise;
 
+    // No-op when we already hold a fresh access token: nothing to refresh.
+    if (this.token && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt - 60 * 1000) {
+      return this.token;
+    }
+
+    // Cooldown: at most one network refresh per 10s per tab. Many components
+    // call getSession()/getCurrentUser() on mount and every 401 path triggers
+    // a refresh; without this guard a single page load fires dozens of refresh
+    // requests (observed on prod: ~1 refresh per 5s around the clock).
+    if (this.lastRefreshAt && Date.now() - this.lastRefreshAt < 10 * 1000 && this.token) {
+      return this.token;
+    }
+
+    this.lastRefreshAt = Date.now();
+    // Reset the "session dead" flag ONLY when actually hitting the network.
+    // The early returns above (dedup/cooldown/fresh) must preserve the previous
+    // value: if the last real refresh was rejected with 401 (dead session), a
+    // cooldown-limited call that returns the stale token must NOT clear that
+    // fact, or request() would fail to force-logout and the user would sit on
+    // a permanent 401 storm instead of being redirected to /auth.
+    this.lastRefreshAuthFailed = false;
+
     this.refreshPromise = (async () => {
       try {
         const csrf = this.getCSRFToken();
@@ -146,7 +170,16 @@ class ApiClient {
           },
           body: JSON.stringify(this.refreshToken ? { refresh_token: this.refreshToken } : {}),
         });
-        if (!res.ok) return null;
+        // Only a 401/403 from the refresh endpoint means the session is truly
+        // dead (expired/revoked refresh token). Anything else is a transient
+        // server problem — keep the current session instead of logging out.
+        if (res.status === 401 || res.status === 403) {
+          this.lastRefreshAuthFailed = true;
+          return null;
+        }
+        if (!res.ok) {
+          return this.token;
+        }
         const json = await res.json();
         const data = json.data ?? json;
         const newToken = data.token;
@@ -155,15 +188,25 @@ class ApiClient {
           this.setTokens(newToken, newRefresh || this.refreshToken);
           return newToken;
         }
-        return null;
+        return this.token;
       } catch {
-        return null;
+        // Network error — never treat it as "session expired".
+        return this.token;
       } finally {
         this.refreshPromise = null;
       }
     })();
 
     return this.refreshPromise;
+  }
+
+  /**
+   * True when the LAST refresh attempt was rejected by the server with a
+   * 401/403 (genuinely dead session), as opposed to a transient network/5xx
+   * failure. Callers use this to decide whether to force-logout.
+   */
+  getRefreshAuthFailed(): boolean {
+    return this.lastRefreshAuthFailed;
   }
 
   public async request<T>(
@@ -218,6 +261,8 @@ class ApiClient {
     };
 
     const hadAuth = Boolean(this.token || this.getCSRFToken());
+    const tokenIsFresh = () =>
+      this.tokenExpiresAt != null && Date.now() < this.tokenExpiresAt - 60 * 1000;
     try {
       return await doFetch();
     } catch (error) {
@@ -225,14 +270,39 @@ class ApiClient {
       // A public login/register request must surface its own 401. Refresh is
       // only meaningful when this request already had a browser or bearer session.
       if (err.status === 401 && hadAuth) {
+        const oldToken = this.token;
         const newToken = await this.tryRefreshToken();
-        if (newToken) {
-          return await doFetch();
+        // Retry only when the refresh produced NEW credentials, or when a
+        // parallel caller already refreshed and we now hold a fresh token
+        // (this request was in flight with the stale one). Retrying with the
+        // same cooldown-limited stale token would loop forever.
+        if (newToken && (newToken !== oldToken || tokenIsFresh())) {
+          try {
+            return await doFetch();
+          } catch (retryError) {
+            const re = retryError as Error & { status?: number };
+            if (re.status === 401) {
+              // A fresh, cryptographically-valid token rejected twice means it
+              // was blacklisted (session revoked from another device): the
+              // backend returns 403 for permission denials and 401 only for
+              // auth failure. Terminate with a logout — never loop.
+              this.clearTokens();
+              window.dispatchEvent(new CustomEvent('auth:expired'));
+              throw new Error('Session expired. Please log in again.');
+            }
+            throw retryError;
+          }
         }
-        // No refresh token or refresh failed — force logout
-        this.clearTokens();
-        window.dispatchEvent(new CustomEvent('auth:expired'));
-        throw new Error('Session expired. Please log in again.');
+        // Genuinely dead session: the refresh endpoint rejected us (401/403),
+        // or there was no refresh path at all. Force logout.
+        if (this.lastRefreshAuthFailed || (!this.refreshToken && !this.getCSRFToken())) {
+          this.clearTokens();
+          window.dispatchEvent(new CustomEvent('auth:expired'));
+          throw new Error('Session expired. Please log in again.');
+        }
+        // Transient refresh failure (network/5xx) — keep the session and
+        // surface the original error so the caller can retry or degrade.
+        throw error;
       }
       throw error;
     }
