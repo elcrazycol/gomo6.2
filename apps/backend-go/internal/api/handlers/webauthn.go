@@ -18,6 +18,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -389,6 +390,15 @@ func (h *WebAuthnHandler) FinishLogin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("Failed to generate token"))
 		return
 	}
+
+	// A passkey login is a full browser login, exactly like password/2FA: it
+	// MUST establish the session cookies (access/refresh/CSRF). Without them the
+	// session lives only in the frontend's in-memory token, so a page reload
+	// loses it — users were randomly logged out on every reload (and in
+	// incognito the loss is immediate). SetAuthCookies is also what the client
+	// uses to detect the session after a reload (the readable CSRF cookie) and
+	// to restore it via /auth/refresh (the HttpOnly refresh cookie).
+	middleware.SetAuthCookies(c, authedUserID, tokenPair.AccessToken, tokenPair.RefreshToken, 3600)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
 		"user":          authedUser,

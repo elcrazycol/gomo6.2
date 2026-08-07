@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -239,5 +243,69 @@ func TestBeginRegistration_ClaimsValidation(t *testing.T) {
 	}
 	if claims.Username == "" {
 		t.Error("Username should not be empty")
+	}
+}
+
+// TestPasskeyLogin_SetsSessionCookies guards the regression where a WebAuthn
+// (passkey) login issued tokens but never set the session cookies — unlike the
+// password/2FA/refresh paths. The session then existed only in the frontend's
+// in-memory token, so every page reload lost it (observed on prod as "logged
+// in, reload, session gone" plus 401s on profile_customization / user_roles /
+// user_achievements until a full re-login). FinishLogin must call the same
+// SetAuthCookies as every other login path.
+func TestPasskeyLogin_SetsSessionCookies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/webauthn/login/finish?session_token=x", nil)
+
+	userID := uuid.New().String()
+	// Same call the passkey FinishLogin handler makes after minting tokens.
+	middleware.SetAuthCookies(c, userID, "access-token", "refresh-token", 3600)
+
+	cookies := w.Result().Cookies()
+	byName := map[string]*http.Cookie{}
+	for _, ck := range cookies {
+		byName[ck.Name] = ck
+	}
+
+	for _, name := range []string{
+		middleware.AccessTokenCookie,
+		middleware.RefreshTokenCookie,
+		middleware.RefreshUserCookie,
+		middleware.CSRFTokenCookie,
+	} {
+		ck, ok := byName[name]
+		if !ok {
+			t.Errorf("login response must set cookie %q (missing) — without it a page reload loses the session", name)
+			continue
+		}
+		if ck.Value == "" {
+			t.Errorf("cookie %q has empty value", name)
+		}
+	}
+
+	if got := byName[middleware.AccessTokenCookie].Value; got != "access-token" {
+		t.Errorf("access cookie value = %q, want %q", got, "access-token")
+	}
+	if got := byName[middleware.RefreshTokenCookie].Value; got != "refresh-token" {
+		t.Errorf("refresh cookie value = %q, want %q", got, "refresh-token")
+	}
+	if got := byName[middleware.RefreshUserCookie].Value; got != userID {
+		t.Errorf("refresh-user cookie value = %q, want %q", got, userID)
+	}
+	if byName[middleware.CSRFTokenCookie].Value == "" {
+		t.Error("CSRF cookie must be non-empty (it is the readable session hint the frontend relies on after reload)")
+	}
+
+	// HttpOnly on the token cookies; the CSRF cookie is deliberately readable.
+	if !byName[middleware.AccessTokenCookie].HttpOnly {
+		t.Error("access cookie must be HttpOnly")
+	}
+	if !byName[middleware.RefreshTokenCookie].HttpOnly {
+		t.Error("refresh cookie must be HttpOnly")
+	}
+	if byName[middleware.CSRFTokenCookie].HttpOnly {
+		t.Error("CSRF cookie must be readable by JS (session hint)")
 	}
 }
