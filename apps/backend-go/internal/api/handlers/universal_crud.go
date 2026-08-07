@@ -616,7 +616,7 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 		}
 	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_comment_likes",
 		"user_daily_visits", "thread_custom_message_visits", "gomosub_rules_acceptance", "profile_customization",
-		"privacy_settings":
+		"privacy_settings", "user_session_time", "user_terms_acceptance":
 		// Single-owner tables: the owner is always the authenticated user.
 		userID := authenticatedUserID(c)
 		if userID == "" {
@@ -660,7 +660,7 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 		args = append(args, userID)
 		argIndex++
 	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_post_reposts", "profile_wall_comment_likes",
-		"privacy_settings":
+		"privacy_settings", "user_session_time", "user_daily_visits":
 		userID := authenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))

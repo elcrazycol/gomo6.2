@@ -286,6 +286,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/user_session_time", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_session_time/*path", universalHandler.HandleTableRequest)
+		// Writes: the frontend inserts/updates its own session time row via the
+		// universal CRUD handler (useSessionTime). POST and PUT were missing, so
+		// Gin returned 404 before the (already implemented) handler was reached.
+		genericProtected.POST("/user_session_time", universalHandler.HandleTableRequest)
+		genericProtected.POST("/user_session_time/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/user_session_time", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/user_session_time/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/user_achievements", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_achievements/*path", universalHandler.HandleTableRequest)
@@ -295,6 +302,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/user_terms_acceptance", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
+		// Writes: the frontend inserts the acceptance row right after signup;
+		// without POST the terms dialog could never be accepted (404).
+		genericProtected.POST("/user_terms_acceptance", universalHandler.HandleTableRequest)
+		genericProtected.POST("/user_terms_acceptance/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/profile_customization", universalHandler.HandleTableRequest)
 		genericProtected.GET("/profile_customization/*path", universalHandler.HandleTableRequest)
@@ -324,6 +335,12 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/user_daily_visits", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_daily_visits/*path", universalHandler.HandleTableRequest)
+		// Writes: useSessionTime upserts the daily visit row on load. The POST
+		// upsert path was implemented and tested but never routed → 404 spam.
+		genericProtected.POST("/user_daily_visits", universalHandler.HandleTableRequest)
+		genericProtected.POST("/user_daily_visits/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/user_daily_visits", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/user_daily_visits/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/thread_custom_message_visits", universalHandler.HandleTableRequest)
 		genericProtected.GET("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)

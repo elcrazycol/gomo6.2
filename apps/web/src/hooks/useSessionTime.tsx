@@ -55,57 +55,68 @@ export function useSessionTime(userId: string | null) {
     const flushSession = async (force = false) => {
       markActivity();
 
-      const wholeMinutes = Math.floor(accumulatedSeconds.current / 60);
-      const leftoverSeconds = accumulatedSeconds.current % 60;
+      // The auth client throws on 401/404 (e.g. after logout or when the write
+      // endpoints are missing), which previously escaped as unhandledrejection
+      // spam in the console. Catch everything and keep the local buffer.
+      try {
+        const wholeMinutes = Math.floor(accumulatedSeconds.current / 60);
+        const leftoverSeconds = accumulatedSeconds.current % 60;
 
-      if (!force && wholeMinutes < 1) {
+        if (!force && wholeMinutes < 1) {
+          if (bufferKey) {
+            localStorage.setItem(bufferKey, leftoverSeconds.toString());
+          }
+          return;
+        }
+
+        const { data: sessionData, error: fetchError } = await api
+          .from("user_session_time")
+          .select("id, total_minutes")
+          .eq("user_id", userId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error("[Session] Error fetching session time:", fetchError);
+          return;
+        }
+
+        const currentTotal = sessionData?.total_minutes || 0;
+        const newTotal = currentTotal + wholeMinutes;
+
+        const updatePayload = {
+          total_minutes: newTotal,
+          updated_at: new Date().toISOString(),
+        };
+
+        const sessionRowId = sessionData?.id;
+        const { error: upsertError } = sessionRowId
+          ? await api
+              .from("user_session_time")
+              .update(updatePayload)
+              .eq("id", sessionRowId)
+          : await api.from("user_session_time").insert({
+              user_id: userId,
+              ...updatePayload,
+              session_date: new Date().toISOString().split("T")[0],
+            });
+
+        if (upsertError) {
+          console.error("[Session] Error updating session time:", upsertError);
+          return;
+        }
+
+        accumulatedSeconds.current = leftoverSeconds;
         if (bufferKey) {
           localStorage.setItem(bufferKey, leftoverSeconds.toString());
         }
-        return;
-      }
-
-      const { data: sessionData, error: fetchError } = await api
-        .from("user_session_time")
-        .select("id, total_minutes")
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (fetchError) {
-        console.error("[Session] Error fetching session time:", fetchError);
-        return;
-      }
-
-      const currentTotal = sessionData?.total_minutes || 0;
-      const newTotal = currentTotal + wholeMinutes;
-
-      const updatePayload = {
-        total_minutes: newTotal,
-        updated_at: new Date().toISOString(),
-      };
-
-      const sessionRowId = sessionData?.id;
-      const { error: upsertError } = sessionRowId
-        ? await api
-            .from("user_session_time")
-            .update(updatePayload)
-            .eq("id", sessionRowId)
-        : await api.from("user_session_time").insert({
-            user_id: userId,
-            ...updatePayload,
-            session_date: new Date().toISOString().split("T")[0],
-          });
-
-      if (upsertError) {
-        console.error("[Session] Error updating session time:", upsertError);
-        return;
-      }
-
-      accumulatedSeconds.current = leftoverSeconds;
-      if (bufferKey) {
-        localStorage.setItem(bufferKey, leftoverSeconds.toString());
+      } catch (error) {
+        // 401 = session already logged out (expected during teardown) — stay
+        // quiet, the auth layer handles the redirect. Other errors get logged.
+        if ((error as { status?: number } | null)?.status !== 401) {
+          console.error("[Session] Error flushing session time:", error);
+        }
       }
     };
 
