@@ -6,8 +6,10 @@
 
 <p align="center">
   <a href="https://github.com/scramble22/gomo6.2/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-44cc11?style=flat-square&logo=githubactions&logoColor=white" alt="CI"></a>
-  <a href="https://github.com/scramble22/gomo6.2/actions/workflows/deploy.yml"><img src="https://img.shields.io/badge/deploy-autodeploy-0096ff?style=flat-square&logo=docker&logoColor=white" alt="Deploy"></a>
-  <a href="https://github.com/scramble22/gomo6.2/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-gray?style=flat-square" alt="License"></a>
+  <a href="https://github.com/scramble22/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://img.shields.io/github/actions/workflow/status/elcrazycol/gomo6.2/deploy.yml?style=flat-square&logo=devbox&label=deploy"
+alt="Deploy"></a>
+  <a href="https://github.com/scramble22/gomo6.2/blob/main/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/elcrazycol/gomo6.2?style=flat-square">
+</a>
 </p>
 
 <p align="center">
