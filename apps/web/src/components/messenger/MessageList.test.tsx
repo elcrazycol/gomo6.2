@@ -131,10 +131,82 @@ describe("MessageList scroll behavior", () => {
     await act(async () => {
       rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
       await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-
-    // scrollHeight(500) - clientHeight(400) = maxScrollTop(100)
+    });      // scrollHeight(500) - clientHeight(400) = maxScrollTop(100)
     expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 100, behavior: "auto" }));
+  });
+
+  it("holds the follow-scroll until the appended item is measured (single exact scroll, no twitch)", async () => {
+    // Manual rAF pump so the height change can land between the settle's
+    // stability checks, exactly as the measurement lands in a real browser.
+    const rafQueue: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    const pumpFrames = async (count: number) => {
+      for (let i = 0; i < count; i += 1) {
+        const cb = rafQueue.shift();
+        if (cb) cb(0);
+        await Promise.resolve();
+      }
+    };
+
+    try {
+      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+      const { scroller, rerender } = mountList();
+
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 100 });
+      const scrollToSpy = vi.fn();
+      scroller.scrollTo = ((options: { top?: number }) => {
+        if (typeof options?.top === "number") {
+          Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
+        }
+        scrollToSpy(options);
+      }) as unknown as typeof scroller.scrollTo;
+
+      // Drain the mount-time settle's frame chain. The view sits exactly at
+      // the bottom (500 − 100 − 400 = 0), so it must not scroll at all.
+      await act(async () => {
+        await pumpFrames(30);
+      });
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      // Append while at the bottom. The new item first renders at the default
+      // height estimate, growing the list (scrollHeight 600 → maxScrollTop
+      // 200); only later is it measured to its real size (800 → maxScrollTop
+      // 400). Scrolling to the estimate would produce the twitch/gap.
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 600 });
+      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
+      await act(async () => {
+        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+        // Yield to a macrotask so React flushes the append effect (which
+        // schedules the settle) before we start pumping its frames.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+
+      // First settle frame sees the ESTIMATE height. The wait phase must
+      // hold here — a naive settle would already scroll to the estimate
+      // bottom (200) on this frame.
+      await act(async () => {
+        await pumpFrames(1);
+      });
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      // The measurement lands before the second stability check. The settle
+      // must scroll exactly once — to the measured bottom (400), never the
+      // estimate (200).
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 800 });
+      await act(async () => {
+        await pumpFrames(4);
+      });
+      expect(scrollToSpy).toHaveBeenCalledTimes(1);
+      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 400, behavior: "auto" }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("cancels the follow-settle the moment the user scrolls up (no jitter/fight)", async () => {

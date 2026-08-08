@@ -36,6 +36,17 @@ const INITIAL_FIRST_INDEX = 1_000_000;
 // still cancelled immediately — wheel and touch already cancel unconditionally.
 const SETTLE_CANCEL_TOLERANCE = 8;
 
+// The append-follow holds its first scroll until the freshly appended item has
+// been measured. Virtuoso renders it at the default-height estimate first and
+// swaps in the real height a frame or two later, which changes the list
+// height. Scrolling before that measurement lands short and then visibly
+// corrects itself — the twitch / "not quite at the bottom" gap. The settle
+// waits for two consecutive frames with the same height (or a hard cap) so the
+// view scrolls exactly once, to the true bottom.
+const SETTLE_STABLE_FRAMES = 2; // consecutive frames with the same scrollHeight
+const SETTLE_MAX_WAIT_FRAMES = 6; // hard cap on the wait phase (~100ms)
+const SETTLE_MAX_FRAMES = 24; // total rAF chain length (~400ms); checkpoints take over after
+
 export interface MessageRenderExtras {
   dateLabel: string | null;
   isConsecutive: boolean;
@@ -127,6 +138,10 @@ export const MessageList = memo(
         cancelBottomSettle();
         if (force) isSettlingToBottomRef.current = true;
         let settleFrames = 0;
+        let totalFrames = 0;
+        let ready = force; // force settles clamp immediately
+        let stableChecks = 0;
+        let lastSeenHeight = -1;
         let settleObserver: ResizeObserver | null = null;
         let firstSettle = true;
         let cancelled = false;
@@ -148,6 +163,19 @@ export const MessageList = memo(
           }
           const el = scrollerElRef.current;
           if (!el) return;
+          if (!ready) {
+            // Hold the first scroll until the list height stops changing (the
+            // appended item was just measured). Scrolling during the estimate
+            // phase lands short and then visibly corrects itself.
+            if (el.scrollHeight === lastSeenHeight) {
+              stableChecks += 1;
+              if (stableChecks >= SETTLE_STABLE_FRAMES) ready = true;
+            } else {
+              lastSeenHeight = el.scrollHeight;
+              stableChecks = 1;
+            }
+            return;
+          }
           const top = getMaxScrollTop(el.scrollHeight, el.clientHeight);
           if (!isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 2)) {
             el.scrollTo({ top, behavior: firstSettle ? initialBehavior : "auto" });
@@ -179,7 +207,9 @@ export const MessageList = memo(
         settleCleanupRef.current = cleanupSettle;
         const settleNextFrame = () => {
           settleAtBottom();
-          if (!cancelled && settleFrames < 8) rafId = window.requestAnimationFrame(settleNextFrame);
+          totalFrames += 1;
+          if (!ready && totalFrames >= SETTLE_MAX_WAIT_FRAMES) ready = true;
+          if (!cancelled && totalFrames < SETTLE_MAX_FRAMES) rafId = window.requestAnimationFrame(settleNextFrame);
         };
         rafId = window.requestAnimationFrame(settleNextFrame);
         // Protected blob URLs may finish well after the initial frames. These
@@ -198,17 +228,22 @@ export const MessageList = memo(
 
     // ── Imperative API (send-scroll, pinned-message jump) ──────────────
     const scrollToBottom = useCallback(() => {
+      const scroller = scrollerElRef.current;
       const length = useMessengerStore.getState().messages.length;
-      if (length === 0) {
+      if (length === 0 || !scroller) {
         cancelBottomSettle();
         return;
       }
       shouldAutoScrollRef.current = true;
       scheduleBottomSettle({ force: true, initialBehavior: "smooth" });
-      const lastIndex = firstItemIndexRef.current + length - 1;
-      virtuosoRef.current?.scrollToIndex({
-        index: lastIndex,
-        align: "end",
+      // Exact target from the scroller's real scrollHeight. Virtuoso's
+      // scrollToIndex derives the target from default-height estimates
+      // (index × defaultItemHeight, clamped to the data range) and can land
+      // far from the true bottom — with the large firstItemIndex used for
+      // history prepends that estimate is off by orders of magnitude and
+      // Firefox animates the view upward while the target is clamped.
+      scroller.scrollTo({
+        top: getMaxScrollTop(scroller.scrollHeight, scroller.clientHeight),
         behavior: "smooth",
       });
       isScrolledUpRef.current = false;
@@ -219,8 +254,13 @@ export const MessageList = memo(
     const scrollToMessage = useCallback((messageId: string) => {
       const index = useMessengerStore.getState().messages.findIndex((m) => m.id === messageId);
       if (index < 0) return;
+      // Virtuoso's scrollToIndex clamps the index to the data range
+      // [0, totalCount-1], so pass the DATA index, not the virtual one
+      // (data + firstItemIndex). With the large firstItemIndex start the
+      // virtual index would always clamp to the last item and pinned jumps
+      // would land at the bottom.
       virtuosoRef.current?.scrollToIndex({
-        index: firstItemIndexRef.current + index,
+        index,
         align: "center",
         behavior: "smooth",
       });
@@ -317,20 +357,13 @@ export const MessageList = memo(
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
               if (incoming > 0) setNewMessageCount((count) => count + incoming);
             } else if (shouldAutoScrollRef.current) {
-              // At the bottom: jump straight to the true bottom so the new
-              // message is visible immediately. scrollHeight is exact even
-              // while item heights are still being measured, so this lands
-              // precisely (Virtuoso's built-in follow estimates heights and
-              // can stop short of the bottom). Images may then finish loading
-              // and grow the list — the settle keeps clamping while the user
-              // stays at the bottom.
-              const scroller = scrollerElRef.current;
-              if (scroller) {
-                scroller.scrollTo({
-                  top: getMaxScrollTop(scroller.scrollHeight, scroller.clientHeight),
-                  behavior: "auto",
-                });
-              }
+              // At the bottom: do NOT scroll right away — the freshly appended
+              // item renders at its default-height estimate first and Virtuoso
+              // measures the real height a frame or two later (which changes
+              // the list height). Scrolling before that measurement lands
+              // short and then visibly corrects itself — the twitch / gap.
+              // The settle holds the first scroll until the height is stable
+              // and then clamps exactly once, to the true bottom.
               scheduleBottomSettle({ force: false, initialBehavior: "auto" });
             }
           }
