@@ -434,7 +434,23 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
         return;
       }
       set((s) => {
-        const messages = [...older, ...s.messages];
+        // Merge older history without duplicates. Pagination is keyed on the
+        // oldest message's sent_at (strictly exclusive server-side), but a
+        // message that arrived mid-request can still land on both pages — a
+        // duplicated key would shift the virtualized item windows and jump
+        // the layout while the user scrolls through history.
+        const byIdentity = new Map<string, MessageView>();
+        for (const message of older) byIdentity.set(message.id || message.client_id, message);
+        for (const message of s.messages) {
+          const key = message.id || message.client_id;
+          if (!byIdentity.has(key)) byIdentity.set(key, message);
+        }
+        // Stable sort (ES2019+): messages sharing a sent_at keep the insertion
+        // order above (older first, then existing) — identical to the plain
+        // concatenation order, so no message ever "moves" on a tie.
+        const messages = [...byIdentity.values()].sort(
+          (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
+        );
         rememberLatestEventId(conversationId, messages);
         cacheCurrentMessages(ownerId, conversationId, messages);
         return {

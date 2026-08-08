@@ -103,8 +103,7 @@ export const MessageList = memo(
     const touchStartXRef = useRef(0);
     const loadingMoreRef = useRef(false);
     const lastScrollTopRef = useRef(0);
-    const firstItemIndexRef = useRef(INITIAL_FIRST_INDEX);
-    const prevFirstIdRef = useRef<string | null>(null);
+    const [prevFirstId, setPrevFirstId] = useState<string | null>(null);
     const prevLastIdRef = useRef<string | null>(null);
     const isSettlingToBottomRef = useRef(false);
     const settleCleanupRef = useRef<(() => void) | null>(null);
@@ -374,20 +373,6 @@ export const MessageList = memo(
       if (distance <= 32) setNewMessageCount(0);
     }, [cancelBottomSettle]);
 
-    // ── Keep virtual indices stable when older messages are prepended ──
-    // Covers both the "load history" path and the cache → network replace
-    // (the cached first message usually survives inside the network snapshot,
-    // so anchoring on it keeps the unread boundary exactly in place).
-    useEffect(() => {
-      if (messages.length === 0) return;
-      const previousFirst = prevFirstIdRef.current;
-      if (previousFirst !== null) {
-        const index = messages.findIndex((m) => m.id === previousFirst);
-        if (index > 0) firstItemIndexRef.current -= index;
-      }
-      prevFirstIdRef.current = messages[0]?.id ?? null;
-      setFirstItemIndex(firstItemIndexRef.current);
-    }, [messages]);
 
     // ── Detect realtime appends → "N new messages" pill + animation ────
     useEffect(() => {
@@ -583,10 +568,55 @@ export const MessageList = memo(
         },
       [],
     );
-    const listComponents = useMemo(
-      () => ({ Scroller: CustomScroller, List: CustomList, Footer: MessageListFooter }),
-      [CustomScroller, CustomList, MessageListFooter],
+    // Top spinner while older history is fetched (startReached → load more).
+    // It reads the store directly so the components object stays stable — a
+    // changing components identity would make Virtuoso redo internal
+    // subscriptions. Only this header re-renders when the flag flips.
+    const HistoryLoaderHeader = useMemo(
+      () =>
+        function HistoryLoaderHeader() {
+          const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
+          if (!isLoadingMore) return null;
+          return (
+            <div className="msg-history-loader" role="status" aria-live="polite">
+              <span className="msg-history-loader-spinner" aria-hidden="true" />
+              <span>Загружаем историю…</span>
+            </div>
+          );
+        },
+      [],
     );
+    const listComponents = useMemo(
+      () => ({
+        Scroller: CustomScroller,
+        List: CustomList,
+        Header: HistoryLoaderHeader,
+        Footer: MessageListFooter,
+      }),
+      [CustomScroller, CustomList, HistoryLoaderHeader, MessageListFooter],
+    );
+
+    // ── Keep virtual indices stable when older messages are prepended ──
+    // This must happen in the SAME render as the messages change (render-phase
+    // update — React re-renders before the browser paints). Adjusting
+    // firstItemIndex in a passive effect paints one frame where every item
+    // window is shifted by the prepend count — the visible flicker every time
+    // older history loads. Covers both the "load history" path and the
+    // cache → network replace (the cached first message usually survives
+    // inside the network snapshot, so anchoring on it keeps the position).
+    if (messages.length > 0) {
+      // Identity key matches the store's dedup key (id || client_id), so a
+      // temp message later replaced by its server twin counts as the same
+      // anchor and never triggers a spurious index shift.
+      const currentFirst = messages[0].id || messages[0].client_id;
+      if (prevFirstId !== null && currentFirst !== prevFirstId) {
+        const index = messages.findIndex((m) => (m.id || m.client_id) === prevFirstId);
+        if (index > 0) setFirstItemIndex((f) => f - index);
+        setPrevFirstId(currentFirst);
+      } else if (prevFirstId === null) {
+        setPrevFirstId(currentFirst);
+      }
+    }
 
     if (messages.length === 0) return null;
 

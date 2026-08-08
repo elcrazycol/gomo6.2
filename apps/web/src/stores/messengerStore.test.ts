@@ -176,6 +176,45 @@ describe("messengerStore", () => {
     });
   });
 
+  describe("loadMoreMessages", () => {
+    it("prepends older history without duplicates, keeping chronological order", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        messages: [
+          mockMsg({ id: "m2", sent_at: "2025-06-01T12:00:00Z" }),
+          mockMsg({ id: "m3", sent_at: "2025-06-01T13:00:00Z" }),
+        ],
+      });
+      // The paginated page overlaps with an existing message (a message that
+      // arrived mid-request). A duplicated key would shift the virtualized
+      // item windows and jump the layout while scrolling through history.
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "m1", sent_at: "2025-06-01T11:00:00Z" }),
+        mockMsg({ id: "m2", sent_at: "2025-06-01T12:00:00Z" }),
+      ]);
+
+      await useMessengerStore.getState().loadMoreMessages("conv-1");
+
+      const ids = useMessengerStore.getState().messages.map((m) => m.id);
+      expect(ids).toEqual(["m1", "m2", "m3"]);
+      expect(useMessengerStore.getState().isLoadingMore).toBe(false);
+    });
+
+    it("does nothing when already loading or no messages", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "conv-1",
+        messages: [],
+        isLoadingMore: true,
+      });
+
+      await useMessengerStore.getState().loadMoreMessages("conv-1");
+
+      expect(messengerApi.getMessages).not.toHaveBeenCalled();
+    });
+  });
+
   describe("sendMessage", () => {
     it("adds optimistic message then replaces with server response", async () => {
       useMessengerStore.setState({ me: { id: "u1", username: "test" }, selectedConversationId: "conv-1" });

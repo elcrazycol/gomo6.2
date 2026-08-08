@@ -2764,3 +2764,34 @@ main.is-messenger-page {
     height: 38px;
   }
 }
+
+/* ── History loader (top of the message list while older messages load) ── */
+
+.msg-history-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0 6px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  animation: msg-history-fade-in 0.15s ease-out;
+}
+
+.msg-history-loader-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid hsl(var(--border));
+  border-top-color: hsl(var(--primary));
+  border-radius: 50%;
+  animation: msg-history-spin 0.8s linear infinite;
+}
+
+@keyframes msg-history-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes msg-history-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

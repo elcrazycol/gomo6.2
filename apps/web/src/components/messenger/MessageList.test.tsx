@@ -43,6 +43,7 @@ vi.mock("react-virtuoso", () => {
     const components = props.components as {
       Scroller?: React.ComponentType<React.HTMLAttributes<HTMLDivElement> & React.RefAttributes<HTMLDivElement>>;
       List?: React.ComponentType<{ style?: React.CSSProperties; children?: React.ReactNode }>;
+      Header?: React.ComponentType;
       Footer?: React.ComponentType;
     };
     // Use MessageList's REAL Scroller/List components so the scroll-event
@@ -50,12 +51,14 @@ vi.mock("react-virtuoso", () => {
     // plain div would bypass them and the test would not reflect reality.
     const Scroller = components?.Scroller;
     const List = components?.List;
+    const Header = components?.Header;
     const Footer = components?.Footer;
     const items = Array.from({ length: props.totalCount as number }, (_, index) => (
       <div key={(computeItemKey?.(index) ?? index) as React.Key}>{itemContent(index)}</div>
     ));
     return Scroller && List ? (
       <Scroller ref={(el: HTMLDivElement | null) => scrollerRef?.(el)} style={{ height: "100%" }}>
+        {Header ? <Header /> : null}
         <List>{items}</List>
         {Footer ? <Footer /> : null}
       </Scroller>
@@ -110,11 +113,45 @@ afterEach(() => {
   h.storeState.messages = [];
   h.storeState.openingUnreadCount = 0;
   h.storeState.isMessagesLoading = false;
+  h.storeState.isLoadingMore = false;
   h.scrollToIndexSpy.mockClear();
   h.virtuosoProps = {};
 });
 
 describe("MessageList scroll behavior", () => {
+  it("adjusts firstItemIndex in the same render as a history prepend (no flicker frame)", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { rerender } = mountList();
+    const initialIndex = h.virtuosoProps.firstItemIndex as number;
+    expect(initialIndex).toBe(1_000_000);
+
+    // Older messages are prepended (history load). The virtual index must
+    // already reflect the prepend in THIS render — the old effect-based
+    // version painted one frame with shifted item windows (the visible
+    // flicker on every history load).
+    h.storeState.messages = [makeMessage("x"), makeMessage("a"), makeMessage("b")];
+    rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+    expect(h.virtuosoProps.firstItemIndex).toBe(initialIndex - 1);
+
+    // The anchored message "a" keeps its key: its virtual index is unchanged
+    // (1_000_000 before, (1_000_000 - 1) + 1 after).
+    const computeItemKey = h.virtuosoProps.computeItemKey as (index: number) => unknown;
+    expect(computeItemKey(initialIndex)).toBe("a");
+  });
+
+  it("shows the history loader while older messages are being fetched", () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    h.storeState.isLoadingMore = true;
+    const { container } = mountList();
+    expect(container.querySelector(".msg-history-loader")).not.toBeNull();
+  });
+
+  it("hides the history loader when idle", () => {
+    h.storeState.messages = [makeMessage("a")];
+    const { container } = mountList();
+    expect(container.querySelector(".msg-history-loader")).toBeNull();
+  });
+
   it("renders the bottom gap footer element", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     const { container } = mountList();
