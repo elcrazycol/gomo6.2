@@ -35,6 +35,7 @@ export const WallCommentTree = ({
   const [isSubmitting, setIsSubmitting] = useState<Record<string, boolean>>({});
   const [topLevelJson, setTopLevelJson] = useState<unknown>(EMPTY_EDITOR_STATE);
   const [topLevelText, setTopLevelText] = useState("");
+  const [topLevelResetKey, setTopLevelResetKey] = useState(0);
 
   const loadComments = useCallback(async () => {
     try {
@@ -144,6 +145,7 @@ export const WallCommentTree = ({
       onCommentCountChange(1);
       setTopLevelText("");
       setTopLevelJson(EMPTY_EDITOR_STATE);
+      setTopLevelResetKey((prev) => prev + 1);
       setEditorStates((prev) => {
         const next = { ...prev };
         delete next["top-level"];
@@ -302,6 +304,7 @@ export const WallCommentTree = ({
               isSubmitting={isSubmitting["top-level"] || false}
               json={topLevelState.json}
               text={topLevelState.text}
+              resetKey={topLevelResetKey}
               onChange={({ json, text }) => {
                 setTopLevelJson(json);
                 setTopLevelText(text);

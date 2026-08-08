@@ -42,6 +42,13 @@ describe("isEmptyProsemirror", () => {
       content: [{ type: "paragraph", content: [{ type: "text", text: "hello" }] }],
     })).toBe(false);
   });
+
+  it("returns false for doc with only a mention (atom nodes count as content)", () => {
+    expect(isEmptyProsemirror({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "mention", attrs: { id: "u1", label: "vasya" } }] }],
+    })).toBe(false);
+  });
 });
 
 describe("prosemirrorToPlainText", () => {
@@ -62,6 +69,23 @@ describe("prosemirrorToPlainText", () => {
 
   it("returns fallback for empty doc", () => {
     expect(prosemirrorToPlainText({ type: "doc", content: [] }, "empty")).toBe("empty");
+  });
+
+  it("renders mention nodes as @username", () => {
+    const json = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Привет, " },
+            { type: "mention", attrs: { id: "u1", label: "vasya" } },
+            { type: "text", text: "!" },
+          ],
+        },
+      ],
+    };
+    expect(prosemirrorToPlainText(json)).toBe("Привет, @vasya!");
   });
 });
 

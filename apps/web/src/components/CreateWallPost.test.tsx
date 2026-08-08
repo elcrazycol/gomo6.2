@@ -400,16 +400,16 @@ describe("CreateWallPost", () => {
     consoleSpy.mockRestore();
   });
 
-  it("shows character count", async () => {
+  it("shows character count with the 4000 limit", async () => {
     setupApiMocks();
     render(<Component {...defaultProps} />);
 
-    expect(screen.getByText("0 симв.")).toBeInTheDocument();
+    expect(screen.getByText("0/4000 симв.")).toBeInTheDocument();
 
     const textarea = screen.getByTestId("rich-editor-textarea");
     await userEvent.type(textarea, "Hello");
 
-    expect(screen.getByText("5 симв.")).toBeInTheDocument();
+    expect(screen.getByText("5/4000 симв.")).toBeInTheDocument();
   });
 
   it("shows attachment count", async () => {

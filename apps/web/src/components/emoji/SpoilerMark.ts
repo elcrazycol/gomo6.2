@@ -48,7 +48,9 @@ export const SpoilerMark = Mark.create({
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         'data-spoiler': '',
         'data-spoiler-revealed': revealed ? 'true' : undefined,
-        contenteditable: 'false',
+        // NOTE: deliberately NOT contenteditable="false" — that made the spoiler span
+        // a dead zone: the caret landed inside it after toggling, and typing stopped.
+        // The blur is purely visual in the editor; CensorBlur handles reveal on display.
         style: revealed
           ? 'filter:blur(0px);-webkit-filter:blur(0px);background-color:hsl(var(--muted)/0.45);border:1px solid hsl(var(--border)/0.8);border-radius:0.45rem;padding:0.08rem 0.35rem;cursor:pointer;transition:filter 180ms ease'
           : 'filter:blur(6px);-webkit-filter:blur(6px);background-color:hsl(var(--muted)/0.7);border:1px solid hsl(var(--border)/0.8);border-radius:0.45rem;padding:0.08rem 0.35rem;cursor:pointer;transition:filter 180ms ease',

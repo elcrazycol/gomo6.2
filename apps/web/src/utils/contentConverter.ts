@@ -24,6 +24,7 @@ const isEmptyProsemirrorNode = (node: Record<string, unknown>): boolean => {
   }
   if (node.type === "hardBreak") return true;
   if (node.type === "customEmoji") return false;
+  if (node.type === "mention") return false;
   if (node.type === "paragraph") {
     const content = node.content as Record<string, unknown>[] | undefined;
     if (!Array.isArray(content) || content.length === 0) return true;
@@ -283,6 +284,10 @@ export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => 
     if (node.type === "text") return (node.text as string) || "";
     if (node.type === "hardBreak") return "\n";
     if (node.type === "customEmoji") return "[e:" + ((node.attrs as Record<string, unknown>)?.emojiId || "") + "]";
+    if (node.type === "mention") {
+      const attrs = (node.attrs as Record<string, unknown>) || {};
+      return "@" + ((attrs.label as string) || (attrs.id as string) || "");
+    }
     const children = (node.content as Record<string, unknown>[] || []).map(walk).join("");
     if (node.type === "paragraph") return children + "\n";
     return children;

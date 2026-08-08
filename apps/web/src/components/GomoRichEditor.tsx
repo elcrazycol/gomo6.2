@@ -1,12 +1,14 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, useEditorState } from "@tiptap/react";
+import type { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
+import Mention from "@tiptap/extension-mention";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
-import { Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
+import { AtSign, Bold, Dice3, Eye, Italic, Link2, Palette, Strikethrough, Type, UnderlineIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,8 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
+import { EMPTY_EDITOR_STATE, normalizeContent, prosemirrorToPlainText } from "@/utils/contentConverter";
 import { SpoilerMark } from "@/components/emoji/SpoilerMark";
+import { HashtagMark } from "@/components/emoji/HashtagMark";
+import { PasteCleanup } from "@/components/PasteCleanup";
+import { CharacterCount } from "@tiptap/extension-character-count";
+import { isMentionPopupActive, mentionSuggestion } from "@/components/editor/mentionSuggestions";
 import { CustomTabExtension } from "@/components/CustomTabExtension";
 import { CustomEmojiNode } from "@/components/emoji/CustomEmojiNode";
 
@@ -27,6 +33,8 @@ interface GomoRichEditorProps {
   placeholder?: string;
   minHeightClassName?: string;
   resetKey?: string | number;
+  /** Maximum number of characters (plain text). Omit for no limit. */
+  maxLength?: number;
   onChange: (value: { json: unknown; text: string }) => void;
   onSubmit?: () => void;
 }
@@ -47,12 +55,31 @@ const normalizeHexColor = (value: string) => {
   return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(prefixed) ? prefixed : null;
 };
 
-const Toolbar = ({ editor }: { editor: ReturnType<typeof useEditor> }) => {
+const Toolbar = ({ editor }: { editor: Editor }) => {
   const [isColorDialogOpen, setIsColorDialogOpen] = useState(false);
   const [colorDraft, setColorDraft] = useState("#ff5500");
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [isSizeDialogOpen, setIsSizeDialogOpen] = useState(false);
+  const [sizeDraft, setSizeDraft] = useState("18");
 
-  if (!editor) return null;
+  // Re-render the toolbar when the selection/marks change so toggle buttons
+  // can show their active state (editor.isActive at the caret).
+  const active = useEditorState({
+    editor,
+    selector: ({ editor: e }) => ({
+      bold: e.isActive("bold"),
+      italic: e.isActive("italic"),
+      underline: e.isActive("underline"),
+      strike: e.isActive("strike"),
+      link: e.isActive("link"),
+      spoiler: e.isActive("spoiler"),
+    }),
+  });
+
+  const toolClass = (isActive: boolean) =>
+    `h-8 w-8 p-0 flex-shrink-0${isActive ? " bg-primary/15 text-primary" : ""}`;
 
   const toggleTextFormat = (format: "bold" | "italic" | "underline" | "strikethrough") => {
     const chain = editor.chain().focus();
@@ -65,19 +92,40 @@ const Toolbar = ({ editor }: { editor: ReturnType<typeof useEditor> }) => {
     chain.run();
   };
 
-  const toggleLink = () => {
-    const url = window.prompt("Ссылка");
-    if (url === null) return;
-    const trimmedUrl = url.trim();
-    if (trimmedUrl.length > 0) {
-      editor.chain().focus().setLink({ href: trimmedUrl }).run();
-    } else {
+  const openLinkDialog = () => {
+    const current = (editor.getAttributes("link") as { href?: string })?.href ?? "";
+    setLinkDraft(current);
+    setIsLinkDialogOpen(true);
+  };
+
+  const applyLink = () => {
+    const trimmed = linkDraft.trim();
+    if (trimmed.length === 0) {
       editor.chain().focus().unsetLink().run();
+    } else {
+      // Only treat explicit schemes as-is (https://, http://, mailto:, tel: …);
+      // anything else gets https:// prepended ("localhost:3000/x" must not be
+      // parsed as the "localhost" scheme).
+      const hasScheme =
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) || /^(mailto|tel|sms|ftp):/i.test(trimmed);
+      const href = hasScheme ? trimmed : `https://${trimmed}`;
+      editor.chain().focus().setLink({ href }).run();
     }
+    setIsLinkDialogOpen(false);
   };
 
   const toggleBlur = () => {
     editor.chain().focus().toggleSpoiler().run();
+  };
+
+  // Insert "@" at the caret and let the suggestion plugin pick it up (it
+  // re-runs findSuggestionMatch on every transaction). If the cursor sits
+  // mid-word, a leading space is inserted first so the popup always opens.
+  const insertMention = () => {
+    const { from } = editor.state.selection;
+    const charBefore = editor.state.doc.textBetween(Math.max(0, from - 1), from);
+    const needsSpace = charBefore.length > 0 && !/\s/.test(charBefore);
+    editor.chain().focus().insertContent(needsSpace ? " @" : "@").run();
   };
 
   const applyColor = (nextColor: string) => {
@@ -100,24 +148,32 @@ const Toolbar = ({ editor }: { editor: ReturnType<typeof useEditor> }) => {
     setIsColorDialogOpen(true);
   };
 
-  const setSize = () => {
-    const size = window.prompt("Размер в px", "18");
-    if (!size) return;
-    const px = size.replace(/[^\d.]/g, "");
-    editor.chain().focus().setMark('textStyle', { fontSize: `${px}px` }).run();
+  const openSizeDialog = () => {
+    setSizeDraft("18");
+    setIsSizeDialogOpen(true);
+  };
+
+  const applySize = (px?: number) => {
+    const raw = px !== undefined ? String(px) : sizeDraft;
+    const clean = raw.replace(/[^\d.]/g, "");
+    if (clean) {
+      editor.chain().focus().setMark("textStyle", { fontSize: `${clean}px` }).run();
+    }
+    setIsSizeDialogOpen(false);
   };
 
   return (
     <>
       <div className="flex flex-nowrap gap-1 overflow-x-auto scrollbar-hide max-w-full border border-border/70 bg-background p-1">
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={toggleLink}><Link2 className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={openColorDialog}><Palette className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={setSize}><Type className="h-4 w-4" /></Button>
-        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={toggleBlur}><Eye className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className={toolClass(active.bold)} aria-pressed={active.bold} title="Жирный" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("bold")}><Bold className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className={toolClass(active.italic)} aria-pressed={active.italic} title="Курсив" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("italic")}><Italic className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className={toolClass(active.underline)} aria-pressed={active.underline} title="Подчёркнутый" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("underline")}><UnderlineIcon className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className={toolClass(active.strike)} aria-pressed={active.strike} title="Зачёркнутый" onMouseDown={(e) => e.preventDefault()} onClick={() => toggleTextFormat("strikethrough")}><Strikethrough className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className={toolClass(active.link)} aria-pressed={active.link} title="Ссылка" onMouseDown={(e) => e.preventDefault()} onClick={openLinkDialog}><Link2 className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={insertMention} title="Упомянуть пользователя"><AtSign className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={openColorDialog} title="Цвет текста"><Palette className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onMouseDown={(e) => e.preventDefault()} onClick={openSizeDialog} title="Размер шрифта"><Type className="h-4 w-4" /></Button>
+        <Button type="button" variant="ghost" size="sm" className={toolClass(active.spoiler)} aria-pressed={active.spoiler} title="Спойлер (размытие)" onMouseDown={(e) => e.preventDefault()} onClick={toggleBlur}><Eye className="h-4 w-4" /></Button>
       </div>
 
       <Dialog open={isColorDialogOpen} onOpenChange={setIsColorDialogOpen}>
@@ -134,6 +190,7 @@ const Toolbar = ({ editor }: { editor: ReturnType<typeof useEditor> }) => {
                 className="h-10 w-10 shrink-0 rounded-lg border border-border/70"
                 style={{ backgroundColor: normalizeHexColor(colorDraft) || "transparent" }}
                 title="Открыть палитру"
+                aria-label="Выбрать цвет"
               />
               <Input
                 value={colorDraft}
@@ -180,6 +237,65 @@ const Toolbar = ({ editor }: { editor: ReturnType<typeof useEditor> }) => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isLinkDialogOpen} onOpenChange={setIsLinkDialogOpen}>
+        <DialogContent className="max-w-md border-border/70 bg-background">
+          <DialogHeader>
+            <DialogTitle>Ссылка</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              value={linkDraft}
+              onChange={(event) => setLinkDraft(event.target.value)}
+              placeholder="https://…"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") applyLink();
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              Оставьте поле пустым, чтобы убрать ссылку.
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
+            <Button type="button" variant="outline" onClick={() => setIsLinkDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={applyLink}>
+              Применить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isSizeDialogOpen} onOpenChange={setIsSizeDialogOpen}>
+        <DialogContent className="max-w-md border-border/70 bg-background">
+          <DialogHeader>
+            <DialogTitle>Размер шрифта</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {[13, 16, 18, 20, 24].map((px) => (
+                <Button key={px} type="button" variant="outline" size="sm" onClick={() => applySize(px)}>
+                  {px}px
+                </Button>
+              ))}
+            </div>
+            <Input
+              value={sizeDraft}
+              onChange={(event) => setSizeDraft(event.target.value)}
+              placeholder="Размер в px"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end sm:space-x-0">
+            <Button type="button" variant="outline" onClick={() => setIsSizeDialogOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => applySize()}>
+              Применить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
@@ -190,12 +306,15 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   placeholder = "Напишите сообщение…",
   minHeightClassName = "min-h-[120px]",
   resetKey,
+  maxLength,
   onChange,
   onSubmit,
 }, ref) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
-  const lastSetContentRef = useRef<unknown>(null);
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
+  // Start "handled" at the current key: useEditor already applies the initial
+  // content at creation, so we only need to reset when resetKey changes.
+  const lastResetKeyRef = useRef<string | null>(composerKey);
 
   const initialContent = useMemo(
     () => normalizeContent(contentJson, legacyContent),
@@ -219,21 +338,27 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
         openOnClick: false,
         HTMLAttributes: { class: "text-primary underline" },
       }),
+      Mention.configure({
+        HTMLAttributes: { class: "mention" },
+        suggestion: mentionSuggestion,
+      }),
       TextStyle,
       Color,
       Placeholder.configure({ placeholder }),
       SpoilerMark,
+      HashtagMark,
+      PasteCleanup,
+      CharacterCount.configure({ limit: maxLength ?? null, mode: "textSize" }),
       CustomTabExtension,
       CustomEmojiNode,
     ],
-    [placeholder]
+    [placeholder, maxLength]
   );
 
   const handleChange = useCallback(
-    (editor: ReturnType<typeof useEditor> extends infer T ? T : never) => {
-      if (!editor || !('getJSON' in editor)) return;
-      const json = (editor as { getJSON: () => unknown }).getJSON();
-      const text = prosemirrorToPlainText(json, "") || (editor as { getText: () => string }).getText().trimEnd();
+    (editor: Editor) => {
+      const json = editor.getJSON();
+      const text = prosemirrorToPlainText(json, "") || editor.getText().trimEnd();
       onChange({ json, text });
     },
     [onChange]
@@ -253,12 +378,16 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     },
   });
 
+  // Reset the editor ONLY when the parent explicitly asks for it (resetKey changes).
+  // The old code reset on every contentJson change — but parents echo the editor's own
+  // output back via onChange, so this fired on every keystroke, calling setContent()
+  // and yanking the cursor to the end of the text (and killing input after a spoiler).
   useEffect(() => {
-    if (editor && initialContent && lastSetContentRef.current !== initialContent) {
-      editor.commands.setContent(initialContent);
-      lastSetContentRef.current = initialContent;
-    }
-  }, [editor, initialContent, composerKey]);
+    if (!editor || lastResetKeyRef.current === composerKey) return;
+    lastResetKeyRef.current = composerKey;
+    const nextContent = normalizeContent(contentJson, legacyContent);
+    editor.commands.setContent(nextContent ?? EMPTY_EDITOR_STATE, { emitUpdate: false });
+  }, [editor, composerKey, contentJson, legacyContent]);
 
   useImperativeHandle(ref, () => ({
     focus: () => editor?.commands.focus(),
@@ -276,7 +405,8 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   useEffect(() => {
     if (!editor) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768) {
+      // Don't submit while the @-mention popup is open — Enter there picks a user.
+      if (event.key === "Enter" && !event.shiftKey && window.innerWidth >= 768 && !isMentionPopupActive()) {
         event.preventDefault();
         onSubmit?.();
       }
@@ -290,7 +420,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   if (!editor) return null;
 
   return (
-    <div key={composerKey} className="space-y-2">
+    <div className="space-y-2">
       <Toolbar editor={editor} />
       <div ref={editorContainerRef}>
         <EditorContent editor={editor} />

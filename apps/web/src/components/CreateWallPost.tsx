@@ -11,6 +11,9 @@ import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import type { WallPost } from "@/utils/wallNormalizers";
 
+// Same precedent as the messenger (4000 chars); the editor hard-stops input here.
+const MAX_WALL_POST_LENGTH = 4000;
+
 interface CreateWallPostProps {
   profileUserId: string;
   currentUserId: string;
@@ -197,6 +200,7 @@ export const CreateWallPost = ({
             <GomoRichEditor
               ref={editorRef}
               resetKey={editorResetKey}
+              maxLength={MAX_WALL_POST_LENGTH}
               contentJson={contentJson}
               legacyContent={content}
               onChange={({ json, text }) => {
@@ -228,7 +232,15 @@ export const CreateWallPost = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:text-xs">
-              <span>{content.length} симв.</span>
+              <span
+                className={content.replace(/\u200b/g, "").length >= MAX_WALL_POST_LENGTH
+                  ? "font-medium text-destructive"
+                  : content.replace(/\u200b/g, "").length >= MAX_WALL_POST_LENGTH * 0.95
+                    ? "font-medium text-amber-500"
+                    : ""}
+              >
+                {content.replace(/\u200b/g, "").length}/{MAX_WALL_POST_LENGTH} симв.
+              </span>
               <span>•</span>
               <span>{attachments.length} влож.</span>
               {imageCount > 0 && (

@@ -1,6 +1,7 @@
 import React from "react";
 import { EmojiInline } from "@/components/EmojiInline";
 import { CensorBlur } from "@/components/CensorBlur";
+import { MentionLink } from "@/components/MentionLink";
 
 interface ProsemirrorNode {
   type: string;
@@ -51,6 +52,9 @@ const renderInline = (node: ProsemirrorNode, key: string): React.ReactNode => {
       case "spoiler":
         hasSpoiler = true;
         break;
+      case "hashtag":
+        element = <span className="text-primary font-semibold">{element}</span>;
+        break;
     }
   }
 
@@ -72,6 +76,11 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
 
   if (node.type === "customEmoji") {
     return <EmojiInline key={key} emojiId={node.attrs?.emojiId as string} />;
+  }
+
+  if (node.type === "mention") {
+    const attrs = (node.attrs || {}) as { label?: string; id?: string };
+    return <MentionLink key={key} username={attrs.label || attrs.id || ""} />;
   }
 
   const children = (node.content || [])

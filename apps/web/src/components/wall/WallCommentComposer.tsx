@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
@@ -12,6 +11,8 @@ interface WallCommentComposerProps {
   text: string;
   onChange: (v: { json: unknown; text: string }) => void;
   resetKey?: number;
+  /** Maximum number of characters for a comment. Defaults to 4000. */
+  maxLength?: number;
   compact?: boolean;
 }
 
@@ -24,15 +25,14 @@ export const WallCommentComposer = ({
   text,
   onChange,
   resetKey,
+  maxLength = 4000,
   compact = false,
 }: WallCommentComposerProps) => {
-  const [localResetKey, setLocalResetKey] = useState(0);
-  const key = resetKey ?? localResetKey;
-
   return (
     <div className="space-y-2">
       <GomoRichEditor
-        resetKey={key}
+        resetKey={resetKey}
+        maxLength={maxLength}
         contentJson={json}
         legacyContent={text}
         onChange={onChange}

@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { api } from "@/integrations/api/compat";
 import { User } from "lucide-react";
-
-// Cache for user search results
-const searchCache = new Map<string, any[]>();
+import { searchProfiles, type ProfileSearchResult } from "@/utils/searchProfiles";
 
 interface User {
   id: string;
@@ -29,7 +26,6 @@ interface UserMentionsProps {
 
 export const UserMentions = ({ content, onContentChange, onUserSelect, textareaRef, getContent, setContent, getCursorPos, getCursorRect, getEditorEl, focusInput, setCursorPos }: UserMentionsProps) => {
   const [showMentions, setShowMentions] = useState(false);
-  const [mentionQuery, setMentionQuery] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -72,79 +68,11 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
     };
   };
 
-  // Search users function
+  // Search users function (shared logic with the rich editor's @-mentions)
   const searchUsers = async (query: string) => {
     setLoading(true);
-
-    // Check cache first
-    if (searchCache.has(query)) {
-      setUsers(searchCache.get(query)!);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      let queryBuilder = api
-        .from('profiles')
-        .select('id, username, account_number, post_count')
-        .not('username', 'is', null)
-        .limit(10);
-
-      if (query.length > 0) {
-        // If query looks like a number, prioritize exact account_number match
-        if (/^\d+$/.test(query)) {
-          const accountNum = parseInt(query);
-          queryBuilder = queryBuilder.or(`account_number.eq.${accountNum},username.ilike.%${query}%`);
-        } else {
-          // Build search conditions for username search
-          const conditions: string[] = [`username.ilike.%${query}%`];
-
-          // If query looks like UUID, search by id
-          if (query.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-            conditions.push(`id.eq.${query}`);
-          }
-
-          queryBuilder = queryBuilder.or(conditions.join(','));
-        }
-      }
-
-      const { data, error } = await queryBuilder;
-
-      if (error) {
-        console.error('Error searching users:', error);
-        setUsers([]);
-        searchCache.set(query, []);
-      } else {
-        const usersData = (data || []).map((user: { id: string; username: string; account_number?: number; post_count?: number }) => ({
-          id: user.id,
-          username: user.username,
-          account_number: user.account_number,
-          post_count: user.post_count || 0,
-          color: '' // Will be loaded separately if needed
-        }));
-
-        // If query is a number, sort to prioritize exact account_number matches
-        if (/^\d+$/.test(query)) {
-          const accountNum = parseInt(query);
-          usersData.sort((a, b) => {
-            const aExact = a.account_number === accountNum ? 1 : 0;
-            const bExact = b.account_number === accountNum ? 1 : 0;
-            if (aExact !== bExact) return bExact - aExact;
-            return a.username.localeCompare(b.username);
-          });
-        } else {
-          // Sort by username for text queries
-          usersData.sort((a, b) => a.username.localeCompare(b.username));
-        }
-
-        setUsers(usersData);
-        searchCache.set(query, usersData);
-      }
-    } catch (error) {
-      console.error('Error searching users:', error);
-      setUsers([]);
-      searchCache.set(query, []);
-    }
+    const results: ProfileSearchResult[] = await searchProfiles(query);
+    setUsers(results);
     setLoading(false);
   };
 
@@ -170,7 +98,6 @@ export const UserMentions = ({ content, onContentChange, onUserSelect, textareaR
         // Check if query doesn't contain space or newline
         if (!query.includes(' ') && !query.includes('\n')) {
           // Valid mention - show popup
-          setMentionQuery(query);
           setShowMentions(true);
           if (textarea) {
             setCursorPosition(getCursorPosition(textarea));
