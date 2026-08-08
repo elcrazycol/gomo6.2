@@ -93,86 +93,109 @@ export const MessageList = memo(
       typeof window.matchMedia === "function" &&
       window.matchMedia("(pointer: coarse)").matches;
 
+    // ── Bottom-settle machinery ─────────────────────────────────────────
+    // scrollToIndex/Virtuoso's follow align the last *item*; with dynamic media
+    // heights and scroller padding that can still leave a few pixels above the
+    // real bottom (and images can finish loading well after the list grew).
+    // scheduleBottomSettle keeps the view attached to the container's actual
+    // max scrollTop until everything settles.
+    //
+    // force=true  — explicit "go bottom" (FAB / send): always clamp, and lock
+    //               isSettlingToBottomRef so the smooth animation is not
+    //               interrupted by scroll events mid-flight.
+    // force=false — append-follow: clamp only while the user is still at the
+    //               bottom. Never yank someone who scrolled away while media
+    //               was loading.
+    const scheduleBottomSettle = useCallback(
+      (options: { force: boolean; initialBehavior: "smooth" | "auto" }) => {
+        const { force, initialBehavior } = options;
+        cancelBottomSettle();
+        if (force) isSettlingToBottomRef.current = true;
+        let settleFrames = 0;
+        let settleObserver: ResizeObserver | null = null;
+        let firstSettle = true;
+        let cancelled = false;
+        let rafId: number | null = null;
+        const timeoutIds: number[] = [];
+        const scroller = scrollerElRef.current;
+        let cleanupSettle: () => void = () => undefined;
+        const settleAtBottom = () => {
+          if (cancelled) return;
+          if (force) {
+            if (!isSettlingToBottomRef.current) return;
+          } else if (!shouldAutoScrollRef.current || isScrolledUpRef.current) {
+            cleanupSettle();
+            return;
+          }
+          const el = scrollerElRef.current;
+          if (!el) return;
+          const top = getMaxScrollTop(el.scrollHeight, el.clientHeight);
+          if (!isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 2)) {
+            el.scrollTo({ top, behavior: firstSettle ? initialBehavior : "auto" });
+          }
+          firstSettle = false;
+          settleFrames += 1;
+          if (settleFrames >= 8) cleanupSettle();
+        };
+        const settleOnMediaLoad = () => settleAtBottom();
+        if (scroller) {
+          scroller.addEventListener("load", settleOnMediaLoad, true);
+          scroller.addEventListener("loadedmetadata", settleOnMediaLoad, true);
+        }
+        if (typeof ResizeObserver !== "undefined" && scroller) {
+          settleObserver = new ResizeObserver(settleAtBottom);
+          settleObserver.observe(scroller);
+        }
+        cleanupSettle = () => {
+          if (cancelled) return;
+          cancelled = true;
+          if (rafId !== null) window.cancelAnimationFrame(rafId);
+          for (const timeoutId of timeoutIds) window.clearTimeout(timeoutId);
+          settleObserver?.disconnect();
+          scroller?.removeEventListener("load", settleOnMediaLoad, true);
+          scroller?.removeEventListener("loadedmetadata", settleOnMediaLoad, true);
+          if (settleCleanupRef.current === cleanupSettle) settleCleanupRef.current = null;
+          isSettlingToBottomRef.current = false;
+        };
+        settleCleanupRef.current = cleanupSettle;
+        const settleNextFrame = () => {
+          settleAtBottom();
+          if (!cancelled && settleFrames < 8) rafId = window.requestAnimationFrame(settleNextFrame);
+        };
+        rafId = window.requestAnimationFrame(settleNextFrame);
+        // Protected blob URLs may finish well after the initial frames. These
+        // checkpoints keep the settle attached to the real bottom without
+        // affecting ordinary user scrolling. Append-follows keep listening
+        // longer — remote images can load a couple of seconds after the
+        // message appears.
+        const checkpoints = force ? [100, 250, 500, 900] : [100, 250, 500, 900, 1500, 2500];
+        for (const delay of checkpoints) {
+          timeoutIds.push(window.setTimeout(settleAtBottom, delay));
+        }
+        timeoutIds.push(window.setTimeout(cleanupSettle, force ? 1200 : 3000));
+      },
+      [cancelBottomSettle],
+    );
+
     // ── Imperative API (send-scroll, pinned-message jump) ──────────────
     const scrollToBottom = useCallback(() => {
-      cancelBottomSettle();
-      isSettlingToBottomRef.current = true;
-      shouldAutoScrollRef.current = true;
       const length = useMessengerStore.getState().messages.length;
       if (length === 0) {
         cancelBottomSettle();
         return;
       }
-
+      shouldAutoScrollRef.current = true;
+      scheduleBottomSettle({ force: true, initialBehavior: "smooth" });
       const lastIndex = firstItemIndexRef.current + length - 1;
       virtuosoRef.current?.scrollToIndex({
         index: lastIndex,
         align: "end",
         behavior: "smooth",
       });
-
-      // scrollToIndex aligns the last *item*. With dynamic media heights and
-      // scroller padding that can still leave a few pixels above the real
-      // bottom. Let Virtuoso render the target first, then use the container's
-      // actual max scrollTop as the final authority.
-      let settleFrames = 0;
-      let settleObserver: ResizeObserver | null = null;
-      let firstSettle = true;
-      let cancelled = false;
-      let rafId: number | null = null;
-      const timeoutIds: number[] = [];
-      const scroller = scrollerElRef.current;
-      let cleanupSettle: () => void = () => undefined;
-      const settleAtBottom = () => {
-        if (cancelled || !isSettlingToBottomRef.current) return;
-        const el = scrollerElRef.current;
-        if (!el) return;
-        const top = getMaxScrollTop(el.scrollHeight, el.clientHeight);
-        if (!isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 2)) {
-          el.scrollTo({ top, behavior: firstSettle ? "smooth" : "auto" });
-        }
-        firstSettle = false;
-        settleFrames += 1;
-        if (settleFrames >= 8) cleanupSettle();
-      };
-      const settleOnMediaLoad = () => settleAtBottom();
-      if (scroller) {
-        scroller.addEventListener("load", settleOnMediaLoad, true);
-        scroller.addEventListener("loadedmetadata", settleOnMediaLoad, true);
-      }
-      if (typeof ResizeObserver !== "undefined" && scroller) {
-        settleObserver = new ResizeObserver(settleAtBottom);
-        settleObserver.observe(scroller);
-      }
-      cleanupSettle = () => {
-        if (cancelled) return;
-        cancelled = true;
-        if (rafId !== null) window.cancelAnimationFrame(rafId);
-        for (const timeoutId of timeoutIds) window.clearTimeout(timeoutId);
-        settleObserver?.disconnect();
-        scroller?.removeEventListener("load", settleOnMediaLoad, true);
-        scroller?.removeEventListener("loadedmetadata", settleOnMediaLoad, true);
-        if (settleCleanupRef.current === cleanupSettle) settleCleanupRef.current = null;
-        isSettlingToBottomRef.current = false;
-      };
-      settleCleanupRef.current = cleanupSettle;
-      const settleNextFrame = () => {
-        settleAtBottom();
-        if (!cancelled && settleFrames < 8) rafId = window.requestAnimationFrame(settleNextFrame);
-      };
-      rafId = window.requestAnimationFrame(settleNextFrame);
-      // Protected blob URLs may finish well after the initial frames. These
-      // checkpoints keep an explicit "go bottom" action attached to the real
-      // bottom without affecting ordinary user scrolling.
-      for (const delay of [100, 250, 500, 900]) {
-        timeoutIds.push(window.setTimeout(settleAtBottom, delay));
-      }
-      timeoutIds.push(window.setTimeout(cleanupSettle, 1200));
-
       isScrolledUpRef.current = false;
       setIsScrolledUp(false);
       setNewMessageCount(0);
-    }, [cancelBottomSettle]);
+    }, [cancelBottomSettle, scheduleBottomSettle]);
 
     const scrollToMessage = useCallback((messageId: string) => {
       const index = useMessengerStore.getState().messages.findIndex((m) => m.id === messageId);
@@ -190,7 +213,14 @@ export const MessageList = memo(
 
     // ── Stick to the bottom only when the user is already there ────────
     // The ref tracks the same 32px threshold the old implementation used.
-    const followOutput = useCallback(() => (shouldAutoScrollRef.current ? ("smooth" as const) : false), []);
+    // "auto" (instant) instead of "smooth": a smooth follow animation takes
+    // hundreds of ms, and while it runs every scroll event recomputes
+    // shouldAutoScrollRef from a position that is temporarily far from the new
+    // bottom — flipping it off so the NEXT append silently stops following and
+    // the view is left stuck mid-way (and the FAB flickers during the
+    // animation). Instant follow keeps the flag stable across rapid appends;
+    // late-loading media is handled by the append-follow settle below.
+    const followOutput = useCallback(() => (shouldAutoScrollRef.current ? ("auto" as const) : false), []);
 
     // ── Load older history when reaching the top ───────────────────────
     const handleStartReached = useCallback(() => {
@@ -257,12 +287,19 @@ export const MessageList = memo(
               // handleSend; don't count them in the "N new messages" pill.
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
               if (incoming > 0) setNewMessageCount((count) => count + incoming);
+            } else if (shouldAutoScrollRef.current) {
+              // At the bottom: followOutput already scrolled the new message
+              // into view, but images can finish loading after the list grew
+              // and push the newest message below the fold. Clamp back to the
+              // true bottom while the user stays there, so the message is
+              // always fully visible (never half-cropped).
+              scheduleBottomSettle({ force: false, initialBehavior: "auto" });
             }
           }
         }
       }
       prevLastIdRef.current = lastId;
-    }, [messages]);
+    }, [messages, scheduleBottomSettle]);
 
     // ── Reset auto-scroll when the mobile keyboard opens/closes ────────
     useEffect(() => {
@@ -428,7 +465,11 @@ export const MessageList = memo(
             }}
             followOutput={followOutput}
             startReached={handleStartReached}
-            increaseViewportBy={{ top: 300, bottom: 0 }}
+            // Pre-render a buffer below the viewport too, so an appended media
+            // message is already measured when followOutput/scrollToIndex runs
+            // and the scroll lands precisely instead of guessing from
+            // defaultItemHeight.
+            increaseViewportBy={{ top: 300, bottom: 300 }}
             defaultItemHeight={64}
             components={listComponents}
             style={{ height: "100%" }}
@@ -446,17 +487,21 @@ export const MessageList = memo(
           />
         </div>
 
-        {isScrolledUp && newMessageCount > 0 && (
-          <div className="new-messages-bar-container">
-            <button type="button" className="new-messages-bar" onClick={scrollToBottom}>
-              {newMessageCount} нов{newMessageCount === 1 ? "ое" : "ых"} сообщен{newMessageCount === 1 ? "ие" : "ий"}
-            </button>
-          </div>
-        )}
-
         {isScrolledUp && (
-          <button type="button" className="scroll-to-bottom-btn" onClick={scrollToBottom} aria-label="Прокрутить вниз">
+          <button
+            type="button"
+            className="scroll-to-bottom-btn"
+            onClick={scrollToBottom}
+            aria-label={
+              newMessageCount > 0
+                ? `Прокрутить вниз (${newMessageCount} новых сообщени${newMessageCount === 1 ? "е" : "й"})`
+                : "Прокрутить вниз"
+            }
+          >
             <ChevronDown size={20} />
+            {newMessageCount > 0 && (
+              <span className="scroll-to-bottom-badge">{newMessageCount > 99 ? "99+" : newMessageCount}</span>
+            )}
           </button>
         )}
       </>

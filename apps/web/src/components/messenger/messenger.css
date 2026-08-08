@@ -710,7 +710,10 @@ main.is-messenger-page {
   min-width: 0;
   overflow-y: auto;
   overflow-x: clip;
-  padding: 0 0 12px;
+  /* Bottom padding is the breathing room between the last message and the
+     composer — generous enough that the newest bubble does not stick to the
+     input bar. */
+  padding: 0 0 24px;
   position: relative;
   overflow-anchor: none;
   overscroll-behavior-y: contain;
@@ -737,8 +740,14 @@ main.is-messenger-page {
   max-width: 100%;
 }
 
-/* Error banner + virtualized message list share one grid row. */
+/* Error banner + virtualized message list share one grid row. position:
+   relative anchors the scroll-to-bottom FAB and the "N new messages" pill to
+   this area, so they float above the composer at whatever height it is — when
+   the reply/edit banner or attachment preview grows the composer, the buttons
+   rise with the messages area instead of staying put and covering the
+   composer's close (X) button. */
 .chat-messages-area {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -2218,39 +2227,11 @@ main.is-messenger-page {
   background: hsl(var(--destructive) / 0.15);
 }
 
-/* ── New messages bar ── */
-
-.new-messages-bar-container {
-  position: absolute;
-  bottom: 68px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-}
-
-.new-messages-bar {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 14px;
-  border: 1px solid hsl(var(--primary) / 0.3);
-  border-radius: 999px;
-  background: hsl(var(--card));
-  color: hsl(var(--primary));
-  font-size: 12px;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-  transition: background-color 0.15s ease;
-}
-
-.new-messages-bar:hover {
-  background: hsl(var(--primary) / 0.08);
-}
-
 /* ── Scroll to bottom FAB ── */
 
 .scroll-to-bottom-btn {
   position: absolute;
-  bottom: 74px;
+  bottom: 12px;
   right: 18px;
   display: inline-flex;
   align-items: center;
@@ -2269,6 +2250,32 @@ main.is-messenger-page {
 
 .scroll-to-bottom-btn:hover {
   background: hsl(var(--thread-hover));
+}
+
+/* Unread count badge on the FAB — replaces the centered "N новых сообщений"
+   pill, so the scroll affordance and the count live in one place
+   (Telegram-style). The button itself is absolutely positioned, so it serves
+   as the badge's containing block. */
+.scroll-to-bottom-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid hsl(var(--card));
+  border-radius: 999px;
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+  animation: fade-in-scale 0.15s ease;
 }
 
 /* ── User info panel (slide-out from right) ── */
@@ -2667,7 +2674,7 @@ main.is-messenger-page {
   }
 
   .message-scroll {
-    padding-bottom: 8px;
+    padding-bottom: 16px;
   }
 
   .message-virtuoso-list {

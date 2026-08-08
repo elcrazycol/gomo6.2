@@ -131,5 +131,11 @@ jobs:
             # availability intact. The config check above prevents a partial
             # restart caused by missing environment variables.
             docker compose up -d --remove-orphans --no-build
+            # The Caddyfile is bind-mounted, so Compose does not detect content
+            # changes and Caddy's file-watcher reload can silently fail. Restart
+            # Caddy explicitly to guarantee it picks up routing changes (e.g.
+            # private storage buckets like uploads/wall are served via the Go
+            # proxy, never Garage's website endpoint).
+            docker compose restart caddy
             docker image prune -f
             echo "=== Deploy done ==="
