@@ -73,6 +73,7 @@ export const MessageList = memo(
 
     const shouldAutoScrollRef = useRef(true);
     const isScrolledUpRef = useRef(false);
+    const initialSettleDoneRef = useRef(false);
     const touchStartXRef = useRef(0);
     const loadingMoreRef = useRef(false);
     const firstItemIndexRef = useRef(0);
@@ -123,7 +124,11 @@ export const MessageList = memo(
           if (cancelled) return;
           if (force) {
             if (!isSettlingToBottomRef.current) return;
-          } else if (!shouldAutoScrollRef.current || isScrolledUpRef.current) {
+          } else if (isScrolledUpRef.current) {
+            // The user scrolled away (>128px up) while media was still
+            // settling — stop following them. Transient positions produced by
+            // our own scroll or by Virtuoso re-measuring heights must NOT
+            // cancel the settle (that was the stuck half-scrolled-up bug).
             cleanupSettle();
             return;
           }
@@ -166,13 +171,13 @@ export const MessageList = memo(
         // Protected blob URLs may finish well after the initial frames. These
         // checkpoints keep the settle attached to the real bottom without
         // affecting ordinary user scrolling. Append-follows keep listening
-        // longer — remote images can load a couple of seconds after the
-        // message appears.
-        const checkpoints = force ? [100, 250, 500, 900] : [100, 250, 500, 900, 1500, 2500];
+        // longer — remote images can load a few seconds after the message
+        // appears, and the ResizeObserver/load listeners catch the growth.
+        const checkpoints = force ? [100, 250, 500, 900] : [100, 250, 500, 900, 1500, 2500, 4000];
         for (const delay of checkpoints) {
           timeoutIds.push(window.setTimeout(settleAtBottom, delay));
         }
-        timeoutIds.push(window.setTimeout(cleanupSettle, force ? 1200 : 3000));
+        timeoutIds.push(window.setTimeout(cleanupSettle, force ? 1200 : 5000));
       },
       [cancelBottomSettle],
     );
@@ -211,16 +216,16 @@ export const MessageList = memo(
 
     useEffect(() => () => cancelBottomSettle(), [cancelBottomSettle]);
 
-    // ── Stick to the bottom only when the user is already there ────────
-    // The ref tracks the same 32px threshold the old implementation used.
-    // "auto" (instant) instead of "smooth": a smooth follow animation takes
-    // hundreds of ms, and while it runs every scroll event recomputes
-    // shouldAutoScrollRef from a position that is temporarily far from the new
-    // bottom — flipping it off so the NEXT append silently stops following and
-    // the view is left stuck mid-way (and the FAB flickers during the
-    // animation). Instant follow keeps the flag stable across rapid appends;
-    // late-loading media is handled by the append-follow settle below.
-    const followOutput = useCallback(() => (shouldAutoScrollRef.current ? ("auto" as const) : false), []);
+    // ── Land exactly on the true bottom when a conversation opens ──────
+    // Virtuoso's initial align-end can stop at the last item's edge, leaving
+    // the footer (the composer gap) below the fold. One settle per open pins
+    // it to maxScrollTop. Skipped when opening on an unread boundary so that
+    // position is never overridden.
+    useEffect(() => {
+      if (openingUnreadCount > 0 || messages.length === 0 || initialSettleDoneRef.current) return;
+      initialSettleDoneRef.current = true;
+      scheduleBottomSettle({ force: false, initialBehavior: "auto" });
+    }, [openingUnreadCount, messages.length, scheduleBottomSettle]);
 
     // ── Load older history when reaching the top ───────────────────────
     const handleStartReached = useCallback(() => {
@@ -288,11 +293,20 @@ export const MessageList = memo(
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
               if (incoming > 0) setNewMessageCount((count) => count + incoming);
             } else if (shouldAutoScrollRef.current) {
-              // At the bottom: followOutput already scrolled the new message
-              // into view, but images can finish loading after the list grew
-              // and push the newest message below the fold. Clamp back to the
-              // true bottom while the user stays there, so the message is
-              // always fully visible (never half-cropped).
+              // At the bottom: jump straight to the true bottom so the new
+              // message is visible immediately. scrollHeight is exact even
+              // while item heights are still being measured, so this lands
+              // precisely (Virtuoso's built-in follow estimates heights and
+              // can stop short of the bottom). Images may then finish loading
+              // and grow the list — the settle keeps clamping while the user
+              // stays at the bottom.
+              const scroller = scrollerElRef.current;
+              if (scroller) {
+                scroller.scrollTo({
+                  top: getMaxScrollTop(scroller.scrollHeight, scroller.clientHeight),
+                  behavior: "auto",
+                });
+              }
               scheduleBottomSettle({ force: false, initialBehavior: "auto" });
             }
           }
@@ -427,9 +441,22 @@ export const MessageList = memo(
         }),
       [],
     );
+    // Real bottom gap between the last message and the composer. This must be
+    // a list element, not scroller padding: Virtuoso aligns items to the
+    // viewport bottom and would keep scroller padding below the fold (the
+    // "no spacing" bug). The footer is measured and included in the scroll
+    // math, so the gap is always visible at the bottom — on open, after a
+    // send, and when new messages arrive.
+    const MessageListFooter = useMemo(
+      () =>
+        function MessageListFooter() {
+          return <div className="message-list-footer" aria-hidden="true" />;
+        },
+      [],
+    );
     const listComponents = useMemo(
-      () => ({ Scroller: CustomScroller, List: CustomList }),
-      [CustomScroller, CustomList],
+      () => ({ Scroller: CustomScroller, List: CustomList, Footer: MessageListFooter }),
+      [CustomScroller, CustomList, MessageListFooter],
     );
 
     if (messages.length === 0) return null;
@@ -463,13 +490,14 @@ export const MessageList = memo(
               const message = messages[index - firstItemIndex];
               return message ? (message.client_id ?? message.id) : index;
             }}
-            followOutput={followOutput}
+            // followOutput is disabled on purpose: Virtuoso's built-in follow
+            // scrolls to the last *item* using height estimates and can land
+            // short of the true bottom (visible as a jump up / stuck history).
+            // The append effect drives the follow manually with the
+            // container's real scrollHeight, which is exact.
+            followOutput={false}
             startReached={handleStartReached}
-            // Pre-render a buffer below the viewport too, so an appended media
-            // message is already measured when followOutput/scrollToIndex runs
-            // and the scroll lands precisely instead of guessing from
-            // defaultItemHeight.
-            increaseViewportBy={{ top: 300, bottom: 300 }}
+            increaseViewportBy={{ top: 300, bottom: 0 }}
             defaultItemHeight={64}
             components={listComponents}
             style={{ height: "100%" }}
@@ -494,7 +522,7 @@ export const MessageList = memo(
             onClick={scrollToBottom}
             aria-label={
               newMessageCount > 0
-                ? `Прокрутить вниз (${newMessageCount} новых сообщени${newMessageCount === 1 ? "е" : "й"})`
+                ? `Прокрутить вниз (${newMessageCount} ${newMessageCount === 1 ? "новое" : "новых"} сообщени${newMessageCount === 1 ? "е" : "й"})`
                 : "Прокрутить вниз"
             }
           >

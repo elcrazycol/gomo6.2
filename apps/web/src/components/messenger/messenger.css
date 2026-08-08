@@ -710,10 +710,7 @@ main.is-messenger-page {
   min-width: 0;
   overflow-y: auto;
   overflow-x: clip;
-  /* Bottom padding is the breathing room between the last message and the
-     composer — generous enough that the newest bubble does not stick to the
-     input bar. */
-  padding: 0 0 24px;
+  padding: 0;
   position: relative;
   overflow-anchor: none;
   overscroll-behavior-y: contain;
@@ -738,6 +735,14 @@ main.is-messenger-page {
   width: 100%;
   min-width: 0;
   max-width: 100%;
+}
+
+/* Bottom gap between the last message and the composer. Rendered by
+   Virtuoso's Footer (components.Footer) so it participates in the scroll
+   math and stays visible at the bottom — scroller padding alone would sit
+   below the fold because Virtuoso aligns items to the viewport bottom. */
+.message-list-footer {
+  height: 24px;
 }
 
 /* Error banner + virtualized message list share one grid row. position:
@@ -2673,8 +2678,8 @@ main.is-messenger-page {
     height: 32px;
   }
 
-  .message-scroll {
-    padding-bottom: 16px;
+  .message-list-footer {
+    height: 16px;
   }
 
   .message-virtuoso-list {
