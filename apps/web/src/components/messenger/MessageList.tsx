@@ -70,7 +70,7 @@ type ScrollerHandlers = Record<string, unknown>;
  * open conversation:
  * - stick-to-bottom only when the user is already near the bottom (followOutput),
  * - history prepend via firstItemIndex (keeps virtual indices stable),
- * - unread-boundary initial positioning,
+ * - always lands on the newest message when the conversation opens,
  * - "N new messages" pill + entrance animation,
  * - mobile swipe-back gesture.
  *
@@ -82,6 +82,7 @@ export const MessageList = memo(
     const conversationId = useMessengerStore((s) => s.selectedConversationId);
     const messages = useMessengerStore((s) => s.messages);
     const openingUnreadCount = useMessengerStore((s) => s.openingUnreadCount);
+    const isMessagesLoading = useMessengerStore((s) => s.isMessagesLoading);
     const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);
     const isLoadingMore = useMessengerStore((s) => s.isLoadingMore);
     const loadMoreMessages = useMessengerStore((s) => s.loadMoreMessages);
@@ -98,6 +99,7 @@ export const MessageList = memo(
     const shouldAutoScrollRef = useRef(true);
     const isScrolledUpRef = useRef(false);
     const initialSettleDoneRef = useRef(false);
+    const boundaryPositionedRef = useRef(false);
     const touchStartXRef = useRef(0);
     const loadingMoreRef = useRef(false);
     const lastScrollTopRef = useRef(0);
@@ -133,8 +135,8 @@ export const MessageList = memo(
     //               bottom. Never yank someone who scrolled away while media
     //               was loading.
     const scheduleBottomSettle = useCallback(
-      (options: { force: boolean; initialBehavior: "smooth" | "auto" }) => {
-        const { force, initialBehavior } = options;
+      (options: { force: boolean; initialBehavior: "smooth" | "auto"; ignoreScrolledUp?: boolean }) => {
+        const { force, initialBehavior, ignoreScrolledUp = false } = options;
         cancelBottomSettle();
         if (force) isSettlingToBottomRef.current = true;
         let settleFrames = 0;
@@ -144,6 +146,7 @@ export const MessageList = memo(
         let lastSeenHeight = -1;
         let settleObserver: ResizeObserver | null = null;
         let firstSettle = true;
+        let settledOnce = false;
         let cancelled = false;
         let rafId: number | null = null;
         const timeoutIds: number[] = [];
@@ -153,11 +156,19 @@ export const MessageList = memo(
           if (cancelled) return;
           if (force) {
             if (!isSettlingToBottomRef.current) return;
-          } else if (isScrolledUpRef.current) {
+          } else if (isScrolledUpRef.current && !(ignoreScrolledUp && !settledOnce)) {
             // The user scrolled away (>128px up) while media was still
             // settling — stop following them. Transient positions produced by
             // our own scroll or by Virtuoso re-measuring heights must NOT
             // cancel the settle (that was the stuck half-scrolled-up bug).
+            // The mount settle ignores this flag only until its first clamp:
+            // on open, Virtuoso positions the view at its height-estimate
+            // bottom, which is above the real bottom for tall content — the
+            // first scroll event then looks "scrolled up" even though the
+            // user never touched the wheel. After that first clamp the flag
+            // is trustworthy again, so a genuine scroll-up (keyboard or
+            // scrollbar drag — which fire no wheel/touch event) still
+            // cancels the settle instead of being yanked back down.
             cleanupSettle();
             return;
           }
@@ -180,9 +191,33 @@ export const MessageList = memo(
           if (!isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 2)) {
             el.scrollTo({ top, behavior: firstSettle ? initialBehavior : "auto" });
           }
+          // This settle owns the bottom now — clear the transient "scrolled
+          // up" flag set by Virtuoso's estimate position, so the next frame
+          // (before the browser fires the scroll event for this clamp) does
+          // not mistake it for user intent and cancel. Safe even when no
+          // scroll happened: that means the view is already at the true
+          // bottom, so the flag is stale by definition.
+          isScrolledUpRef.current = false;
+          setIsScrolledUp(false);
           firstSettle = false;
-          settleFrames += 1;
-          if (settleFrames >= 8) cleanupSettle();
+          settledOnce = true;
+          // Force settles (FAB / send) stay short-lived: their direct scrollTo
+          // already landed exactly, so a few clamps are enough, and ending
+          // early keeps a force settle from fighting a user who scrolls away
+          // right after (force settles are not cancelled by wheel/scroll — the
+          // isSettlingToBottomRef lock ignores them). Sent messages with
+          // attachments are still covered: when the server replaces the
+          // optimistic temp id, the append-effect fallback starts a fresh
+          // non-force settle that survives late media growth. Non-force
+          // settles must survive the first clamps — late media (blob previews
+          // fetched and decoded with retries) grows the list well after the
+          // append, and the checkpoints below exist to re-clamp then. Ending
+          // here would clear them and leave the view above the true bottom
+          // (the "opens a couple of messages above the last" bug).
+          if (force) {
+            settleFrames += 1;
+            if (settleFrames >= 8) cleanupSettle();
+          }
         };
         const settleOnMediaLoad = () => settleAtBottom();
         if (scroller) {
@@ -271,15 +306,39 @@ export const MessageList = memo(
     useEffect(() => () => cancelBottomSettle(), [cancelBottomSettle]);
 
     // ── Land exactly on the true bottom when a conversation opens ──────
-    // Virtuoso's initial align-end can stop at the last item's edge, leaving
-    // the footer (the composer gap) below the fold. One settle per open pins
-    // it to maxScrollTop. Skipped when opening on an unread boundary so that
-    // position is never overridden.
+    // Virtuoso's initial align-end is computed from default-height estimates
+    // (64px), so with tall content (images) it stops ABOVE the real bottom.
+    // One settle per open pins the view to maxScrollTop and keeps re-clamping
+    // while late media (blob previews decoded with retries) grows the list —
+    // the checkpoints survive past the first clamps, so the view ends exactly
+    // at the bottom, matching the FAB. The settle ignores the transient
+    // "scrolled up" flag that Virtuoso's estimate positioning produces (the
+    // user hasn't scrolled); wheel/touch and a real scrollTop decrease still
+    // cancel it. Opening on an unread boundary is positioned by the boundary
+    // effect instead.
     useEffect(() => {
       if (openingUnreadCount > 0 || messages.length === 0 || initialSettleDoneRef.current) return;
       initialSettleDoneRef.current = true;
-      scheduleBottomSettle({ force: false, initialBehavior: "auto" });
+      scheduleBottomSettle({ force: false, initialBehavior: "auto", ignoreScrolledUp: true });
     }, [openingUnreadCount, messages.length, scheduleBottomSettle]);
+
+    // ── Unread boundary: position from the authoritative network data ──
+    // At mount the message array is the IndexedDB cache, which on the first
+    // open after a reload lags the network by the newest messages. A boundary
+    // computed from it (`length - unread`) would land above the real first
+    // unread and hide the newest messages below the fold. Position only after
+    // the network load finishes (isMessagesLoading flips false), so the index
+    // is computed against the network snapshot.
+    useEffect(() => {
+      if (openingUnreadCount <= 0 || boundaryPositionedRef.current) return;
+      if (isMessagesLoading || messages.length === 0) return;
+      boundaryPositionedRef.current = true;
+      virtuosoRef.current?.scrollToIndex({
+        index: Math.max(0, messages.length - openingUnreadCount),
+        align: "start",
+        behavior: "auto",
+      });
+    }, [isMessagesLoading, messages.length, openingUnreadCount]);
 
     // ── Load older history when reaching the top ───────────────────────
     const handleStartReached = useCallback(() => {
@@ -354,6 +413,11 @@ export const MessageList = memo(
             if (isScrolledUpRef.current) {
               // Own optimistic messages are about to be scrolled into view by
               // handleSend; don't count them in the "N new messages" pill.
+              // The transient "scrolled up" flag from Virtuoso's estimate
+              // position can land here on the first open after a reload too —
+              // no settle is scheduled, which is safe: the mount settle
+              // (ignoreScrolledUp) is still alive and clamps to the true
+              // bottom itself.
               const incoming = appended.filter((m) => m.localStatus !== "sending").length;
               if (incoming > 0) setNewMessageCount((count) => count + incoming);
             } else if (shouldAutoScrollRef.current) {
@@ -367,6 +431,13 @@ export const MessageList = memo(
               scheduleBottomSettle({ force: false, initialBehavior: "auto" });
             }
           }
+        } else if (!isScrolledUpRef.current && shouldAutoScrollRef.current) {
+          // The snapshot replaced the whole tail — the cached last message is
+          // gone (cache → network replace after a reload, or the tail changed
+          // wholesale). The conversation was just opened at the stale bottom:
+          // pin to the new bottom so the newest messages stay visible. The
+          // appended count is unknown here, so no pill — just the follow.
+          scheduleBottomSettle({ force: false, initialBehavior: "auto" });
         }
       }
       prevLastIdRef.current = lastId;
@@ -522,6 +593,12 @@ export const MessageList = memo(
 
     if (messages.length === 0) return null;
 
+    // First paint: the unread boundary when the conversation has unread
+    // (computed from the array in hand — the IndexedDB cache at mount),
+    // otherwise the very bottom. The boundary is re-anchored to the
+    // authoritative network snapshot once the load finishes (boundary effect
+    // below), and the mount settle pins unread-free conversations to the
+    // exact bottom.
     const initialTopMostIndex =
       openingUnreadCount > 0
         ? { index: Math.max(0, messages.length - openingUnreadCount), align: "start" as const }

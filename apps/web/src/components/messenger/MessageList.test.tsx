@@ -8,10 +8,12 @@ import type { MessageView } from "./types";
 const h = vi.hoisted(() => ({
   virtuosoProps: {} as Record<string, unknown>,
   listeners: new Set<() => void>(),
+  scrollToIndexSpy: vi.fn(),
   storeState: {
     selectedConversationId: "c1",
     messages: [] as MessageView[],
     openingUnreadCount: 0,
+    isMessagesLoading: false,
     hasMoreMessages: false,
     isLoadingMore: false,
     loadMoreMessages: vi.fn(),
@@ -22,9 +24,19 @@ const h = vi.hoisted(() => ({
 // A minimal Virtuoso stand-in: captures its props, wires the scroller ref,
 // renders every item via itemContent and the Footer component. Enough to
 // exercise MessageList's own scroll logic deterministically.
-vi.mock("react-virtuoso", () => ({
-  Virtuoso: (props: Record<string, unknown>) => {
+vi.mock("react-virtuoso", () => {
+  const Virtuoso = React.forwardRef(function VirtuosoMock(
+    props: Record<string, unknown>,
+    ref: React.Ref<unknown>,
+  ) {
     h.virtuosoProps = props;
+    // Expose the imperative handle so the unread-boundary re-anchor
+    // (virtuosoRef.current?.scrollToIndex) is observable in tests.
+    if (typeof ref === "object" && ref !== null) {
+      (ref as { current: { scrollToIndex: typeof h.scrollToIndexSpy } | null }).current = {
+        scrollToIndex: h.scrollToIndexSpy,
+      };
+    }
     const scrollerRef = props.scrollerRef as ((el: HTMLDivElement | null) => void) | undefined;
     const itemContent = props.itemContent as (index: number) => React.ReactNode;
     const computeItemKey = props.computeItemKey as ((index: number) => unknown) | undefined;
@@ -48,8 +60,9 @@ vi.mock("react-virtuoso", () => ({
         {Footer ? <Footer /> : null}
       </Scroller>
     ) : null;
-  },
-}));
+  });
+  return { Virtuoso };
+});
 
 vi.mock("@use-gesture/react", () => ({
   useDrag: () => () => ({}),
@@ -96,6 +109,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   h.storeState.messages = [];
   h.storeState.openingUnreadCount = 0;
+  h.storeState.isMessagesLoading = false;
+  h.scrollToIndexSpy.mockClear();
   h.virtuosoProps = {};
 });
 
@@ -110,6 +125,80 @@ describe("MessageList scroll behavior", () => {
     h.storeState.messages = [makeMessage("a")];
     mountList();
     expect(h.virtuosoProps.followOutput).toBe(false);
+  });
+
+  it("opens on the unread boundary and re-anchors it to the network snapshot, not the stale cache", async () => {
+    // First open after a reload: the message array is the IndexedDB cache,
+    // which lags the network by the newest messages. The initial paint uses
+    // the cache as a rough anchor, and once the network load finishes the
+    // boundary is recomputed against the authoritative snapshot — a boundary
+    // taken from the cache (length - unread) would land above the real first
+    // unread and hide the newest messages below the fold.
+    h.storeState.openingUnreadCount = 2;
+    h.storeState.isMessagesLoading = true;
+    h.storeState.messages = [makeMessage("a"), makeMessage("b"), makeMessage("c")];
+    const { rerender } = mountList();
+
+    // First paint: boundary from the array in hand (the cache): 3 - 2 = 1.
+    expect(h.virtuosoProps.initialTopMostItemIndex).toEqual({ index: 1, align: "start" });
+    expect(h.virtuosoProps.alignToBottom).toBe(false);
+
+    // The network finishes, with the 2 unread messages the cache lacked.
+    h.storeState.isMessagesLoading = false;
+    h.storeState.messages = [
+      makeMessage("a"),
+      makeMessage("b"),
+      makeMessage("c"),
+      makeMessage("d"),
+      makeMessage("e"),
+    ];
+    await act(async () => {
+      rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    // Re-anchored to the network snapshot: 5 - 2 = 3.
+    expect(h.scrollToIndexSpy).toHaveBeenCalledWith({ index: 3, align: "start", behavior: "auto" });
+  });
+
+  it("opens at the very bottom for a read conversation and re-pins as late media grows the list", async () => {
+    // Virtuoso's initial align-end uses height estimates (64px/item); with
+    // tall content (images) it stops ABOVE the real bottom, and its first
+    // scroll event reads as "scrolled up" even though the user never
+    // scrolled. The mount settle must ignore that transient flag, clamp to
+    // the true bottom, and keep re-clamping while late media (blob previews
+    // decoded with retries) grows the list. The old settle died on the
+    // transient flag and left the view a couple of messages above the tail
+    // on every open — the reported "~2 messages above the last" bug.
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { scroller } = mountList();
+
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+    const scrollToSpy = vi.fn();
+    scroller.scrollTo = ((options: { top?: number }) => {
+      if (typeof options?.top === "number") {
+        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
+      }
+      scrollToSpy(options);
+    }) as unknown as typeof scroller.scrollTo;
+
+    // The transient "scrolled up" position Virtuoso lands on for tall
+    // content (distance 1000 - 300 - 400 = 300 > 128px).
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
+    scroller.dispatchEvent(new Event("scroll"));
+
+    // Late media grows the list well past the first clamps.
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1400 });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+
+    // The settle survived the transient flag and pinned the view to the true
+    // bottom (1400 - 400 = 1000), exactly like the FAB.
+    expect(scrollToSpy).toHaveBeenCalledTimes(1);
+    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 1000, behavior: "auto" }));
   });
 
   it("scrolls the scroller to the true bottom when a new message is appended while at the bottom", async () => {

@@ -89,6 +89,11 @@ export function logClientError(
 
 export function setupGlobalErrorHandlers(): () => void {
   const handleError = (event: ErrorEvent) => {
+    // Resource-load failures and generic ErrorEvents often carry no `error`
+    // object (e.g. an aborted image/video request) — reporting them would
+    // spam the backend with "window.error undefined undefined" noise. Genuine
+    // uncaught exceptions always attach the thrown value to `error`.
+    if (event.error == null) return;
     logClientError(event.error, 'window.error', {
       filename: event.filename,
       lineno: event.lineno,
@@ -97,6 +102,8 @@ export function setupGlobalErrorHandlers(): () => void {
   };
 
   const handleRejection = (event: PromiseRejectionEvent) => {
+    // `Promise.reject()` without a reason is rarely diagnosable; skip it.
+    if (event.reason == null) return;
     logClientError(event.reason, 'unhandledrejection');
   };
 
