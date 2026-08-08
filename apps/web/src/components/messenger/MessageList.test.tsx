@@ -185,8 +185,10 @@ describe("MessageList scroll behavior", () => {
 
     // The transient "scrolled up" position Virtuoso lands on for tall
     // content (distance 1000 - 300 - 400 = 300 > 128px).
-    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
-    scroller.dispatchEvent(new Event("scroll"));
+    await act(async () => {
+      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
+      scroller.dispatchEvent(new Event("scroll"));
+    });
 
     // Late media grows the list well past the first clamps.
     Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1400 });
@@ -199,6 +201,59 @@ describe("MessageList scroll behavior", () => {
     // bottom (1400 - 400 = 1000), exactly like the FAB.
     expect(scrollToSpy).toHaveBeenCalledTimes(1);
     expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 1000, behavior: "auto" }));
+
+    // Late media keeps growing the list AFTER the first clamps. Content
+    // below the fold grows without a scroll event (scrollTop stays put), so
+    // the settle's checkpoints must re-pin to the new bottom instead of
+    // leaving the view a couple of messages above the tail — the reported
+    // "opens ~2 messages above the last, every time" bug. The mount settle
+    // must still be alive here (it does not die after a few clamps, and it
+    // ignores scrolled-up-looking scroll events).
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1600 });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 1200, behavior: "auto" }));
+  });
+
+  it("does not yank the user when they scroll up during an append follow-settle", async () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { scroller, rerender } = mountList();
+
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+    const scrollToSpy = vi.fn();
+    scroller.scrollTo = ((options: { top?: number }) => {
+      if (typeof options?.top === "number") {
+        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
+      }
+      scrollToSpy(options);
+      scroller.dispatchEvent(new Event("scroll"));
+    }) as unknown as typeof scroller.scrollTo;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    scrollToSpy.mockClear();
+
+    // A new message arrives while the user is at the bottom — the append
+    // follow-settle takes over (replacing the mount settle).
+    h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
+    await act(async () => {
+      rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    scrollToSpy.mockClear();
+
+    // The user scrolls up 100px: the settle must cancel (decrease-cancel in
+    // handleScroll, plus the scrolled-up gate) instead of clamping them back
+    // down on its next checkpoint/frame.
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 500 });
+    scroller.dispatchEvent(new Event("scroll"));
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(scrollToSpy).not.toHaveBeenCalled();
   });
 
   it("scrolls the scroller to the true bottom when a new message is appended while at the bottom", async () => {
@@ -333,7 +388,15 @@ describe("MessageList scroll behavior", () => {
     Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
     Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
     const scrollToSpy = vi.fn();
-    scroller.scrollTo = scrollToSpy;
+    // Realistic scroller: a clamp updates scrollTop and fires a scroll event
+    // (handleScroll then tracks lastScrollTopRef, like a real browser).
+    scroller.scrollTo = ((options: { top?: number }) => {
+      if (typeof options?.top === "number") {
+        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
+      }
+      scrollToSpy(options);
+      scroller.dispatchEvent(new Event("scroll"));
+    }) as unknown as typeof scroller.scrollTo;
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
@@ -342,8 +405,10 @@ describe("MessageList scroll behavior", () => {
     // Simulate the user reading history: fire a scroll event far from the
     // bottom (distance 1000 - 300 - 400 = 300px > 128px → isScrolledUpRef
     // flips to true, which also makes any still-active settle bail out).
-    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
-    scroller.dispatchEvent(new Event("scroll"));
+    await act(async () => {
+      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
+      scroller.dispatchEvent(new Event("scroll"));
+    });
 
     h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
     await act(async () => {

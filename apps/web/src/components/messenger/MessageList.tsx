@@ -146,7 +146,6 @@ export const MessageList = memo(
         let lastSeenHeight = -1;
         let settleObserver: ResizeObserver | null = null;
         let firstSettle = true;
-        let settledOnce = false;
         let cancelled = false;
         let rafId: number | null = null;
         const timeoutIds: number[] = [];
@@ -156,19 +155,17 @@ export const MessageList = memo(
           if (cancelled) return;
           if (force) {
             if (!isSettlingToBottomRef.current) return;
-          } else if (isScrolledUpRef.current && !(ignoreScrolledUp && !settledOnce)) {
-            // The user scrolled away (>128px up) while media was still
-            // settling — stop following them. Transient positions produced by
-            // our own scroll or by Virtuoso re-measuring heights must NOT
-            // cancel the settle (that was the stuck half-scrolled-up bug).
-            // The mount settle ignores this flag only until its first clamp:
-            // on open, Virtuoso positions the view at its height-estimate
-            // bottom, which is above the real bottom for tall content — the
-            // first scroll event then looks "scrolled up" even though the
-            // user never touched the wheel. After that first clamp the flag
-            // is trustworthy again, so a genuine scroll-up (keyboard or
-            // scrollbar drag — which fire no wheel/touch event) still
-            // cancels the settle instead of being yanked back down.
+          } else if (!ignoreScrolledUp && !shouldAutoScrollRef.current) {
+            // The user left the bottom zone (more than 32px above the bottom)
+            // while media was still settling — stop following them. Never
+            // yank a scrolled-away user back down: that per-frame fight was
+            // the jitter / yank-down / skip regression. The mount settle
+            // (ignoreScrolledUp) skips this entirely — Virtuoso's estimate
+            // position and its re-measurements fire scroll events that look
+            // like a scroll-up while the user never touched anything. Wheel /
+            // touch and the scrollTop-decrease check in handleScroll are the
+            // only signals that reliably separate real input from
+            // re-measurement, and they cancel every settle regardless.
             cleanupSettle();
             return;
           }
@@ -200,20 +197,18 @@ export const MessageList = memo(
           isScrolledUpRef.current = false;
           setIsScrolledUp(false);
           firstSettle = false;
-          settledOnce = true;
-          // Force settles (FAB / send) stay short-lived: their direct scrollTo
-          // already landed exactly, so a few clamps are enough, and ending
-          // early keeps a force settle from fighting a user who scrolls away
-          // right after (force settles are not cancelled by wheel/scroll — the
-          // isSettlingToBottomRef lock ignores them). Sent messages with
-          // attachments are still covered: when the server replaces the
-          // optimistic temp id, the append-effect fallback starts a fresh
-          // non-force settle that survives late media growth. Non-force
-          // settles must survive the first clamps — late media (blob previews
-          // fetched and decoded with retries) grows the list well after the
-          // append, and the checkpoints below exist to re-clamp then. Ending
-          // here would clear them and leave the view above the true bottom
-          // (the "opens a couple of messages above the last" bug).
+          // Force settles (FAB / send) stay short-lived: their direct
+          // scrollTo already landed exactly, and ending early keeps them from
+          // fighting a user who scrolls away right after (the
+          // isSettlingToBottomRef lock makes force settles ignore wheel and
+          // scroll events). Sent attachments are still covered: when the
+          // server replaces the optimistic temp id, the append-effect
+          // fallback starts a fresh settle. Non-force settles survive past
+          // the first clamps — late media (blob previews decoded with
+          // retries) grows the list well after the open/append, and the
+          // checkpoints below re-clamp to the true bottom; the scrolled-up
+          // gate above already stops them from yanking a user who scrolled
+          // away, so a long life cannot fight anyone.
           if (force) {
             settleFrames += 1;
             if (settleFrames >= 8) cleanupSettle();
@@ -311,10 +306,12 @@ export const MessageList = memo(
     // One settle per open pins the view to maxScrollTop and keeps re-clamping
     // while late media (blob previews decoded with retries) grows the list —
     // the checkpoints survive past the first clamps, so the view ends exactly
-    // at the bottom, matching the FAB. The settle ignores the transient
-    // "scrolled up" flag that Virtuoso's estimate positioning produces (the
-    // user hasn't scrolled); wheel/touch and a real scrollTop decrease still
-    // cancel it. Opening on an unread boundary is positioned by the boundary
+    // at the bottom, matching the FAB. The settle ignores the "scrolled up"
+    // indicators entirely: Virtuoso's estimate position and its
+    // re-measurements fire scroll events that look like scroll-up while the
+    // user never touched anything. Wheel/touch and a real scrollTop decrease
+    // (handleScroll, >8px) still cancel it, so a genuine scroll-up can never
+    // fight it. Opening on an unread boundary is positioned by the boundary
     // effect instead.
     useEffect(() => {
       if (openingUnreadCount > 0 || messages.length === 0 || initialSettleDoneRef.current) return;
