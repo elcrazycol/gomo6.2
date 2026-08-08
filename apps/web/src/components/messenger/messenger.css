@@ -742,7 +742,7 @@ main.is-messenger-page {
    math and stays visible at the bottom — scroller padding alone would sit
    below the fold because Virtuoso aligns items to the viewport bottom. */
 .message-list-footer {
-  height: 24px;
+  height: 16px;
 }
 
 /* Error banner + virtualized message list share one grid row. position:
@@ -2679,7 +2679,7 @@ main.is-messenger-page {
   }
 
   .message-list-footer {
-    height: 16px;
+    height: 12px;
   }
 
   .message-virtuoso-list {

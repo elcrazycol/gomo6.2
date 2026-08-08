@@ -23,6 +23,19 @@ import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
 import { getMaxScrollTop, isNearScrollBottom } from "./scrollUtils";
 
+// firstItemIndex counts down as older messages are prepended (history loads).
+// It must never go negative — Virtuoso warns and anchoring misbehaves — so it
+// starts at a large value and decreases from there (the "very high value"
+// pattern from the Virtuoso docs).
+const INITIAL_FIRST_INDEX = 1_000_000;
+
+// Small scrollTop decreases are tolerated before cancelling a follow-settle:
+// Virtuoso re-measures a freshly appended item against its height estimate and
+// the browser can clamp scrollTop down by a few pixels. Treating that as user
+// intent would tear down the late-media settle window. Real user scroll-up is
+// still cancelled immediately — wheel and touch already cancel unconditionally.
+const SETTLE_CANCEL_TOLERANCE = 8;
+
 export interface MessageRenderExtras {
   dateLabel: string | null;
   isConsecutive: boolean;
@@ -65,7 +78,7 @@ export const MessageList = memo(
     const virtuosoRef = useRef<VirtuosoHandle>(null);
     const scrollerElRef = useRef<HTMLDivElement | null>(null);
 
-    const [firstItemIndex, setFirstItemIndex] = useState(0);
+    const [firstItemIndex, setFirstItemIndex] = useState(INITIAL_FIRST_INDEX);
     const [isScrolledUp, setIsScrolledUp] = useState(false);
     const [newMessageCount, setNewMessageCount] = useState(0);
     const [newMessageIds, setNewMessageIds] = useState<Set<string>>(() => new Set());
@@ -76,7 +89,8 @@ export const MessageList = memo(
     const initialSettleDoneRef = useRef(false);
     const touchStartXRef = useRef(0);
     const loadingMoreRef = useRef(false);
-    const firstItemIndexRef = useRef(0);
+    const lastScrollTopRef = useRef(0);
+    const firstItemIndexRef = useRef(INITIAL_FIRST_INDEX);
     const prevFirstIdRef = useRef<string | null>(null);
     const prevLastIdRef = useRef<string | null>(null);
     const isSettlingToBottomRef = useRef(false);
@@ -245,6 +259,16 @@ export const MessageList = memo(
         shouldAutoScrollRef.current = true;
         return;
       }
+      // A user scrolling up must cancel any active follow-settle immediately.
+      // Otherwise the clamp keeps pulling the view back down — visible as
+      // jitter in the lower part of the list while reading history. (Our own
+      // clamps only ever increase scrollTop, so a decrease means the user.)
+      // The tolerance keeps tiny re-measurement clamps from killing the
+      // settle; real intent is covered by wheel/touch cancels too.
+      if (el.scrollTop < lastScrollTopRef.current - SETTLE_CANCEL_TOLERANCE) {
+        cancelBottomSettle();
+      }
+      lastScrollTopRef.current = el.scrollTop;
       shouldAutoScrollRef.current = isNearScrollBottom(el.scrollTop, el.scrollHeight, el.clientHeight, 32);
       const nowScrolledUp = distance > 128;
       if (nowScrolledUp !== isScrolledUpRef.current) {
@@ -252,7 +276,7 @@ export const MessageList = memo(
         setIsScrolledUp(nowScrolledUp);
       }
       if (distance <= 32) setNewMessageCount(0);
-    }, []);
+    }, [cancelBottomSettle]);
 
     // ── Keep virtual indices stable when older messages are prepended ──
     // Covers both the "load history" path and the cache → network replace
@@ -362,7 +386,11 @@ export const MessageList = memo(
     const scrollerHandlersRef = useRef<ScrollerHandlers>({});
     scrollerHandlersRef.current = {
       onScroll: handleScroll,
-      onWheel: (_event: ReactWheelEvent<HTMLDivElement>) => cancelBottomSettle(),
+      onWheel: (_event: ReactWheelEvent<HTMLDivElement>) => {
+        // Never break a force settle (FAB smooth scroll) mid-flight — a stray
+        // wheel tick must not drop the isSettlingToBottomRef lock.
+        if (!isSettlingToBottomRef.current) cancelBottomSettle();
+      },
       ...(isTouchDevice
         ? {
             ...swipeBackBind(),

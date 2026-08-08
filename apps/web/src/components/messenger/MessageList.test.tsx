@@ -137,6 +137,34 @@ describe("MessageList scroll behavior", () => {
     expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 100, behavior: "auto" }));
   });
 
+  it("cancels the follow-settle the moment the user scrolls up (no jitter/fight)", async () => {
+    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+    const { scroller } = mountList();
+
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+    const scrollToSpy = vi.fn();
+    scroller.scrollTo = scrollToSpy;
+
+    // The mount settle clamps the view to the bottom (scrollTop 600).
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 600 });
+    scroller.dispatchEvent(new Event("scroll"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    scrollToSpy.mockClear();
+
+    // The user scrolls UP (scrollTop 500). The active settle must cancel
+    // instead of pulling the view back down on its next checkpoint.
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 500 });
+    scroller.dispatchEvent(new Event("scroll"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+
+    expect(scrollToSpy).not.toHaveBeenCalled();
+  });
+
   it("does not scroll (and does not yank the user) when the append happens while scrolled up", async () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
     const { scroller, rerender } = mountList();
