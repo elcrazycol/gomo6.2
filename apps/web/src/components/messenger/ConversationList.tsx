@@ -4,7 +4,7 @@ import { MessageCircle, Search, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
-import { useMessengerStore, selectTotalUnread } from "@/stores/messengerStore";
+import { useMessengerStore } from "@/stores/messengerStore";
 import { formatConversationDate, getInitials } from "./utils";
 import { NewChatDialog } from "./NewChatDialog";
 import type { ConversationView } from "./types";
@@ -181,7 +181,6 @@ export const ConversationList = memo(function ConversationList({
   const error = useMessengerStore((s) => s.error);
   const setError = useMessengerStore((s) => s.setError);
   const initLoading = useMessengerStore((s) => s.isInitialLoading);
-  const unread = useMessengerStore(selectTotalUnread);
   const [searchQuery, setSearchQuery] = useState("");
   const [showNewChat, setShowNewChat] = useState(false);
 
@@ -232,11 +231,6 @@ export const ConversationList = memo(function ConversationList({
         >
           <span className="new-chat-plus" aria-hidden="true">+</span>
         </button>
-        {unread > 0 && (
-          <span className="header-unread-badge" aria-label={`Непрочитанных сообщений: ${unread}`}>
-            {unread > 99 ? "99+" : unread}
-          </span>
-        )}
       </div>
 
       <NewChatDialog open={showNewChat} onClose={() => setShowNewChat(false)} />

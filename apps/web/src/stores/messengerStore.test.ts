@@ -73,6 +73,8 @@ describe("messengerStore", () => {
     destroyMessenger();
     vi.mocked(loadCachedMessages).mockResolvedValue(null);
     vi.mocked(saveCachedMessages).mockResolvedValue(undefined);
+    // loadMessages marks the freshly loaded conversation as read on open.
+    vi.mocked(messengerApi.markRead).mockResolvedValue({ ok: true });
     // Reset store to initial state
     useMessengerStore.setState({
       me: null,
@@ -147,6 +149,20 @@ describe("messengerStore", () => {
       const state = useMessengerStore.getState();
       expect(state.messages).toHaveLength(2);
       expect(state.isMessagesLoading).toBe(false);
+    });
+
+    it("marks the conversation read up to the newest visible message on open", async () => {
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "older", sent_at: "2025-06-01T11:00:00Z" }),
+        mockMsg({ id: "newest", sent_at: "2025-06-01T12:00:00Z", sender_user_id: "u1" }),
+      ]);
+
+      useMessengerStore.setState({ me: { id: "u1", username: "testuser" } });
+      await useMessengerStore.getState().loadMessages("conv-1");
+
+      // The newest message is our own, so the old ChatView-only trigger would
+      // have skipped it — the server-side unread counter must still be cleared.
+      expect(messengerApi.markRead).toHaveBeenCalledWith("conv-1", "newest");
     });
 
     it("sets error on failure", async () => {

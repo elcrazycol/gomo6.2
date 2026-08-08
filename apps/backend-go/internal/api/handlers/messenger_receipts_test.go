@@ -1,12 +1,17 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/middleware"
 )
 
 // ─── MarkRead ────────────────────────────────────────────────────────────────
@@ -37,8 +42,8 @@ func TestMarkRead_Success(t *testing.T) {
 		WithArgs(testConv1, testUser1, now).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	// Reset unread
-	mock.ExpectExec(`UPDATE chat_members cm.*SET unread_count = 0, last_read_message_id = \$2.*WHERE cm\.conversation_id = \$1 AND cm\.user_id = \$3`).
+	// Reset unread (recomputed from messages strictly newer than the marker)
+	mock.ExpectExec(`UPDATE chat_members cm.*SET unread_count =.*last_read_message_id = \$2.*WHERE cm\.conversation_id = \$1 AND cm\.user_id = \$3`).
 		WithArgs(testConv1, testMsg1, testUser1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -70,6 +75,78 @@ func TestMarkRead_MessageNotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestMarkRead_ThroughMiddleware guards against the handler rolling back the
+// request transaction owned by MessengerTransactionMiddleware. That bug made
+// the middleware's commit fail (ErrTxDone), so every real /read request
+// returned HTTP 500 and the server-side unread counter was never cleared.
+func TestMarkRead_ThroughMiddleware(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	claims := &auth.Claims{UserID: testUser1, Username: "testuser"}
+	body := MarkReadRequest{MessageID: testMsg1}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT set_config\('app.current_user_id', \$1, true\)`).
+		WithArgs(claims.UserID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Membership check (inside the middleware-owned transaction)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM chat_members WHERE conversation_id = \$1 AND user_id = \$2\)`).
+		WithArgs(testConv1, testUser1).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	now := time.Now()
+	mock.ExpectQuery(`SELECT sent_at FROM chat_messages WHERE id = \$1 AND conversation_id = \$2`).
+		WithArgs(testMsg1, testConv1).
+		WillReturnRows(sqlmock.NewRows([]string{"sent_at"}).AddRow(now))
+
+	mock.ExpectExec(`INSERT INTO chat_receipts \(message_id, user_id, delivered_at, read_at\).*ON CONFLICT.*DO UPDATE SET read_at = NOW\(\), delivered_at = COALESCE`).
+		WithArgs(testConv1, testUser1, now).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectExec(`UPDATE chat_members cm.*SET unread_count =.*last_read_message_id = \$2.*WHERE cm\.conversation_id = \$1 AND cm\.user_id = \$3`).
+		WithArgs(testConv1, testMsg1, testUser1).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	// The middleware must be able to commit: with the rollback bug the handler
+	// already closed the transaction and sqlmock would report the commit as
+	// unexpected, failing ExpectationsWereMet below.
+	mock.ExpectCommit()
+
+	handler := NewMessengerHandler(db, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("claims", claims)
+		c.Next()
+	})
+	router.Use(middleware.MessengerTransactionMiddleware(db))
+	router.POST("/api/v1/messenger/conversations/:id/read", handler.MarkRead)
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/messenger/conversations/10000000-0000-0000-0000-000000000001/read",
+		bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", resp.Code, resp.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("SQL expectations: %v", err)
 	}
 }
 

@@ -71,13 +71,22 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 		return
 	}
 
-	// Single transaction: mark read + delivered + reset unread
+	// Single transaction: mark read + delivered + reset unread. The rollback is
+	// unconditional-free: when the route middleware owns the transaction
+	// (MessengerTransactionMiddleware), rolling it back here would make the
+	// middleware's commit fail with ErrTxDone → HTTP 500 on every read request,
+	// so the server-side unread counter would never clear. Only a transaction
+	// begun by this handler (direct tests / legacy callers) may be rolled back.
 	tx, ownsTx, err := h.txFor(c)
 	if err != nil {
 		serverError(c, "begin tx", err)
 		return
 	}
-	defer tx.Rollback()
+	defer func() {
+		if ownsTx {
+			_ = tx.Rollback()
+		}
+	}()
 
 	_, err = tx.Exec(`
 		INSERT INTO chat_receipts (message_id, user_id, delivered_at, read_at)
@@ -96,16 +105,23 @@ func (h *MessengerHandler) MarkRead(c *gin.Context) {
 
 	_, err = tx.Exec(`
 		UPDATE chat_members cm
-		SET unread_count = 0, last_read_message_id = $2
+		SET unread_count = (
+				SELECT COUNT(*)
+				FROM chat_messages m
+				WHERE m.conversation_id = cm.conversation_id
+				  AND m.sender_user_id != cm.user_id
+				  AND m.is_deleted = false
+				  AND m.sent_at > (SELECT sent_at FROM chat_messages WHERE id = $2)
+			),
+			last_read_message_id = $2
 		WHERE cm.conversation_id = $1 AND cm.user_id = $3
 		  AND (
 			cm.last_read_message_id IS NULL
 			OR NOT EXISTS (
 				SELECT 1
 				FROM chat_messages previous_read
-				INNER JOIN chat_messages requested_read ON requested_read.id = $2
 				WHERE previous_read.id = cm.last_read_message_id
-				  AND previous_read.sent_at > requested_read.sent_at
+				  AND previous_read.sent_at > (SELECT sent_at FROM chat_messages WHERE id = $2)
 			)
 		)
 	`, conversationID, req.MessageID, claims.UserID)

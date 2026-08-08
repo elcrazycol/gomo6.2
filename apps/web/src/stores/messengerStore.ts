@@ -369,6 +369,16 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       set({ messages: msgs, isMessagesLoading: false, hasMoreMessages: msgs.length >= 50 });
       rememberLatestEventId(conversationId, msgs);
       persistMessages(ownerId, conversationId, msgs);
+      // The conversation is on screen: tell the server immediately that it is
+      // fully read, using the newest visible message (own or other). Relying on
+      // the other user's last message alone lets a conversation whose newest
+      // message is our own stay unread on the server, so the badge would come
+      // back after a reload. queueMarkRead flushes instantly and the backend
+      // treats the marker as a prefix (sent_at <= marker).
+      const lastVisible = [...msgs].reverse().find((m) => !m.is_deleted && !m.localStatus);
+      if (lastVisible) {
+        queueMarkRead(conversationId, lastVisible.id, lastVisible.sent_at);
+      }
     } catch {
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
       set({

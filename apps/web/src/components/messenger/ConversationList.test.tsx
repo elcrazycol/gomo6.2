@@ -28,14 +28,12 @@ const mockStore = {
   error: null as string | null,
   setError: mockSetError,
   isInitialLoading: false,
-  totalUnread: () => 0,
 };
 
 vi.mock("@/stores/messengerStore", () => ({
   useMessengerStore: vi.fn((selector: (s: typeof mockStore) => unknown) => {
     return selector(mockStore);
   }),
-  selectTotalUnread: (s: typeof mockStore) => typeof s.totalUnread === "function" ? s.totalUnread() : 0,
   selectSelectedConversation: (s: typeof mockStore) => s.conversations.find((c: { id: string }) => c.id === s.selectedConversationId) ?? null,
 }));
 
@@ -69,7 +67,6 @@ describe("ConversationList", () => {
     mockStore.selectedConversationId = null;
     mockStore.error = null;
     mockStore.isInitialLoading = false;
-    mockStore.totalUnread = () => 0;
   });
 
   describe("header", () => {
@@ -79,22 +76,10 @@ describe("ConversationList", () => {
       expect(screen.getByRole("button", { name: "Новый чат" })).toBeInTheDocument();
     });
 
-    it("shows total unread badge when totalUnread > 0", () => {
-      mockStore.totalUnread = () => 5;
+    it("does not render a global unread badge in the header", () => {
+      mockStore.conversations = [mockConversation({ id: "conv-1", unread_count: 5 })];
       render(<ConversationList />);
-      expect(screen.getByText("5")).toBeInTheDocument();
-    });
-
-    it("shows 99+ for > 99 unread", () => {
-      mockStore.totalUnread = () => 150;
-      render(<ConversationList />);
-      expect(screen.getByText("99+")).toBeInTheDocument();
-    });
-
-    it("does not show badge when totalUnread is 0", () => {
-      mockStore.totalUnread = () => 0;
-      render(<ConversationList />);
-      expect(screen.queryByText("0")).not.toBeInTheDocument();
+      expect(document.querySelector(".header-unread-badge")).not.toBeInTheDocument();
     });
   });
 

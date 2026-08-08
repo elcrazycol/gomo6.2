@@ -215,20 +215,6 @@ main.is-messenger-page {
   font-weight: 700;
 }
 
-.header-unread-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .count-badge {
   display: inline-flex;
   align-items: center;
