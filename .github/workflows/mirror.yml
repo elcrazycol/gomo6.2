@@ -1,0 +1,67 @@
+# =============================================================================
+# mirror.yml — Push-зеркала в Codeberg и GitLab (полное зеркало репозитория)
+# =============================================================================
+# При каждом push в GitHub (любая ветка или тег, включая удаление веток)
+# репозиторий целиком зеркалируется в:
+#   - https://codeberg.org/crazycol/gomo6.2
+#   - https://gitlab.com/crazycol/gomo6.2
+#
+# ВАЖНО:
+#   - Репозитории-зеркала должны существовать и быть ПУСТЫМИ
+#     (создавать БЕЗ README / license / .gitignore, иначе первый push
+#     перезапишет историю force-push'ем).
+#   - Зеркалирование одностороннее: любые правки, сделанные напрямую на
+#     Codeberg/GitLab, будут перезаписаны при следующем push в GitHub.
+#   - На зеркала уходит ПОЛНАЯ история репозитория, а gitleaks там не
+#     запускается. Убедитесь, что история чистая от секретов (CI gitleaks
+#     зелёный), прежде чем включать зеркалирование.
+#   - Если переименуете репозитории-зеркала — поправьте URL ниже.
+#
+# Требуемые секреты GitHub (Settings → Secrets and variables → Actions):
+#   CODEBERG_TOKEN — токен Codeberg: codeberg.org → Settings → Applications →
+#                    Generate New Token → scope: write:repository
+#   GITLAB_TOKEN   — токен GitLab: проект → Settings → Access Tokens →
+#                    роль Maintainer, scope: write_repository
+# =============================================================================
+
+name: Mirror to Codeberg & GitLab
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  workflow_dispatch:
+
+# Полное зеркало пушит ВСЕ ветки с --prune, поэтому параллельные запуски
+# могли бы затирать друг друга (гонка между снапшотами refs). Сериализуем.
+concurrency:
+  group: mirror-all
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Push full mirror
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (все ветки и теги)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Codeberg
+        env:
+          CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          git push --prune --force --tags \
+            "https://crazycol:${CODEBERG_TOKEN}@codeberg.org/crazycol/gomo6.2.git" \
+            "refs/remotes/origin/*:refs/heads/*"
+
+      - name: Push to GitLab
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          git push --prune --force --tags \
+            "https://oauth2:${GITLAB_TOKEN}@gitlab.com/crazycol/gomo6.2.git" \
+            "refs/remotes/origin/*:refs/heads/*"

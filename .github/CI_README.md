@@ -1,6 +1,6 @@
 # CI / CD — GitHub Actions
 
-Проект использует три GitHub Actions workflow для разделения быстрых проверок, полных тестов и релизов.
+Проект использует несколько GitHub Actions workflow: быстрые проверки, полные тесты, релизы, зеркалирование в Codeberg/GitLab и деплой на VPS.
 
 ---
 
@@ -136,6 +136,31 @@ check ──→ docker ──→ release
 **`release`** (после docker + frontend):
 - Генерация changelog из коммитов с прошлого тега
 - Создание GitHub Release с описанием
+
+---
+
+## 4. `mirror.yml` — Зеркала в Codeberg и GitLab
+
+**Триггер:** каждый push в GitHub (любая ветка или тег, включая удаление веток) + вручную (`workflow_dispatch`).
+
+**Что делает:** пушит полное зеркало репозитория (все ветки и теги, с `--prune` для удалённых веток/тегов) в:
+- `https://codeberg.org/crazycol/gomo6.2`
+- `https://gitlab.com/crazycol/gomo6.2`
+
+**Необходимые секреты:**
+
+| Секрет | Где взять |
+|--------|-----------|
+| `CODEBERG_TOKEN` | Codeberg → Settings → Applications → Generate New Token (scope: `write:repository`) |
+| `GITLAB_TOKEN` | GitLab → проект → Settings → Access Tokens (роль Maintainer, scope: `write_repository`) |
+
+**Важно:** репозитории-зеркала должны быть созданы заранее и быть пустыми (без README). Зеркалирование одностороннее — правки на зеркалах перезаписываются.
+
+Запуск вручную (например, для первичной синхронизации):
+
+```bash
+gh workflow run mirror.yml --ref main
+```
 
 ---
 
