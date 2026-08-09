@@ -189,10 +189,11 @@ jobs:
         id: check
         run: |
           set -euo pipefail
-          CHANGED=false
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            CHANGED=true
-          else
+          # Fail-safe: restart UNLESS we are certain nothing changed. If the
+          # API call fails we must not skip — build jobs may have already
+          # streamed new images to the VPS.
+          CHANGED=true
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             BEFORE="${{ github.event.before }}"
             SHA="${{ github.sha }}"
             if [ -n "$BEFORE" ] && [ "$BEFORE" != "$SHA" ]; then
@@ -200,10 +201,8 @@ jobs:
                 -H "Authorization: token ${{ github.token }}" \
                 "https://codeberg.org/api/v1/repos/${{ github.repository }}/compare/${BEFORE}...${SHA}" 2>/dev/null \
                 | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("files",[])))' 2>/dev/null \
-                || echo 0)"
-              [ "$N" != "0" ] && CHANGED=true
-            else
-              CHANGED=true
+                || echo fail)"
+              [ "$N" = "0" ] && CHANGED=false
             fi
           fi
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
