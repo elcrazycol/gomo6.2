@@ -121,10 +121,12 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE="ghcr.io/elcrazycol/gomo6-${{ matrix.service }}:latest"
-          ARGS=()
+          # No arrays here: expanding an empty array under `set -u` aborts on
+          # macOS's default bash 3.2 ("unbound variable"). Build args as a
+          # plain string instead (values never contain spaces).
+          BUILD_ARGS=""
           if [ "${{ matrix.service }}" = "web" ]; then
-            ARGS+=(--build-arg "VITE_GIT_COMMIT=${{ github.sha }}")
-            ARGS+=(--build-arg "VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}")
+            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}"
           fi
           docker buildx build \
             --platform linux/amd64 \
@@ -132,7 +134,7 @@ jobs:
             -t "$IMAGE" \
             --cache-from "type=local,src=$HOME/buildx-cache/${{ matrix.service }}" \
             --cache-to "type=local,dest=$HOME/buildx-cache/${{ matrix.service }},mode=max" \
-            "${ARGS[@]}" \
+            $BUILD_ARGS \
             -f "${{ matrix.dockerfile }}" \
             "${{ matrix.context }}"
 
