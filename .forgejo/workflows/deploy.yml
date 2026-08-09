@@ -169,13 +169,15 @@ jobs:
               echo "Fetch failed (force push?) — re-cloning the cache"
               rm -rf "$SRC"
             fi
-          fi
-          if [ ! -d "$SRC/.git" ]; then
+            REV=FETCH_HEAD   # `git fetch` always writes .git/FETCH_HEAD
+          else
             git clone --depth 1 "$AUTH_URL" "$SRC"
             # Never store the ephemeral runner token in the cached remote URL.
             git -C "$SRC" remote set-url origin "https://codeberg.org/$REPO.git"
+            # git >= 2.47 no longer writes FETCH_HEAD on clone — HEAD is the tip.
+            REV=HEAD
           fi
-          git -C "$SRC" reset --hard FETCH_HEAD
+          git -C "$SRC" reset --hard "$REV"
           git -C "$SRC" clean -fdxq
           # docker login under the same lock: all 4 jobs write
           # ~/.docker/config.json, and a read-modify-write race could drop the
