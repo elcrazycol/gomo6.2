@@ -1906,6 +1906,12 @@ main.is-messenger-page {
   max-width: 100%;
   max-height: min(68dvh, 640px);
   aspect-ratio: var(--media-frame-ratio, 4 / 3);
+  /* The bubble is width: fit-content, so on the first layout pass the frame
+     width is not resolved yet and aspect-ratio computes to 0 — react-virtuoso
+     logs "Zero-sized element" for zero-height items. Keep a floor like the
+     single-photo .msg-attachment-image.is-loading (min-height: 160px) so the
+     item is never measured as empty. */
+  min-height: 160px;
   overflow: hidden;
   border-radius: 0;
   user-select: none;
