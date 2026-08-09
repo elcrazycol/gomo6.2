@@ -186,10 +186,19 @@ jobs:
           fi
           git -C "$SRC" reset --hard "$REV"
           git -C "$SRC" clean -fdxq
-          # docker login under the same lock: all 4 jobs write
-          # ~/.docker/config.json, and a read-modify-write race could drop the
-          # credential. The build step below reuses this login. Idempotent; the
-          # config persists between runs.
+          # docker login under the same lock (all 4 jobs write the same config).
+          # DOCKER_CONFIG points at a DEDICATED config dir: the macOS keychain
+          # often holds a stale codeberg credential that silently wins over any
+          # new login ("specified item already exists in the keychain"), which
+          # makes every push fail with 401/reqPackageAccess. A fresh dir has no
+          # credsStore, so credentials are stored as a plain file and buildx
+          # reads them back. The build step below reuses this login.
+          # Fresh config dir on EVERY run: a reused config points back at the
+          # macOS keychain, whose stale codeberg credential silently wins over
+          # new logins (-25299 / 401 reqPackageAccess — the whole bug series).
+          # A brand-new dir is the exact path proven to work (login+push OK).
+          rm -rf "$HOME/.docker-gomo6"
+          export DOCKER_CONFIG="$HOME/.docker-gomo6"
           echo "${{ secrets.CODEREG_TOKEN }}" | docker login codeberg.org \
             -u "$OWNER" --password-stdin
 
@@ -203,7 +212,10 @@ jobs:
           IMAGE="$REG/gomo6-${{ matrix.service }}:latest"
           SRC="$HOME/gomo6-src"
           if [ "${{ matrix.context }}" = "." ]; then CTX="$SRC"; else CTX="$SRC/${{ matrix.context }}"; fi
-          # docker login already ran (serialized) in the checkout step.
+          # docker login already ran (serialized) in the checkout step; read the
+          # registry credentials from the same dedicated config dir (never the
+          # macOS keychain, which may hold stale credentials).
+          export DOCKER_CONFIG="$HOME/.docker-gomo6"
           # No arrays here: expanding an empty array under `set -u` aborts on
           # macOS's default bash 3.2 ("unbound variable"). Build args as a
           # plain string instead (values never contain spaces).
