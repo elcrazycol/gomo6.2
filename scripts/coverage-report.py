@@ -69,7 +69,7 @@ def color_for(pct: float) -> str:
 
 
 def badge_svg(label: str, value: str, color: str) -> str:
-    """Flat-style SVG badge (similar to shields.io 'flat')."""
+    """flat-square style SVG badge (shields.io 'flat-square': sharp corners, no shine)."""
     # 11px Verdana ≈ 7px per char; +6px side padding
     label_w = 6 + int(len(label) * 7)
     value_w = 6 + int(len(value) * 7)
@@ -78,16 +78,8 @@ def badge_svg(label: str, value: str, color: str) -> str:
     value = sax.escape(value)
     return f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{total_w}" height="20" role="img" aria-label="{label}: {value}">
   <title>{label}: {value}</title>
-  <linearGradient id="s" x2="0" y2="100%">
-    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
-    <stop offset="1" stop-opacity=".1"/>
-  </linearGradient>
-  <clipPath id="r"><rect width="{total_w}" height="20" rx="3" fill="#fff"/></clipPath>
-  <g clip-path="url(#r)">
-    <rect width="{label_w}" height="20" fill="{LABEL_BG}"/>
-    <rect x="{label_w}" width="{value_w}" height="20" fill="{color}"/>
-    <rect width="{total_w}" height="20" fill="url(#s)"/>
-  </g>
+  <rect width="{label_w}" height="20" fill="{LABEL_BG}"/>
+  <rect x="{label_w}" width="{value_w}" height="20" fill="{color}"/>
   <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
     <text x="{label_w // 2}" y="14">{label}</text>
     <text x="{label_w + value_w // 2}" y="14">{value}</text>
@@ -177,25 +169,24 @@ def ts_coverage(summary_path: str) -> tuple[float, int]:
 # Dashboard
 # ─────────────────────────────────────────────────────────────────────────────
 def dashboard_html(go_pct, ts_pct, total_pct, go_count, ts_count, sha, repo) -> str:
-    def card(label, pct, detail_href, badge_file, desc):
+    """Minimal, raw dashboard: plain table, hard 1px borders, square corners."""
+    def row(label, pct, size, detail_href, detail_txt):
         color = color_for(pct)
-        return f'''
-      <a class="card" href="{detail_href}">
-        <div class="card-top">
-          <span class="card-label">{label}</span>
-          <span class="card-badge"><img src="{badge_file}" alt="{label} coverage badge"/></span>
-        </div>
-        <div class="card-pct" style="color:{color}">{pct:.1f}%</div>
-        <div class="bar"><div class="bar-fill" style="width:{min(pct,100):.1f}%;background:{color}"></div></div>
-        <div class="card-desc">{desc}</div>
-      </a>'''
+        detail = f"<a href=\"{detail_href}\">{detail_txt}</a>" if detail_href else "—"
+        return (
+            f"<tr>"
+            f"<td class=\"lang\">{label}</td>"
+            f"<td class=\"pct\" style=\"color:{color}\">{pct:.1f}%</td>"
+            f"<td>{size}</td>"
+            f"<td>{detail}</td>"
+            f"</tr>"
+        )
 
-    go_detail = card("Go", go_pct, "go/index.html", "coverage-go.svg",
-                     f"{go_count:,} statements · per-function detail")
-    ts_detail = card("TypeScript", ts_pct, "ts/index.html", "coverage-ts.svg",
-                     f"{ts_count:,} lines · per-file detail")
-    total_card = card("Total", total_pct, "index.html", "coverage-total.svg",
-                      "Weighted by code size (Go statements + TS lines)")
+    rows = (
+        row("Go", go_pct, f"{go_count:,} statements", "go/index.html", "per-function") +
+        row("TypeScript", ts_pct, f"{ts_count:,} lines", "ts/index.html", "per-file") +
+        row("Total", total_pct, "weighted by code size", None, "")
+    )
 
     footer = ""
     if repo or sha:
@@ -211,45 +202,45 @@ def dashboard_html(go_pct, ts_pct, total_pct, go_count, ts_count, sha, repo) -> 
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Coverage report — Go + TypeScript</title>
+<title>Coverage — Go + TypeScript</title>
 <style>
-  :root {{
-    --bg: #0f1220; --card: #181c30; --border: #262b45; --text: #e8eaf6; --muted: #9aa0c0;
-  }}
   * {{ box-sizing: border-box; }}
+  html {{ background: #fff; }}
   body {{
-    margin: 0; min-height: 100vh; background: radial-gradient(1200px 500px at 50% -10%, #232a4d 0%, var(--bg) 60%);
-    color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    display: flex; flex-direction: column; align-items: center; padding: 48px 20px;
+    margin: 0; padding: 40px 24px; max-width: 760px;
+    color: #111; background: #fff;
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
   }}
-  h1 {{ font-size: 28px; margin: 0 0 6px; letter-spacing: -.02em; }}
-  .sub {{ color: var(--muted); margin: 0 0 36px; font-size: 15px; }}
-  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; width: 100%; max-width: 920px; }}
-  .card {{
-    background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px;
-    text-decoration: none; color: inherit; transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
-  }}
-  .card:hover {{ transform: translateY(-3px); border-color: #3d4570; box-shadow: 0 12px 30px rgba(0,0,0,.35); }}
-  .card-top {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }}
-  .card-label {{ font-size: 15px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }}
-  .card-badge img {{ display: block; }}
-  .card-pct {{ font-size: 46px; font-weight: 800; line-height: 1; margin-bottom: 12px; }}
-  .bar {{ height: 6px; background: #2a2f4e; border-radius: 99px; overflow: hidden; margin-bottom: 14px; }}
-  .bar-fill {{ height: 100%; border-radius: 99px; transition: width .3s ease; }}
-  .card-desc {{ font-size: 13px; color: var(--muted); }}
-  .footer {{ color: var(--muted); font-size: 13px; margin-top: 36px; }}
-  .footer a {{ color: #7f8ce0; text-decoration: none; }}
-  .footer code {{ background: var(--card); padding: 2px 6px; border-radius: 6px; font-size: 12px; }}
+  h1 {{ font-size: 22px; font-weight: 700; margin: 0 0 4px; }}
+  .sub {{ color: #555; font-size: 13px; margin: 0 0 24px; }}
+  .badges {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 24px; }}
+  .badges img {{ display: block; image-rendering: crisp-edges; }}
+  table {{ width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }}
+  th, td {{ text-align: left; padding: 9px 12px; border: 1px solid #111; }}
+  th {{ font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #555;
+       font-weight: 600; background: #f2f2f2; }}
+  td.lang {{ font-weight: 600; }}
+  td.pct {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 17px; font-weight: 700; }}
+  td a {{ color: #111; text-decoration: underline; text-underline-offset: 3px; }}
+  .footer {{ margin-top: 28px; color: #555; font-size: 12px; }}
+  .footer a {{ color: #111; }}
+  .footer code {{ font-family: ui-monospace, Menlo, monospace; background: #f2f2f2; padding: 1px 5px; }}
 </style>
 </head>
 <body>
   <h1>Coverage report</h1>
   <p class="sub">Go backend + TypeScript frontend — generated from the CI pipeline</p>
-  <div class="grid">
-    {go_detail}
-    {ts_detail}
-    {total_card}
+  <div class="badges">
+    <img src="coverage-go.svg" alt="Go coverage"/>
+    <img src="coverage-ts.svg" alt="TypeScript coverage"/>
+    <img src="coverage-total.svg" alt="Total coverage"/>
   </div>
+  <table>
+    <thead><tr><th>language</th><th>coverage</th><th>size</th><th>detail</th></tr></thead>
+    <tbody>
+      {rows}
+    </tbody>
+  </table>
   {footer}
 </body>
 </html>

@@ -49,7 +49,7 @@ go test -race -count=1 ./...       # test with race detector (needs Postgres+Red
 
 **`full-tests.yml`** (daily cron or manual): adds Postgres/Redis services, runs `go test -race`, applies migrations, runs e2e smoke (register → upload → board → thread → post → like).
 
-**`coverage.yml`** (push to main, PR, manual): runs Go + TS coverage, builds flat SVG badges + HTML dashboard via `scripts/coverage-report.py`, deploys to Codeberg Pages (`crazycol.codeberg.page/gomo6.2/coverage/`) with the official `git-pages/action` (no pushes to repo branches). PRs are gated by `MIN_GO_COVERAGE` / `MIN_TS_COVERAGE` (set to 0 to disable).
+**`coverage.yml`** (push to main, PR, manual): on PRs runs **incremental tests only** (changed Go packages; vitest `--changed` for TS) and posts the result as a PR comment — a docs-only change runs nothing. On main it runs full Go + TS coverage, builds flat-square SVG badges + a minimal HTML dashboard via `scripts/coverage-report.py`, gates on `MIN_GO_COVERAGE` / `MIN_TS_COVERAGE` (set to 0 to disable), and deploys to Codeberg Pages (`crazycol.codeberg.page/gomo6.2/coverage/`) with the official `git-pages/action` (no pushes to repo branches). Toolchain setup steps are skipped — the self-hosted runner has Go/Node system-wide; Go caches persist under `/Users/lesha/.cache/gomo6-ci/` (adjust if the runner user differs).
 
 Deploy to production only after CI passes on `main`.
 

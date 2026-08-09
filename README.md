@@ -164,7 +164,7 @@ docker compose up -d
 | `ci.yml` | push, PR | go build + gofmt + go vet + golangci-lint + govulncheck + tsc (3 apps) + eslint + build (3 apps) + gitleaks + hadolint |
 | `deploy.yml` | push to main (Codeberg Actions) | Detect changes → incremental checkout → buildx build → push to codeberg.org/crazycol registry → per-service restart on VPS (`restart-service.sh`) |
 | `full-tests.yml` | daily cron or manual | Postgres + Redis services, go test -race, migrations, integration smoke |
-| `coverage.yml` | push to main, PR, manual | Go + TS coverage → badges + HTML report → deploy to Codeberg Pages (`crazycol.codeberg.page/gomo6.2/coverage/`) via `git-pages/action`; PR gate via `MIN_GO_COVERAGE` / `MIN_TS_COVERAGE` |
+| `coverage.yml` | push to main, PR, manual | **PRs**: incremental — only tests affected by the changed files (vitest `--changed` for TS, changed Go packages) + result comment on the PR. **main**: full Go + TS coverage → flat-square SVG badges + HTML report → deploy to Codeberg Pages (`crazycol.codeberg.page/gomo6.2/coverage/`) via `git-pages/action`; coverage gate via `MIN_GO_COVERAGE` / `MIN_TS_COVERAGE` |
 
 ```bash
 # Local CI

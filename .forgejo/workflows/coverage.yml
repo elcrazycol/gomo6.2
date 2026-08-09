@@ -1,22 +1,28 @@
 # =============================================================================
-# .forgejo/workflows/coverage.yml — Coverage badges + report → Codeberg Pages
+# .forgejo/workflows/coverage.yml — incremental PR tests + coverage → Pages
 # =============================================================================
-# Collects test coverage for Go (backend) and TypeScript (web) and publishes:
-#   - flat SVG badges:  coverage-go.svg, coverage-ts.svg, coverage-total.svg
-#   - dashboard:        index.html (overall stats + links to detail reports)
-#   - detail reports:   go/index.html (go tool cover -html), ts/ (Vitest html)
 #
-# Behaviour:
-#   - push to main → collect coverage, build report + badges, DEPLOY to Pages
-#   - pull_request → collect coverage, build report, enforce thresholds, NO deploy
-#   - workflow_dispatch → full run + deploy (manual refresh)
+# Two jobs, tuned for speed on the self-hosted runner (the project Mac):
+#
+#   pr-tests  (pull_request) — incremental: only tests affected by the changed
+#       files are run (vitest --changed for TypeScript, changed Go packages for
+#       Go), and the result is posted as a comment on the PR. A docs-only
+#       change runs no tests at all. Full coverage is NOT collected here (that
+#       would defeat the speed goal); the coverage gate lives on main.
+#
+#   coverage  (push to main / manual) — full Go + TypeScript coverage, badges +
+#       HTML report, coverage-threshold gate, deploy to Codeberg Pages via the
+#       official git-pages/action@v2.
+#
+# Self-hosted runner notes:
+#   - The runner has Go and Node installed system-wide, so setup-go /
+#     setup-node are skipped (they downloaded a fresh toolchain every run — a
+#     large fixed cost). Versions are checked in a preflight step instead.
+#   - The runner's per-job HOME is ephemeral (the default GOCACHE would be cold
+#     every run). Go caches are persisted under /Users/lesha/.cache/gomo6-ci/
+#     (adjust if the runner user differs), so re-runs are much faster.
 #
 # Published at: https://<owner>.codeberg.page/<repo>/coverage/
-#
-# Deploy uses the official git-pages/action@v2 — it uploads the built site
-# directly to the git-pages server with the automatic Forgejo token
-# (Forge Wildcard Authorization). No commits are pushed to any repo branch,
-# so the main branch history stays clean.
 #
 # Deploy details (learned the hard way):
 #   - `server: codeberg.page` makes the CLI connect straight to the git-pages
@@ -32,20 +38,14 @@
 #   - No "Settings → Pages" toggle: the new git-pages server has none — the
 #     site is created on the first successful deploy.
 #   - No secrets required (automatic token is enough for the matching
-#     username.codeberg.page/repo/ site URL)
-#
-# PR gate thresholds (job env below): a PR fails when coverage drops below
-# MIN_GO_COVERAGE / MIN_TS_COVERAGE. Set to 0 to disable.
-#
-# Note: Go coverage is statement-based (`go tool cover` has no line metric);
-# TypeScript coverage uses lines. The total badge is weighted by code size.
+#     username.codeberg.page/repo/ site URL).
 #
 # Security note: runs on the self-hosted runner — if you accept PRs from forks,
 # enable "require approval for fork PR workflows" in repo Actions settings, or
 # restrict this workflow to trusted branches.
 # =============================================================================
 
-name: Coverage
+name: Tests & Coverage
 
 on:
   push:
@@ -58,8 +58,160 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PRs: incremental, fast, posts a comment with the result.
+  # ─────────────────────────────────────────────────────────────────────────
+  pr-tests:
+    name: Incremental tests
+    if: github.event_name == 'pull_request'
+    runs-on: [self-hosted, macos, arm64]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      BASE_REF: ${{ forgejo.event.pull_request.base.ref }}
+      BASE_SHA: ${{ forgejo.event.pull_request.base.sha }}
+      # Persistent caches (see header note)
+      GOCACHE: /Users/lesha/.cache/gomo6-ci/gocache
+      GOMODCACHE: /Users/lesha/.cache/gomo6-ci/gomodcache
+
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Toolchain check
+        run: |
+          go version
+          node --version
+          npm --version
+
+      - name: Fetch base + detect changed files
+        id: changed
+        run: |
+          set -uo pipefail
+          git fetch --depth=1 origin "$BASE_REF" 2>/dev/null || git fetch origin "$BASE_REF"
+          git diff --name-only "origin/$BASE_REF" HEAD > changed-files.txt || true
+          count=$(wc -l < changed-files.txt | tr -d ' ')
+          go_changed=false
+          ts_changed=false
+          grep -qE '^apps/backend-go/(.*\.go|go\.(mod|sum))$' changed-files.txt && go_changed=true
+          grep -q '^apps/web/' changed-files.txt && ts_changed=true
+          echo "changed=$count go_changed=$go_changed ts_changed=$ts_changed"
+          echo "changed=$count" >> "$GITHUB_OUTPUT"
+          echo "go_changed=$go_changed" >> "$GITHUB_OUTPUT"
+          echo "ts_changed=$ts_changed" >> "$GITHUB_OUTPUT"
+
+      # Run only the packages touched by the change (plus a full build, which
+      # with the persisted Go cache is cheap and catches compile breaks in
+      # consumers of changed packages).
+      - name: Go tests — changed packages
+        id: go-tests
+        if: steps.changed.outputs.go_changed == 'true'
+        working-directory: apps/backend-go
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOCACHE" "$GOMODCACHE"
+          # The self-hosted runner has a clean environment, but several tests
+          # hit code paths that hard-require these keys (crypto.Init() in
+          # internal/crypto calls log.Fatal when MESSENGER_ENCRYPTION_KEY is
+          # missing). Throwaway random keys are fine; real env wins if set.
+          export JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
+          export MESSENGER_ENCRYPTION_KEY="${MESSENGER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+          export INTEGRATION_ENCRYPTION_KEY="${INTEGRATION_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+          CHANGED_GO=$(git diff --name-only "origin/$BASE_REF" HEAD -- apps/backend-go 2>/dev/null \
+            | grep '\.go$' | grep -v '/vendor/' || true)
+          # Dependency changes can break every package — always run the full suite.
+          if git diff --name-only "origin/$BASE_REF" HEAD -- apps/backend-go 2>/dev/null \
+            | grep -qE 'go\.(mod|sum)$'; then
+            echo "go.mod/go.sum changed — running the full suite"
+            go build ./...
+            go test ./...
+            exit 0
+          fi
+          PKGS=""
+          while IFS= read -r f; do
+            pkg="${f#apps/backend-go/}"
+            if [[ "$pkg" == */* ]]; then pkg="${pkg%/*}"; PKGS="$PKGS ./$pkg"; else PKGS="$PKGS ."; fi
+          done <<< "$CHANGED_GO"
+          if [ -z "$PKGS" ]; then
+            # only vendor/ or build files changed — treat as a full run
+            echo "No application Go files changed — running the full suite"
+            go build ./...
+            go test ./...
+            exit 0
+          fi
+          PKGS=$(echo "$PKGS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+          echo "Changed Go packages:$PKGS"
+          go build ./...
+          go test $PKGS
+
+      - name: Install frontend dependencies
+        if: steps.changed.outputs.ts_changed == 'true'
+        run: npm install
+
+      # vitest --changed runs only test files affected by the changed files
+      # (its own git-diff based detection, against the PR base). Dependency
+      # changes (package.json) get the full suite instead.
+      - name: TypeScript tests — changed files only
+        id: ts-tests
+        if: steps.changed.outputs.ts_changed == 'true'
+        run: |
+          cd apps/web
+          if git diff --name-only "origin/$BASE_REF" HEAD -- apps/web 2>/dev/null | grep -q 'package\.json$'; then
+            echo "package.json changed — running the full suite"
+            npx vitest run --retry 1
+          else
+            npx vitest run --changed "$BASE_SHA" --retry 1
+          fi
+
+      - name: Post results to PR
+        if: always()
+        env:
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+          REPO: ${{ forgejo.event.repository.full_name }}
+          RUN_ID: ${{ github.run_id }}
+          TOKEN: ${{ forgejo.token }}
+        run: |
+          set -uo pipefail
+          count=$(wc -l < changed-files.txt | tr -d ' ' 2>/dev/null || echo 0)
+          go_state="${{ steps.go-tests.outcome }}"
+          ts_state="${{ steps.ts-tests.outcome }}"
+          go_txt="— (no Go changes)"
+          [ "$go_state" = success ] && go_txt="✓ passed"
+          [ "$go_state" = failure ] && go_txt="✗ failed"
+          ts_txt="— (no frontend changes)"
+          [ "$ts_state" = success ] && ts_txt="✓ passed"
+          [ "$ts_state" = failure ] && ts_txt="✗ failed"
+          body="**Incremental test run** — ${count} file(s) changed
+          - Go: ${go_txt}
+          - TypeScript: ${ts_txt}
+          [View run](https://codeberg.org/${REPO}/actions/runs/${RUN_ID})"
+          python3 - "$body" <<'PYEOF'
+          import json, os, sys, urllib.request
+          repo = os.environ["REPO"]
+          pr = os.environ["PR_NUMBER"]
+          token = os.environ["TOKEN"]
+          req = urllib.request.Request(
+              f"https://codeberg.org/api/v1/repos/{repo}/issues/{pr}/comments",
+              data=json.dumps({"body": sys.argv[1]}).encode(),
+              headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  print("comment posted:", resp.status)
+          except Exception as exc:  # never fail the job over a comment
+              print("comment failed (non-fatal):", exc)
+          PYEOF
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # main: full coverage → badges + report → gate → deploy to Codeberg Pages
+  # ─────────────────────────────────────────────────────────────────────────
   coverage:
-    name: Coverage (Go + TS)
+    name: Coverage + deploy
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: [self-hosted, macos, arm64]
     timeout-minutes: 60
     permissions:
@@ -67,24 +219,23 @@ jobs:
       # repo via the forge API with the automatic token — needs write access.
       contents: write
     env:
-      # PR gate — freeze at current coverage levels (Go 48.7%, TS lines 38.56%):
-      # a PR fails if coverage drops below these. Set to 0 to disable.
+      # Coverage gate — freeze at current levels (Go 48.7%, TS lines 38.56%):
+      # the run fails if coverage drops below these. Set to 0 to disable.
       MIN_GO_COVERAGE: "48"
       MIN_TS_COVERAGE: "38"
+      # Persistent caches (see header note)
+      GOCACHE: /Users/lesha/.cache/gomo6-ci/gocache
+      GOMODCACHE: /Users/lesha/.cache/gomo6-ci/gomodcache
 
     steps:
       - name: Checkout
         uses: https://code.forgejo.org/actions/checkout@v4
 
-      - name: Set up Go
-        uses: https://code.forgejo.org/actions/setup-go@v5
-        with:
-          go-version-file: apps/backend-go/go.mod
-
-      - name: Set up Node
-        uses: https://code.forgejo.org/actions/setup-node@v4
-        with:
-          node-version: "22"
+      - name: Toolchain check
+        run: |
+          go version
+          node --version
+          npm --version
 
       - name: Install dependencies
         run: npm install
@@ -93,6 +244,7 @@ jobs:
         working-directory: apps/backend-go
         run: |
           set -euo pipefail
+          mkdir -p "$GOCACHE" "$GOMODCACHE"
           # The self-hosted runner has a clean environment, but several tests
           # hit code paths that hard-require these keys (crypto.Init() in
           # internal/crypto calls log.Fatal when MESSENGER_ENCRYPTION_KEY is
@@ -113,6 +265,24 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python3 scripts/coverage-report.py
 
+      - name: Enforce coverage thresholds (before deploy)
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          s = json.load(open("coverage-report/summary.json"))
+          go_min = float(os.environ.get("MIN_GO_COVERAGE", "0"))
+          ts_min = float(os.environ.get("MIN_TS_COVERAGE", "0"))
+          bad = []
+          if go_min > 0 and s["go_pct"] < go_min:
+              bad.append(f"Go {s['go_pct']}% < {go_min:g}%")
+          if ts_min > 0 and s["ts_pct"] < ts_min:
+              bad.append(f"TypeScript {s['ts_pct']}% < {ts_min:g}%")
+          if bad:
+              print("::error::Coverage below threshold: " + ", ".join(bad))
+              sys.exit(1)
+          print(f"Coverage OK — Go {s['go_pct']}%, TS {s['ts_pct']}%, total {s['total_pct']}%")
+          EOF
+
       # Stage the report under `coverage/` so the whole site can be deployed with
       # a single PUT to https://<owner>.codeberg.page/<repo>/ (a `path:` input
       # would make the CLI send a PATCH, which fails when the site doesn't exist
@@ -131,27 +301,8 @@ jobs:
           <p><a href="./coverage/">Coverage report</a></p>
           EOF
 
-      - name: Enforce coverage thresholds (PRs only)
-        if: github.event_name == 'pull_request'
-        run: |
-          python3 - <<'EOF'
-          import json, os, sys
-          s = json.load(open("coverage-report/summary.json"))
-          go_min = float(os.environ.get("MIN_GO_COVERAGE", "0"))
-          ts_min = float(os.environ.get("MIN_TS_COVERAGE", "0"))
-          bad = []
-          if go_min > 0 and s["go_pct"] < go_min:
-              bad.append(f"Go {s['go_pct']}% < {go_min:g}%")
-          if ts_min > 0 and s["ts_pct"] < ts_min:
-              bad.append(f"TypeScript {s['ts_pct']}% < {ts_min:g}%")
-          if bad:
-              print("::error::Coverage below threshold: " + ", ".join(bad))
-              sys.exit(1)
-          print(f"Coverage OK — Go {s['go_pct']}%, TS {s['ts_pct']}%, total {s['total_pct']}%")
-          EOF
-
-      # Deploy only from the main branch (push or manual dispatch on main).
-      # Manual dispatch on a feature branch is skipped — Pages always shows main.
+      # Deploy only from the main branch (this job only runs there, but keep the
+      # guard for workflow_dispatch on other branches).
       - name: Deploy to Codeberg Pages
         if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         uses: https://codeberg.org/git-pages/action@v2
