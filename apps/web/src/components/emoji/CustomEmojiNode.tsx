@@ -78,7 +78,6 @@ export const CustomEmojiNode = Node.create({
   inline: true,
   atom: true,
   group: 'inline',
-
   addAttributes() {
     return {
       emojiId: { default: null },
@@ -131,10 +130,16 @@ export const CustomEmojiNode = Node.create({
       // atom. The inner guard above covers browsers that retarget selection.
       attrs: {
         contenteditable: 'false',
-        'data-custom-emoji-view': '',
       },
     });
   },
+
+  // Telegram-like behavior: clicking a custom emoji must never turn it into a
+  // NodeSelection with a surrounding highlight. Without this, ProseMirror
+  // selects the whole inline atom on click, the NodeView gets the
+  // ProseMirror-selectednode style and the caret looks like it is "inside"
+  // the emoji even though it actually sits at the text boundary.
+  selectable: false,
 
   addCommands() {
     return {

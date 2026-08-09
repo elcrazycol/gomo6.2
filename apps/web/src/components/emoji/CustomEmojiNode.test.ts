@@ -6,12 +6,26 @@ import { CustomEmojiNode } from "./CustomEmojiNode";
 const emojiId = "12345678-1234-1234-1234-123456789012";
 
 describe("CustomEmojiNode", () => {
+  it("is a non-selectable inline leaf atom: no NodeSelection, no selected highlight", () => {
+    const schema = getSchema([StarterKit, CustomEmojiNode]);
+    const emoji = schema.nodes.customEmoji.create({ emojiId });
+    const paragraph = schema.nodes.paragraph.create(null, [schema.text("A"), emoji, schema.text("B")]);
+    const doc = schema.topNodeType.create(null, paragraph);
+
+    // A non-selectable node cannot host a NodeSelection, so clicks can never
+    // turn the emoji into a highlighted "selected" block — only text caret
+    // positions before/after it remain.
+    expect(schema.nodes.customEmoji.spec.selectable).toBe(false);
+    expect(doc.child(0).content.child(1).type.name).toBe("customEmoji");
+  });
+
   it("is an inline leaf atom with no document position inside it", () => {
     const spec = CustomEmojiNode.config;
     expect(spec.inline).toBe(true);
     expect(spec.atom).toBe(true);
     expect(spec.group).toBe("inline");
     expect(spec.content).toBeUndefined();
+    expect(spec.selectable).toBe(false);
 
     const schema = getSchema([StarterKit, CustomEmojiNode]);
     const emoji = schema.nodes.customEmoji.create({ emojiId });
