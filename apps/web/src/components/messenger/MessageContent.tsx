@@ -4,10 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 import { Users, MessageSquare, ArrowRight, FileText, Image as ImageIcon, Mic, Video } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/integrations/api/compat";
-import { apiClient } from "@/integrations/api/client";
 import { parseMessageLinks, type LinkSegment } from "./MessageLinks";
 import { storageUrl } from "@/utils/storage";
-import { getAttachmentAspectRatio as getCachedAspectRatio, rememberAttachmentAspectRatio, fallbackAttachmentAspectRatio } from "@/utils/attachmentRatioCache";
+import {
+  getAttachmentAspectRatio,
+  getAttachmentDisplayWidth,
+  parseImageMeta,
+  rememberMeasuredAttachmentRatio,
+  useAuthenticatedAttachmentUrl,
+} from "./attachmentMedia";
+import { MessengerLightbox } from "./MessengerLightbox";
+import { MessageMediaCarousel } from "./MessageMediaCarousel";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { EmojiInline } from "@/components/EmojiInline";
 import type { Attachment } from "./types";
@@ -328,137 +335,6 @@ function getAttachmentIcon(type: Attachment["type"]) {
   }
 }
 
-function parseImageMeta(attachment: Attachment): {
-  width?: number;
-  height?: number;
-  preview_key?: string;
-  lqip?: string;
-} {
-  if (!attachment.meta) return {};
-  try {
-    const parsed = JSON.parse(attachment.meta) as Record<string, unknown>;
-    return {
-      ...(typeof parsed.width === "number" ? { width: parsed.width } : {}),
-      ...(typeof parsed.height === "number" ? { height: parsed.height } : {}),
-      ...(typeof parsed.preview_key === "string" ? { preview_key: parsed.preview_key } : {}),
-      ...(typeof parsed.lqip === "string" && parsed.lqip.startsWith("data:image/") ? { lqip: parsed.lqip } : {}),
-    };
-  } catch {
-    return {};
-  }
-}
-
-const decodeImageWithTimeout = async (url: string, timeoutMs = 5000): Promise<void> => {
-  const image = new Image();
-  image.src = url;
-  if (typeof image.decode !== "function") return;
-
-  let timer: number | undefined;
-  try {
-    await Promise.race([
-      image.decode(),
-      new Promise<never>((_, reject) => {
-        timer = window.setTimeout(() => reject(new Error("Image decode timed out")), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) window.clearTimeout(timer);
-  }
-};
-
-function useAuthenticatedAttachmentUrl(attachment: Attachment, requestedKey = attachment.url, enabled = true): string | null {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let createdUrl: string | null = null;
-    const controller = new AbortController();
-    if (!enabled) {
-      setObjectUrl(null);
-      return () => controller.abort();
-    }
-
-    const sourceUrl = storageUrl("uploads", requestedKey);
-    const token = apiClient.getToken();
-    if (!sourceUrl || (!token && !apiClient.getCSRFToken())) {
-      setObjectUrl(null);
-      return () => controller.abort();
-    }
-
-    const load = async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        let candidateUrl: string | null = null;
-        try {
-          const response = await fetch(sourceUrl, {
-            credentials: "include",
-            signal: controller.signal,
-            headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-          });
-          if (!response.ok) throw new Error(`Attachment request failed: ${response.status}`);
-          const blob = await response.blob();
-          candidateUrl = URL.createObjectURL(blob);
-
-          // Decode before swapping the object URL into the DOM. This prevents
-          // a late decode hitch from interrupting scroll and makes the CSS
-          // blur-up transition begin only with a renderable preview.
-          if (blob.type.startsWith("image/")) {
-            await decodeImageWithTimeout(candidateUrl);
-          }
-          if (cancelled) {
-            URL.revokeObjectURL(candidateUrl);
-            return;
-          }
-          createdUrl = candidateUrl;
-          setObjectUrl(candidateUrl);
-          return;
-        } catch (error) {
-          if (candidateUrl) URL.revokeObjectURL(candidateUrl);
-          lastError = error;
-          if (controller.signal.aborted || attempt === 2) break;
-          await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
-        }
-      }
-      if (!cancelled && !controller.signal.aborted) {
-        setObjectUrl(null);
-        console.debug("Attachment preview failed after retries", lastError);
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-      controller.abort();
-      if (createdUrl) URL.revokeObjectURL(createdUrl);
-    };
-  }, [attachment.url, requestedKey, enabled]);
-
-  return objectUrl;
-}
-
-function getAttachmentAspectRatio(attachment: Attachment): number {
-  const parsed = parseImageMeta(attachment);
-  if (parsed.width && parsed.height && parsed.width > 0 && parsed.height > 0) {
-    return parsed.width / parsed.height;
-  }
-
-  // Old photos have no width/height in the payload. Use the remembered ratio
-  // from a previous session so the reserved space matches on re-opens.
-  const remembered = getCachedAspectRatio(attachment.url);
-  if (remembered !== null) return remembered;
-
-  return attachment.type === "video" ? 16 / 9 : 4 / 3;
-}
-
-function getAttachmentDisplayWidth(aspectRatio: number, viewportHeight: number): number {
-  if (typeof window === "undefined") return Math.min(640, 640 * aspectRatio);
-  // Keep very tall photos inside the viewport while retaining their exact
-  // proportions. The CSS max-width still lets the chat column shrink this
-  // value further on narrow screens.
-  const maxHeight = Math.min(viewportHeight * 0.68, 640);
-  return Math.min(640, Math.max(1, maxHeight * aspectRatio));
-}
-
 function AttachmentView({ attachment, fitToViewport = false }: { attachment: Attachment; fitToViewport?: boolean }) {
   const meta = useMemo(() => parseImageMeta(attachment), [attachment.meta]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -474,7 +350,6 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
     ? Boolean(meta.preview_key) && (isNearViewport || !shouldLazyLoadPreview)
     : true;
   const url = useAuthenticatedAttachmentUrl(attachment, previewKey, previewEnabled);
-  const originalUrl = useAuthenticatedAttachmentUrl(attachment, attachment.url, lightboxOpen);
   const [aspectRatio, setAspectRatio] = useState(() => getAttachmentAspectRatio(attachment));
   const [viewportHeight, setViewportHeight] = useState(() => typeof window === "undefined" ? 800 : window.innerHeight);
   const isVisual = attachment.type === "image" || attachment.type === "video";
@@ -497,11 +372,7 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
   const rememberMeasuredRatio = (ratio: number) => {
     if (ratio <= 0 || !Number.isFinite(ratio)) return;
     setAspectRatio(ratio);
-    rememberAttachmentAspectRatio(
-      attachment.url,
-      ratio,
-      fallbackAttachmentAspectRatio(attachment.type === "video" ? "video" : "image"),
-    );
+    rememberMeasuredAttachmentRatio(attachment, ratio);
   };
 
   const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
@@ -545,11 +416,7 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
           url && <video src={url} controls preload="metadata" onLoadedMetadata={(event) => { setIsPreviewReady(true); handleVideoMetadata(event); }} style={{ objectFit: "contain" }} />
         )}
         {lightboxOpen && (
-          <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-            <DialogContent className="msg-lightbox-content">
-              {originalUrl ? <img src={originalUrl} alt={attachment.name} className="msg-lightbox-image" decoding="async" fetchPriority="high" /> : <span className="msg-attachment-loading-shimmer" aria-label="Загрузка оригинала" />}
-            </DialogContent>
-          </Dialog>
+          <MessengerLightbox attachments={[attachment]} initialIndex={0} onClose={() => setLightboxOpen(false)} />
         )}
       </div>
     );
@@ -576,6 +443,7 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
 
 export const MessageContent = memo(function MessageContent({ content, attachments, hasQuotedMessage = false }: MessageContentProps) {
   const segments = useMemo(() => parseMessageLinks(content), [content]);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const hasLinks = segments.some((s) => s.type === "link");
   const hasAttachments = attachments && attachments.length > 0;
@@ -612,14 +480,27 @@ export const MessageContent = memo(function MessageContent({ content, attachment
 
   if (isMediaMessage) {
     return (
-      <div className={`message-content message-content-media${content.trim() ? " has-caption" : ""}`}>
-        <div className={`msg-attachments${visualAttachments.length > 1 ? " is-media-grid" : ""}`}>
-          {visualAttachments.map((att, i) => (
-            <AttachmentView key={att.id || i} attachment={att} fitToViewport />
-          ))}
+      <>
+        <div className={`message-content message-content-media${content.trim() ? " has-caption" : ""}`}>
+          {visualAttachments.length > 1 ? (
+            <MessageMediaCarousel attachments={visualAttachments} onOpen={setLightboxIndex} />
+          ) : (
+            <div className="msg-attachments">
+              {visualAttachments.map((att, i) => (
+                <AttachmentView key={att.id || i} attachment={att} fitToViewport />
+              ))}
+            </div>
+          )}
+          {content.trim() && <div className="message-media-caption">{renderedText}</div>}
         </div>
-        {content.trim() && <div className="message-media-caption">{renderedText}</div>}
-      </div>
+        {lightboxIndex !== null && (
+          <MessengerLightbox
+            attachments={visualAttachments}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        )}
+      </>
     );
   }
 

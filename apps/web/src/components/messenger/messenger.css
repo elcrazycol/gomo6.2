@@ -1879,12 +1879,6 @@ main.is-messenger-page {
   margin-top: 0;
 }
 
-.msg-attachments.is-media-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-}
-
 .msg-attachment-image {
   position: relative;
   width: min(100%, 420px);
@@ -1904,11 +1898,139 @@ main.is-messenger-page {
   border-radius: 0;
 }
 
-.message-content-media > .msg-attachments.is-media-grid {
+/* ── Media carousel (several photos in one message) ── */
+
+.msg-media-carousel {
+  position: relative;
+  width: min(100%, 640px);
+  max-width: 100%;
+  max-height: min(68dvh, 640px);
+  aspect-ratio: var(--media-frame-ratio, 4 / 3);
+  overflow: hidden;
+  border-radius: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.msg-media-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.msg-media-track {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  height: 100%;
+}
+
+.msg-media-slide {
+  position: relative;
+  flex: 0 0 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.msg-media-slide-open {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: hsl(var(--muted) / 0.35);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.msg-media-slide-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.msg-media-slide-open .msg-attachment-lqip,
+.msg-media-slide-open .msg-attachment-preview {
+  position: absolute;
+  inset: 0;
+}
+
+.msg-media-counter {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.msg-media-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.45);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+}
+
+.msg-media-carousel:hover .msg-media-nav,
+.msg-media-nav:focus-visible {
+  opacity: 1;
+}
+
+.msg-media-nav:hover {
+  background: rgb(0 0 0 / 0.65);
+}
+
+.msg-media-nav:active {
+  transform: translateY(-50%) scale(0.92);
+}
+
+.msg-media-nav:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.msg-media-nav.prev {
+  left: 6px;
+}
+
+.msg-media-nav.next {
+  right: 6px;
+}
+
+.msg-media-play-badge {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.2);
+  pointer-events: none;
+}
+
+.msg-media-play-badge svg {
+  color: #fff;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.5));
 }
 
 .msg-attachment-image img,
@@ -1963,25 +2085,191 @@ main.is-messenger-page {
   transform: scale(1);
 }
 
-.msg-lightbox-content {
+/* ── Fullscreen media viewer (lightbox) ── */
+
+.msg-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: min(96vw, 1400px);
-  max-width: none;
-  height: min(94dvh, 1000px);
-  padding: 12px;
-  border: 0;
-  background: rgb(0 0 0 / 0.92);
+  background: rgb(5 8 14 / 0.94);
+  backdrop-filter: blur(12px);
+  animation: msg-lightbox-fade-in 0.18s ease;
 }
 
-.msg-lightbox-image {
+@keyframes msg-lightbox-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.msg-lightbox-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.55), transparent);
+}
+
+.msg-lightbox-counter {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+}
+
+.msg-lightbox-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.msg-lightbox-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+.msg-lightbox-action:hover:not(:disabled):not(.is-disabled) {
+  background: rgb(255 255 255 / 0.24);
+}
+
+.msg-lightbox-action:active:not(:disabled):not(.is-disabled) {
+  transform: scale(0.9);
+}
+
+.msg-lightbox-action:disabled,
+.msg-lightbox-action.is-disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.msg-lightbox-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.msg-lightbox-arrow:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.22);
+}
+
+.msg-lightbox-arrow:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.msg-lightbox-arrow.prev {
+  left: 18px;
+}
+
+.msg-lightbox-arrow.next {
+  right: 18px;
+}
+
+.msg-lightbox-viewport {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.msg-lightbox-track {
+  display: flex;
+  height: 100%;
+}
+
+.msg-lightbox-slide {
+  position: relative;
+  flex: 0 0 100%;
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: msg-lightbox-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes msg-lightbox-slide-in {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.msg-lightbox-media {
   display: block;
   max-width: 100%;
   max-height: 100%;
-  width: auto;
-  height: auto;
   object-fit: contain;
+  will-change: transform;
+  cursor: zoom-in;
+}
+
+.msg-lightbox-media.is-pannable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.msg-lightbox-media.is-pannable:active {
+  cursor: grabbing;
+}
+
+.msg-lightbox-media.is-zooming {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.msg-lightbox-slide video.msg-lightbox-media {
+  cursor: default;
+  outline: none;
+}
+
+.msg-lightbox-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.4);
+  color: rgb(255 255 255 / 0.85);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
 }
 
 .msg-attachment-image.is-loading {
