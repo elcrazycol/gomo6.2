@@ -10,7 +10,7 @@ import { AttachmentUpload } from "@/components/AttachmentUpload";
 import { AttachmentMeta } from "@/utils/mediaUpload";
 import { Loader2, Smile, X } from "lucide-react";
 import { EmojiPicker } from "@/components/EmojiPicker";
-import { ImageGallery } from "@/components/ImageGallery";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 
 type GomoBoard = {
@@ -311,8 +311,8 @@ const CreateGomoThread = () => {
         </CardContent>
       </Card>
       {showGallery && imageAttachments.length > 0 && (
-        <ImageGallery
-          images={imageAttachments.map((att) => att.url)}
+        <Lightbox
+          items={imageAttachments.map((att) => ({ url: att.url, type: "image", name: att.name || "Фото", mime: "image/*" } as LightboxItem))}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
           onEditImage={(idx, dataUrl) => {

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
-import { ImageGallery } from "@/components/ImageGallery";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -39,7 +39,7 @@ export const ProfileWall = ({
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingPost, setEditingPost] = useState<string | null>(null);
-  const [galleryImages, setGalleryImages] = useState<string[] | null>(null);
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
   // Use refs for tracking pending posts to avoid stale closure issues
@@ -426,7 +426,7 @@ export const ProfileWall = ({
                 postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
                 standalone={standalone}
                 onImageClick={(images, idx) => {
-                  setGalleryImages(images);
+                  setGalleryItems(images.map((url) => ({ url, type: "image", name: "Фото", mime: "image/*" })));
                   setGalleryIndex(idx);
                 }}
               />
@@ -434,11 +434,11 @@ export const ProfileWall = ({
           </div>
         )}
       </div>
-      {!!galleryImages && (
-        <ImageGallery
-          images={galleryImages}
+      {!!galleryItems && (
+        <Lightbox
+          items={galleryItems}
           initialIndex={galleryIndex}
-          onClose={() => setGalleryImages(null)}
+          onClose={() => setGalleryItems(null)}
         />
       )}
     </>

@@ -9,7 +9,7 @@ import { useThread, usePosts, useThreadSubscription } from "@/hooks/queries";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-import { ImageGallery } from "@/components/ImageGallery";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { UserBadge } from "@/components/UserBadge";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ChatIcon } from "@/components/ChatIcon";
@@ -1668,8 +1668,8 @@ const Thread = () => {
       </main>
 
       {showGallery && (
-        <ImageGallery
-          images={galleryImages}
+        <Lightbox
+          items={galleryImages.map((url) => ({ url, type: "image", name: "Фото", mime: "image/*" } as LightboxItem))}
           initialIndex={galleryIndex}
           onClose={() => setShowGallery(false)}
           onEditImage={

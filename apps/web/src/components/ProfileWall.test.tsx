@@ -93,9 +93,9 @@ vi.mock("@/components/UserBadge", () => ({
   UserBadge: ({ username }: any) => <span data-testid="user-badge">{username}</span>,
 }));
 
-vi.mock("@/components/ImageGallery", () => ({
-  ImageGallery: ({ images, initialIndex, onClose }: any) => (
-    <div data-testid="image-gallery" data-images={images?.length} data-index={initialIndex}>
+vi.mock("@/components/Lightbox", () => ({
+  Lightbox: ({ items, initialIndex, onClose }: any) => (
+    <div data-testid="image-gallery" data-images={items?.length} data-index={initialIndex}>
       <button data-testid="gallery-close" onClick={onClose}>Close Gallery</button>
     </div>
   ),

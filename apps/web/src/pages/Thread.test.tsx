@@ -54,7 +54,7 @@ vi.mock("@/components/GomoRichEditor", () => ({
   )),
 }));
 vi.mock("@/components/LikeButton", () => ({ LikeButton: () => null }));
-vi.mock("@/components/ImageGallery", () => ({ ImageGallery: () => null }));
+vi.mock("@/components/Lightbox", () => ({ Lightbox: () => null }));
 vi.mock("@/components/MediaPlayer", () => ({ MediaPlayer: () => null }));
 vi.mock("@/components/AudioAttachment", () => ({ AudioAttachment: () => null }));
 vi.mock("@/components/ScrollToBottomButton", () => ({ ScrollToBottomButton: () => null }));
