@@ -4,7 +4,11 @@ import React from 'react';
 import { useEmojiData } from '@/contexts/EmojiDataContext';
 import { storageUrl } from '@/utils/storage';
 
-const EMOJI_ID_REGEX = /\[e:([a-f0-9-]{36})\]$/;
+// Input rules run against the text immediately before the caret and expect a
+// single end-of-string match. Paste rules use String#matchAll internally and
+// therefore require a separate global expression.
+const EMOJI_INPUT_REGEX = /\[e:([a-f0-9-]{36})\]$/;
+const EMOJI_PASTE_REGEX = /\[e:([a-f0-9-]{36})\]/g;
 
 const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> } }) => {
   const { allEmojis, resolveEmojis } = useEmojiData();
@@ -27,12 +31,14 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
         style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}
         contentEditable={false}
       >
-        <img
-          src={url}
-          alt={emoji.name}
-          style={{ height: '1.2em', width: 'auto', verticalAlign: 'middle' }}
-          draggable={false}
-        />
+        <span contentEditable={false}>
+          <img
+            src={url}
+            alt={emoji.name}
+            style={{ height: '1.2em', width: 'auto', verticalAlign: 'middle' }}
+            draggable={false}
+          />
+        </span>
       </NodeViewWrapper>
     );
   }
@@ -44,7 +50,9 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
       contentEditable={false}
       aria-label={fallback || 'Кастомный эмодзи'}
     >
-      {fallback || <span style={{ display: 'inline-block', width: '1.2em', height: '1.2em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'middle' }} />}
+      <span contentEditable={false}>
+        {fallback || <span style={{ display: 'inline-block', width: '1.2em', height: '1.2em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'middle' }} />}
+      </span>
     </NodeViewWrapper>
   );
 };
@@ -116,7 +124,16 @@ export const CustomEmojiNode = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(EmojiNodeView);
+    return ReactNodeViewRenderer(EmojiNodeView, {
+      // ReactNodeViewRenderer creates an outer element around NodeViewWrapper.
+      // Mark that element non-editable too; otherwise the browser can create a
+      // DOM caret between/inside the wrapper even though the schema node is an
+      // atom. The inner guard above covers browsers that retarget selection.
+      attrs: {
+        contenteditable: 'false',
+        'data-custom-emoji-view': '',
+      },
+    });
   },
 
   addCommands() {
@@ -135,7 +152,7 @@ export const CustomEmojiNode = Node.create({
   addInputRules() {
     return [
       new InputRule({
-        find: EMOJI_ID_REGEX,
+        find: EMOJI_INPUT_REGEX,
         handler: ({ state, range, match }) => {
           const emojiId = match[1];
           const { tr } = state;
@@ -148,7 +165,7 @@ export const CustomEmojiNode = Node.create({
   addPasteRules() {
     return [
       nodePasteRule({
-        find: EMOJI_ID_REGEX,
+        find: EMOJI_PASTE_REGEX,
         type: this.type,
         getAttributes: (match) => ({
           emojiId: match[1],

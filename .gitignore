@@ -51,3 +51,16 @@ apps/backend-go/gomo6-server
 apps/backend-go/test-server
 apps/backend-go/bin/
 apps/backend-go/garage_data/
+
+# Local tool state and language caches
+.qlty/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+*.egg-info/
+.venv/
+venv/

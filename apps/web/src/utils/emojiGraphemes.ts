@@ -16,7 +16,8 @@ export function splitEmojiGraphemes(value: string): string[] {
     return Array.from(new IntlWithSegmenter.Segmenter(undefined, { granularity: 'grapheme' }).segment(input), ({ segment }) => segment);
   }
 
-  return Array.from(input.matchAll(/(?:\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)|\r?\n|./gu), (match) => match[0]);
+  const graphemeRegex = /(?:\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)|\r?\n|./gu;
+  return Array.from(input.matchAll(graphemeRegex), (match) => match[0]);
 }
 
 export function normalizeEmojiTriggers(value: string): string[] {
