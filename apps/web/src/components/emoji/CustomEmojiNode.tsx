@@ -67,20 +67,21 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
 
   if (emoji && emojiId) {
     const url = storageUrl('emojis', emoji.image_url);
+    // The wrapper must stay a leaf: no inner span with text, otherwise the
+    // caret lands inside the node and cannot render. Baseline alignment
+    // keeps the image inside the text line box.
     return (
       <NodeViewWrapper
         as="span"
-        style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}
+        style={{ display: 'inline-block', verticalAlign: 'baseline', margin: '0 0.1em' }}
         contentEditable={false}
       >
-        <span contentEditable={false}>
-          <img
-            src={url}
-            alt={emoji.name}
-            style={{ height: '1.2em', width: 'auto', verticalAlign: 'middle' }}
-            draggable={false}
-          />
-        </span>
+        <img
+          src={url}
+          alt={emoji.name}
+          style={{ height: '1em', width: 'auto', verticalAlign: 'baseline' }}
+          draggable={false}
+        />
       </NodeViewWrapper>
     );
   }
@@ -88,13 +89,11 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
   return (
     <NodeViewWrapper
       as="span"
-      style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1, margin: '0 0.1em' }}
+      style={{ display: 'inline-block', verticalAlign: 'baseline', margin: '0 0.1em' }}
       contentEditable={false}
       aria-label={fallback || 'Кастомный эмодзи'}
     >
-      <span contentEditable={false}>
-        {fallback || <span style={{ display: 'inline-block', width: '1.2em', height: '1.2em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'middle' }} />}
-      </span>
+      {fallback || <span style={{ display: 'inline-block', width: '1em', height: '1em', background: 'rgba(128,128,128,0.2)', borderRadius: '2px', verticalAlign: 'baseline' }} />}
     </NodeViewWrapper>
   );
 };
