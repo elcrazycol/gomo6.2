@@ -49,6 +49,8 @@ go test -race -count=1 ./...       # test with race detector (needs Postgres+Red
 
 **`full-tests.yml`** (daily cron or manual): adds Postgres/Redis services, runs `go test -race`, applies migrations, runs e2e smoke (register → upload → board → thread → post → like).
 
+**`coverage.yml`** (push to main, PR, manual): runs Go + TS coverage, builds flat SVG badges + HTML dashboard via `scripts/coverage-report.py`, deploys to Codeberg Pages (`crazycol.codeberg.page/gomo6.2/coverage/`) with the official `git-pages/action` (no pushes to repo branches). PRs are gated by `MIN_GO_COVERAGE` / `MIN_TS_COVERAGE` (set to 0 to disable).
+
 Deploy to production only after CI passes on `main`.
 
 ## Pre-commit hook

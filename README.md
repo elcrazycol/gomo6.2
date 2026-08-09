@@ -6,6 +6,9 @@
   <a href="https://codeberg.org/crazycol/gomo6.2/actions"><img src="https://img.shields.io/badge/CI-passing-44cc11?style=flat-square&logo=forgejo&logoColor=white" alt="CI"></a>
   <a href="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml/badge.svg?style=flat-square" alt="Deploy"></a>
   <a href="https://codeberg.org/crazycol/gomo6.2/src/branch/main/LICENSE.md"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-a42e2b?style=flat-square&color=orange"></a>
+  <a href="https://crazycol.codeberg.page/gomo6.2/coverage/"><img src="https://crazycol.codeberg.page/gomo6.2/coverage/coverage-go.svg" alt="Go coverage"></a>
+  <a href="https://crazycol.codeberg.page/gomo6.2/coverage/"><img src="https://crazycol.codeberg.page/gomo6.2/coverage/coverage-ts.svg" alt="TypeScript coverage"></a>
+  <a href="https://crazycol.codeberg.page/gomo6.2/coverage/"><img src="https://crazycol.codeberg.page/gomo6.2/coverage/coverage-total.svg" alt="Total coverage"></a>
 </p>
 
 <p align="center">
@@ -161,6 +164,7 @@ docker compose up -d
 | `ci.yml` | push, PR | go build + gofmt + go vet + golangci-lint + govulncheck + tsc (3 apps) + eslint + build (3 apps) + gitleaks + hadolint |
 | `deploy.yml` | push to main (Codeberg Actions) | Detect changes → incremental checkout → buildx build → push to codeberg.org/crazycol registry → per-service restart on VPS (`restart-service.sh`) |
 | `full-tests.yml` | daily cron or manual | Postgres + Redis services, go test -race, migrations, integration smoke |
+| `coverage.yml` | push to main, PR, manual | Go + TS coverage → badges + HTML report → deploy to Codeberg Pages (`crazycol.codeberg.page/gomo6.2/coverage/`) via `git-pages/action`; PR gate via `MIN_GO_COVERAGE` / `MIN_TS_COVERAGE` |
 
 ```bash
 # Local CI

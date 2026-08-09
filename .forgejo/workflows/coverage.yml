@@ -1,0 +1,122 @@
+# =============================================================================
+# .forgejo/workflows/coverage.yml — Coverage badges + report → Codeberg Pages
+# =============================================================================
+# Collects test coverage for Go (backend) and TypeScript (web) and publishes:
+#   - flat SVG badges:  coverage-go.svg, coverage-ts.svg, coverage-total.svg
+#   - dashboard:        index.html (overall stats + links to detail reports)
+#   - detail reports:   go/index.html (go tool cover -html), ts/ (Vitest html)
+#
+# Behaviour:
+#   - push to main → collect coverage, build report + badges, DEPLOY to Pages
+#   - pull_request → collect coverage, build report, enforce thresholds, NO deploy
+#   - workflow_dispatch → full run + deploy (manual refresh)
+#
+# Published at: https://<owner>.codeberg.page/<repo>/coverage/
+#   (site = https://<owner>.codeberg.page/<repo>/, path = coverage)
+#
+# Deploy uses the official git-pages/action@v2 — it uploads the built site
+# directly to the git-pages server with the automatic Forgejo token
+# (Forge Wildcard Authorization). No commits are pushed to any repo branch,
+# so the main branch history stays clean.
+#
+# One-time setup:
+#   - Repo Settings → Pages must be enabled for this repository
+#   - No secrets required (automatic token is enough for the matching
+#     username.codeberg.page/repo/ site URL)
+#
+# PR gate thresholds (job env below): a PR fails when coverage drops below
+# MIN_GO_COVERAGE / MIN_TS_COVERAGE. Set to 0 to disable.
+#
+# Note: Go coverage is statement-based (`go tool cover` has no line metric);
+# TypeScript coverage uses lines. The total badge is weighted by code size.
+#
+# Security note: runs on the self-hosted runner — if you accept PRs from forks,
+# enable "require approval for fork PR workflows" in repo Actions settings, or
+# restrict this workflow to trusted branches.
+# =============================================================================
+
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: Coverage (Go + TS)
+    runs-on: [self-hosted, macos, arm64]
+    timeout-minutes: 60
+    env:
+      # PR gate — freeze at current coverage levels (Go 48.7%, TS lines 38.56%):
+      # a PR fails if coverage drops below these. Set to 0 to disable.
+      MIN_GO_COVERAGE: "48"
+      MIN_TS_COVERAGE: "38"
+
+    steps:
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Set up Go
+        uses: https://code.forgejo.org/actions/setup-go@v5
+        with:
+          go-version-file: apps/backend-go/go.mod
+
+      - name: Set up Node
+        uses: https://code.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Go coverage profile
+        working-directory: apps/backend-go
+        run: |
+          set -euo pipefail
+          go test -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -func=coverage.out | tail -1
+
+      - name: TypeScript coverage
+        run: npm run test:coverage --workspace=@gomo6/web
+
+      - name: Build report + badges
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/coverage-report.py
+
+      - name: Enforce coverage thresholds (PRs only)
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          s = json.load(open("coverage-report/summary.json"))
+          go_min = float(os.environ.get("MIN_GO_COVERAGE", "0"))
+          ts_min = float(os.environ.get("MIN_TS_COVERAGE", "0"))
+          bad = []
+          if go_min > 0 and s["go_pct"] < go_min:
+              bad.append(f"Go {s['go_pct']}% < {go_min:g}%")
+          if ts_min > 0 and s["ts_pct"] < ts_min:
+              bad.append(f"TypeScript {s['ts_pct']}% < {ts_min:g}%")
+          if bad:
+              print("::error::Coverage below threshold: " + ", ".join(bad))
+              sys.exit(1)
+          print(f"Coverage OK — Go {s['go_pct']}%, TS {s['ts_pct']}%, total {s['total_pct']}%")
+          EOF
+
+      # Deploy only from the main branch (push or manual dispatch on main).
+      # Manual dispatch on a feature branch is skipped — Pages always shows main.
+      - name: Deploy to Codeberg Pages
+        if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+        uses: https://codeberg.org/git-pages/action@v2
+        with:
+          site: https://${{ forgejo.event.repository.owner.username }}.codeberg.page/${{ forgejo.event.repository.name }}/
+          path: coverage
+          token: ${{ forgejo.token }}
+          source: coverage-report/

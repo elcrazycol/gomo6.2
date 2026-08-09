@@ -41,6 +41,7 @@ dist-ssr
 # Test coverage
 *.out
 coverage/
+coverage-report/
 
 # Build artifacts (purged from git history - rebuild with go build)
 apps/backend-go/server
