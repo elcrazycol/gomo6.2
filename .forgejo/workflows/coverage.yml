@@ -12,15 +12,25 @@
 #   - workflow_dispatch → full run + deploy (manual refresh)
 #
 # Published at: https://<owner>.codeberg.page/<repo>/coverage/
-#   (site = https://<owner>.codeberg.page/<repo>/, path = coverage)
 #
 # Deploy uses the official git-pages/action@v2 — it uploads the built site
 # directly to the git-pages server with the automatic Forgejo token
 # (Forge Wildcard Authorization). No commits are pushed to any repo branch,
 # so the main branch history stays clean.
 #
+# Deploy details (learned the hard way):
+#   - `server: codeberg.page` makes the CLI connect straight to the git-pages
+#     server instead of resolving the site's DNS A/AAAA records (which can still
+#     point at the legacy pages v2 server during migration).
+#   - The site is uploaded with a full PUT (no `path:` input) — partial PATCH
+#     updates fail on a first deploy because the site doesn't exist yet.
+#     The report is staged under a `coverage/` subdirectory instead, so it is
+#     served at https://<owner>.codeberg.page/<repo>/coverage/.
+#
 # One-time setup:
-#   - Repo Settings → Pages must be enabled for this repository
+#   - The repository must be PUBLIC (git-pages only serves public repos).
+#   - No "Settings → Pages" toggle: the new git-pages server has none — the
+#     site is created on the first successful deploy.
 #   - No secrets required (automatic token is enough for the matching
 #     username.codeberg.page/repo/ site URL)
 #
@@ -52,6 +62,10 @@ jobs:
     name: Coverage (Go + TS)
     runs-on: [self-hosted, macos, arm64]
     timeout-minutes: 60
+    permissions:
+      # git-pages Forge Wildcard Authorization checks `permissions.push` on the
+      # repo via the forge API with the automatic token — needs write access.
+      contents: write
     env:
       # PR gate — freeze at current coverage levels (Go 48.7%, TS lines 38.56%):
       # a PR fails if coverage drops below these. Set to 0 to disable.
@@ -99,6 +113,24 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python3 scripts/coverage-report.py
 
+      # Stage the report under `coverage/` so the whole site can be deployed with
+      # a single PUT to https://<owner>.codeberg.page/<repo>/ (a `path:` input
+      # would make the CLI send a PATCH, which fails when the site doesn't exist
+      # yet). Result: report at .../<repo>/coverage/.
+      - name: Stage site for deployment
+        run: |
+          rm -rf site
+          mkdir -p site/coverage
+          cp -r coverage-report/. site/coverage/
+          # Root index → the site root only contains `coverage/`.
+          cat > site/index.html <<'EOF'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=./coverage/">
+          <title>Coverage</title>
+          <p><a href="./coverage/">Coverage report</a></p>
+          EOF
+
       - name: Enforce coverage thresholds (PRs only)
         if: github.event_name == 'pull_request'
         run: |
@@ -125,6 +157,6 @@ jobs:
         uses: https://codeberg.org/git-pages/action@v2
         with:
           site: https://${{ forgejo.event.repository.owner.username }}.codeberg.page/${{ forgejo.event.repository.name }}/
-          path: coverage
+          server: codeberg.page
           token: ${{ forgejo.token }}
-          source: coverage-report/
+          source: site/
