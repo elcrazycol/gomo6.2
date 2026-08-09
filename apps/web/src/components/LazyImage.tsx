@@ -20,7 +20,7 @@ export const LazyImage = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isInView, setIsInView] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -33,8 +33,10 @@ export const LazyImage = ({
       { threshold: 0.1, rootMargin: '50px' }
     );
 
-    if (imgRef.current) {
-      observer.observe(imgRef.current);
+    // Observe the *container*, not the gated <img>: the main image only
+    // renders after isInView becomes true, so observing it would never fire.
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
     }
 
     return () => observer.disconnect();
@@ -51,7 +53,7 @@ export const LazyImage = ({
   };
 
   return (
-    <div className={`relative ${className}`}>
+    <div ref={containerRef} className={`relative ${className}`}>
       {/* Placeholder */}
       {!isLoaded && !hasError && (
         <img
@@ -65,7 +67,6 @@ export const LazyImage = ({
       {/* Main image */}
       {isInView && (
         <img
-          ref={imgRef}
           src={src}
           alt={alt}
           className={`${className} ${!isLoaded ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}

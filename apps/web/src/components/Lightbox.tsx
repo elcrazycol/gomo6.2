@@ -618,6 +618,11 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [pan, setPan] = useState<Pan>(IDENTITY_PAN);
   const [originalUrls, setOriginalUrls] = useState<(string | null)[]>(() => items.map(() => null));
+  // Track the item list each slot was resolved for, so the sync effect below
+  // only clears original URLs whose item actually changed. Clears on mount would
+  // race with the slides' onOriginalLoaded effect (children run first) and wipe
+  // the just-resolved synchronous URLs, breaking the download link.
+  const prevItemsRef = useRef(items);
 
   const canEdit = !!onEditImage && bucket !== "uploads";
   const current = localItems[selectedIndex];
@@ -626,8 +631,22 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startI
   useEffect(() => {
     setLocalItems(items);
     setSelectedIndex(initialIndex);
-    // Keep the original-URL slots in sync when the item list is swapped.
-    setOriginalUrls(items.map(() => null));
+    // Keep the original-URL slots in sync when the item list is swapped: clear
+    // only slots whose item changed (children re-fire onOriginalLoaded for new
+    // urls); leave slots for unchanged items, including the initial mount.
+    setOriginalUrls((prev) =>
+      prev.map((existing, i) => {
+        const was = prevItemsRef.current[i];
+        const now = items[i];
+        const unchanged = was && now && was.url === now.url && was.id === now.id;
+        // Also keep a slot whose resolved URL already matches the item (e.g.
+        // after an edit applied locally, the slide re-fired onOriginalLoaded
+        // with the new dataUrl before this effect ran).
+        const alreadyResolved = existing === now?.url;
+        return unchanged || alreadyResolved ? existing : null;
+      }),
+    );
+    prevItemsRef.current = items;
   }, [items, initialIndex]);
 
   // Lock body scroll while open.

@@ -43,3 +43,22 @@ if (typeof window !== "undefined" && !window.IntersectionObserver) {
   }
   window.IntersectionObserver = IntersectionObserverMock as unknown as typeof window.IntersectionObserver;
 }
+
+// Polyfill PointerEvent for jsdom: fireEvent.pointer* builds a plain Event
+// otherwise, dropping clientX/clientY/pointerId, which silently no-ops the
+// lightbox pan/crop drag handlers (NaN coordinates). MouseEvent already
+// carries clientX/clientY; we only need to expose the pointer-specific fields.
+if (typeof window !== "undefined" && !window.PointerEvent) {
+  class PointerEventPolyfill extends window.MouseEvent {
+    readonly pointerId: number;
+    readonly pointerType: string;
+    readonly isPrimary: boolean;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+      this.pointerType = init.pointerType ?? "mouse";
+      this.isPrimary = init.isPrimary ?? true;
+    }
+  }
+  window.PointerEvent = PointerEventPolyfill as unknown as typeof window.PointerEvent;
+}
