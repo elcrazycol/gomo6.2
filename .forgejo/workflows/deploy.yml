@@ -1,41 +1,47 @@
 # =============================================================================
 # .forgejo/workflows/deploy.yml
 # =============================================================================
-# Codeberg (Forgejo Actions), self-hosted runner on Apple Silicon (M1 Pro),
-# building for a x86_64 VPS.
+# Gomo6 — Forgejo Actions deployment (Codeberg).
 #
-# WHY IT'S FAST:
-#   1. No registry round-trip: image is docker-save'd, zstd-compressed and
-#      piped straight over SSH into the VPS's docker daemon.
-#   2. Only the services whose files actually changed are rebuilt/redeployed.
-#   3. BuildKit cache persists on the runner's disk (no --no-cache, ever).
-#   4. Cross-arch builds avoid QEMU emulation by doing all the heavy lifting
-#      (compiling, bundling) in a NATIVE arm64 stage, then copying the
-#      finished artifact into a linux/amd64 stage that only runs COPY —
-#      see the Dockerfile note at the bottom of this file.
+# Runner: your own Mac M1 Pro (self-hosted, labels: self-hosted / macos / arm64).
+# VPS:    1 vCPU / 1 GB — it NEVER builds anything, it only loads images and
+#         starts containers.
 #
-# WHY THINGS THAT WERE IN THE OLD WORKFLOW ARE GONE:
-#   - workflow_run trigger: not supported by Forgejo Actions
-#     (github.com/forgejo/forgejo issue #6494 / #7722, still open) — so
-#     build + deploy live in a single push-triggered workflow instead of
-#     two chained workflows.
-#   - no-cache: true: was forcing a full rebuild on every single push.
+# Pipeline (warm caches: ≈ 30 s for a single-service push; a full 4-service
+# push is ~40-60 s; the very first build after a cache wipe takes minutes):
+#   1. build-and-ship — builds ONLY the services whose files actually changed,
+#                       all up to 4 in parallel (matrix). Everything heavy
+#                       (Go compile, npm ci, Vite) runs NATIVE on arm64 — the
+#                       Dockerfiles use `FROM --platform=$BUILDPLATFORM`
+#                       builder stages, so QEMU never touches the compiler.
+#                       The finished linux/amd64 image is piped straight into
+#                       the VPS docker daemon over SSH (zstd-compressed
+#                       `docker save`): no registry, no credentials, one hop.
+#   2. restart        — `docker compose up -d --no-build` recreates exactly
+#                       the containers whose image changed, nothing else.
 #
-# PREREQUISITES ON THE RUNNER (Mac M1 Pro):
-#   brew install jq zstd
-#   Docker Desktop (or colima/lima) running, buildx available
-#   forgejo-runner registered with labels: self-hosted, macos, arm64
-#     -> when registering: forgejo-runner register --labels self-hosted,macos,arm64
+# Where the speed comes from (all caches live on the Mac between runs):
+#   - BuildKit local cache   ~/buildx-cache/<service>  (mode=max, full layers)
+#   - Go build cache         --mount=type=cache in the backend Dockerfile
+#   - npm cache              --mount=type=cache in the frontend Dockerfiles
 #
-# PREREQUISITES ON THE VPS (x86_64):
-#   apt install zstd
-#   an existing .env in the repo dir (same as before)
+# Secrets (Codeberg repo/org → Settings → Actions → Secrets):
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY,
+#   VPS_PORT (optional, default 22),
+#   VITE_DEPAY_INTEGRATION_ID (only used by the web build)
 #
-# REQUIRED CODEBERG SECRETS (repo/org settings -> Actions -> Secrets):
-#   VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_PORT (optional), VITE_DEPAY_INTEGRATION_ID
+# One-time setup:
+#   Runner: forgejo-runner register --labels self-hosted,macos,arm64
+#   VPS:    apt install zstd        (decompresses the streamed images)
+#
+# The VPS must have the repo checked out at /root/gomo6.2 or /home/*/gomo6.2
+# with a production .env (see AGENTS.md). Images are tagged with the exact
+# names from docker-compose.yml, so the VPS never pulls and never builds.
+#
+# If your VPS is arm64 instead of amd64, change --platform below once.
 # =============================================================================
 
-name: Build & Deploy
+name: Deploy
 
 on:
   push:
@@ -48,142 +54,134 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Figure out which of the 4 services actually need rebuilding.
-  # ---------------------------------------------------------------------------
-  detect-changes:
-    runs-on: [self-hosted, macos, arm64]
-    outputs:
-      matrix: ${{ steps.filter.outputs.matrix }}
-      has_changes: ${{ steps.filter.outputs.has_changes }}
-    steps:
-      - uses: https://github.com/actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Determine changed services
-        id: filter
-        run: |
-          set -e
-          BEFORE="${{ github.event.before }}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
-            echo "Full build (manual dispatch or no previous commit to diff against)"
-            CHANGED="backend web docs dev-dashboard"
-          else
-            DIFF=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
-            CHANGED=""
-            echo "$DIFF" | grep -qE '^apps/backend-go/'            && CHANGED="$CHANGED backend"
-            echo "$DIFF" | grep -qE '^apps/web/|^package(-lock)?\.json$|^pnpm-lock\.yaml$' && CHANGED="$CHANGED web"
-            echo "$DIFF" | grep -qE '^apps/docs/'                  && CHANGED="$CHANGED docs"
-            echo "$DIFF" | grep -qE '^apps/dev-dashboard/'         && CHANGED="$CHANGED dev-dashboard"
-          fi
-
-          CHANGED=$(echo "$CHANGED" | xargs -n1 | sort -u | xargs)
-          echo "Changed services: ${CHANGED:-none}"
-
-          if [ -z "$CHANGED" ]; then
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            echo "matrix={\"service\":[]}" >> "$GITHUB_OUTPUT"
-          else
-            JSON=$(echo "$CHANGED" | xargs -n1 | jq -R . | jq -sc '{service: .}')
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            echo "matrix=$JSON" >> "$GITHUB_OUTPUT"
-          fi
-
-  # ---------------------------------------------------------------------------
-  # Build (native arm64 where possible) and ship straight to the VPS.
+  # Build & ship — one matrix job per service, all running in parallel.
+  # Each job first checks (cheap git diff) whether its service changed and
+  # skips everything if not.
   # ---------------------------------------------------------------------------
   build-and-ship:
-    needs: detect-changes
-    if: ${{ needs.detect-changes.outputs.has_changes == 'true' }}
+    name: Build & ship ${{ matrix.service }}
     runs-on: [self-hosted, macos, arm64]
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      matrix:
+        include:
+          - service: backend
+            context: ./apps/backend-go
+            dockerfile: apps/backend-go/Dockerfile
+            file_pattern: '^apps/backend-go/'
+          - service: web
+            context: .
+            dockerfile: apps/web/Dockerfile
+            file_pattern: '^apps/web/'
+          - service: docs
+            context: .
+            dockerfile: apps/docs/Dockerfile
+            file_pattern: '^apps/docs/'
+          - service: dev-dashboard
+            context: .
+            dockerfile: apps/dev-dashboard/Dockerfile
+            file_pattern: '^apps/dev-dashboard/'
+
     steps:
-      - uses: https://github.com/actions/checkout@v4
-
-      - name: Resolve build context for this service
-        id: cfg
-        run: |
-          case "${{ matrix.service }}" in
-            backend)       echo "context=apps/backend-go" >> "$GITHUB_OUTPUT"; echo "dockerfile=apps/backend-go/Dockerfile" >> "$GITHUB_OUTPUT" ;;
-            web)           echo "context=."               >> "$GITHUB_OUTPUT"; echo "dockerfile=apps/web/Dockerfile"       >> "$GITHUB_OUTPUT" ;;
-            docs)          echo "context=."               >> "$GITHUB_OUTPUT"; echo "dockerfile=apps/docs/Dockerfile"      >> "$GITHUB_OUTPUT" ;;
-            dev-dashboard) echo "context=."               >> "$GITHUB_OUTPUT"; echo "dockerfile=apps/dev-dashboard/Dockerfile" >> "$GITHUB_OUTPUT" ;;
-          esac
-
-      - name: Set up persistent Buildx builder
-        uses: https://github.com/docker/setup-buildx-action@v3
+      - name: Checkout
+        uses: https://github.com/actions/checkout@v4
         with:
-          install: true
-          driver-opts: image=moby/buildkit:latest
+          fetch-depth: 0
 
-      - name: Build linux/amd64 image (cache persists on this runner's disk)
-        uses: https://github.com/docker/build-push-action@v6
-        with:
-          context: ${{ steps.cfg.outputs.context }}
-          file: ${{ steps.cfg.outputs.dockerfile }}
-          platforms: linux/amd64
-          load: true
-          tags: gomo6-${{ matrix.service }}:deploy
-          build-args: |
-            ${{ (matrix.service == 'web') && format('VITE_GIT_COMMIT={0}', github.sha) || '' }}
-            ${{ (matrix.service == 'web') && format('VITE_DEPAY_INTEGRATION_ID={0}', secrets.VITE_DEPAY_INTEGRATION_ID) || '' }}
-          cache-from: type=local,src=/tmp/buildx-cache/${{ matrix.service }}
-          cache-to: type=local,dest=/tmp/buildx-cache/${{ matrix.service }},mode=max
-
-      - name: Stream image directly into the VPS's Docker (no registry)
+      - name: Detect changes
+        id: detect
         run: |
-          set -e
-          echo "${{ secrets.VPS_SSH_KEY }}" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
-          docker save "gomo6-${{ matrix.service }}:deploy" \
+          set -euo pipefail
+          NEED=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEED=true
+          else
+            BEFORE="${{ github.event.before }}"
+            SHA="${{ github.sha }}"
+            if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              NEED=true
+            else
+              DIFF="$(git diff --name-only "$BEFORE" "$SHA")"
+              # Own directory touched → rebuild.
+              echo "$DIFF" | grep -qE "${{ matrix.file_pattern }}" && NEED=true
+              # Shared root files / workspace manifests → rebuild all frontends.
+              case "${{ matrix.service }}" in
+                web|docs|dev-dashboard)
+                  echo "$DIFF" | grep -qE '^(package\.json|package-lock\.json|turbo\.json)$|^apps/.*/package\.json$' && NEED=true ;;
+              esac
+              # Compose / Caddyfile / dockerignore at repo root → everything.
+              echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore)$' && NEED=true
+            fi
+          fi
+          echo "changed=$NEED" >> "$GITHUB_OUTPUT"
+          echo "changed=$NEED"
+
+      - name: Build linux/amd64 image (native arm64, disk-persisted cache)
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/elcrazycol/gomo6-${{ matrix.service }}:latest"
+          ARGS=()
+          if [ "${{ matrix.service }}" = "web" ]; then
+            ARGS+=(--build-arg "VITE_GIT_COMMIT=${{ github.sha }}")
+            ARGS+=(--build-arg "VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}")
+          fi
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            -t "$IMAGE" \
+            --cache-from "type=local,src=$HOME/buildx-cache/${{ matrix.service }}" \
+            --cache-to "type=local,dest=$HOME/buildx-cache/${{ matrix.service }},mode=max" \
+            "${ARGS[@]}" \
+            -f "${{ matrix.dockerfile }}" \
+            "${{ matrix.context }}"
+
+      - name: Stream image into VPS docker (no registry)
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/elcrazycol/gomo6-${{ matrix.service }}:latest"
+          KEY="$HOME/.ssh/vps_deploy_key"
+          mkdir -p "$HOME/.ssh"
+          # printf guarantees the trailing newline an SSH private key needs
+          # (Forgejo may strip the last newline of a multiline secret).
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > "$KEY"
+          chmod 600 "$KEY"
+          docker save "$IMAGE" \
             | zstd -T0 -1 \
-            | ssh -o StrictHostKeyChecking=accept-new \
-                  -i /tmp/deploy_key \
-                  -p "${{ secrets.VPS_PORT || 22 }}" \
-                  "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-                  'zstd -d | docker load'
-          rm -f /tmp/deploy_key
+            | ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
+                -o StrictHostKeyChecking=accept-new \
+                -o ConnectTimeout=15 \
+                "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+                'zstd -d | docker load'
+          rm -f "$KEY"
 
   # ---------------------------------------------------------------------------
-  # Restart only the containers that actually got a new image.
+  # Restart — recreate exactly the containers that got a new image.
   # ---------------------------------------------------------------------------
   restart:
-    needs: [detect-changes, build-and-ship]
-    if: ${{ needs.detect-changes.outputs.has_changes == 'true' }}
+    name: Restart on VPS
+    needs: build-and-ship
     runs-on: [self-hosted, macos, arm64]
     steps:
-      - name: Recreate changed services and reload Caddy if routing could be affected
-        uses: https://github.com/appleboy/ssh-action@v1.2.2
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          command_timeout: 2m
-          envs: CHANGED_SERVICES
-          script: |
-            set -e
-            for d in /root/gomo6.2 /home/*/gomo6.2; do
-              [ -d "$d" ] && [ -f "$d/docker-compose.yml" ] && { cd "$d"; break; }
-            done
-            [ "${PWD##*/}" = "gomo6.2" ] || { echo "Cannot find gomo6.2 repo"; exit 1; }
+      - name: Checkout
+        uses: https://github.com/actions/checkout@v4
 
-            docker compose config >/dev/null
-
-            SERVICES="${CHANGED_SERVICES}"
-            echo "Recreating: $SERVICES"
-            docker compose up -d --no-build --remove-orphans $SERVICES
-
-            # Caddyfile is bind-mounted; Compose won't detect content changes,
-            # and its file-watcher reload can silently fail — restart it
-            # explicitly whenever routing-relevant services changed.
-            case "$SERVICES" in
-              *web*|*docs*|*dev-dashboard*) docker compose restart caddy ;;
-            esac
-
-            docker image prune -f
-            echo "=== Deploy done ==="
-        env:
-          CHANGED_SERVICES: ${{ join(fromJson(needs.detect-changes.outputs.matrix).service, ' ') }}
+      - name: docker compose up --no-build
+        run: |
+          set -euo pipefail
+          KEY="$HOME/.ssh/vps_deploy_key"
+          mkdir -p "$HOME/.ssh"
+          # printf guarantees the trailing newline an SSH private key needs
+          # (Forgejo may strip the last newline of a multiline secret).
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > "$KEY"
+          chmod 600 "$KEY"
+          scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
+              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              scripts/remote-deploy.sh \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-remote-deploy.sh"
+          ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
+              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              'bash /tmp/gomo6-remote-deploy.sh'
+          rm -f "$KEY"

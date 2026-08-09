@@ -1,0 +1,20 @@
+# =============================================================================
+# .dockerignore — backend build context (context: ./apps/backend-go)
+# Keep the context small: only what the image actually needs (source, vendor,
+# docs, migrations, .env). Binaries and test scripts are never needed.
+# =============================================================================
+
+# Built binaries / local server artifacts
+main
+server
+server_new
+gomo6-server
+test-server
+bin/
+
+# Test & helper scripts
+test_*.sh
+
+# Logs / OS noise
+*.log
+.DS_Store
