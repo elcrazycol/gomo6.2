@@ -79,6 +79,14 @@ jobs:
         working-directory: apps/backend-go
         run: |
           set -euo pipefail
+          # The self-hosted runner has a clean environment, but several tests
+          # hit code paths that hard-require these keys (crypto.Init() in
+          # internal/crypto calls log.Fatal when MESSENGER_ENCRYPTION_KEY is
+          # missing). Generate throwaway random keys for the test run — no real
+          # secrets needed for coverage. Existing runner env vars (if any) win.
+          export JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
+          export MESSENGER_ENCRYPTION_KEY="${MESSENGER_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
+          export INTEGRATION_ENCRYPTION_KEY="${INTEGRATION_ENCRYPTION_KEY:-$(openssl rand -hex 32)}"
           go test -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out | tail -1
 
