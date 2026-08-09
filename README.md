@@ -2,13 +2,10 @@
 
 <p align="center">
   <strong>Open source social platform with messenger</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/scramble22/gomo6.2/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-44cc11?style=flat-square&logo=githubactions&logoColor=white" alt="CI"></a>
-  <a href="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml/badge.svg" alt="Deploy"></a>
-  <a href="https://github.com/scramble22/gomo6.2/blob/main/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/elcrazycol/gomo6.2?style=flat-square">
-</a>
+</p><p align="center">
+  <a href="https://codeberg.org/crazycol/gomo6.2/actions"><img src="https://img.shields.io/badge/CI-passing-44cc11?style=flat-square&logo=forgejo&logoColor=white" alt="CI"></a>
+  <a href="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml/badge.svg?style=flat-square" alt="Deploy"></a>
+  <a href="https://codeberg.org/crazycol/gomo6.2/src/branch/main/LICENSE.md"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-a42e2b?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -24,9 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/commit-activity/m/elcrazycol/gomo6.2?style=for-the-badge&logo=github">
-  <img src="https://img.shields.io/github/last-commit/elcrazycol/gomo6.2?style=for-the-badge&logo=github">
-  <img src="https://img.shields.io/github/commits-since/elcrazycol/gomo6.2/latest?style=for-the-badge&logo=github">
+  <a href="https://codeberg.org/crazycol/gomo6.2"><img src="https://img.shields.io/gitea/last-commit/crazycol/gomo6.2?gitea_url=https://codeberg.org&style=flat-square&logo=forgejo" alt="last commit"></a>
 </p>
 ---
 
