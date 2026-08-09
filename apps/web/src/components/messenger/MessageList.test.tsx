@@ -118,6 +118,37 @@ afterEach(() => {
   h.virtuosoProps = {};
 });
 
+// Deterministic rAF pump for the bottom-settle frame chains. The settle waits
+// for two stable frames before its first clamp, so a plain `await setTimeout`
+// races with a loaded CI runner: the fixed 10ms window can elapse before the
+// clamp lands, leaving the settle alive to yank the view back down. Pumping
+// the frame queue until a predicate holds removes the timing from the
+// equation (the runner that runs the whole suite in parallel with coverage
+// instrumented flakes on the fixed waits).
+const createRafPump = () => {
+  const rafQueue: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    rafQueue.push(cb);
+    return rafQueue.length;
+  });
+  vi.stubGlobal("cancelAnimationFrame", () => undefined);
+  const pumpFrames = async (count: number) => {
+    for (let i = 0; i < count; i += 1) {
+      const cb = rafQueue.shift();
+      if (cb) cb(0);
+      await Promise.resolve();
+    }
+  };
+  const drainUntil = async (predicate: () => boolean, maxIterations = 60) => {
+    for (let i = 0; i < maxIterations && !predicate(); i += 1) {
+      await pumpFrames(1);
+      // Let real macrotasks (React flushes, checkpoint timeouts) interleave.
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+  };
+  return { pumpFrames, drainUntil };
+};
+
 describe("MessageList scroll behavior", () => {
   it("adjusts firstItemIndex in the same render as a history prepend (no flicker frame)", () => {
     h.storeState.messages = [makeMessage("a"), makeMessage("b")];
@@ -254,66 +285,83 @@ describe("MessageList scroll behavior", () => {
   });
 
   it("does not yank the user when they scroll up during an append follow-settle", async () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { scroller, rerender } = mountList();
+    const { pumpFrames, drainUntil } = createRafPump();
+    try {
+      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+      const { scroller, rerender } = mountList();
 
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-    const scrollToSpy = vi.fn();
-    scroller.scrollTo = ((options: { top?: number }) => {
-      if (typeof options?.top === "number") {
-        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
-      }
-      scrollToSpy(options);
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+      const scrollToSpy = vi.fn();
+      scroller.scrollTo = ((options: { top?: number }) => {
+        if (typeof options?.top === "number") {
+          Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
+        }
+        scrollToSpy(options);
+        scroller.dispatchEvent(new Event("scroll"));
+      }) as unknown as typeof scroller.scrollTo;
+
+      // Drain the mount settle: it clamps to the true bottom (600), which sets
+      // lastScrollTopRef via the realistic scroller's scroll event. The
+      // scroll-up below needs that baseline to trigger the decrease-cancel.
+      await act(async () => {
+        await drainUntil(() => scrollToSpy.mock.calls.length > 0);
+      });
+      scrollToSpy.mockClear();
+
+      // A new message arrives while the user is at the bottom — the append
+      // follow-settle takes over (replacing the mount settle).
+      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
+      await act(async () => {
+        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+        // Let the append effect schedule its settle, then drain its frames.
+        await pumpFrames(5);
+      });
+      scrollToSpy.mockClear();
+
+      // The user scrolls up 100px: the settle must cancel (decrease-cancel in
+      // handleScroll, plus the scrolled-up gate) instead of clamping them back
+      // down on its next checkpoint/frame.
+      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 500 });
       scroller.dispatchEvent(new Event("scroll"));
-    }) as unknown as typeof scroller.scrollTo;
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    scrollToSpy.mockClear();
 
-    // A new message arrives while the user is at the bottom — the append
-    // follow-settle takes over (replacing the mount settle).
-    h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-    await act(async () => {
-      rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    scrollToSpy.mockClear();
-
-    // The user scrolls up 100px: the settle must cancel (decrease-cancel in
-    // handleScroll, plus the scrolled-up gate) instead of clamping them back
-    // down on its next checkpoint/frame.
-    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 500 });
-    scroller.dispatchEvent(new Event("scroll"));
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    });
-    expect(scrollToSpy).not.toHaveBeenCalled();
+      await act(async () => {
+        await pumpFrames(10);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+      expect(scrollToSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("scrolls the scroller to the true bottom when a new message is appended while at the bottom", async () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { scroller, rerender } = mountList();
+    const { pumpFrames, drainUntil } = createRafPump();
+    try {
+      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+      const { scroller, rerender } = mountList();
 
-    // Give the mount-time settle a chance to run, then reset the spy.
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-    const scrollToSpy = vi.fn();
-    scroller.scrollTo = scrollToSpy;
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    scrollToSpy.mockClear();
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 500 });
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+      const scrollToSpy = vi.fn();
+      scroller.scrollTo = scrollToSpy;
+      // Drain the mount-time settle, then reset the spy.
+      await act(async () => {
+        await drainUntil(() => scrollToSpy.mock.calls.length > 0);
+      });
+      scrollToSpy.mockClear();
 
-    // Append a message from the interlocutor while the view is at the bottom.
-    h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-    await act(async () => {
-      rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });      // scrollHeight(500) - clientHeight(400) = maxScrollTop(100)
-    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 100, behavior: "auto" }));
+      // Append a message from the interlocutor while the view is at the bottom.
+      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
+      await act(async () => {
+        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+        await pumpFrames(5);
+      });
+      // scrollHeight(500) - clientHeight(400) = maxScrollTop(100)
+      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 100, behavior: "auto" }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("holds the follow-scroll until the appended item is measured (single exact scroll, no twitch)", async () => {
@@ -419,40 +467,52 @@ describe("MessageList scroll behavior", () => {
   });
 
   it("does not scroll (and does not yank the user) when the append happens while scrolled up", async () => {
-    h.storeState.messages = [makeMessage("a"), makeMessage("b")];
-    const { scroller, rerender } = mountList();
+    const { pumpFrames, drainUntil } = createRafPump();
+    try {
+      h.storeState.messages = [makeMessage("a"), makeMessage("b")];
+      const { scroller, rerender } = mountList();
 
-    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
-    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
-    const scrollToSpy = vi.fn();
-    // Realistic scroller: a clamp updates scrollTop and fires a scroll event
-    // (handleScroll then tracks lastScrollTopRef, like a real browser).
-    scroller.scrollTo = ((options: { top?: number }) => {
-      if (typeof options?.top === "number") {
-        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
-      }
-      scrollToSpy(options);
-      scroller.dispatchEvent(new Event("scroll"));
-    }) as unknown as typeof scroller.scrollTo;
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-    scrollToSpy.mockClear();
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 1000 });
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 400 });
+      const scrollToSpy = vi.fn();
+      // Realistic scroller: a clamp updates scrollTop and fires a scroll event
+      // (handleScroll then tracks lastScrollTopRef, like a real browser).
+      scroller.scrollTo = ((options: { top?: number }) => {
+        if (typeof options?.top === "number") {
+          Object.defineProperty(scroller, "scrollTop", { configurable: true, value: options.top });
+        }
+        scrollToSpy(options);
+        scroller.dispatchEvent(new Event("scroll"));
+      }) as unknown as typeof scroller.scrollTo;
 
-    // Simulate the user reading history: fire a scroll event far from the
-    // bottom (distance 1000 - 300 - 400 = 300px > 128px → isScrolledUpRef
-    // flips to true, which also makes any still-active settle bail out).
-    await act(async () => {
-      Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
-      scroller.dispatchEvent(new Event("scroll"));
-    });
+      // Drain the mount settle: it must clamp to the true bottom (600) BEFORE
+      // the scroll-up below, so the scroll-up event cancels it. A fixed 10ms
+      // wait raced with the loaded runner and left the settle alive to yank.
+      await act(async () => {
+        await drainUntil(() => scrollToSpy.mock.calls.length > 0);
+      });
+      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ top: 600, behavior: "auto" }));
+      scrollToSpy.mockClear();
 
-    h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
-    await act(async () => {
-      rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
+      // Simulate the user reading history: fire a scroll event far from the
+      // bottom (distance 1000 - 300 - 400 = 300px > 128px → isScrolledUpRef
+      // flips to true, which also makes any still-active settle bail out).
+      await act(async () => {
+        Object.defineProperty(scroller, "scrollTop", { configurable: true, value: 300 });
+        scroller.dispatchEvent(new Event("scroll"));
+      });
 
-    expect(scrollToSpy).not.toHaveBeenCalled();
+      h.storeState.messages = [...h.storeState.messages, makeMessage("c")];
+      await act(async () => {
+        rerender(<MessageList onBack={() => undefined} renderMessage={renderMessage} />);
+        // No follow-settle may be scheduled; pump a few frames to prove no
+        // stray settle clamps the view back down.
+        await pumpFrames(5);
+      });
+
+      expect(scrollToSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
