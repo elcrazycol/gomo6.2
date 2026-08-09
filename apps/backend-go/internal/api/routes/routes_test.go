@@ -1,0 +1,662 @@
+package routes
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/websocket"
+)
+
+// newTestRouter builds the full route table the way main does, but with a
+// sqlmock-backed DB, nil Redis (all rate limiters fail open) and optionally
+// the WebSocket hub. SetupRoutes must never panic in this configuration.
+func newTestRouter(t *testing.T, withHub bool) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	t.Setenv("ENVIRONMENT", "development")
+	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	// Neutralize S3 config so SetupRoutes deterministically ends up with a nil
+	// storageHandler (smoke tests rely on the 501 "Storage not available" path).
+	t.Setenv("GARAGE_S3_ENDPOINT", "")
+	t.Setenv("GARAGE_S3_ACCESS_KEY", "")
+	t.Setenv("GARAGE_S3_SECRET_KEY", "")
+
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to start sqlmock: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	var hub *websocket.Hub
+	if withHub {
+		hub = websocket.NewHub(nil, nil)
+	}
+
+	router := gin.New()
+	SetupRoutes(router, db, nil, hub)
+	return router
+}
+
+// expectedRoutes mirrors every registration in SetupRoutes (nil hub variant).
+// Keep in sync when endpoints are added or removed — the test below fails on
+// both missing and unexpected routes.
+var expectedRoutes = []string{
+	// Top-level
+	"GET /ready",
+	"GET /api/v1/docs/json",
+	"POST /api/v1/audio/metadata",
+	"GET /api/v1/test-auth",
+
+	// Auth
+	"POST /api/v1/auth/register",
+	"POST /api/v1/auth/login",
+	"POST /api/v1/auth/refresh",
+	"POST /api/v1/auth/logout",
+	"GET /api/v1/auth/me",
+	"POST /api/v1/auth/password",
+	"POST /api/v1/auth/2fa/setup",
+	"POST /api/v1/auth/2fa/verify-and-enable",
+	"POST /api/v1/auth/2fa/disable",
+	"GET /api/v1/auth/2fa/status",
+	"POST /api/v1/auth/verify-2fa",
+	"GET /api/v1/auth/webauthn/login/begin",
+	"POST /api/v1/auth/webauthn/login/finish",
+	"POST /api/v1/auth/webauthn/register/begin",
+	"POST /api/v1/auth/webauthn/register/finish",
+	"GET /api/v1/auth/webauthn/credentials",
+	"DELETE /api/v1/auth/webauthn/credentials/:credentialId",
+	"GET /api/v1/auth/sessions",
+	"DELETE /api/v1/auth/sessions",
+	"DELETE /api/v1/auth/sessions/:id",
+
+	// Public REST
+	"GET /api/v1/search",
+	"GET /api/v1/profiles",
+	"GET /api/v1/profiles/:id",
+	"GET /api/v1/boards",
+	"GET /api/v1/boards/:id",
+	"GET /api/v1/threads",
+	"GET /api/v1/threads/:id",
+	"GET /api/v1/posts",
+	"GET /api/v1/posts/:id",
+	"GET /api/v1/invites/:code",
+	"GET /api/v1/users/online",
+	"GET /api/v1/users/:id/status",
+	"POST /api/v1/users/status/bulk",
+	"GET /api/v1/gift_catalog",
+	"GET /api/v1/user_gifts",
+	"POST /api/v1/client-errors",
+	"GET /api/v1/drops/packages",
+	"POST /api/v1/drops/config",
+	"POST /api/v1/drops/callback",
+
+	// Universal CRUD tables (static + wildcard, all methods)
+	"GET /api/v1/user_roles",
+	"GET /api/v1/user_roles/*path",
+	"GET /api/v1/gomosub_memberships",
+	"GET /api/v1/gomosub_memberships/*path",
+	"GET /api/v1/channels",
+	"GET /api/v1/channels/*path",
+	"GET /api/v1/gomosub_roles",
+	"GET /api/v1/gomosub_roles/*path",
+	"GET /api/v1/channel_permissions",
+	"GET /api/v1/channel_permissions/*path",
+	"GET /api/v1/user_session_time",
+	"GET /api/v1/user_session_time/*path",
+	"POST /api/v1/user_session_time",
+	"POST /api/v1/user_session_time/*path",
+	"PUT /api/v1/user_session_time",
+	"PUT /api/v1/user_session_time/*path",
+	"GET /api/v1/user_achievements",
+	"GET /api/v1/user_achievements/*path",
+	"GET /api/v1/achievements",
+	"GET /api/v1/achievements/*path",
+	"GET /api/v1/user_terms_acceptance",
+	"GET /api/v1/user_terms_acceptance/*path",
+	"POST /api/v1/user_terms_acceptance",
+	"POST /api/v1/user_terms_acceptance/*path",
+	"GET /api/v1/profile_customization",
+	"GET /api/v1/profile_customization/*path",
+	"POST /api/v1/profile_customization",
+	"POST /api/v1/profile_customization/*path",
+	"GET /api/v1/user_placeholders",
+	"GET /api/v1/user_placeholders/*path",
+	"GET /api/v1/polls",
+	"GET /api/v1/polls/*path",
+	"GET /api/v1/poll_votes",
+	"GET /api/v1/poll_votes/*path",
+	"GET /api/v1/thread_subscriptions",
+	"GET /api/v1/thread_subscriptions/*path",
+	"GET /api/v1/privacy_settings",
+	"GET /api/v1/privacy_settings/*path",
+	"PUT /api/v1/privacy_settings",
+	"PUT /api/v1/privacy_settings/*path",
+	"POST /api/v1/privacy_settings",
+	"POST /api/v1/privacy_settings/*path",
+	"GET /api/v1/user_daily_visits",
+	"GET /api/v1/user_daily_visits/*path",
+	"POST /api/v1/user_daily_visits",
+	"POST /api/v1/user_daily_visits/*path",
+	"PUT /api/v1/user_daily_visits",
+	"PUT /api/v1/user_daily_visits/*path",
+	"GET /api/v1/thread_custom_message_visits",
+	"GET /api/v1/thread_custom_message_visits/*path",
+	"GET /api/v1/profile_wall_posts",
+	"GET /api/v1/profile_wall_posts/*path",
+	"POST /api/v1/profile_wall_posts",
+	"POST /api/v1/profile_wall_posts/*path",
+	"PUT /api/v1/profile_wall_posts",
+	"PUT /api/v1/profile_wall_posts/*path",
+	"DELETE /api/v1/profile_wall_posts",
+	"DELETE /api/v1/profile_wall_posts/*path",
+	"GET /api/v1/profile_wall_post_comments",
+	"GET /api/v1/profile_wall_post_comments/*path",
+	"POST /api/v1/profile_wall_post_comments",
+	"POST /api/v1/profile_wall_post_comments/*path",
+	"PUT /api/v1/profile_wall_post_comments",
+	"PUT /api/v1/profile_wall_post_comments/*path",
+	"DELETE /api/v1/profile_wall_post_comments",
+	"DELETE /api/v1/profile_wall_post_comments/*path",
+	"GET /api/v1/profile_wall_post_likes",
+	"GET /api/v1/profile_wall_post_likes/*path",
+	"POST /api/v1/profile_wall_post_likes",
+	"POST /api/v1/profile_wall_post_likes/*path",
+	"PUT /api/v1/profile_wall_post_likes",
+	"PUT /api/v1/profile_wall_post_likes/*path",
+	"DELETE /api/v1/profile_wall_post_likes",
+	"DELETE /api/v1/profile_wall_post_likes/*path",
+	"GET /api/v1/profile_wall_post_reposts",
+	"GET /api/v1/profile_wall_post_reposts/*path",
+	"POST /api/v1/profile_wall_post_reposts",
+	"POST /api/v1/profile_wall_post_reposts/*path",
+	"PUT /api/v1/profile_wall_post_reposts",
+	"PUT /api/v1/profile_wall_post_reposts/*path",
+	"DELETE /api/v1/profile_wall_post_reposts",
+	"DELETE /api/v1/profile_wall_post_reposts/*path",
+	"GET /api/v1/profile_wall_comment_likes",
+	"GET /api/v1/profile_wall_comment_likes/*path",
+	"POST /api/v1/profile_wall_comment_likes",
+	"POST /api/v1/profile_wall_comment_likes/*path",
+	"PUT /api/v1/profile_wall_comment_likes",
+	"PUT /api/v1/profile_wall_comment_likes/*path",
+	"DELETE /api/v1/profile_wall_comment_likes",
+	"DELETE /api/v1/profile_wall_comment_likes/*path",
+	"GET /api/v1/gomosub_invites",
+	"GET /api/v1/gomosub_invites/*path",
+	"GET /api/v1/gomosub_rules_acceptance",
+	"GET /api/v1/gomosub_rules_acceptance/*path",
+	"GET /api/v1/user_settings_changes",
+	"GET /api/v1/user_settings_changes/*path",
+	"GET /api/v1/emoji_packs/by-slug/:slug",
+	"POST /api/v1/custom_emojis/resolve",
+	"GET /api/v1/emoji_packs",
+	"GET /api/v1/custom_emojis",
+	"GET /api/v1/user_emoji_subscriptions",
+
+	// Protected REST
+	"POST /api/v1/profiles",
+	"PUT /api/v1/profiles/:id",
+	"POST /api/v1/boards",
+	"PUT /api/v1/boards/:id",
+	"POST /api/v1/boards/:id/invites",
+	"GET /api/v1/boards/:id/invites",
+	"DELETE /api/v1/boards/:id/invites/:inviteId",
+	"POST /api/v1/invites/:code/accept",
+	"PUT /api/v1/threads/:id",
+	"PUT /api/v1/threads",
+	"PUT /api/v1/posts/:id",
+	"PUT /api/v1/posts",
+	"DELETE /api/v1/threads",
+	"DELETE /api/v1/posts",
+	"GET /api/v1/boards/:id/backup/export",
+	"POST /api/v1/boards/backup/import",
+	"POST /api/v1/boards/import/info",
+	"POST /api/v1/threads/:id/like",
+	"DELETE /api/v1/threads/:id/like",
+	"POST /api/v1/posts/:id/like",
+	"DELETE /api/v1/posts/:id/like",
+	"DELETE /api/v1/posts/:id",
+	"GET /api/v1/threads/:id/likes",
+	"GET /api/v1/notifications",
+	"PUT /api/v1/notifications/:id/read",
+	"PUT /api/v1/notifications/read-all",
+	"GET /api/v1/notifications/unread-count",
+	"POST /api/v1/gifts/send",
+	"GET /api/v1/user/drops",
+	"GET /api/v1/drops/history",
+	"POST /api/v1/drops/manual-verify",
+	"GET /api/v1/drops/wallet",
+	"POST /api/v1/drops/transfer",
+	"GET /api/v1/drops/users/search",
+	"GET /api/v1/admin/gifts",
+	"POST /api/v1/admin/gifts",
+	"PUT /api/v1/admin/gifts/:id",
+	"DELETE /api/v1/admin/gifts/:id",
+	"GET /api/v1/admin/gifts/:id/layers",
+	"POST /api/v1/admin/gifts/:id/layers",
+	"DELETE /api/v1/admin/gifts/:id/layers/:layerId",
+	"POST /api/v1/gifts/:giftRecordID/upgrade",
+	"GET /api/v1/messenger/unread-count",
+	"GET /api/v1/messenger/conversations",
+	"GET /api/v1/messenger/conversations/:id/messages",
+	"GET /api/v1/messenger/conversations/:id/receipts",
+	"POST /api/v1/messenger/conversations",
+	"POST /api/v1/messenger/notes",
+	"POST /api/v1/messenger/conversations/:id/messages",
+	"PUT /api/v1/messenger/conversations/:id/messages/:msgId",
+	"PUT /api/v1/messenger/conversations/:id/messages/:msgId/notes-meta",
+	"DELETE /api/v1/messenger/conversations/:id/messages/:msgId",
+	"POST /api/v1/messenger/conversations/:id/read",
+	"POST /api/v1/messenger/conversations/:id/delivered",
+	"POST /api/v1/messenger/conversations/:id/pin",
+	"DELETE /api/v1/messenger/conversations/:id/leave",
+	"POST /api/v1/messenger/groups",
+	"PUT /api/v1/messenger/groups/:id",
+	"POST /api/v1/messenger/groups/:id/members",
+	"DELETE /api/v1/messenger/groups/:id/members/:userId",
+	"GET /api/v1/messenger/groups/:id/members",
+	"POST /api/v1/friends/request",
+	"PUT /api/v1/friends/request/:id/accept",
+	"PUT /api/v1/friends/request/:id/reject",
+	"DELETE /api/v1/friends/request/:id",
+	"DELETE /api/v1/friends/:userId",
+	"GET /api/v1/friends",
+	"GET /api/v1/friends/requests",
+	"GET /api/v1/friends/status/:userId",
+	"GET /api/v1/my-emoji-packs",
+	"GET /api/v1/my-emoji-subscriptions",
+
+	// RPC
+	"GET /api/rpc/get_post_likes_count",
+	"GET /api/rpc/get_thread_likes_count",
+	"GET /api/rpc/get_recent_post_likers",
+	"GET /api/rpc/get_recent_thread_likers",
+	"GET /api/rpc/get_thread_likes_batch",
+	"POST /api/rpc/resolve_emojis",
+	"GET /api/rpc/has_user_liked_post",
+	"GET /api/rpc/has_user_liked_thread",
+	"GET /api/rpc/get_user_likes_given_count",
+	"GET /api/rpc/get_user_likes_received_count",
+	"GET /api/rpc/get_user_thread_likes_given_count",
+	"GET /api/rpc/get_user_thread_likes_received_count",
+	"GET /api/rpc/get_user_post_likes_received_timestamps",
+	"GET /api/rpc/get_user_thread_likes_received_timestamps",
+	"GET /api/rpc/get_user_thread_reply_timestamps",
+	"GET /api/rpc/toggle_wall_post_pin",
+	"POST /api/rpc/get_avatar_history",
+	"POST /api/rpc/delete_avatar_from_history",
+	"POST /api/rpc/toggle_achievement_pin",
+	"POST /api/rpc/award_achievement",
+	"POST /api/rpc/create_gomosub",
+	"GET /api/rpc/get_board_user_permissions",
+	"POST /api/rpc/create_thread",
+	"POST /api/rpc/create_post",
+
+	// Federation
+	"GET /federation/users/:identifier",
+	"GET /federation/gomosubs/:slug",
+	"GET /federation/servers",
+
+	// Storage
+	"GET /storage/v1/object/:bucket/*key",
+	"POST /storage/v1/upload",
+	"DELETE /storage/v1/object/:bucket/*key",
+
+	// OAuth 2.0 / OIDC
+	"GET /oauth/authorize",
+	"POST /oauth/token",
+	"POST /oauth/revoke",
+	"POST /oauth/introspect",
+	"GET /oauth/userinfo",
+	"GET /oauth/app-info",
+	"GET /.well-known/openid-configuration",
+	"GET /.well-known/jwks.json",
+
+	// Dev dashboard + developer panel
+	"GET /api/v1/dev-dashboard/config",
+	"GET /api/v1/developer/apps",
+	"POST /api/v1/developer/apps",
+	"GET /api/v1/developer/apps/:id",
+	"PUT /api/v1/developer/apps/:id",
+	"DELETE /api/v1/developer/apps/:id",
+	"POST /api/v1/developer/apps/:id/regenerate-secret",
+	"GET /api/v1/developer/apps/:id/tokens",
+	"POST /api/v1/developer/apps/:id/revoke-user-tokens",
+
+	// Bots
+	"GET /api/v1/bots",
+	"POST /api/v1/bots",
+	"GET /api/v1/bots/:id",
+	"PUT /api/v1/bots/:id",
+	"DELETE /api/v1/bots/:id",
+	"POST /api/v1/bots/:id/toggle",
+	"POST /api/v1/bots/:id/regenerate-token",
+
+	// Integrations
+	"GET /api/v1/integrations/spotify/now-playing/:user_id",
+	"GET /api/v1/integrations/spotify/callback",
+	"GET /api/v1/integrations/spotify/auth-url",
+	"GET /api/v1/integrations/spotify/status",
+	"GET /api/v1/integrations/spotify/me/state",
+	"DELETE /api/v1/integrations/spotify/disconnect",
+}
+
+func TestSetupRoutes_RegistersAllEndpoints(t *testing.T) {
+	router := newTestRouter(t, false)
+
+	expected := make(map[string]bool, len(expectedRoutes))
+	for _, want := range expectedRoutes {
+		expected[want] = true
+	}
+	registered := make(map[string]bool, len(router.Routes()))
+	var missing, extra []string
+	for _, r := range router.Routes() {
+		key := r.Method + " " + r.Path
+		registered[key] = true
+		if !expected[key] {
+			extra = append(extra, key)
+		}
+	}
+	for _, want := range expectedRoutes {
+		if !registered[want] {
+			missing = append(missing, want)
+		}
+	}
+
+	if len(missing) > 0 {
+		t.Errorf("missing routes (%d):\n  %s", len(missing), joinKeys(missing))
+	}
+	if len(extra) > 0 {
+		t.Errorf("unexpected routes (%d):\n  %s", len(extra), joinKeys(extra))
+	}
+	if len(registered) != len(expectedRoutes) {
+		t.Errorf("route count mismatch: got %d registered, expected %d", len(registered), len(expectedRoutes))
+	}
+}
+
+func joinKeys(keys []string) string {
+	out := ""
+	for i, k := range keys {
+		if i > 0 {
+			out += "\n  "
+		}
+		out += k
+	}
+	return out
+}
+
+func TestSetupRoutes_NoWebSocketWithoutHub(t *testing.T) {
+	router := newTestRouter(t, false)
+	for _, path := range []string{"/ws", "/ws/stats"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s without hub: expected 404, got %d", path, rec.Code)
+		}
+	}
+}
+
+func TestSetupRoutes_WebSocketRoutesWithHub(t *testing.T) {
+	router := newTestRouter(t, true)
+
+	// /ws is registered — a plain GET without upgrade headers must not 404.
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusNotFound {
+		t.Fatal("GET /ws with hub: expected a registered handler, got 404")
+	}
+
+	// /ws/stats is admin-gated → 401 without credentials.
+	req = httptest.NewRequest(http.MethodGet, "/ws/stats", nil)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("GET /ws/stats without auth: expected 401, got %d", rec.Code)
+	}
+}
+
+func TestSetupRoutes_SmokeRequests(t *testing.T) {
+	router := newTestRouter(t, false)
+
+	cases := []struct {
+		name       string
+		method     string
+		path       string
+		wantCode   int
+		notAllowed bool // when set, asserts the code is NOT 404 (route dispatches)
+	}{
+		{name: "ready", method: http.MethodGet, path: "/ready", wantCode: http.StatusOK},
+		{name: "oidc config", method: http.MethodGet, path: "/.well-known/openid-configuration", wantCode: http.StatusOK},
+		{name: "jwks", method: http.MethodGet, path: "/.well-known/jwks.json", wantCode: http.StatusOK},
+		{name: "dev dashboard config", method: http.MethodGet, path: "/api/v1/dev-dashboard/config", wantCode: http.StatusOK},
+		{name: "test-auth requires auth", method: http.MethodGet, path: "/api/v1/test-auth", wantCode: http.StatusUnauthorized},
+		{name: "me requires auth", method: http.MethodGet, path: "/api/v1/auth/me", wantCode: http.StatusUnauthorized},
+		{name: "sessions requires auth", method: http.MethodGet, path: "/api/v1/auth/sessions", wantCode: http.StatusUnauthorized},
+		{name: "bots requires auth", method: http.MethodGet, path: "/api/v1/bots", wantCode: http.StatusUnauthorized},
+		{name: "developer apps requires auth", method: http.MethodGet, path: "/api/v1/developer/apps", wantCode: http.StatusUnauthorized},
+		{name: "rpc requires auth", method: http.MethodGet, path: "/api/rpc/has_user_liked_post", wantCode: http.StatusUnauthorized},
+		{name: "federation user stub", method: http.MethodGet, path: "/federation/users/alice@example.com", wantCode: http.StatusNotImplemented},
+		{name: "federation gomosub stub", method: http.MethodGet, path: "/federation/gomosubs/my-sub", wantCode: http.StatusNotImplemented},
+		{name: "federation servers stub", method: http.MethodGet, path: "/federation/servers", wantCode: http.StatusNotImplemented},
+		{name: "storage without S3", method: http.MethodGet, path: "/storage/v1/object/public/photo.png", wantCode: http.StatusNotImplemented},
+		{name: "unknown route", method: http.MethodGet, path: "/api/v1/definitely-not-a-route", wantCode: http.StatusNotFound},
+		{name: "register dispatches", method: http.MethodPost, path: "/api/v1/auth/register", wantCode: http.StatusBadRequest},
+		{name: "oauth authorize redirects", method: http.MethodGet, path: "/oauth/authorize?response_type=code&client_id=x&redirect_uri=http://localhost/cb", wantCode: http.StatusTemporaryRedirect},
+		{name: "public profiles dispatches", method: http.MethodGet, path: "/api/v1/profiles", notAllowed: true},
+		{name: "public boards dispatches", method: http.MethodGet, path: "/api/v1/boards", notAllowed: true},
+		{name: "public posts dispatches", method: http.MethodGet, path: "/api/v1/posts", notAllowed: true},
+		{name: "messenger routes dispatches", method: http.MethodGet, path: "/api/v1/messenger/conversations", notAllowed: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if tc.notAllowed {
+				if rec.Code == http.StatusNotFound {
+					t.Errorf("%s %s: expected the route to dispatch, got 404", tc.method, tc.path)
+				}
+				return
+			}
+			if rec.Code != tc.wantCode {
+				t.Errorf("%s %s: expected %d, got %d (body: %s)", tc.method, tc.path, tc.wantCode, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// ─── adminOnlyMiddleware ─────────────────────────────────────────────────────
+
+func TestAdminOnlyMiddleware_NoClaims(t *testing.T) {
+	router := gin.New()
+	router.GET("/test", adminOnlyMiddleware(nil), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without claims, got %d", rec.Code)
+	}
+}
+
+func TestAdminOnlyMiddleware_InvalidClaimsType(t *testing.T) {
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("claims", "not-a-claims"); c.Next() })
+	router.GET("/test", adminOnlyMiddleware(nil), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for invalid claims, got %d", rec.Code)
+	}
+}
+
+func TestAdminOnlyMiddleware_NonAdmin(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("claims", &auth.Claims{UserID: "u1"}); c.Next() })
+	router.GET("/test", adminOnlyMiddleware(db), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for a non-admin, got %d", rec.Code)
+	}
+}
+
+func TestAdminOnlyMiddleware_Admin(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("claims", &auth.Claims{UserID: "u1"}); c.Next() })
+	router.GET("/test", adminOnlyMiddleware(db), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for an admin, got %d", rec.Code)
+	}
+}
+
+func TestAdminOnlyMiddleware_DBErrorFailsClosed(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// No expectation → the query fails → must fail closed (403).
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("claims", &auth.Claims{UserID: "u1"}); c.Next() })
+	router.GET("/test", adminOnlyMiddleware(db), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on DB error, got %d", rec.Code)
+	}
+}
+
+// ─── canViewUserWall ─────────────────────────────────────────────────────────
+
+func TestCanViewUserWall_SameUser(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	if !canViewUserWall(db, "u1", "u1") {
+		t.Fatal("a user must always be able to view their own wall")
+	}
+}
+
+func TestCanViewUserWall_NoPrivacyRow_PublicByDefault(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
+		WithArgs("owner").
+		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}))
+
+	if !canViewUserWall(db, "viewer", "owner") {
+		t.Fatal("missing privacy row must default to public")
+	}
+}
+
+func TestCanViewUserWall_PublicProfile(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
+		WithArgs("owner").
+		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(false, false))
+
+	if !canViewUserWall(db, "viewer", "owner") {
+		t.Fatal("a public profile must be viewable")
+	}
+}
+
+func TestCanViewUserWall_PrivateAndNotFriend(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
+		WithArgs("owner").
+		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(true, true))
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs("viewer", "owner").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	if canViewUserWall(db, "viewer", "owner") {
+		t.Fatal("a stranger must not view a private wall")
+	}
+}
+
+func TestCanViewUserWall_PrivateMutualFriend(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile`).
+		WithArgs("owner").
+		WillReturnRows(sqlmock.NewRows([]string{"private_profile", "private_hide_wall"}).AddRow(true, true))
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs("viewer", "owner").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	if !canViewUserWall(db, "viewer", "owner") {
+		t.Fatal("a friend must be able to view the wall")
+	}
+}
+
+func TestCanViewUserWall_DBErrorFailsClosed(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	// No expectation → query error → must fail closed.
+
+	if canViewUserWall(db, "viewer", "owner") {
+		t.Fatal("DB errors must deny wall access")
+	}
+}
