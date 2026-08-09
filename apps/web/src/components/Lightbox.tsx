@@ -36,6 +36,9 @@ export type LightboxProps = {
   onClose: () => void;
   /** When provided, the lightbox gains the crop/epstein image editor. */
   onEditImage?: (index: number, dataUrl: string) => void;
+  /** Open straight into the editor instead of the viewer (used from draft
+      attachment thumbnails, where editing is the primary action). */
+  startInEditMode?: boolean;
   /** "uploads" resolves through the authenticated messenger endpoint; any
       other bucket (default "content") resolves via plain storageUrl. */
   bucket?: string;
@@ -607,7 +610,7 @@ function EditorCanvas({
 
 // ─── Unified Lightbox ────────────────────────────────────────────────────────
 
-export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, bucket = "content" }: LightboxProps) {
+export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, startInEditMode = false, bucket = "content" }: LightboxProps) {
   const [localItems, setLocalItems] = useState<LightboxItem[]>(items);
   const [selectedIndex, setSelectedIndex] = useState(initialIndex);
   const [isEditing, setIsEditing] = useState(false);
@@ -642,6 +645,10 @@ export function Lightbox({ items, initialIndex = 0, onClose, onEditImage, bucket
     emblaApi.on("select", handleSelect);
     return () => { emblaApi.off("select", handleSelect); };
   }, [emblaApi, handleSelect]);
+
+  useEffect(() => {
+    if (startInEditMode && canEdit) setIsEditing(true);
+  }, [startInEditMode, canEdit]);
 
   useEffect(() => {
     setZoom(MIN_ZOOM);

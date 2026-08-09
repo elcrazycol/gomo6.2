@@ -1,6 +1,6 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileAudio2, FileText, FileVideo2, Image as ImageIcon, Loader2, Upload, X } from "lucide-react";
+import { FileAudio2, FileText, FileVideo2, Image as ImageIcon, Loader2, Scissors, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import type { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
@@ -8,6 +8,7 @@ import { clearMediaCache } from "@/utils/mediaCache";
 import { storageUrl } from "@/utils/storage";
 import { AudioAttachment } from "@/components/AudioAttachment";
 import { FileDropZone } from "@/components/FileDropZone";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { UploadProgressChip, type UploadingFileLike } from "@/components/UploadProgressChip";
 import { chipMotion, itemMotion } from "@/components/uploadMotions";
 
@@ -27,6 +28,12 @@ interface ProfileAttachmentUploadProps {
    * drops are handled once by the parent.
    */
   dropZone?: boolean;
+  /**
+   * Enable the crop/epstein editor on draft photos: image thumbnails gain an
+   * edit button that opens the shared lightbox in edit mode, and the edited
+   * data URL replaces the photo in `value` before it is sent.
+   */
+  editable?: boolean;
 }
 
 export interface ProfileAttachmentUploadHandle {
@@ -71,12 +78,13 @@ const attachmentSrc = (bucket: string, att: AttachmentMeta): string => {
 
 export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle, ProfileAttachmentUploadProps>(
   function ProfileAttachmentUpload(
-    { value, onChange, maxFiles = 6, bucket = "content", dropZone = true }: ProfileAttachmentUploadProps,
+    { value, onChange, maxFiles = 6, bucket = "content", dropZone = true, editable = false }: ProfileAttachmentUploadProps,
     ref
   ) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+    const [editImageIndex, setEditImageIndex] = useState<number | null>(null);
     // Always-fresh mirror of `value` so in-flight uploads can append without
     // racing against a stale render-time snapshot (drops can land on the card
     // while a button upload is still running).
@@ -185,6 +193,43 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
       setUploadingFiles((prev) => prev.filter((f) => f.id !== id));
     };
 
+    // Draft-image editing: the edit button on a thumbnail opens the shared
+    // crop/epstein editor on the photo before it is sent. The lightbox counts
+    // photos only, so the clicked attachment is mapped to the image-only list.
+    const openImageEditor = (attachmentIndex: number) => {
+      const clicked = value[attachmentIndex];
+      if (!clicked || clicked.type !== "image") return;
+      const inImageList = value.filter((att) => att.type === "image").findIndex((att) => att === clicked);
+      setEditImageIndex(inImageList);
+    };
+    const handleApplyImageEdit = useCallback(
+      (imageIndex: number, dataUrl: string) => {
+        const images = value.filter((att) => att.type === "image");
+        const target = images[imageIndex];
+        if (!target) return;
+        // Match by url: parents (e.g. CreateWallPost) may swap object identity.
+        // Draft upload keys are unique, so the url identifies the photo.
+        onChange(value.map((att) => (att.url === target.url ? { ...att, url: dataUrl } : att)));
+        setEditImageIndex(null);
+      },
+      [value, onChange]
+    );
+
+    const lightboxItems = useMemo<LightboxItem[]>(
+      () =>
+        value
+          .filter((att) => att.type === "image")
+          .map((att) => ({
+            url: attachmentSrc(bucket, att),
+            type: "image" as const,
+            name: att.name || "Фото",
+            mime: att.mime || "image/*",
+            // LightboxItem.meta is the JSON-string shape the messenger uses.
+            meta: att.meta ? JSON.stringify(att.meta) : null,
+          })),
+      [value, bucket]
+    );
+
     const renderContent = (isDragging: boolean) => (
       <div className="space-y-3">
         {/* Компактная кнопка */}
@@ -234,6 +279,16 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
                         loading="lazy"
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                       />
+                      {editable && (
+                        <button
+                          onClick={() => openImageEditor(index)}
+                          className="absolute bottom-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-black/80"
+                          aria-label="Редактировать фото"
+                          title="Кадрировать / затемнить"
+                        >
+                          <Scissors className="w-3 h-3" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleRemove(index)}
                         className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 transition-opacity hover:bg-black/80"
@@ -283,13 +338,29 @@ export const ProfileAttachmentUpload = forwardRef<ProfileAttachmentUploadHandle,
       </div>
     );
 
-    if (!dropZone) {
-      return renderContent(false);
-    }
+    // The edit lightbox renders as a portal, so it stays outside the drop zone.
+    const renderUploadUi = (isDragging: boolean) => renderContent(isDragging);
+
     return (
-      <FileDropZone onFiles={processFiles} disabled={uploading}>
-        {renderContent}
-      </FileDropZone>
+      <>
+        {dropZone ? (
+          <FileDropZone onFiles={processFiles} disabled={uploading}>
+            {renderUploadUi}
+          </FileDropZone>
+        ) : (
+          renderContent(false)
+        )}
+        {editImageIndex !== null && lightboxItems.length > 0 && (
+          <Lightbox
+            items={lightboxItems}
+            initialIndex={Math.min(editImageIndex, lightboxItems.length - 1)}
+            startInEditMode
+            bucket={bucket}
+            onEditImage={handleApplyImageEdit}
+            onClose={() => setEditImageIndex(null)}
+          />
+        )}
+      </>
     );
   }
 );

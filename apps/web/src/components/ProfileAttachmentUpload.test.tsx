@@ -134,6 +134,32 @@ describe("ProfileAttachmentUpload", () => {
     });
   });
 
+  it("renders an edit button on image thumbnails only when editable is set", () => {
+    const { rerender } = render(
+      <ProfileAttachmentUpload value={makeUploaded()} onChange={() => {}} bucket="wall" />
+    );
+    expect(screen.queryByLabelText("Редактировать фото")).not.toBeInTheDocument();
+
+    rerender(
+      <ProfileAttachmentUpload value={makeUploaded()} onChange={() => {}} bucket="wall" editable />
+    );
+    expect(screen.getByLabelText("Редактировать фото")).toBeInTheDocument();
+  });
+
+  it("opens the crop/epstein editor for a draft photo", () => {
+    const onChange = vi.fn();
+    render(<ProfileAttachmentUpload value={makeUploaded()} onChange={onChange} bucket="wall" editable />);
+
+    // Opens straight into edit mode (startInEditMode): the editor toolbar shows.
+    fireEvent.click(screen.getByLabelText("Редактировать фото"));
+    expect(document.body.textContent).toContain("Кадрировать");
+    expect(document.body.textContent).toContain("Epstein");
+
+    // Closing the lightbox leaves the draft untouched.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("handles upload errors with a toast and clears the chips", async () => {
     vi.mocked(uploadAttachments).mockRejectedValue(new Error("Upload failed"));
 
