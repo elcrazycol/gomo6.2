@@ -57,6 +57,14 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		return
 	}
 
+	// Notes conversations carry client-side E2E ciphertext: the server forwards
+	// it verbatim and never attempts to decrypt it.
+	isNotes, err := h.isNotesConversation(c, conversationID)
+	if err != nil {
+		serverError(c, "check notes conversation", err)
+		return
+	}
+
 	// Pagination and reconnect delta cursor. The two cursor modes are
 	// deliberately mutually exclusive so a reconnect cannot silently turn into
 	// an unrelated backwards page.
@@ -83,12 +91,20 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		}
 	}
 
+	// Notes conversations additionally carry client-encrypted metadata
+	// (pin/folder/tags): select the column only for the notes self-chat so
+	// regular conversations keep the lean projection.
+	selectColumns := `SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
+			m.parent_message_id, m.content, m.is_edited, m.is_deleted,
+			m.edited_at, m.sent_at, m.client_id`
+	if isNotes {
+		selectColumns += `, m.notes_meta`
+	}
+
 	var rows *sql.Rows
 	if sinceEventRaw != "" {
 		rows, err = h.dbFor(c).Query(`
-			SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
-				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id
+			`+selectColumns+`
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1 AND m.event_id > $2
@@ -97,9 +113,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		`, conversationID, sinceEventID, limit)
 	} else if before != "" {
 		rows, err = h.dbFor(c).Query(`
-			SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
-				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id
+			`+selectColumns+`
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1 AND m.sent_at < (
@@ -110,9 +124,7 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		`, conversationID, before, limit)
 	} else {
 		rows, err = h.dbFor(c).Query(`
-			SELECT m.event_id, m.id, m.conversation_id, m.sender_user_id, u.username AS sender_username,
-				m.parent_message_id, m.content, m.is_edited, m.is_deleted,
-				m.edited_at, m.sent_at, m.client_id
+			`+selectColumns+`
 			FROM chat_messages m
 			LEFT JOIN users u ON u.id = m.sender_user_id
 			WHERE m.conversation_id = $1
@@ -134,11 +146,17 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 		var encryptedContent string
 		var isDeleted bool
 
-		if err := rows.Scan(
+		var notesMeta sql.NullString
+		dest := []interface{}{
 			&msg.EventID, &msg.ID, &msg.ConversationID, &msg.SenderUserID, &senderUsername,
 			&parentID, &encryptedContent, &msg.IsEdited, &isDeleted,
 			&editedAt, &msg.SentAt, &msg.ClientID,
-		); err != nil {
+		}
+		if isNotes {
+			dest = append(dest, &notesMeta)
+		}
+
+		if err := rows.Scan(dest...); err != nil {
 			serverError(c, "scan message row", err)
 			return
 		}
@@ -147,9 +165,18 @@ func (h *MessengerHandler) GetMessages(c *gin.Context) {
 			msg.SenderUsername = senderUsername.String
 		}
 
+		if isNotes && notesMeta.Valid {
+			// Client-encrypted pin/folder/tags blob — forward verbatim, the
+			// device decrypts it locally.
+			msg.NotesMeta = &notesMeta.String
+		}
+
 		msg.IsDeleted = isDeleted
 		if isDeleted {
 			msg.Content = ""
+		} else if isNotes {
+			// Client-side E2E blob: forward as-is, the device decrypts locally.
+			msg.Content = encryptedContent
 		} else {
 			// Try per-conversation key first, fall back to master key (for legacy messages).
 			// If decryption fails, replace the ciphertext with a placeholder — the
@@ -242,13 +269,39 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	// Regular server-encrypted message: validate plaintext before encryption.
 	cleanContent := strings.TrimSpace(req.Content)
 	if cleanContent == "" && len(req.Attachments) == 0 {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Content or attachments required"))
 		return
 	}
-	if cleanContent != "" {
+
+	// The personal notes conversation carries client-side E2E ciphertext: the
+	// server stores the opaque blob verbatim and never holds the key. Regular
+	// conversations keep the server-side AES-GCM encryption.
+	isNotes, err := h.isNotesConversation(c, conversationID)
+	if err != nil {
+		serverError(c, "check notes conversation", err)
+		return
+	}
+
+	var encryptedContent string
+	if isNotes {
+		// Client E2E payload: require the marker and enforce a generous cap
+		// (base64 of up to ~4k runes of plaintext). Stored verbatim — the
+		// server must never attempt to decrypt it.
+		if cleanContent != "" {
+			if !strings.HasPrefix(cleanContent, notesContentMarker) {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted note payload"))
+				return
+			}
+			if len(cleanContent) > maxNotesContentLen {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("note payload too large"))
+				return
+			}
+		}
+		encryptedContent = cleanContent
+	} else {
+		// Regular server-encrypted message: validate plaintext before encryption.
 		if len([]rune(cleanContent)) > 4000 {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("content exceeds 4000 characters"))
 			return
@@ -257,11 +310,11 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("HTML content is not allowed"))
 			return
 		}
-	}
-	encryptedContent, err := encryptContentForConversation(conversationID, cleanContent)
-	if err != nil {
-		serverError(c, "encrypt content", err)
-		return
+		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
+		if err != nil {
+			serverError(c, "encrypt content", err)
+			return
+		}
 	}
 
 	// Verify membership
@@ -328,7 +381,9 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			&editedAt, &msg.SentAt, &msg.ClientID,
 		)
 		if err == nil {
-			decryptMessageContent(conversationID, &msg)
+			if !isNotes {
+				decryptMessageContent(conversationID, &msg)
+			}
 			if parentID.Valid {
 				msg.ParentMessageID = &parentID.String
 			}
@@ -384,11 +439,23 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 	// Update the preview in the same transaction as the message. This keeps
 	// the request-scoped RLS binding intact and avoids using a closed tx from a
 	// background goroutine.
-	previewContent := truncatePreview(cleanContent)
-	encryptedPreview, encErr := encryptContentForConversation(conversationID, previewContent)
-	if encErr != nil {
-		serverError(c, "encrypt preview", encErr)
-		return
+	previewContent := cleanContent
+	if !isNotes {
+		previewContent = truncatePreview(cleanContent)
+	}
+	// For notes the preview must be the full client ciphertext — truncating it
+	// would break local decryption (GCM authentication). The device decrypts
+	// the preview locally.
+	var encryptedPreview string
+	if isNotes {
+		encryptedPreview = previewContent
+	} else {
+		var encErr error
+		encryptedPreview, encErr = encryptContentForConversation(conversationID, previewContent)
+		if encErr != nil {
+			serverError(c, "encrypt preview", encErr)
+			return
+		}
 	}
 	if _, err := tx.Exec(`
 		UPDATE chat_conversations
@@ -416,28 +483,36 @@ func (h *MessengerHandler) SendMessage(c *gin.Context) {
 			go invalidateMessengerCaches(h.redis, conversationID, claims.UserID)
 		}
 		if h.hub != nil {
-			go h.broadcastNewMessage(conversationID, msg, claims)
+			go h.broadcastNewMessage(conversationID, msg, claims, isNotes)
 		}
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(msg))
 }
 
-func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageResponse, claims *auth.Claims) {
-	// Broadcast encrypted content, not decrypted — Redis sees ciphertext only
+func (h *MessengerHandler) broadcastNewMessage(convID string, msg MessageResponse, claims *auth.Claims, isNotes bool) {
+	// Broadcast encrypted content, not decrypted — Redis sees ciphertext only.
+	// For the notes self-chat the "ciphertext" is the client-side E2E blob the
+	// client sent; it is forwarded verbatim under the plain "content" key so
+	// the hub passes it through unchanged and the owning device decrypts it
+	// locally.
 	payload := gin.H{
 		"id":                msg.ID,
 		"event_id":          msg.EventID,
 		"conversation_id":   msg.ConversationID,
 		"sender_user_id":    msg.SenderUserID,
 		"parent_message_id": msg.ParentMessageID,
-		"encrypted_content": msg.EncryptedContent,
 		"is_edited":         msg.IsEdited,
 		"is_deleted":        msg.IsDeleted,
 		"edited_at":         msg.EditedAt,
 		"sent_at":           msg.SentAt,
 		"client_id":         msg.ClientID,
 		"sender_username":   claims.Username,
+	}
+	if isNotes {
+		payload["content"] = msg.Content
+	} else {
+		payload["encrypted_content"] = msg.EncryptedContent
 	}
 	if len(msg.Attachments) > 0 {
 		payload["attachments"] = msg.Attachments
@@ -482,17 +557,41 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 		return
 	}
 
-	cleanContent, err := sanitizeContent(req.Content)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+	if strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("content cannot be empty"))
 		return
 	}
 
-	// Encrypt new content with per-conversation key
-	encryptedContent, err := encryptContentForConversation(conversationID, cleanContent)
+	// Notes messages carry client-encrypted ciphertext, stored verbatim.
+	isNotes, err := h.isNotesConversation(c, conversationID)
 	if err != nil {
-		serverError(c, "encrypt edit content", err)
+		serverError(c, "check notes conversation", err)
 		return
+	}
+
+	var encryptedContent string
+	if isNotes {
+		if !strings.HasPrefix(req.Content, notesContentMarker) {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted note payload"))
+			return
+		}
+		if len(req.Content) > maxNotesContentLen {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("note payload too large"))
+			return
+		}
+		encryptedContent = req.Content
+	} else {
+		cleanContent, sErr := sanitizeContent(req.Content)
+		if sErr != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(sErr.Error()))
+			return
+		}
+		req.Content = cleanContent // keep plaintext for the broadcast below
+		encryptedContent, err = encryptContentForConversation(conversationID, cleanContent)
+		if err != nil {
+			serverError(c, "encrypt edit content", err)
+			return
+		}
 	}
 
 	// Membership is checked explicitly before the update. The UPDATE repeats
@@ -526,35 +625,156 @@ func (h *MessengerHandler) EditMessage(c *gin.Context) {
 
 	queueAfterCommit(c, func() {
 		if h.hub != nil {
-			go h.broadcastMessageEdited(messageID, cleanContent, conversationID)
+			go h.broadcastMessageEdited(messageID, req.Content, conversationID, isNotes)
 		}
 	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
 }
 
-func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string) {
-	// Encrypt content before Redis broadcast. If encryption fails, drop the
-	// event instead of publishing plaintext as if it were ciphertext — the
-	// recipient decrypt path would otherwise replace it with a placeholder
-	// anyway, and plaintext must never travel over Redis.
-	encrypted, err := encryptContentForConversation(conversationID, newContent)
-	if err != nil {
-		log.Printf("[Messenger] encrypt edit broadcast: %v — skipping broadcast", err)
-		return
-	}
-	payload := map[string]interface{}{
-		"id":                msgID,
-		"encrypted_content": encrypted,
-		"conversation_id":   conversationID,
-		"edited_at":         time.Now().UTC().Format(time.RFC3339),
-		"event":             "message_edited",
+func (h *MessengerHandler) broadcastMessageEdited(msgID, newContent, conversationID string, isNotes bool) {
+	var payload map[string]interface{}
+	if isNotes {
+		// Forward the client ciphertext verbatim — the hub passes payloads
+		// without "encrypted_content" through unchanged, and the device
+		// decrypts locally.
+		payload = map[string]interface{}{
+			"id":              msgID,
+			"content":         newContent,
+			"conversation_id": conversationID,
+			"edited_at":       time.Now().UTC().Format(time.RFC3339),
+			"event":           "message_edited",
+		}
+	} else {
+		// Encrypt content before Redis broadcast. If encryption fails, drop the
+		// event instead of publishing plaintext as if it were ciphertext — the
+		// recipient decrypt path would otherwise replace it with a placeholder
+		// anyway, and plaintext must never travel over Redis.
+		encrypted, err := encryptContentForConversation(conversationID, newContent)
+		if err != nil {
+			log.Printf("[Messenger] encrypt edit broadcast: %v — skipping broadcast", err)
+			return
+		}
+		payload = map[string]interface{}{
+			"id":                msgID,
+			"encrypted_content": encrypted,
+			"conversation_id":   conversationID,
+			"edited_at":         time.Now().UTC().Format(time.RFC3339),
+			"event":             "message_edited",
+		}
 	}
 	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
 		Type:    "message_edited",
 		Payload: payload,
 	}); err != nil {
 		log.Printf("[Messenger] WS edit broadcast error: %v", err)
+	}
+}
+
+// ─── Update Notes Meta ───────────────────────────────────────────────────────
+// PUT /api/v1/messenger/conversations/:convId/messages/:msgId/notes-meta
+
+// UpdateNotesMeta godoc
+// @Summary      Update notes message metadata (pin/folder/tags)
+// @Description  Stores the client-encrypted metadata blob for a note verbatim.
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Conversation ID"
+// @Param        msgId path string true "Message ID"
+// @Param        request body UpdateNotesMetaRequest true "Encrypted metadata blob"
+// @Success      200 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /messenger/conversations/{id}/messages/{msgId}/notes-meta [put]
+// @Security     BearerAuth
+func (h *MessengerHandler) UpdateNotesMeta(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	conversationID := c.Param("id")
+	messageID := c.Param("msgId")
+	if !isUUID(conversationID) || !isUUID(messageID) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id or message_id"))
+		return
+	}
+
+	var req UpdateNotesMetaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
+		return
+	}
+	req.Meta = strings.TrimSpace(req.Meta)
+	if req.Meta == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("meta is required"))
+		return
+	}
+
+	// Notes metadata exists only in the personal notes self-chat.
+	isNotes, err := h.isNotesConversation(c, conversationID)
+	if err != nil {
+		serverError(c, "check notes conversation", err)
+		return
+	}
+	if !isNotes {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes metadata is only available in the notes chat"))
+		return
+	}
+
+	// Client E2E payload: require the marker and enforce a cap. The blob is
+	// stored verbatim — the server must never attempt to decrypt it.
+	if !strings.HasPrefix(req.Meta, notesContentMarker) {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid encrypted notes metadata"))
+		return
+	}
+	if len(req.Meta) > maxNotesMetaLen {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("notes metadata too large"))
+		return
+	}
+
+	// Only the author of the note can update its metadata; the UPDATE repeats
+	// the message predicates so a guessed message id cannot escape the chat.
+	result, err := h.dbFor(c).Exec(`
+		UPDATE chat_messages
+		SET notes_meta = $1
+		WHERE id = $2 AND conversation_id = $3 AND sender_user_id = $4 AND is_deleted = false
+	`, req.Meta, messageID, conversationID, claims.UserID)
+	if err != nil {
+		serverError(c, "update notes meta", err)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("Message not found or not editable"))
+		return
+	}
+
+	queueAfterCommit(c, func() {
+		if h.hub != nil {
+			go h.broadcastMessageNotesMeta(messageID, conversationID, req.Meta)
+		}
+	})
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"updated": true}))
+}
+
+func (h *MessengerHandler) broadcastMessageNotesMeta(msgID, conversationID, meta string) {
+	// Forward the client ciphertext verbatim — the hub passes payloads without
+	// "encrypted_content" through unchanged, and other devices of the owner
+	// decrypt it locally.
+	payload := map[string]interface{}{
+		"id":              msgID,
+		"conversation_id": conversationID,
+		"notes_meta":      meta,
+		"event":           "message_notes_meta",
+	}
+	if err := h.hub.PublishToRedis(websocket.RedisChannelChat, websocket.RealtimeEvent{
+		Type:    "message_notes_meta",
+		Payload: payload,
+	}); err != nil {
+		log.Printf("[Messenger] WS notes meta broadcast error: %v", err)
 	}
 }
 

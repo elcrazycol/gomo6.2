@@ -23,6 +23,7 @@ interface Props {
   onCancelReply?: () => void;
   pendingAttachments?: Attachment[];
   onAttachmentsChange?: (attachments: Attachment[]) => void;
+  placeholder?: string;
 }
 
 function getAttachmentIcon(type: Attachment["type"]) {
@@ -55,6 +56,7 @@ export const MessageComposer = memo(function MessageComposer({
   onCancelReply,
   pendingAttachments = [],
   onAttachmentsChange,
+  placeholder,
 }: Props) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
@@ -289,7 +291,7 @@ export const MessageComposer = memo(function MessageComposer({
           value={draft}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={isEditing ? "" : "Напиши сообщение..."}
+          placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
           aria-label={isEditing ? "Редактировать сообщение" : "Написать сообщение"}
           maxLength={MAX_LENGTH}
           rows={1}

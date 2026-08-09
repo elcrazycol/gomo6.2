@@ -31,6 +31,8 @@ export type ConversationView = {
   group_name: string | null;
   group_avatar_url: string | null;
   member_count: number;
+  // Personal notes self-chat (client-side E2E encrypted content)
+  is_notes?: boolean;
 };
 
 export type MessageView = {
@@ -48,6 +50,13 @@ export type MessageView = {
   sent_at: string;
   client_id: string;
   attachments?: Attachment[];
+  // Notes self-chat: client-side E2E-encrypted metadata (pin/folder/tags).
+  // notes_meta is the wire ciphertext; notesPinned/notesFolder/notesTags are
+  // the decrypted values the store exposes to the UI.
+  notes_meta?: string | null;
+  notesPinned?: boolean;
+  notesFolder?: string | null;
+  notesTags?: string[];
   // Client-side state
   localStatus?: "sending" | "sent" | "failed";
 };
@@ -92,6 +101,7 @@ export type GroupMember = {
 export type WsEvent =
   | { type: "new_chat_message"; data: MessageView }
   | { type: "message_edited"; data: { id: string; content: string; edited_at: string } }
+  | { type: "message_notes_meta"; data: { id: string; conversation_id: string; notes_meta: string } }
   | { type: "message_deleted"; data: { id: string } }
   | { type: "read_receipt"; data: { message_id: string; user_id: string } }
   | { type: "chat_typing"; data: { user_id: string; username: string; is_typing: boolean } }

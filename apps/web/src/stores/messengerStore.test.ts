@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { destroyMessenger, queueMarkRead, useMessengerStore } from "./messengerStore";
 import { messengerApi } from "@/services/messengerApi";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
+import { encryptNote, encryptNotesMeta } from "@/utils/notesCrypto";
 import type { ConversationView, MessageView } from "@/components/messenger/types";
 
 // Mute the API module so we control responses
@@ -21,7 +22,9 @@ vi.mock("@/services/messengerApi", () => ({
     markRead: vi.fn(),
     markDelivered: vi.fn(),
     getOrCreateConversation: vi.fn(),
+    getOrCreateNotes: vi.fn(),
     togglePin: vi.fn(),
+    updateNotesMeta: vi.fn(),
     getReceipts: vi.fn(),
     getUnreadCount: vi.fn(),
   },
@@ -71,6 +74,7 @@ describe("messengerStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     destroyMessenger();
+    localStorage.clear();
     vi.mocked(loadCachedMessages).mockResolvedValue(null);
     vi.mocked(saveCachedMessages).mockResolvedValue(undefined);
     // loadMessages marks the freshly loaded conversation as read on open.
@@ -344,6 +348,148 @@ describe("messengerStore", () => {
 
       expect(id).toBeNull();
       expect(useMessengerStore.getState().error).toBe("Не удалось открыть диалог");
+    });
+  });
+
+  describe("notes (E2E self-chat)", () => {
+    function notesConv(): ConversationView {
+      return mockConv({
+        id: "notes-1",
+        is_notes: true,
+        other_user_id: null,
+        other_username: "",
+        member_count: 1,
+        last_message_preview: null,
+      });
+    }
+
+    it("creates the notes conversation via API", async () => {
+      vi.mocked(messengerApi.getOrCreateNotes).mockResolvedValue({ conversation_id: "notes-1" });
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([notesConv()]);
+
+      const id = await useMessengerStore.getState().ensureNotesConversation();
+
+      expect(id).toBe("notes-1");
+      expect(useMessengerStore.getState().conversations[0].is_notes).toBe(true);
+    });
+
+    it("encrypts content before sending and decrypts the echoed ciphertext", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConv()],
+      });
+      // The server echoes the client ciphertext verbatim (it cannot decrypt it).
+      vi.mocked(messengerApi.sendMessage).mockImplementation(
+        async (_convId, content) => mockMsg({ id: "server-id", client_id: "c-notes", content }),
+      );
+      vi.mocked(messengerApi.listConversations).mockResolvedValue([]);
+
+      const msgId = await useMessengerStore.getState().sendMessage("Моя секретная заметка", "c-notes");
+
+      expect(msgId).toBe("server-id");
+      const wireContent = vi.mocked(messengerApi.sendMessage).mock.calls[0]![1];
+      // Only ciphertext may leave the device.
+      expect(wireContent.startsWith("e2enote1:")).toBe(true);
+      expect(wireContent.includes("секретная")).toBe(false);
+      // The store shows the readable plaintext.
+      expect(useMessengerStore.getState().messages[0].content).toBe("Моя секретная заметка");
+    });
+
+    it("decrypts notes messages on load", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConv()],
+      });
+      const payload = await encryptNote("старая заметка", "notes-1");
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([mockMsg({ id: "msg-n", content: payload })]);
+
+      await useMessengerStore.getState().loadMessages("notes-1");
+
+      expect(useMessengerStore.getState().messages[0].content).toBe("старая заметка");
+    });
+
+    it("decrypts notes metadata (pin/folder/tags) on load", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConv()],
+      });
+      const payload = await encryptNote("заметка с папкой", "notes-1");
+      const metaPayload = await encryptNotesMeta(
+        { pinned: true, folder: "Идеи", tags: ["важно", "работа"] },
+        "notes-1",
+      );
+      vi.mocked(messengerApi.getMessages).mockResolvedValue([
+        mockMsg({ id: "msg-n", content: payload, notes_meta: metaPayload }),
+      ]);
+
+      await useMessengerStore.getState().loadMessages("notes-1");
+
+      const msg = useMessengerStore.getState().messages[0];
+      expect(msg.content).toBe("заметка с папкой");
+      expect(msg.notesPinned).toBe(true);
+      expect(msg.notesFolder).toBe("Идеи");
+      expect(msg.notesTags).toEqual(["важно", "работа"]);
+    });
+
+    it("setNotesMeta encrypts metadata and syncs it, updating state optimistically", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConv()],
+        messages: [mockMsg({ id: "msg-n", content: "заметка" })],
+      });
+      vi.mocked(messengerApi.updateNotesMeta).mockResolvedValue({ updated: true });
+
+      await useMessengerStore.getState().setNotesMeta("msg-n", {
+        pinned: true,
+        folder: "Идеи",
+        tags: ["важно"],
+      });
+
+      const msg = useMessengerStore.getState().messages[0];
+      expect(msg.notesPinned).toBe(true);
+      expect(msg.notesFolder).toBe("Идеи");
+      expect(msg.notesTags).toEqual(["важно"]);
+      // Only ciphertext may leave the device — folder names never appear.
+      const wire = vi.mocked(messengerApi.updateNotesMeta).mock.calls[0]![2];
+      expect(wire.startsWith("e2enote1:")).toBe(true);
+      expect(wire.includes("Идеи")).toBe(false);
+      expect(wire.includes("важно")).toBe(false);
+    });
+
+    it("setNotesMeta reverts the optimistic update on failure", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConv()],
+        messages: [mockMsg({ id: "msg-n", content: "заметка", notesFolder: "Старое" })],
+      });
+      vi.mocked(messengerApi.updateNotesMeta).mockRejectedValue(new Error("fail"));
+
+      await useMessengerStore.getState().setNotesMeta("msg-n", { pinned: false, folder: "Новое" });
+
+      const msg = useMessengerStore.getState().messages[0];
+      expect(msg.notesFolder).toBe("Старое");
+      expect(useMessengerStore.getState().error).toBe("Не удалось сохранить настройки заметки");
+    });
+
+    it("toggleNotesPin flips the pin flag", async () => {
+      useMessengerStore.setState({
+        me: { id: "u1", username: "test" },
+        selectedConversationId: "notes-1",
+        conversations: [notesConv()],
+        messages: [mockMsg({ id: "msg-n", content: "заметка", notesPinned: false })],
+      });
+      vi.mocked(messengerApi.updateNotesMeta).mockResolvedValue({ updated: true });
+
+      await useMessengerStore.getState().toggleNotesPin("msg-n");
+
+      expect(useMessengerStore.getState().messages[0].notesPinned).toBe(true);
+      const wire = vi.mocked(messengerApi.updateNotesMeta).mock.calls[0]![2];
+      expect(wire.startsWith("e2enote1:")).toBe(true);
     });
   });
 

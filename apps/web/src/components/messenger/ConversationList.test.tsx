@@ -167,7 +167,8 @@ describe("ConversationList", () => {
       mockStore.conversations = conversations;
       mockStore.selectedConversationId = "conv-1";
       const { container } = render(<ConversationList />);
-      const cards = container.querySelectorAll(".conversation-card");
+      // The notes card is pinned on top; regular conversations follow it.
+      const cards = container.querySelectorAll(".conversation-card:not(.notes-card)");
       expect(cards[0]!.className).toContain("is-active");
       expect(cards[1]!.className).not.toContain("is-active");
     });

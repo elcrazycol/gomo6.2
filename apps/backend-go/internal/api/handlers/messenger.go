@@ -28,6 +28,22 @@ func isUUID(s string) bool {
 	return uuidRegex.MatchString(s)
 }
 
+// notesContentMarker prefixes every stored message in the personal notes
+// conversation ("Заметки"). Everything after the marker is a client-encrypted
+// AES-256-GCM blob (see apps/web/src/utils/notesCrypto.ts). The server stores
+// the blob verbatim and never attempts to decrypt it, so note plaintext never
+// reaches the server.
+const notesContentMarker = "e2enote1:"
+
+// maxNotesContentLen caps the notes ciphertext payload: base64 of up to ~4000
+// runes of plaintext plus the 12-byte nonce and GCM tag, with slack.
+const maxNotesContentLen = 24000
+
+// maxNotesMetaLen caps the client-encrypted notes metadata blob (pin/folder/tags).
+// The plaintext JSON is tiny (a few short strings), so this is generous slack
+// for the base64 + GCM overhead.
+const maxNotesMetaLen = 4096
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 // ConversationResponse is returned to the client for conversation list
@@ -54,6 +70,8 @@ type ConversationResponse struct {
 	GroupName   *string `json:"group_name"`
 	GroupAvatar *string `json:"group_avatar_url"`
 	MemberCount int     `json:"member_count"`
+	// Notes: the personal self-chat (client-side E2E encrypted)
+	IsNotes bool `json:"is_notes"`
 }
 
 // MessageResponse is returned to the client
@@ -73,6 +91,9 @@ type MessageResponse struct {
 	SentAt           string       `json:"sent_at"`
 	ClientID         string       `json:"client_id"`
 	Attachments      []Attachment `json:"attachments,omitempty"`
+	// NotesMeta is the client-side E2E-encrypted pin/folder/tags blob for the
+	// personal notes self-chat. It is forwarded verbatim, never decrypted.
+	NotesMeta *string `json:"notes_meta,omitempty"`
 }
 
 // Attachment represents a file attached to a message
@@ -87,9 +108,12 @@ type Attachment struct {
 	SortOrder int     `json:"sort_order"`
 }
 
-// SendMessageRequest is the POST body for sending a message
+// SendMessageRequest is the POST body for sending a message. The content cap
+// is enforced per-conversation in the handler: 4000 runes of plaintext for
+// regular chats, up to maxNotesContentLen of client-encrypted ciphertext for
+// the notes self-chat (which is larger because of base64 + GCM overhead).
 type SendMessageRequest struct {
-	Content         string            `json:"content" binding:"max=4000"`
+	Content         string            `json:"content" binding:"max=24000"`
 	ClientID        string            `json:"client_id" binding:"required"`
 	ParentMessageID *string           `json:"parent_message_id"`
 	Attachments     []AttachmentInput `json:"attachments"`
@@ -106,9 +130,16 @@ type AttachmentInput struct {
 	SortOrder int     `json:"sort_order"`
 }
 
-// EditMessageRequest is the PUT body for editing a message
+// EditMessageRequest is the PUT body for editing a message. Size is validated
+// per-conversation in the handler (see SendMessageRequest).
 type EditMessageRequest struct {
-	Content string `json:"content" binding:"required,max=4000"`
+	Content string `json:"content" binding:"required,max=24000"`
+}
+
+// UpdateNotesMetaRequest is the PUT body for updating a note's encrypted
+// metadata (pin/folder/tags). Meta is the client-side E2E blob, stored verbatim.
+type UpdateNotesMetaRequest struct {
+	Meta string `json:"meta" binding:"required,max=4096"`
 }
 
 // MarkReadRequest is the POST body for marking messages as read

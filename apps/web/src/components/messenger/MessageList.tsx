@@ -61,6 +61,9 @@ export interface MessageListHandle {
 interface MessageListProps {
   onBack: () => void;
   renderMessage: (message: MessageView, prev: MessageView | null, extras: MessageRenderExtras) => ReactNode;
+  /** Notes self-chat: a filtered view of the store messages (folder filter).
+   *  When omitted the full store list is used. */
+  messagesOverride?: MessageView[];
 }
 
 type ScrollerHandlers = Record<string, unknown>;
@@ -78,9 +81,11 @@ type ScrollerHandlers = Record<string, unknown>;
  * refs/state below reset naturally when switching chats.
  */
 export const MessageList = memo(
-  forwardRef<MessageListHandle, MessageListProps>(function MessageList({ onBack, renderMessage }, ref) {
+  forwardRef<MessageListHandle, MessageListProps>(function MessageList({ onBack, renderMessage, messagesOverride }, ref) {
     const conversationId = useMessengerStore((s) => s.selectedConversationId);
-    const messages = useMessengerStore((s) => s.messages);
+    const storeMessages = useMessengerStore((s) => s.messages);
+    // Notes self-chat passes a folder-filtered view; regular chats use the full list.
+    const messages = messagesOverride ?? storeMessages;
     const openingUnreadCount = useMessengerStore((s) => s.openingUnreadCount);
     const isMessagesLoading = useMessengerStore((s) => s.isMessagesLoading);
     const hasMoreMessages = useMessengerStore((s) => s.hasMoreMessages);

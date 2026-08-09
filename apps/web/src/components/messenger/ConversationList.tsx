@@ -1,6 +1,6 @@
 import { memo, useCallback, useState, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { MessageCircle, Search, UserPlus, X } from "lucide-react";
+import { MessageCircle, NotebookPen, Search, UserPlus, X } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -87,6 +87,71 @@ const ConversationCard = memo(function ConversationCard({
             <span className="conversation-preview">{conversation.last_message_preview}</span>
           ) : (
             <span className="conversation-preview muted">Нет сообщений</span>
+          )}
+          {unread > 0 && <span className="count-badge">{unread > 99 ? "99+" : unread}</span>}
+        </div>
+      </div>
+    </button>
+  );
+});
+
+// ─── Notes (Заметки) card — pinned at the top of the list ───────────────────
+// The personal self-chat. When the backend conversation does not exist yet
+// (first visit), a lightweight placeholder card is shown and the conversation
+// is created lazily on click.
+
+const NotesCard = memo(function NotesCard({
+  notes,
+  isSelected,
+  isCollapsed,
+  creating,
+  myUserId,
+  onOpen,
+}: {
+  notes: ConversationView | null;
+  isSelected: boolean;
+  isCollapsed: boolean;
+  creating: boolean;
+  myUserId: string | null;
+  onOpen: () => void;
+}) {
+  const unread = notes?.unread_count ?? 0;
+  const lastMessageIsMine = Boolean(myUserId && notes && notes.last_message_sender_id === myUserId);
+
+  return (
+    <button
+      type="button"
+      className={`conversation-card notes-card${isSelected ? " is-active" : ""}${creating ? " is-creating" : ""}${unread > 0 ? " has-unread" : ""}`}
+      onClick={onOpen}
+      title={isCollapsed ? "Заметки" : undefined}
+      aria-label="Заметки — личный зашифрованный чат"
+    >
+      <div className="avatar-wrapper">
+        <div className="avatar notes-avatar">
+          <span className="notes-avatar-icon"><NotebookPen size={16} /></span>
+        </div>
+      </div>
+      <div className="conversation-copy">
+        <div className="conversation-head">
+          <div className="conversation-user-badge">
+            <div className="conversation-name">
+              <span className="conversation-title notes-title">Заметки</span>
+            </div>
+          </div>
+          <div className="conversation-last-meta" aria-label={`Последнее сообщение: ${formatConversationDate(notes?.last_message_at)}`}>
+            {lastMessageIsMine && <span className="conversation-status" aria-label="Отправлено">✓</span>}
+            <span className="conversation-time">
+              {formatConversationDate(notes?.last_message_at)}
+            </span>
+          </div>
+        </div>
+        <div className="conversation-meta">
+          {notes?.last_message_preview ? (
+            <span className="conversation-preview notes-preview">{notes.last_message_preview}</span>
+          ) : creating ? (
+            <span className="conversation-preview muted">Создаём чат...</span>
+          ) : (
+            <span className="conversation-preview muted notes-subtitle">Только для тебя · 🔒 E2E</span>
           )}
           {unread > 0 && <span className="count-badge">{unread > 99 ? "99+" : unread}</span>}
         </div>
@@ -183,11 +248,16 @@ export const ConversationList = memo(function ConversationList({
   const initLoading = useMessengerStore((s) => s.isInitialLoading);
   const [searchQuery, setSearchQuery] = useState("");
   const [showNewChat, setShowNewChat] = useState(false);
+  const [notesCreating, setNotesCreating] = useState(false);
+
+  const notesConversation = useMemo(() => conversations.find((c) => c.is_notes) ?? null, [conversations]);
 
   const filteredConversations = useMemo(() => {
-    if (!searchQuery.trim()) return conversations;
+    // The notes chat is rendered as its own pinned card on top.
+    const regular = conversations.filter((c) => !c.is_notes);
+    if (!searchQuery.trim()) return regular;
     const q = searchQuery.toLowerCase();
-    return conversations.filter(
+    return regular.filter(
       (c) =>
         c.other_username.toLowerCase().includes(q) ||
         (c.other_display_name?.toLowerCase().includes(q) ?? false) ||
@@ -206,6 +276,17 @@ export const ConversationList = memo(function ConversationList({
       selectConversation(id);
     }
   }, [onSelectConversation, selectConversation]);
+
+  const handleOpenNotes = useCallback(async () => {
+    if (notesConversation) {
+      handleSelect(notesConversation.id);
+      return;
+    }
+    setNotesCreating(true);
+    const convId = await useMessengerStore.getState().ensureNotesConversation();
+    setNotesCreating(false);
+    if (convId) handleSelect(convId);
+  }, [notesConversation, handleSelect]);
 
   return (
     <>
@@ -250,6 +331,15 @@ export const ConversationList = memo(function ConversationList({
             <PentagramLoader size="md" />
           </div>
         )}
+
+        <NotesCard
+          notes={notesConversation}
+          isSelected={Boolean(notesConversation && selectedId === notesConversation.id)}
+          isCollapsed={isCollapsed}
+          creating={notesCreating}
+          myUserId={myUserId}
+          onOpen={handleOpenNotes}
+        />
 
         {conversations.length === 0 && !initLoading && (
           <div className="empty-card">

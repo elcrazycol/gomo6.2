@@ -81,6 +81,7 @@ class MessengerWebSocket {
     this.handlersUnsub.push(
       wsService.on("new_chat_message", (msg) => this.handleNewChatMessage(msg)),
       wsService.on("message_edited", (msg) => this.handleMessageEdited(msg)),
+      wsService.on("message_notes_meta", (msg) => this.handleNotesMeta(msg)),
       wsService.on("message_deleted", (msg) => this.handleMessageDeleted(msg)),
       wsService.on("read_receipt", (msg) => this.handleReadReceipt(msg)),
       wsService.on("chat_typing", (msg) => this.handleTyping(msg)),
@@ -124,11 +125,24 @@ class MessengerWebSocket {
     };
     store.addMessage(message);
 
-    store.updateConversationFromWs(data.conversation_id as string, {
-      last_message_at: data.sent_at as string,
-      last_message_preview: content.slice(0, 80),
-      last_message_sender_id: data.sender_user_id as string,
-    }, !isMine);
+    const conv = store.conversations?.find((c) => c.id === data.conversation_id);
+    const isNotes = Boolean(conv?.is_notes);
+    if (isNotes) {
+      // Notes payloads carry client ciphertext: never feed it into the list
+      // preview (truncating it would break local decryption). The store's
+      // loadConversations decrypts the full preview from the server, and the
+      // optimistic send path already updates it with plaintext.
+      store.updateConversationFromWs(data.conversation_id as string, {
+        last_message_at: data.sent_at as string,
+        last_message_sender_id: data.sender_user_id as string,
+      }, !isMine);
+    } else {
+      store.updateConversationFromWs(data.conversation_id as string, {
+        last_message_at: data.sent_at as string,
+        last_message_preview: content.slice(0, 80),
+        last_message_sender_id: data.sender_user_id as string,
+      }, !isMine);
+    }
 
     if (!isMine) {
       const convId = store.selectedConversationId;
@@ -147,6 +161,15 @@ class MessengerWebSocket {
       is_edited: true,
       edited_at: (data.edited_at as string) ?? new Date().toISOString(),
     });
+  }
+
+  private handleNotesMeta(msg: WebSocketMessage): void {
+    const data = this.getMessageData(msg);
+    if (!data) return;
+    const meta = typeof data.notes_meta === "string" ? data.notes_meta : undefined;
+    if (!meta) return;
+    // The payload carries the client ciphertext; the store decrypts it.
+    useMessengerStore.getState().updateMessage(data.id as string, { notes_meta: meta });
   }
 
   private handleMessageDeleted(msg: WebSocketMessage): void {

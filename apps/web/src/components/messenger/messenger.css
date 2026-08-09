@@ -2795,3 +2795,645 @@ main.is-messenger-page {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ── Notes (Заметки) — personal E2E-encrypted self-chat ───────────────────── */
+
+/* Gradient notebook avatar, used in the conversation list and chat header */
+.notes-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 48%, #3b82f6 100%);
+  color: #fff;
+}
+
+.conversation-card .notes-avatar {
+  width: 44px;
+  height: 44px;
+}
+
+.avatar.small .notes-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+
+.notes-avatar-icon {
+  display: inline-flex;
+  line-height: 1;
+}
+
+.notes-card.is-creating {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.notes-subtitle {
+  letter-spacing: 0.01em;
+}
+
+/* Lock chip in the chat header */
+.notes-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: hsl(var(--primary) / 0.16);
+  color: hsl(var(--primary));
+  flex-shrink: 0;
+}
+
+/* Key-missing banner in the notes chat */
+.notes-key-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border: 1px solid hsl(38 92% 55% / 0.45);
+  background: hsl(38 92% 55% / 0.12);
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.notes-key-banner-action {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 7px;
+  background: hsl(38 92% 45%);
+  color: #1a1203;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notes-key-banner-action:hover {
+  background: hsl(38 92% 50%);
+}
+
+/* Notes empty state */
+.notes-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 48%, #3b82f6 100%);
+  color: #fff;
+}
+
+/* ── Notes security dialog ── */
+.notes-settings-dialog .notes-lock-badge-icon {
+  color: hsl(var(--primary));
+}
+
+.notes-settings-body {
+  display: grid;
+  gap: 18px;
+}
+
+.notes-settings-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--muted) / 0.4);
+}
+
+.notes-settings-status-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.notes-settings-status-icon.is-active {
+  background: hsl(142 70% 42% / 0.16);
+  color: hsl(142 70% 38%);
+}
+
+.notes-settings-status-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notes-settings-status-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.45;
+}
+
+.notes-key-fingerprint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.notes-settings-section-title {
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground));
+}
+
+.notes-settings-section-text {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+
+.notes-settings-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notes-settings-action:hover {
+  filter: brightness(1.08);
+}
+
+.notes-settings-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notes-settings-action.is-done {
+  background: hsl(142 70% 38%);
+}
+
+.notes-exported-key {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: all;
+}
+
+.notes-settings-import {
+  display: flex;
+  gap: 8px;
+}
+
+.notes-settings-import-icon {
+  display: none;
+}
+
+.notes-settings-import input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: hsl(var(--foreground));
+}
+
+.notes-settings-import input:focus {
+  outline: none;
+  border-color: hsl(var(--primary));
+}
+
+.notes-settings-import button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.notes-settings-import button:hover {
+  background: hsl(var(--accent));
+}
+
+.notes-settings-import button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.notes-settings-import-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: hsl(var(--destructive));
+}
+
+/* ── Notes organization: pinned section, folder filter, quick pin, chips ── */
+
+/* Pinned notes section — compact non-virtualized list above the main list */
+.notes-pinned-section {
+  flex-shrink: 0;
+  max-height: 38vh;
+  overflow-y: auto;
+  margin: 10px 14px 2px;
+  padding: 10px 12px 8px;
+  border: 1px solid hsl(var(--primary) / 0.22);
+  border-radius: 12px;
+  background: linear-gradient(180deg, hsl(var(--primary) / 0.07), hsl(var(--primary) / 0.03));
+  box-shadow: inset 0 1px 0 hsl(var(--foreground) / 0.03);
+}
+
+.notes-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: hsl(var(--primary));
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.notes-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.16);
+  color: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.notes-pinned-list {
+  display: grid;
+  gap: 6px;
+}
+
+/* Folder filter chips bar */
+.notes-filter-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 14px 6px;
+  scrollbar-width: none;
+}
+
+.notes-filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.notes-filter-bar button {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.notes-filter-bar button:hover {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--primary) / 0.35);
+}
+
+.notes-filter-bar button.is-active {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 48%, #3b82f6 100%);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* Empty-folder state */
+.notes-filter-empty {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  align-content: center;
+  padding: 32px 20px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  text-align: center;
+}
+
+.notes-filter-empty svg {
+  opacity: 0.6;
+}
+
+/* Folder/tag chips inside a note bubble. The right reserve keeps the
+   absolute timestamp/status pill from overlapping the last chip. */
+.notes-bubble-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding-right: 72px;
+  box-sizing: border-box;
+}
+
+/* Media notes have zero bubble padding — give the chips breathing room. */
+.message-bubble.is-media-bubble .notes-bubble-chips {
+  padding: 6px 10px;
+}
+
+.notes-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 2px 8px;
+  border: 1px solid hsl(var(--primary) / 0.2);
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.08);
+  color: hsl(var(--primary));
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+}
+
+.notes-chip:hover {
+  background: hsl(var(--primary) / 0.16);
+}
+
+.notes-tag-chip {
+  border-color: hsl(var(--muted-foreground) / 0.25);
+  background: hsl(var(--muted) / 0.35);
+  color: hsl(var(--muted-foreground));
+}
+
+.notes-tag-chip:hover {
+  background: hsl(var(--muted) / 0.6);
+}
+
+/* Quick pin button — a sibling of the bubble inside .bubble-row-inner, so it
+   is never clipped by media bubbles' overflow. Notes are a self-chat (the
+   bubble always sits at the row's right edge), so right:2px lands the button
+   exactly on the bubble's top-right corner. Revealed on hover, always visible
+   when pinned. */
+.notes-quick-pin {
+  position: absolute;
+  top: -8px;
+  right: 2px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 50%;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  box-shadow: 0 1px 4px hsl(var(--foreground) / 0.12);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.bubble-row:hover .notes-quick-pin,
+.bubble-row:focus-within .notes-quick-pin,
+.notes-quick-pin.is-pinned {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.notes-quick-pin:hover {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+
+.notes-quick-pin:active {
+  transform: scale(0.88);
+}
+
+.notes-quick-pin.is-pinned {
+  border-color: transparent;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 48%, #3b82f6 100%);
+  color: #fff;
+}
+
+/* Touch devices have no hover — always show the pin affordance */
+@media (hover: none) {
+  .notes-quick-pin {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* ── Notes organize dialog (pin / folder / tags) ── */
+.notes-organize-dialog .notes-lock-badge-icon {
+  color: hsl(var(--primary));
+}
+
+.notes-organize-body {
+  display: grid;
+  gap: 14px;
+  padding-top: 4px;
+}
+
+.notes-organize-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.2);
+}
+
+.notes-organize-row-copy {
+  min-width: 0;
+}
+
+.notes-organize-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notes-organize-label svg {
+  color: hsl(var(--primary));
+  flex-shrink: 0;
+}
+
+.notes-organize-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.notes-organize-field {
+  position: relative;
+}
+
+.notes-organize-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.notes-organize-input-wrap input {
+  width: 100%;
+  padding: 8px 30px 8px 10px;
+  border: 1px solid hsl(var(--input));
+  border-radius: 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.notes-organize-input-wrap input:focus {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.15);
+}
+
+.notes-clear-field {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+
+.notes-clear-field:hover {
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+}
+
+.notes-tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.notes-tag-suggestion {
+  padding: 3px 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.notes-tag-suggestion:hover {
+  border-color: hsl(var(--primary) / 0.35);
+  color: hsl(var(--primary));
+}
+
+.notes-organize-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.notes-organize-cancel {
+  padding: 7px 14px;
+  border: 1px solid hsl(var(--input));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.notes-organize-cancel:hover {
+  background: hsl(var(--thread-hover));
+}
+
+.notes-organize-save {
+  padding: 7px 18px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 48%, #3b82f6 100%);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.12s ease;
+}
+
+.notes-organize-save:hover {
+  filter: brightness(1.08);
+}
+
+.notes-organize-save:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.notes-organize-save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

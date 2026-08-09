@@ -1,5 +1,5 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, MessageCircle, Pin, Gift } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ChevronDown, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -10,6 +10,10 @@ import { MessageComposer } from "./MessageComposer";
 import { UserInfoPanel } from "./UserInfoPanel";
 import { parseGiftContent, GiftDetailDialog } from "./MessageContent";
 import { MessageList, type MessageListHandle } from "./MessageList";
+import { NotesSettingsDialog } from "./NotesSettingsDialog";
+import { NotesOrganizeDialog } from "./NotesOrganizeDialog";
+import { hasNotesKey } from "@/utils/notesCrypto";
+import { isConsecutive } from "./messageListUtils";
 import type { Attachment, MessageView } from "./types";
 
 interface Props {
@@ -38,6 +42,7 @@ export const ChatView = memo(function ChatView({
   const editMessage = useMessengerStore((s) => s.editMessage);
   const deleteMessage = useMessengerStore((s) => s.deleteMessage);
   const togglePin = useMessengerStore((s) => s.togglePin);
+  const toggleNotesPin = useMessengerStore((s) => s.toggleNotesPin);
 
   const messageListRef = useRef<MessageListHandle>(null);
 
@@ -46,13 +51,49 @@ export const ChatView = memo(function ChatView({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>("");
   const [showUserInfo, setShowUserInfo] = useState(false);
+  const [showNotesInfo, setShowNotesInfo] = useState(false);
   const [giftDetailId, setGiftDetailId] = useState<string | null>(null);
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  // Notes self-chat organization
+  const [notesFolderFilter, setNotesFolderFilter] = useState<string | null>(null);
+  const [organizeMessage, setOrganizeMessage] = useState<MessageView | null>(null);
 
   const latestMessageId = messages[messages.length - 1]?.id;
   const latestMessageSentAt = messages[messages.length - 1]?.sent_at;
+  const isNotesChat = Boolean(conversation?.is_notes);
+
+  // Folder chips for the notes chat (decrypted client-side).
+  const noteFolders = useMemo(() => {
+    if (!isNotesChat) return [] as string[];
+    const set = new Set<string>();
+    for (const m of messages) if (m.notesFolder) set.add(m.notesFolder);
+    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [isNotesChat, messages]);
+
+  // Pinned notes are shown in a dedicated section on top of the chat.
+  // Deleted notes never stay in the curated pinned area.
+  const pinnedNotes = useMemo(() => {
+    if (!isNotesChat) return [] as MessageView[];
+    return messages.filter((m) => m.notesPinned && !m.is_deleted);
+  }, [isNotesChat, messages]);
+
+  // The main list shows everything except pinned notes, optionally filtered by
+  // the active folder chip.
+  const visibleMessages = useMemo(() => {
+    if (!isNotesChat) return messages;
+    const unpinned = messages.filter((m) => !m.notesPinned);
+    if (notesFolderFilter === null) return unpinned;
+    if (notesFolderFilter === "none") return unpinned.filter((m) => !m.notesFolder);
+    return unpinned.filter((m) => m.notesFolder === notesFolderFilter);
+  }, [isNotesChat, messages, notesFolderFilter]);
+
+  // Reset notes organization UI when switching chats.
+  useEffect(() => {
+    setNotesFolderFilter(null);
+    setOrganizeMessage(null);
+  }, [conversation?.id]);
 
   // Mark last message delivered + read when new messages arrive (batched)
   useEffect(() => {
@@ -109,15 +150,18 @@ export const ChatView = memo(function ChatView({
 
   const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if ((!draft.trim() && pendingAttachments.length === 0) || isSending) return;
     const clientId = `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    sendMessage(
+    // Keep the draft when the send fails (e.g. notes encryption error) so the
+    // text is never lost.
+    const sentId = await sendMessage(
       draft.trim() || " ",
       clientId,
       replyToMessage?.id ?? undefined,
       pendingAttachments.length > 0 ? pendingAttachments : undefined,
     );
+    if (!sentId) return;
     setDraft("");
     setReplyToMessage(null);
     setPendingAttachments([]);
@@ -217,9 +261,11 @@ export const ChatView = memo(function ChatView({
             isPinned={conversation.pinned_message_id === msg.id}
             isGroup={conversation.is_group}
             isNew={isNew}
+            notesControls={Boolean(conversation.is_notes)}
+            onNotesOrganize={conversation.is_notes ? (m) => setOrganizeMessage(m) : undefined}
             onEdit={handleStartEdit}
             onDelete={deleteMessage}
-            onTogglePin={togglePin}
+            onTogglePin={conversation.is_notes ? toggleNotesPin : togglePin}
             onRetry={(m) => sendMessage(m.content, m.client_id)}
             onReply={handleReply}
             onCopy={handleCopy}
@@ -230,7 +276,7 @@ export const ChatView = memo(function ChatView({
         </div>
       );
     },
-    [conversation, me, messages, receipts, handleStartEdit, deleteMessage, togglePin, sendMessage, handleReply, handleCopy],
+    [conversation, me, messages, receipts, handleStartEdit, deleteMessage, togglePin, toggleNotesPin, sendMessage, handleReply, handleCopy],
   );
 
   if (!conversation || !me) {
@@ -247,13 +293,23 @@ export const ChatView = memo(function ChatView({
     <>
       {/* Header group: topbar + pinned banner — one grid row */}
       <div className="chat-header-group">
-        <div className="chat-topbar" onClick={() => setShowUserInfo(true)}>
+        <div
+          className="chat-topbar"
+          onClick={() => {
+            if (conversation.is_notes) setShowNotesInfo(true);
+            else setShowUserInfo(true);
+          }}
+        >
           <div className="chat-topbar-main">
             <button type="button" className="mobile-only messenger-back-button" onClick={(e) => { e.stopPropagation(); onBack(); }} aria-label="Назад">
               <ArrowLeft size={16} />
             </button>
             <div className="avatar small">
-              {conversation.is_group ? (
+              {conversation.is_notes ? (
+                <div className="avatar notes-avatar">
+                  <span className="notes-avatar-icon"><NotebookPen size={18} /></span>
+                </div>
+              ) : conversation.is_group ? (
                 <span>{conversation.group_name ? conversation.group_name.slice(0, 2).toUpperCase() : "ГР"}</span>
               ) : conversation.other_avatar_url ? (
                 <img src={storageUrl("post-images", conversation.other_avatar_url) || undefined} alt={conversation.other_username || ""} />
@@ -263,18 +319,25 @@ export const ChatView = memo(function ChatView({
             </div>
             <div className="chat-topbar-info">
               <div className="chat-topbar-username flex items-center gap-1">
-                {conversation.is_group ? (
+                {conversation.is_notes ? (
+                  <span className="font-bold text-sm flex items-center gap-1.5">
+                    Заметки
+                    <span className="notes-lock-badge" title="End-to-end шифрование"><Lock size={11} /></span>
+                  </span>
+                ) : conversation.is_group ? (
                   <span className="font-bold text-sm">{conversation.group_name || "Группа"}</span>
                 ) : (
                   <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} disableLink />
                 )}
               </div>
               <p className="presence-copy">
-                {typingUsername
-                  ? <em>{conversation.is_group ? "печатают..." : "печатает..."}</em>
-                  : conversation.is_group
-                    ? `${conversation.member_count} участник${conversation.member_count === 1 ? "" : conversation.member_count < 5 ? "а" : "ов"}`
-                    : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)
+                {conversation.is_notes
+                  ? "Только для тебя · 🔒 шифрование на устройстве"
+                  : typingUsername
+                    ? <em>{conversation.is_group ? "печатают..." : "печатает..."}</em>
+                    : conversation.is_group
+                      ? `${conversation.member_count} участник${conversation.member_count === 1 ? "" : conversation.member_count < 5 ? "а" : "ов"}`
+                      : formatPresence(conversation.other_is_online, conversation.other_last_seen_at)
                 }
               </p>
             </div>
@@ -304,20 +367,96 @@ export const ChatView = memo(function ChatView({
             <button type="button" className="error-dismiss" onClick={() => setError(null)}>×</button>
           </div>
         )}
+        {conversation.is_notes && !hasNotesKey() && (messages.length > 0 || Boolean(conversation.last_message_at)) && (
+          <div className="notes-key-banner">
+            <Lock size={14} />
+            <span>Ключ шифрования не найден на этом устройстве. Заметки можно прочитать, только восстановив ключ из резервной копии.</span>
+            <button type="button" className="notes-key-banner-action" onClick={() => setShowNotesInfo(true)}>
+              Восстановить ключ
+            </button>
+          </div>
+        )}
+        {conversation.is_notes && pinnedNotes.length > 0 && (
+          <div className="notes-pinned-section">
+            <div className="notes-section-heading">
+              <Pin size={12} />
+              <span>Закреплённые</span>
+              <span className="notes-section-count">{pinnedNotes.length}</span>
+            </div>
+            <div className="notes-pinned-list">
+              {pinnedNotes.map((msg, index) => {
+                const prev = index > 0 ? pinnedNotes[index - 1] : null;
+                return (
+                  <div key={msg.id} className="notes-pinned-item">
+                    {renderMessage(msg, prev, {
+                      dateLabel: null,
+                      isConsecutive: isConsecutive(prev, msg),
+                      isNew: false,
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {conversation.is_notes && noteFolders.length > 0 && (
+          <div className="notes-filter-bar" role="tablist" aria-label="Фильтр заметок по папкам">
+            <button
+              type="button"
+              className={notesFolderFilter === null ? "is-active" : ""}
+              onClick={() => setNotesFolderFilter(null)}
+            >
+              Все
+            </button>
+            <button
+              type="button"
+              className={notesFolderFilter === "none" ? "is-active" : ""}
+              onClick={() => setNotesFolderFilter("none")}
+            >
+              Без папки
+            </button>
+            {noteFolders.map((folder) => (
+              <button
+                key={folder}
+                type="button"
+                className={notesFolderFilter === folder ? "is-active" : ""}
+                onClick={() => setNotesFolderFilter(folder)}
+              >
+                {folder}
+              </button>
+            ))}
+          </div>
+        )}
         {isLoading && messages.length === 0 ? (
           <div className="inline-loader"><PentagramLoader size="md" /></div>
-        ) : messages.length === 0 ? (
-          <div className="empty-thread hero">
-            <MessageCircle size={18} />
-            <h2>Диалог готов</h2>
-            <p>Напиши первое сообщение, и переписка начнётся сразу.</p>
-          </div>
+        ) : visibleMessages.length === 0 ? (
+          conversation.is_notes ? (
+            messages.length === 0 ? (
+              <div className="empty-thread hero notes-empty">
+                <div className="notes-empty-icon"><NotebookPen size={22} /></div>
+                <h2>Личные Заметки</h2>
+                <p>Пиши сюда всё, что хочешь сохранить. Каждая заметка шифруется прямо на твоём устройстве — сервер хранит только шифротекст и не может его прочитать.</p>
+              </div>
+            ) : (
+              <div className="notes-filter-empty">
+                <Folder size={18} />
+                <span>{notesFolderFilter !== null ? "В этой папке пока нет заметок" : "Все заметки закреплены"}</span>
+              </div>
+            )
+          ) : (
+            <div className="empty-thread hero">
+              <MessageCircle size={18} />
+              <h2>Диалог готов</h2>
+              <p>Напиши первое сообщение, и переписка начнётся сразу.</p>
+            </div>
+          )
         ) : (
           <MessageList
             key={conversation.id}
             ref={messageListRef}
             onBack={onBack}
             renderMessage={renderMessage}
+            messagesOverride={visibleMessages}
           />
         )}
       </div>
@@ -339,24 +478,37 @@ export const ChatView = memo(function ChatView({
         onCancelReply={handleCancelReply}
         pendingAttachments={pendingAttachments}
         onAttachmentsChange={setPendingAttachments}
+        placeholder={conversation.is_notes ? "Запиши мысль..." : undefined}
+      />
+
+      {/* Notes security dialog (self-chat) */}
+      <NotesSettingsDialog open={showNotesInfo} onOpenChange={setShowNotesInfo} conversationId={conversation.id} />
+
+      {/* Notes organize dialog (pin/folder/tags) */}
+      <NotesOrganizeDialog
+        message={organizeMessage}
+        open={Boolean(organizeMessage)}
+        onOpenChange={(open) => { if (!open) setOrganizeMessage(null); }}
       />
 
       {/* User info panel */}
-      <UserInfoPanel
-        open={showUserInfo}
-        onClose={() => setShowUserInfo(false)}
-        conversationId={conversation.id}
-        userId={conversation.other_user_id || undefined}
-        username={conversation.other_username || undefined}
-        displayName={conversation.other_display_name}
-        avatarUrl={conversation.other_avatar_url}
-        isOnline={conversation.other_is_online}
-        lastSeenAt={conversation.other_last_seen_at}
-        isGroup={conversation.is_group}
-        groupName={conversation.group_name}
-        groupAvatarUrl={conversation.group_avatar_url}
-        memberCount={conversation.member_count}
-      />
+      {!conversation.is_notes && (
+        <UserInfoPanel
+          open={showUserInfo}
+          onClose={() => setShowUserInfo(false)}
+          conversationId={conversation.id}
+          userId={conversation.other_user_id || undefined}
+          username={conversation.other_username || undefined}
+          displayName={conversation.other_display_name}
+          avatarUrl={conversation.other_avatar_url}
+          isOnline={conversation.other_is_online}
+          lastSeenAt={conversation.other_last_seen_at}
+          isGroup={conversation.is_group}
+          groupName={conversation.group_name}
+          groupAvatarUrl={conversation.group_avatar_url}
+          memberCount={conversation.member_count}
+        />
+      )}
 
       {/* Gift detail dialog */}
       {giftDetailId && (

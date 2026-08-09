@@ -493,8 +493,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				middleware.NewMessengerRateLimiter(redis, 120, 1*time.Minute)))
 			{
 				messengerWrite.POST("/messenger/conversations", messengerHandler.GetOrCreateConversation)
+				messengerWrite.POST("/messenger/notes", messengerHandler.GetOrCreateNotesConversation)
 				messengerWrite.POST("/messenger/conversations/:id/messages", messengerHandler.SendMessage)
 				messengerWrite.PUT("/messenger/conversations/:id/messages/:msgId", messengerHandler.EditMessage)
+				messengerWrite.PUT("/messenger/conversations/:id/messages/:msgId/notes-meta", messengerHandler.UpdateNotesMeta)
 				messengerWrite.DELETE("/messenger/conversations/:id/messages/:msgId", messengerHandler.DeleteMessage)
 				messengerWrite.POST("/messenger/conversations/:id/read", messengerHandler.MarkRead)
 				messengerWrite.POST("/messenger/conversations/:id/delivered", messengerHandler.MarkDelivered)

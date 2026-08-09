@@ -1,6 +1,6 @@
 import { memo, useCallback, useLayoutEffect, useState, useRef } from "react";
 import { useDrag } from "@use-gesture/react";
-import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy } from "lucide-react";
+import { Pencil, Trash2, Pin, PinOff, RefreshCw, CornerDownRight, Reply, Copy, Folder, Tag, Tags } from "lucide-react";
 import { formatTime } from "./utils";
 import { MessageContent } from "./MessageContent";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
@@ -16,6 +16,10 @@ interface Props {
   isPinned: boolean;
   isGroup?: boolean;
   isNew?: boolean;
+  /** Notes self-chat: show quick pin button + folder/tag chips. */
+  notesControls?: boolean;
+  /** Notes self-chat: open the organize dialog for this note. */
+  onNotesOrganize?: (message: MessageView) => void;
   senderName?: string;
   onEdit: (id: string, content: string) => void;
   onDelete: (id: string) => void;
@@ -35,6 +39,8 @@ export const MessageBubble = memo(function MessageBubble({
   isPinned,
   isGroup,
   isNew,
+  notesControls,
+  onNotesOrganize,
   senderName,
   onEdit,
   onDelete,
@@ -291,6 +297,35 @@ export const MessageBubble = memo(function MessageBubble({
                   <span className="message-status">{getStatusIcon()}</span>
                 )}
               </div>
+
+              {notesControls && (message.notesFolder || (message.notesTags?.length ?? 0) > 0) && (
+                <div className="notes-bubble-chips">
+                  {message.notesFolder && (
+                    <button
+                      type="button"
+                      className="notes-chip notes-folder-chip"
+                      onClick={() => onNotesOrganize?.(message)}
+                      title="Папка — нажми, чтобы изменить"
+                    >
+                      <Folder size={10} />
+                      <span>{message.notesFolder}</span>
+                    </button>
+                  )}
+                  {message.notesTags?.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className="notes-chip notes-tag-chip"
+                      onClick={() => onNotesOrganize?.(message)}
+                      title="Тег — нажми, чтобы изменить"
+                    >
+                      <Tag size={10} />
+                      <span>{tag}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
             </div>
           </ContextMenuTrigger>
 
@@ -317,8 +352,34 @@ export const MessageBubble = memo(function MessageBubble({
               {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
               <span>{isPinned ? "Открепить" : "Закрепить"}</span>
             </ContextMenuItem>
+            {notesControls && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => onNotesOrganize?.(message)}>
+                  <Tags size={14} /><span>Папка и теги…</span>
+                </ContextMenuItem>
+              </>
+            )}
           </ContextMenuContent>
         </ContextMenu>
+
+        {/* Notes quick pin — sibling of the bubble so media bubbles' overflow
+            cannot clip it; notes are a self-chat, so the bubble always sits at
+            the row's right edge and the button lands on its corner. */}
+        {notesControls && (
+          <button
+            type="button"
+            className={`notes-quick-pin${message.notesPinned ? " is-pinned" : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin(message.id);
+            }}
+            aria-label={message.notesPinned ? "Открепить заметку" : "Закрепить заметку"}
+            title={message.notesPinned ? "Открепить заметку" : "Закрепить заметку"}
+          >
+            {message.notesPinned ? <PinOff size={13} /> : <Pin size={13} />}
+          </button>
+        )}
       </div>
     </div>
   );

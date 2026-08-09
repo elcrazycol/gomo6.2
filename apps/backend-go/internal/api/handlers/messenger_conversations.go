@@ -35,7 +35,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			c.id, c.last_message_at, c.last_message_preview,
 			c.last_message_sender_id, c.pinned_message_id, c.updated_at,
 			cm.unread_count, cm.is_muted,
-			c.is_group, c.group_name, c.group_avatar_url,
+			c.is_group, c.group_name, c.group_avatar_url, c.is_notes,
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
 			-- 1:1 fields (NULL for groups)
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
@@ -67,7 +67,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.ID, &lastMsgAt, &preview,
 			&lastMsgSender, &pinnedMsg, &conv.UpdatedAt,
 			&conv.UnreadCount, &conv.IsMuted,
-			&conv.IsGroup, &groupName, &groupAvatar,
+			&conv.IsGroup, &groupName, &groupAvatar, &conv.IsNotes,
 			&conv.MemberCount,
 			&otherID, &otherUsername, &otherDisplayName,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
@@ -80,18 +80,24 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			conv.LastMessageAt = &lastMsgAt.String
 		}
 		if preview.Valid {
-			// Try per-conversation key first, fall back to master key. If decryption
-			// fails, replace the ciphertext with a placeholder — the encrypted blob
-			// must never be returned to the client.
-			decrypted, err := decryptContentForConversation(conv.ID, preview.String)
-			if err != nil {
-				decrypted, err = decryptContent(preview.String)
-			}
-			if err == nil {
-				conv.LastMessagePreview = &decrypted
+			if conv.IsNotes {
+				// Notes previews are client-side E2E ciphertext: pass the blob
+				// through verbatim so the owning device can decrypt it locally.
+				conv.LastMessagePreview = &preview.String
 			} else {
-				placeholder := crypto.DecryptionFailedPlaceholder
-				conv.LastMessagePreview = &placeholder
+				// Try per-conversation key first, fall back to master key. If decryption
+				// fails, replace the ciphertext with a placeholder — the encrypted blob
+				// must never be returned to the client.
+				decrypted, err := decryptContentForConversation(conv.ID, preview.String)
+				if err != nil {
+					decrypted, err = decryptContent(preview.String)
+				}
+				if err == nil {
+					conv.LastMessagePreview = &decrypted
+				} else {
+					placeholder := crypto.DecryptionFailedPlaceholder
+					conv.LastMessagePreview = &placeholder
+				}
 			}
 		}
 		if lastMsgSender.Valid {
@@ -203,8 +209,52 @@ func (h *MessengerHandler) GetOrCreateConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID}))
 }
 
-// ─── Leave Conversation ──────────────────────────────────────────────────────
-// DELETE /api/v1/messenger/conversations/:id/leave
+// ─── Get or Create Notes Conversation ───────────────────────────────────────
+// POST /api/v1/messenger/notes
+
+// GetOrCreateNotesConversation creates (once per user) the personal "Заметки"
+// self-chat. Messages in it are client-side end-to-end encrypted: the server
+// stores only opaque ciphertext and never holds the key, so it can never
+// decrypt a note.
+//
+// GetOrCreateNotesConversation godoc
+// @Summary      Get or create the personal notes chat
+// @Description  Find or create the user's encrypted "Заметки" self-chat
+// @Tags         Messenger
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /messenger/notes [post]
+// @Security     BearerAuth
+func (h *MessengerHandler) GetOrCreateNotesConversation(c *gin.Context) {
+	claims := ensureAuth(c)
+	if claims == nil {
+		return
+	}
+
+	var convID string
+	if err := h.dbFor(c).QueryRow("SELECT find_or_create_notes_conversation($1)", claims.UserID).Scan(&convID); err != nil {
+		serverError(c, "find or create notes conversation", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"conversation_id": convID, "is_notes": true}))
+}
+
+// isNotesConversation reports whether the conversation is the personal notes
+// self-chat (client-side E2E encrypted content). A nonexistent conversation is
+// treated as a regular one — the caller's membership check rejects it next.
+func (h *MessengerHandler) isNotesConversation(c *gin.Context, conversationID string) (bool, error) {
+	var notes bool
+	err := h.dbFor(c).QueryRow(
+		"SELECT COALESCE(is_notes, false) FROM chat_conversations WHERE id = $1",
+		conversationID,
+	).Scan(&notes)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return notes, err
+}
 
 // LeaveConversation removes the user from a conversation.
 // DELETE /api/v1/messenger/conversations/:id/leave
@@ -229,6 +279,18 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 	conversationID := c.Param("id")
 	if !isUUID(conversationID) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid conversation_id"))
+		return
+	}
+
+	// The personal notes chat cannot be left: it is the user's own encrypted
+	// storage, and leaving would orphan the stored ciphertext.
+	isNotes, err := h.isNotesConversation(c, conversationID)
+	if err != nil {
+		serverError(c, "check notes conversation", err)
+		return
+	}
+	if isNotes {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("Notes conversation cannot be left"))
 		return
 	}
 

@@ -40,6 +40,7 @@ export type WebSocketMessageType =
   | 'new_notification'
   | 'new_chat_message'
   | 'message_edited'
+  | 'message_notes_meta'
   | 'message_deleted'
   | 'read_receipt'
   | 'chat_typing'

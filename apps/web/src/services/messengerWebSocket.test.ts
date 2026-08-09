@@ -85,6 +85,7 @@ describe("messengerWebSocket", () => {
       expect(mockWsService.connect).not.toHaveBeenCalled();
       expect(mockWsService.on).toHaveBeenCalledWith("new_chat_message", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("message_edited", expect.any(Function));
+      expect(mockWsService.on).toHaveBeenCalledWith("message_notes_meta", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("message_deleted", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("read_receipt", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("chat_typing", expect.any(Function));
@@ -95,7 +96,7 @@ describe("messengerWebSocket", () => {
     it("does not double-register handlers", () => {
       messengerWs.connect();
       messengerWs.connect();
-      expect(mockWsService.on).toHaveBeenCalledTimes(8);
+      expect(mockWsService.on).toHaveBeenCalledTimes(9);
     });
   });
 
@@ -132,6 +133,18 @@ describe("messengerWebSocket", () => {
         content: "Edited",
         is_edited: true,
       }));
+    });
+
+    it("handles message_notes_meta", () => {
+      emitToHandlers("message_notes_meta", {
+        id: "msg-1",
+        conversation_id: "conv-1",
+        notes_meta: "e2enote1:someciphertext",
+      });
+
+      expect(storeMocks.updateMessage).toHaveBeenCalledWith("msg-1", {
+        notes_meta: "e2enote1:someciphertext",
+      });
     });
 
     it("handles message_deleted", () => {

@@ -3,6 +3,8 @@ import type { Attachment, ConversationView, MessageView, TypingUser, ReceiptRow 
 import { messengerApi } from "@/services/messengerApi";
 import { eventManager } from "@/services/eventManager";
 import { loadCachedMessages, saveCachedMessages } from "@/utils/messengerCache";
+import { decryptNote, decryptNotesMeta, encryptNote, encryptNotesMeta, NOTES_LOCKED } from "@/utils/notesCrypto";
+import type { NotesMeta } from "@/utils/notesCrypto";
 
 let messageLoadGeneration = 0;
 let loadMoreRequestGeneration = 0;
@@ -31,6 +33,58 @@ function persistMessages(ownerId: string | null, conversationId: string, message
   void saveCachedMessages(ownerId, conversationId, messages);
 }
 
+// ─── Notes (client-side E2E self-chat) helpers ───────────────────────────────
+
+function notesConversationExists(conversationId: string | null | undefined): boolean {
+  if (!conversationId) return false;
+  return useMessengerStore.getState().conversations.some((c) => c.id === conversationId && c.is_notes);
+}
+
+// Decrypts a batch of messages for the notes conversation. The store only ever
+// holds readable plaintext; the IndexedDB cache keeps what the server stores.
+// Notes metadata (pin/folder/tags) is decrypted alongside the body.
+async function decryptNotesMessages(conversationId: string, messages: MessageView[]): Promise<MessageView[]> {
+  if (!notesConversationExists(conversationId) || messages.length === 0) return messages;
+  return Promise.all(
+    messages.map(async (message) => {
+      let next: MessageView = message;
+      if (message.content && !message.is_deleted) {
+        const decrypted = await decryptNote(message.content, conversationId);
+        if (decrypted === null) {
+          if (message.content !== NOTES_LOCKED) next = { ...next, content: NOTES_LOCKED };
+        } else {
+          next = { ...next, content: decrypted };
+        }
+      }
+      if (message.notes_meta) {
+        const meta = await decryptNotesMeta(message.notes_meta, conversationId);
+        if (meta) {
+          next = {
+            ...next,
+            notesPinned: meta.pinned ?? false,
+            notesFolder: meta.folder ?? null,
+            notesTags: meta.tags ?? [],
+          };
+        }
+      }
+      return next;
+    }),
+  );
+}
+
+// Decrypts notes conversation previews (the server passes the client
+// ciphertext through verbatim so the device can decrypt them locally).
+async function decryptNotesPreviews(conversations: ConversationView[]): Promise<ConversationView[]> {
+  if (!conversations.some((c) => c.is_notes)) return conversations;
+  return Promise.all(
+    conversations.map(async (c) => {
+      if (!c.is_notes || !c.last_message_preview) return c;
+      const decrypted = await decryptNote(c.last_message_preview, c.id);
+      return { ...c, last_message_preview: decrypted ?? NOTES_LOCKED };
+    }),
+  );
+}
+
 function canApplyMessageLoad(ownerId: string | null, conversationId: string, generation: number): boolean {
   const state = useMessengerStore.getState();
   const selected = state.selectedConversationId;
@@ -40,7 +94,9 @@ function canApplyMessageLoad(ownerId: string | null, conversationId: string, gen
 }
 
 function cacheCurrentMessages(ownerId: string | null, conversationId: string, messages: MessageView[]): void {
-  if (messages.length > 0) persistMessages(ownerId, conversationId, messages);
+  // Notes content is encrypted with a device-local key; never persist it to
+  // the IndexedDB cache (the store already holds the readable plaintext).
+  if (messages.length > 0 && !notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, messages);
 }
 
 function normalizeConversationUnread(conversation: ConversationView, selectedId: string | null): ConversationView {
@@ -229,7 +285,12 @@ type MessengerStore = {
   markRead: (messageId: string) => Promise<void>;
   markDelivered: (messageId: string) => Promise<void>;
   createConversation: (userId: string) => Promise<string | null>;
+  ensureNotesConversation: () => Promise<string | null>;
   togglePin: (messageId: string) => Promise<void>;
+  /** Updates a note's encrypted metadata (pin/folder/tags) and syncs it. */
+  setNotesMeta: (messageId: string, meta: NotesMeta) => Promise<void>;
+  /** Flips the pin flag of a note. */
+  toggleNotesPin: (messageId: string) => Promise<void>;
   loadReceipts: (conversationId: string) => Promise<void>;
 
   // ── Actions (local) ───────────────────────────────────────────────────
@@ -283,12 +344,15 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
       eventManager.setMessengerCallbacks({
         onCountUpdate: (convs) => {
           const { selectedConversationId } = useMessengerStore.getState();
-          const updated = convs.map((c) => normalizeConversationUnread(c as ConversationView, selectedConversationId));
-          // EventManager already fetched this snapshot. Invalidate any older
-          // list request before applying it, while preserving a local read
-          // marker that the server response may not have observed yet.
-          conversationLoadGeneration += 1;
-          useMessengerStore.setState({ conversations: updated as ConversationView[] });
+          void (async () => {
+            const decrypted = await decryptNotesPreviews(convs as ConversationView[]);
+            const updated = decrypted.map((c) => normalizeConversationUnread(c, selectedConversationId));
+            // EventManager already fetched this snapshot. Invalidate any older
+            // list request before applying it, while preserving a local read
+            // marker that the server response may not have observed yet.
+            conversationLoadGeneration += 1;
+            useMessengerStore.setState({ conversations: updated });
+          })();
         },
         onReconnect: () => {
           const activeConversationId = useMessengerStore.getState().selectedConversationId;
@@ -318,7 +382,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   // ── Load conversations ────────────────────────────────────────────────
   loadConversations: async () => {
     const generation = ++conversationLoadGeneration;
-    const convs = await messengerApi.listConversations();
+    const raw = await messengerApi.listConversations();
+    const convs = await decryptNotesPreviews(raw);
     if (generation !== conversationLoadGeneration) return;
     const selectedId = get().selectedConversationId;
     // The open conversation is considered read locally immediately. This
@@ -335,7 +400,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     if (conversations.some((c) => c.id === conversationId)) return;
     // Not found — reload full list (server has correct unread_count)
     const generation = ++conversationLoadGeneration;
-    const convs = await messengerApi.listConversations();
+    const raw = await messengerApi.listConversations();
+    const convs = await decryptNotesPreviews(raw);
     if (generation !== conversationLoadGeneration) return;
     const selectedId = get().selectedConversationId;
     set({
@@ -354,21 +420,46 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     // runs immediately and remains authoritative when it succeeds.
     try {
       const cached = ownerId ? await loadCachedMessages(ownerId, conversationId) : null;
-      if (cached && cached.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
+      const cachedView = cached ? await decryptNotesMessages(conversationId, cached) : null;
+      if (cachedView && cachedView.length > 0 && canApplyMessageLoad(ownerId, conversationId, generation)) {
         hasCachedMessages = true;
-        rememberLatestEventId(conversationId, cached);
-        set({ messages: cached, hasMoreMessages: cached.length >= 50 });
+        rememberLatestEventId(conversationId, cachedView);
+        set({ messages: cachedView, hasMoreMessages: cachedView.length >= 50 });
       }
     } catch {
       // IndexedDB is an optional optimization; never block the network path.
     }
 
     try {
-      const msgs = await messengerApi.getMessages(conversationId);
+      // Notes are personal-scale: load every message so the pinned section and
+      // folder filters are complete — a pinned note could otherwise sit beyond
+      // the first paginated page. Loop 100-message pages with the `before`
+      // cursor until the server returns an empty page.
+      let raw: MessageView[];
+      if (notesConversationExists(conversationId)) {
+        raw = [];
+        let before: string | undefined;
+        for (let page = 0; page < 200; page += 1) {
+          const pageRaw = await messengerApi.getMessages(conversationId, before, undefined, 100);
+          if (pageRaw.length === 0) break;
+          raw = [...pageRaw, ...raw];
+          if (pageRaw.length < 100) break;
+          before = pageRaw[0].id;
+        }
+      } else {
+        raw = await messengerApi.getMessages(conversationId);
+      }
+      const msgs = await decryptNotesMessages(conversationId, raw);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) return;
-      set({ messages: msgs, isMessagesLoading: false, hasMoreMessages: msgs.length >= 50 });
+      set({
+        messages: msgs,
+        isMessagesLoading: false,
+        hasMoreMessages: !notesConversationExists(conversationId) && msgs.length >= 50,
+      });
       rememberLatestEventId(conversationId, msgs);
-      persistMessages(ownerId, conversationId, msgs);
+      // Notes content is device-encrypted: never persist it to the IndexedDB
+      // cache (the store already holds the readable plaintext).
+      if (!notesConversationExists(conversationId)) persistMessages(ownerId, conversationId, msgs);
       // The conversation is on screen: tell the server immediately that it is
       // fully read, using the newest visible message (own or other). Relying on
       // the other user's last message alone lets a conversation whose newest
@@ -393,7 +484,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const ownerId = get().me?.id ?? null;
     const sinceEventId = latestEventIds.get(conversationId);
     try {
-      const delta = await messengerApi.getMessages(conversationId, undefined, sinceEventId);
+      const raw = await messengerApi.getMessages(conversationId, undefined, sinceEventId);
+      const delta = await decryptNotesMessages(conversationId, raw);
       if (get().selectedConversationId !== conversationId || get().me?.id !== ownerId) return;
       if (delta.length === 0) return;
       set((s) => {
@@ -422,7 +514,8 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const oldest = messages[0];
     set({ isLoadingMore: true });
     try {
-      const older = await messengerApi.getMessages(conversationId, oldest.id);
+      const raw = await messengerApi.getMessages(conversationId, oldest.id);
+      const older = await decryptNotesMessages(conversationId, raw);
       if (!canApplyMessageLoad(ownerId, conversationId, generation)) {
         if (requestGeneration === loadMoreRequestGeneration) {
           set({ isLoadingMore: false });
@@ -471,6 +564,19 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const { selectedConversationId } = get();
     if (!selectedConversationId) return "";
 
+    // Notes: encrypt plaintext locally before it ever leaves the device. The
+    // server stores the ciphertext verbatim and never holds the key.
+    const isNotes = notesConversationExists(selectedConversationId);
+    let wireContent = content;
+    if (isNotes && content.trim()) {
+      try {
+        wireContent = await encryptNote(content, selectedConversationId);
+      } catch {
+        set({ error: "Не удалось зашифровать заметку" });
+        return "";
+      }
+    }
+
     // Optimistic insert
     const tempId = `temp_${clientId}`;
     const optimistic: MessageView = {
@@ -492,18 +598,25 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     try {
       const msg: MessageView = await messengerApi.sendMessage(
         selectedConversationId,
-        content,
+        wireContent,
         clientId,
         parentMessageId,
         attachments,
       );
       const sentAt = msg.sent_at;
+      // For notes the server echoes the client ciphertext; decrypt it back to
+      // plaintext so the store only ever holds readable notes.
+      let displayContent = msg.content;
+      if (isNotes) {
+        const decrypted = await decryptNote(msg.content, selectedConversationId);
+        displayContent = decrypted ?? content;
+      }
       set((s) => {
         // Update message from optimistic to real — preserve attachments from optimistic if server doesn't return them
         const messages = s.messages.map((m) => {
           if (m.client_id !== clientId) return m;
           const serverAttachments = msg.attachments && msg.attachments.length > 0 ? msg.attachments : m.attachments;
-          return { ...msg, attachments: serverAttachments, localStatus: "sent" as const };
+          return { ...msg, content: displayContent, attachments: serverAttachments, localStatus: "sent" as const };
         });
         // Optimistically update conversation: move to top with new preview
         const target = s.conversations.find((c) => c.id === selectedConversationId);
@@ -545,6 +658,17 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     const { selectedConversationId } = get();
     if (!selectedConversationId) return;
 
+    // Notes: encrypt the new content locally before the edit request.
+    let wireContent = content;
+    if (notesConversationExists(selectedConversationId) && content.trim()) {
+      try {
+        wireContent = await encryptNote(content, selectedConversationId);
+      } catch {
+        set({ error: "Не удалось зашифровать заметку" });
+        return;
+      }
+    }
+
     // Save original content for rollback
     const original = get().messages.find((m) => m.id === messageId);
     const originalContent = original?.content ?? content;
@@ -555,7 +679,7 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }));
 
     try {
-      await messengerApi.editMessage(selectedConversationId, messageId, content);
+      await messengerApi.editMessage(selectedConversationId, messageId, wireContent);
     } catch {
       // Revert to original content on failure
       set((s) => ({
@@ -621,6 +745,18 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
   },
 
+  // ── Get or create the personal notes chat ─────────────────────────────
+  ensureNotesConversation: async () => {
+    try {
+      const resp = await messengerApi.getOrCreateNotes();
+      await get().loadConversations();
+      return resp.conversation_id;
+    } catch (e) {
+      set({ error: "Не удалось открыть Заметки" });
+      return null;
+    }
+  },
+
   // ── Toggle pin ────────────────────────────────────────────────────────
   togglePin: async (messageId: string) => {
     const { selectedConversationId } = get();
@@ -635,6 +771,51 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     } catch {
       set({ error: "Не удалось закрепить сообщение" });
     }
+  },
+
+  // ── Notes metadata (pin/folder/tags, client-side E2E) ────────────────
+  setNotesMeta: async (messageId, meta) => {
+    const { selectedConversationId } = get();
+    if (!selectedConversationId) return;
+    const original = get().messages.find((m) => m.id === messageId);
+    if (!original) return;
+    const normalized: NotesMeta = {
+      pinned: Boolean(meta.pinned),
+      folder: meta.folder?.trim() ? meta.folder.trim() : null,
+      tags: (meta.tags ?? []).map((tag) => tag.trim()).filter(Boolean),
+    };
+    const apply = (patch: Partial<MessageView>) =>
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+      }));
+    // Optimistic update — the notes chat feels instant.
+    apply({
+      notesPinned: normalized.pinned,
+      notesFolder: normalized.folder,
+      notesTags: normalized.tags,
+    });
+    try {
+      const wire = await encryptNotesMeta(normalized, selectedConversationId);
+      await messengerApi.updateNotesMeta(selectedConversationId, messageId, wire);
+    } catch {
+      // Revert on failure so the UI never shows state the server lacks.
+      apply({
+        notesPinned: original.notesPinned ?? false,
+        notesFolder: original.notesFolder ?? null,
+        notesTags: original.notesTags ?? [],
+      });
+      set({ error: "Не удалось сохранить настройки заметки" });
+    }
+  },
+
+  toggleNotesPin: async (messageId) => {
+    const message = get().messages.find((m) => m.id === messageId);
+    if (!message) return;
+    await get().setNotesMeta(messageId, {
+      pinned: !message.notesPinned,
+      folder: message.notesFolder ?? null,
+      tags: message.notesTags ?? [],
+    });
   },
 
   // ── Load receipts (debounced) ─────────────────────────────────────────
@@ -688,28 +869,81 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
   setError: (error) => set({ error }),
 
   addMessage: (message) => {
-    set((s) => {
-      // Dedup
-      if (s.messages.some((m) => m.id === message.id || m.client_id === message.client_id)) return s;
-      // Events for another conversation update its preview, but must never
-      // leak into the currently visible message list.
-      if (s.selectedConversationId && s.selectedConversationId !== message.conversation_id) return s;
-      const messages = [...s.messages, message].sort(
-        (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
-      );
-      rememberLatestEventId(message.conversation_id, messages);
-      cacheCurrentMessages(s.me?.id ?? null, message.conversation_id, messages);
-      return { messages };
-    });
+    const apply = (finalMessage: MessageView) => {
+      set((s) => {
+        // Dedup
+        if (s.messages.some((m) => m.id === message.id || m.client_id === message.client_id)) return s;
+        // Events for another conversation update its preview, but must never
+        // leak into the currently visible message list.
+        if (s.selectedConversationId && s.selectedConversationId !== message.conversation_id) return s;
+        const messages = [...s.messages, finalMessage].sort(
+          (a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime(),
+        );
+        rememberLatestEventId(message.conversation_id, messages);
+        cacheCurrentMessages(s.me?.id ?? null, message.conversation_id, messages);
+        return { messages };
+      });
+    };
+    if (!notesConversationExists(message.conversation_id)) {
+      apply(message);
+      return;
+    }
+    // Notes WS payloads carry the client ciphertext — decrypt before showing.
+    void (async () => {
+      const content = message.content
+        ? (await decryptNote(message.content, message.conversation_id)) ?? NOTES_LOCKED
+        : message.content;
+      apply({ ...message, content });
+    })();
   },
 
   updateMessage: (id, updates) => {
-    set((s) => {
-      const messages = s.messages.map((m) => (m.id === id ? { ...m, ...updates } : m));
-      const changed = messages.some((m, index) => m !== s.messages[index]);
-      if (changed && s.selectedConversationId) cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
-      return { messages };
-    });
+    const apply = (finalUpdates: Partial<MessageView>) => {
+      set((s) => {
+        const messages = s.messages.map((m) => (m.id === id ? { ...m, ...finalUpdates } : m));
+        const changed = messages.some((m, index) => m !== s.messages[index]);
+        if (changed && s.selectedConversationId) cacheCurrentMessages(s.me?.id ?? null, s.selectedConversationId, messages);
+        return { messages };
+      });
+    };
+    const content = updates.content;
+    const conversationId = get().selectedConversationId;
+    if (conversationId && notesConversationExists(conversationId)) {
+      if (updates.notes_meta !== undefined) {
+        // WS notes-meta events carry the client ciphertext — decrypt first and
+        // never keep the wire blob on the readable message.
+        void (async () => {
+          const meta = await decryptNotesMeta(updates.notes_meta, conversationId);
+          if (!meta) {
+            apply({
+              ...updates,
+              notes_meta: undefined,
+              notesPinned: false,
+              notesFolder: null,
+              notesTags: [],
+            });
+            return;
+          }
+          apply({
+            ...updates,
+            notes_meta: undefined,
+            notesPinned: meta.pinned ?? false,
+            notesFolder: meta.folder ?? null,
+            notesTags: meta.tags ?? [],
+          });
+        })();
+        return;
+      }
+      if (content !== undefined) {
+        // WS edit events for notes carry the client ciphertext — decrypt first.
+        void (async () => {
+          const decrypted = (await decryptNote(content, conversationId)) ?? NOTES_LOCKED;
+          apply({ ...updates, content: decrypted });
+        })();
+        return;
+      }
+    }
+    apply(updates);
   },
 
   removeMessage: (id) => {

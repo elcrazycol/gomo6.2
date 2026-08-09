@@ -99,13 +99,27 @@ export const messengerApi = {
     });
   },
 
+  /** Creates (once per user) the personal E2E-encrypted "Заметки" self-chat. */
+  async getOrCreateNotes(): Promise<{ conversation_id: string }> {
+    return req("/notes", { method: "POST" });
+  },
+
   // ── Messages ──────────────────────────────────────────────────────────
-  async getMessages(conversationId: string, before?: string, sinceEventId?: string): Promise<MessageView[]> {
+  async getMessages(conversationId: string, before?: string, sinceEventId?: string, limit?: number): Promise<MessageView[]> {
     const params = new URLSearchParams();
     if (before) params.set("before", before);
     if (sinceEventId !== undefined) params.set("since_event_id", String(sinceEventId));
+    if (limit !== undefined) params.set("limit", String(limit));
     const query = params.toString();
     return req<MessageView[]>(`/conversations/${conversationId}/messages${query ? `?${query}` : ""}`);
+  },
+
+  /** Stores the client-encrypted pin/folder/tags blob for a note (verbatim). */
+  async updateNotesMeta(conversationId: string, messageId: string, meta: string): Promise<{ updated: boolean }> {
+    return req(`/conversations/${conversationId}/messages/${messageId}/notes-meta`, {
+      method: "PUT",
+      body: JSON.stringify({ meta }),
+    });
   },
 
   async sendMessage(
