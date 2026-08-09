@@ -1,7 +1,6 @@
-# Map the owner's historical identities to the current Codeberg account.
-# Applied by Forgejo and GitHub when displaying commit authors.
-# (gpt-engineer-app[bot] and Codebuff commits are intentionally left as-is.)
-Crazy Col <crazycol@noreply.codeberg.org> <alexeyhramenkov@gmail.com>
+# Historical identities of the repo owner, mapped to the Codeberg account.
+# History was fully rewritten (git-filter-repo), these lines are kept as
+# documentation. (gpt-engineer-app[bot] and Codebuff commits are untouched.)
 Crazy Col <crazycol@noreply.codeberg.org> <131589019+scramble22@users.noreply.github.com>
 Crazy Col <crazycol@noreply.codeberg.org> <didkogolodomor@xyecoc.com>
 Crazy Col <crazycol@noreply.codeberg.org> <131589019+elcrazycol@users.noreply.github.com>
