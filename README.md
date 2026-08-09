@@ -5,7 +5,7 @@
 </p><p align="center">
   <a href="https://codeberg.org/crazycol/gomo6.2/actions"><img src="https://img.shields.io/badge/CI-passing-44cc11?style=flat-square&logo=forgejo&logoColor=white" alt="CI"></a>
   <a href="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml/badge.svg?style=flat-square" alt="Deploy"></a>
-  <a href="https://codeberg.org/crazycol/gomo6.2/src/branch/main/LICENSE.md"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-a42e2b?style=flat-square"></a>
+  <a href="https://codeberg.org/crazycol/gomo6.2/src/branch/main/LICENSE.md"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-a42e2b?style=flat-square&color=orange"></a>
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://codeberg.org/crazycol/gomo6.2"><img src="https://img.shields.io/gitea/last-commit/crazycol/gomo6.2?gitea_url=https://codeberg.org&style=flat-square&logo=forgejo" alt="last commit"></a>
+  <a href="https://codeberg.org/crazycol/gomo6.2"><img src="https://img.shields.io/gitea/last-commit/crazycol/gomo6.2?gitea_url=https://codeberg.org&style=for-the-badge&logo=codeberg&logoColor=white" alt="last commit"></a>
 </p>
 ---
 
