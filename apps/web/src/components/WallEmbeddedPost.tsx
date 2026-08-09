@@ -9,13 +9,14 @@ import { ProcessedContent } from "@/components/ProcessedContent";
 import { WallAttachments } from "@/components/WallAttachments";
 import { normalizeAttachments, isInteractiveTarget, getWallPostPath } from "@/utils/wallNormalizers";
 import type { WallPost } from "@/utils/wallNormalizers";
+import type { LightboxItem } from "@/components/Lightbox";
 import { safeDate } from "@/utils/safeDate";
 
 interface EmbeddedWallPostProps {
   post: WallPost;
   currentUserId: string | null;
   currentUsername: string;
-  onImageClick: (images: string[], index: number) => void;
+  onImageClick: (items: LightboxItem[], index: number) => void;
 }
 
 export const EmbeddedWallPost = ({

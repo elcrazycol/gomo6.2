@@ -23,6 +23,7 @@ import { CreateWallPost } from "@/components/CreateWallPost";
 import { ActionButton } from "@/components/WallActionButton";
 import { WallAttachments } from "@/components/WallAttachments";
 import { EmbeddedWallPost } from "@/components/WallEmbeddedPost";
+import type { LightboxItem } from "@/components/Lightbox";
 import { WallCommentTree } from "@/components/wall/WallCommentTree";
 import {
   type WallPost,
@@ -44,7 +45,7 @@ interface WallPostCardProps {
   onDeletePost: (postId: string) => void;
   onTogglePin: (postId: string) => void;
   onRefreshPosts: () => Promise<void>;
-  onImageClick: (images: string[], index: number) => void;
+  onImageClick: (items: LightboxItem[], index: number) => void;
   forceCommentsOpen?: boolean;
   postHref?: string | null;
   standalone?: boolean;

@@ -425,8 +425,8 @@ export const ProfileWall = ({
                 forceCommentsOpen={Boolean(focusedPostId)}
                 postHref={focusedPostId ? null : getWallPostPath(post.user_id, post.id)}
                 standalone={standalone}
-                onImageClick={(images, idx) => {
-                  setGalleryItems(images.map((url) => ({ url, type: "image", name: "Фото", mime: "image/*" })));
+                onImageClick={(items, idx) => {
+                  setGalleryItems(items);
                   setGalleryIndex(idx);
                 }}
               />
