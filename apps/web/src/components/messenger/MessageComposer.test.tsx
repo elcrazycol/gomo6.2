@@ -146,4 +146,78 @@ describe("MessageComposer", () => {
 
     expect(onTyping).toHaveBeenCalledWith(true);
   });
+
+  it("disables send while files are uploading and shows progress", () => {
+    render(
+      <MessageComposer
+        draft="Привет"
+        setDraft={vi.fn()}
+        isSending={false}
+        onSend={vi.fn()}
+        composerRef={{ current: null }}
+        uploadingFiles={[{ id: "u1", name: "photo.png", percent: 42, type: "image" }]}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: /send|отправить/i }) as HTMLButtonElement;
+    expect(button).toBeDisabled();
+    expect(screen.getByText("photo.png")).toBeInTheDocument();
+    expect(screen.getByText("42%")).toBeInTheDocument();
+  });
+
+  describe("paste (Ctrl+V)", () => {
+    function renderComposer(onAttachFiles: (files: File[]) => void) {
+      render(
+        <MessageComposer
+          draft=""
+          setDraft={vi.fn()}
+          isSending={false}
+          onSend={vi.fn()}
+          composerRef={{ current: null }}
+          onAttachFiles={onAttachFiles}
+        />,
+      );
+      return screen.getByPlaceholderText("Напиши сообщение...") as HTMLTextAreaElement;
+    }
+
+    it("forwards pasted files to onAttachFiles", () => {
+      const onAttachFiles = vi.fn();
+      const textarea = renderComposer(onAttachFiles);
+      const file = new File(["png-data"], "photo.png", { type: "image/png" });
+
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          files: [file],
+          items: [{ kind: "file", getAsFile: () => file }],
+        },
+      });
+
+      // items + files both carry the file — it must be forwarded exactly once.
+      expect(onAttachFiles).toHaveBeenCalledTimes(1);
+      expect(onAttachFiles).toHaveBeenCalledWith([file]);
+    });
+
+    it("falls back to clipboardData.files when items carry no files", () => {
+      const onAttachFiles = vi.fn();
+      const textarea = renderComposer(onAttachFiles);
+      const file = new File(["data"], "doc.txt", { type: "text/plain" });
+
+      fireEvent.paste(textarea, {
+        clipboardData: { files: [file], items: [{ kind: "string" }] },
+      });
+
+      expect(onAttachFiles).toHaveBeenCalledWith([file]);
+    });
+
+    it("lets plain text paste through untouched", () => {
+      const onAttachFiles = vi.fn();
+      const textarea = renderComposer(onAttachFiles);
+
+      fireEvent.paste(textarea, {
+        clipboardData: { files: [], items: [{ kind: "string" }] },
+      });
+
+      expect(onAttachFiles).not.toHaveBeenCalled();
+    });
+  });
 });

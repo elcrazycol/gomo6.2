@@ -72,12 +72,63 @@ export type UploadFileResult = {
   variants?: UploadedImageVariants;
 };
 
+type UploadBody = {
+  data?: { key?: string; variants?: UploadedImageVariants };
+  error?: string;
+};
+
+const toResult = (body: UploadBody, fallbackKey: string, ok: boolean, status?: number): UploadFileResult => {
+  if (!ok) {
+    throw new Error(body.error || `Upload failed${status ? `: ${status}` : ""}`);
+  }
+  return {
+    path: body.data?.key || fallbackKey,
+    ...(body.data?.variants ? { variants: body.data.variants } : {}),
+  };
+};
+
+// fetch() exposes no upload progress, so callers that need it (messenger
+// attachment progress) go through XHR instead. Cookies + CSRF behave the same.
+function uploadWithProgress(
+  url: string,
+  formData: FormData,
+  headers: Record<string, string>,
+  fallbackKey: string,
+  onProgress: (percent: number) => void,
+): Promise<UploadFileResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.withCredentials = true;
+    for (const [name, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(name, value);
+    }
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onload = () => {
+      let body: UploadBody = {};
+      try {
+        body = JSON.parse(xhr.responseText) as UploadBody;
+      } catch {
+        // non-JSON response
+      }
+      resolve(toResult(body, fallbackKey, xhr.status >= 200 && xhr.status < 300, xhr.status));
+    };
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.send(formData);
+  });
+}
+
 export const uploadFile = async (
   bucket: string,
   key: string,
   file: File,
   token?: string,
   prepareImage = true,
+  onProgress?: (percent: number) => void,
 ): Promise<UploadFileResult> => {
   const safeBucket = bucket.trim();
   let safeKey = key.replace(/^\/+/, "");
@@ -113,7 +164,14 @@ export const uploadFile = async (
   if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
   if (csrf) headers["X-CSRF-Token"] = csrf;
 
-  const res = await fetch(`${API_BASE_URL}/storage/v1/upload`, {
+  const url = `${API_BASE_URL}/storage/v1/upload`;
+
+  // Real upload progress requires XHR — fetch has none.
+  if (onProgress) {
+    return uploadWithProgress(url, formData, headers, safeKey, onProgress);
+  }
+
+  const res = await fetch(url, {
     method: "POST",
     credentials: "include",
     headers,
@@ -121,20 +179,9 @@ export const uploadFile = async (
   });
 
   const body = typeof res.json === "function"
-    ? await res.json().catch(() => ({})) as {
-        data?: { key?: string; variants?: UploadedImageVariants };
-        error?: string;
-      }
+    ? await res.json().catch(() => ({})) as UploadBody
     : {};
-  if (!res.ok) {
-    const message = body.error || `Upload failed: ${res.status}`;
-    throw new Error(message);
-  }
-
-  return {
-    path: body.data?.key || safeKey,
-    ...(body.data?.variants ? { variants: body.data.variants } : {}),
-  };
+  return toResult(body, safeKey, res.ok, res.status);
 };
 
 /**

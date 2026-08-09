@@ -196,14 +196,17 @@ export const messengerApi = {
   },
 
   // ── File upload ──────────────────────────────────────────────────────
-  async uploadFile(file: File): Promise<{
+  async uploadFile(
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<{
     path: string;
     variants?: { preview_key: string; lqip: string; width: number; height: number; content_type: string };
   }> {
     const ext = file.name.split(".").pop() || "bin";
     const profile = await this.getMyProfile();
     const key = `${profile.id}/messenger/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    return uploadFile("uploads", key, file, undefined, false);
+    return uploadFile("uploads", key, file, undefined, false, onProgress);
   },
 
   // ── Group chats ──────────────────────────────────────────────────────

@@ -73,6 +73,14 @@ export type Attachment = {
   sort_order?: number;
 };
 
+/** In-flight upload shown as a progress chip in the composer. */
+export type UploadingFile = {
+  id: string;
+  name: string;
+  percent: number;
+  type: Attachment["type"];
+};
+
 export type ReceiptRow = {
   message_id: string;
   user_id: string;

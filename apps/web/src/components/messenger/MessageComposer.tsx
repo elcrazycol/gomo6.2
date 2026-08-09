@@ -1,8 +1,6 @@
 import { memo, useCallback, useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import { SendHorizontal, X, Pencil, CornerDownRight, Paperclip, Image as ImageIcon, FileText, Mic } from "lucide-react";
-import type { Attachment, MessageView } from "./types";
-import { messengerApi } from "@/services/messengerApi";
-import { prepareMessengerImage } from "@/lib/imageProcessing";
+import type { Attachment, MessageView, UploadingFile } from "./types";
 
 const MAX_LENGTH = 4000;
 const TYPING_DEBOUNCE_MS = 1000;
@@ -23,6 +21,10 @@ interface Props {
   onCancelReply?: () => void;
   pendingAttachments?: Attachment[];
   onAttachmentsChange?: (attachments: Attachment[]) => void;
+  /** In-flight uploads shown as progress chips (uploadingFiles=[] hides the row). */
+  uploadingFiles?: UploadingFile[];
+  /** Starts uploading files; progress is reported back via `uploadingFiles`. */
+  onAttachFiles?: (files: File[]) => void;
   placeholder?: string;
 }
 
@@ -38,6 +40,27 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Extract files pasted via Ctrl+V. clipboardData.items is the source of truth
+ * (a pasted screenshot appears in both `files` and `items` — using items first
+ * avoids attaching the same image twice); `files` is the fallback for browsers
+ * that only populate it (e.g. Firefox for files copied from disk).
+ */
+function getPastedFiles(e: React.ClipboardEvent<HTMLTextAreaElement>): File[] {
+  const items = e.clipboardData?.items;
+  if (items && items.length > 0) {
+    const files: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) return files;
+  }
+  return Array.from(e.clipboardData?.files ?? []);
 }
 
 export const MessageComposer = memo(function MessageComposer({
@@ -56,6 +79,8 @@ export const MessageComposer = memo(function MessageComposer({
   onCancelReply,
   pendingAttachments = [],
   onAttachmentsChange,
+  uploadingFiles = [],
+  onAttachFiles,
   placeholder,
 }: Props) {
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -158,62 +183,28 @@ export const MessageComposer = memo(function MessageComposer({
           onCancelEdit?.();
         }
       } else {
-        if (!isSending && (draft.trim() || pendingAttachments.length > 0)) {
+        if (!isSending && uploadingFiles.length === 0 && (draft.trim() || pendingAttachments.length > 0)) {
           stopTyping();
           onSend();
         }
       }
     },
-    [onSend, isSending, draft, stopTyping, isEditing, editingContent, editingMessageId, onSaveEdit, onCancelEdit, pendingAttachments],
+    [onSend, isSending, draft, stopTyping, isEditing, editingContent, editingMessageId, onSaveEdit, onCancelEdit, pendingAttachments, uploadingFiles],
   );
 
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
-    const newAttachments: Attachment[] = [];
-    for (const file of Array.from(files)) {
-      try {
-        const type: Attachment["type"] = file.type.startsWith("image/") ? "image"
-          : file.type.startsWith("video/") ? "video"
-          : file.type.startsWith("audio/") ? "audio"
-          : "file";
-        const prepared = type === "image" ? await prepareMessengerImage(file) : null;
-        const uploadSource = prepared?.file ?? file;
-        const uploaded = await messengerApi.uploadFile(uploadSource);
-        if (type === "image" && !uploaded.variants) {
-          throw new Error("Сервер не вернул preview для изображения");
-        }
-        const imageMeta = type === "image" && uploaded.variants
-          ? {
-              width: uploaded.variants.width,
-              height: uploaded.variants.height,
-              preview_key: uploaded.variants.preview_key,
-              lqip: uploaded.variants.lqip,
-              pipeline: "messenger-image-v2",
-              source_size: file.size,
-              stored_size: uploadSource.size,
-            }
-          : null;
-        newAttachments.push({
-          url: uploaded.path,
-          type,
-          name: file.name,
-          size: uploadSource.size,
-          mime: uploadSource.type || file.type || "application/octet-stream",
-          ...(imageMeta ? { meta: JSON.stringify(imageMeta) } : {}),
-        });
-      } catch (err) {
-        console.error("Upload failed:", err);
-      }
-    }
-
-    if (newAttachments.length > 0 && onAttachmentsChange) {
-      onAttachmentsChange([...pendingAttachments, ...newAttachments]);
-    }
-
+    onAttachFiles?.(Array.from(files));
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [pendingAttachments, onAttachmentsChange]);
+  }, [onAttachFiles]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = getPastedFiles(e);
+    if (files.length === 0) return; // plain text — let the default paste through
+    e.preventDefault();
+    onAttachFiles?.(files);
+  }, [onAttachFiles]);
 
   const handleRemoveAttachment = useCallback((index: number) => {
     if (onAttachmentsChange) {
@@ -224,7 +215,7 @@ export const MessageComposer = memo(function MessageComposer({
   const remaining = MAX_LENGTH - draft.length;
   const canSend = isEditing
     ? draft.trim().length > 0
-    : !isSending && (draft.trim().length > 0 || pendingAttachments.length > 0);
+    : !isSending && uploadingFiles.length === 0 && (draft.trim().length > 0 || pendingAttachments.length > 0);
 
   return (
     <form className={`composer${isSending ? " is-sending" : ""}`} onSubmit={handleSubmit}>
@@ -247,6 +238,24 @@ export const MessageComposer = memo(function MessageComposer({
           <button type="button" className="composer-edit-cancel" onClick={onCancelEdit} aria-label="Отменить">
             <X size={14} />
           </button>
+        </div>
+      )}
+
+      {/* Uploading files progress */}
+      {uploadingFiles.length > 0 && (
+        <div className="composer-attachments-preview">
+          {uploadingFiles.map((file) => (
+            <div key={file.id} className="composer-uploading-chip">
+              <span className="composer-attachment-icon">{getAttachmentIcon(file.type)}</span>
+              <span className="composer-uploading-info">
+                <span className="composer-attachment-name">{file.name}</span>
+                <span className="composer-uploading-bar">
+                  <span className="composer-uploading-bar-fill" style={{ width: `${file.percent}%` }} />
+                </span>
+              </span>
+              <span className="composer-uploading-pct">{file.percent}%</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -291,6 +300,7 @@ export const MessageComposer = memo(function MessageComposer({
           value={draft}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={isEditing ? "" : placeholder ?? "Напиши сообщение..."}
           aria-label={isEditing ? "Редактировать сообщение" : "Написать сообщение"}
           maxLength={MAX_LENGTH}

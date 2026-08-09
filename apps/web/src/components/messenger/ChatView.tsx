@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift } from "lucide-react";
+import { ArrowLeft, ChevronDown, Folder, Lock, MessageCircle, NotebookPen, Pin, Gift, FileUp } from "lucide-react";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
@@ -15,7 +15,9 @@ import { NotesOrganizeDialog } from "./NotesOrganizeDialog";
 import { hasNotesKey } from "@/utils/notesCrypto";
 import { isConsecutive } from "./messageListUtils";
 import { chunkAttachments, MAX_ALBUM_ATTACHMENTS } from "./attachmentAlbum";
-import type { Attachment, MessageView } from "./types";
+import { uploadFilesAsAttachments } from "./attachmentUpload";
+import { useFileDrop } from "@/hooks/useFileDrop";
+import type { Attachment, MessageView, UploadingFile } from "./types";
 
 interface Props {
   onBack: () => void;
@@ -57,6 +59,7 @@ export const ChatView = memo(function ChatView({
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [isBatchSending, setIsBatchSending] = useState(false);
   const batchSendingRef = useRef(false);
   // Notes self-chat organization
@@ -133,6 +136,43 @@ export const ChatView = memo(function ChatView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onBack, editingMessageId]);
 
+  // Central upload path for the paperclip button, Ctrl+V and drag & drop.
+  // Shows a per-file progress chip until the attachment lands in the composer.
+  const handleAttachFiles = useCallback(async (files: File[]) => {
+    const entries: UploadingFile[] = files.map((file, index) => ({
+      id: `up_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+      name: file.name,
+      percent: 0,
+      type: file.type.startsWith("image/") ? "image"
+        : file.type.startsWith("video/") ? "video"
+        : file.type.startsWith("audio/") ? "audio"
+        : "file",
+    }));
+    setUploadingFiles((prev) => [...prev, ...entries]);
+
+    try {
+      const newAttachments = await uploadFilesAsAttachments(files, (progress) => {
+        setUploadingFiles((prev) => prev.map((u) =>
+          u.id === entries[progress.index]?.id ? { ...u, percent: progress.percent } : u,
+        ));
+      });
+      if (newAttachments.length > 0) {
+        setPendingAttachments((prev) => [...prev, ...newAttachments]);
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+    } finally {
+      setUploadingFiles((prev) => prev.filter((u) => !entries.some((e) => e.id === u.id)));
+    }
+  }, []);
+
+  const handleDropFiles = useCallback((files: File[]) => {
+    void handleAttachFiles(files);
+    setTimeout(() => composerRef.current?.focus(), 50);
+  }, [handleAttachFiles, composerRef]);
+
+  const { isDragging: isDraggingFiles, dragHandlers } = useFileDrop(handleDropFiles);
+
   const handleReply = useCallback((msg: MessageView) => {
     setReplyToMessage(msg);
     setTimeout(() => composerRef.current?.focus(), 50);
@@ -154,7 +194,9 @@ export const ChatView = memo(function ChatView({
   const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
 
   const handleSend = useCallback(async () => {
-    if ((!draft.trim() && pendingAttachments.length === 0) || isSending || batchSendingRef.current) return;
+    // Files still uploading must block send — otherwise Enter would send the
+    // message without them and leave the finished attachments as orphans.
+    if ((!draft.trim() && pendingAttachments.length === 0) || isSending || batchSendingRef.current || uploadingFiles.length > 0) return;
 
     const attachmentsToSend = [...pendingAttachments];
     const batches = attachmentsToSend.length > 0
@@ -211,7 +253,7 @@ export const ChatView = memo(function ChatView({
       batchSendingRef.current = false;
       setIsBatchSending(false);
     }
-  }, [draft, isSending, sendMessage, replyToMessage, pendingAttachments]);
+  }, [draft, isSending, sendMessage, replyToMessage, pendingAttachments, uploadingFiles]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
     setEditingMessageId(msgId);
@@ -332,7 +374,7 @@ export const ChatView = memo(function ChatView({
   }
 
   return (
-    <>
+    <div className="chat-view-dnd-root" {...dragHandlers}>
       {/* Header group: topbar + pinned banner — one grid row */}
       <div className="chat-header-group">
         <div
@@ -517,6 +559,8 @@ export const ChatView = memo(function ChatView({
         onCancelReply={handleCancelReply}
         pendingAttachments={pendingAttachments}
         onAttachmentsChange={setPendingAttachments}
+        uploadingFiles={uploadingFiles}
+        onAttachFiles={handleAttachFiles}
         placeholder={conversation.is_notes ? "Запиши мысль..." : undefined}
       />
 
@@ -558,6 +602,17 @@ export const ChatView = memo(function ChatView({
           onOpenChange={(v) => { if (!v) { setGiftDetailId(null); setGiftDetailRecipientId(null); } }}
         />
       )}
-    </>
+
+      {/* Drag & drop attach overlay */}
+      {isDraggingFiles && (
+        <div className="chat-drop-overlay">
+          <div className="chat-drop-card">
+            <div className="chat-drop-card-icon"><FileUp size={30} /></div>
+            <div className="chat-drop-card-title">Отпустите, чтобы прикрепить</div>
+            <div className="chat-drop-card-sub">Файлы, фото и видео появятся в поле ввода</div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 });

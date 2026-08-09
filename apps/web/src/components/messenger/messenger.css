@@ -1866,6 +1866,51 @@ main.is-messenger-page {
   color: hsl(var(--destructive));
 }
 
+/* ── Uploading files progress (in-flight attach) ── */
+
+.composer-uploading-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-width: 190px;
+  max-width: 260px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card));
+}
+
+.composer-uploading-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.composer-uploading-bar {
+  display: block;
+  height: 3px;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  overflow: hidden;
+}
+
+.composer-uploading-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  transition: width 0.2s ease;
+}
+
+.composer-uploading-pct {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--muted-foreground));
+}
+
 /* ── Message attachments display ── */
 
 .msg-attachments {
@@ -3847,4 +3892,85 @@ main.is-messenger-page {
     word-break: break-all;
     overflow-wrap: anywhere;
   }
+}
+
+/* ── Drag & drop attach overlay ── */
+
+/* Wrapper inside .chat-panel that keeps the original 3-row grid (header /
+   messages / composer) while hosting the drop handlers and the overlay. */
+.chat-view-dnd-root {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  /* Span every row of .chat-panel (auto 1fr auto) so the wrapper always fills
+     the panel height — a plain height:100% would resolve against an auto-sized
+     grid row and could collapse the chat layout. */
+  grid-row: 1 / -1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsl(var(--background) / 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  pointer-events: none;
+  animation: chat-drop-fade-in 0.15s ease;
+}
+
+.chat-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 48px;
+  border: 1.5px dashed hsl(var(--primary) / 0.55);
+  border-radius: 20px;
+  background: hsl(var(--card));
+  box-shadow: 0 14px 44px hsl(var(--foreground) / 0.14);
+  animation: chat-drop-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+}
+
+.chat-drop-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  color: hsl(var(--primary-foreground));
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.72));
+  box-shadow: 0 8px 22px hsl(var(--primary) / 0.35);
+}
+
+.chat-drop-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  text-align: center;
+}
+
+.chat-drop-card-sub {
+  font-size: 12.5px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+@keyframes chat-drop-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes chat-drop-pop {
+  from { opacity: 0; transform: scale(0.92) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
