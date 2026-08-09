@@ -1,4 +1,6 @@
 import { Node, mergeAttributes, InputRule, nodePasteRule } from '@tiptap/core';
+import { Plugin, TextSelection } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
 import React from 'react';
 import { useEmojiData } from '@/contexts/EmojiDataContext';
@@ -9,6 +11,46 @@ import { storageUrl } from '@/utils/storage';
 // therefore require a separate global expression.
 const EMOJI_INPUT_REGEX = /\[e:([a-f0-9-]{36})\]$/;
 const EMOJI_PASTE_REGEX = /\[e:([a-f0-9-]{36})\]/g;
+
+/**
+ * Snap a click on the emoji to the nearest text boundary. The browser maps
+ * clicks on a contenteditable=false inline element to an unpredictable
+ * position, often flush against the emoji where typing does not work. This
+ * uses ProseMirror coordinates so it is correct for every emoji in the
+ * document, not just the first one. Returns true when handled.
+ */
+export const snapEmojiClick = (
+  view: EditorView,
+  nodePos: number,
+  nodeSize: number,
+  clientX: number
+): boolean => {
+  const node = view.state.doc.nodeAt(nodePos);
+  if (!node || node.type.name !== 'customEmoji') return false;
+
+  // An inline atom occupies a single document position: nodePos is the caret
+  // position right before it, nodePos + nodeSize right after.
+  const nodeStart = nodePos;
+  const nodeEnd = nodePos + nodeSize;
+
+  const before = view.coordsAtPos(nodeStart);
+  const after = view.coordsAtPos(nodeEnd);
+
+  let target: number;
+  if (typeof before?.left === 'number' && typeof after?.right === 'number') {
+    const midX = (before.left + after.right) / 2;
+    target = clientX < midX ? nodeStart : nodeEnd;
+  } else {
+    // No reliable coordinates (e.g. detached/zero-size view): still place the
+    // caret deterministically instead of deferring to the browser's broken
+    // default mapping that puts it flush against the emoji.
+    target = nodeStart;
+  }
+  const transaction = view.state.tr.setSelection(TextSelection.create(view.state.doc, target));
+  view.dispatch(transaction);
+  view.focus();
+  return true;
+};
 
 const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> } }) => {
   const { allEmojis, resolveEmojis } = useEmojiData();
@@ -140,6 +182,23 @@ export const CustomEmojiNode = Node.create({
   // ProseMirror-selectednode style and the caret looks like it is "inside"
   // the emoji even though it actually sits at the text boundary.
   selectable: false,
+
+  addProseMirrorPlugins() {
+    // Capture the node name now: `this` inside the click callback is the
+    // ProseMirror EditorView, not the extension.
+    const nodeName = this.name;
+
+    return [
+      new Plugin({
+        props: {
+          handleClickOn: (view: EditorView, _pos, node, nodePos, event) => {
+            if (node.type.name !== nodeName) return false;
+            return snapEmojiClick(view, nodePos, node.nodeSize, event.clientX);
+          },
+        },
+      }),
+    ];
+  },
 
   addCommands() {
     return {
