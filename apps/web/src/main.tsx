@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import { setupGlobalErrorHandlers } from "@/lib/logging";
 import "./index.css";
+import "@/components/Lightbox.css";
 
 // Capture uncaught errors and unhandled promise rejections.
 const disposeGlobalErrorHandlers = setupGlobalErrorHandlers();
