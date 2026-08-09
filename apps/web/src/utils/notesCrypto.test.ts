@@ -5,6 +5,7 @@ import {
   decryptNotesMeta,
   encryptNote,
   encryptNotesMeta,
+  hasNotesKey,
   importNotesKey,
 } from "./notesCrypto";
 
@@ -42,6 +43,27 @@ describe("notesCrypto (E2E notes encryption)", () => {
   it("returns null for non-notes payloads", async () => {
     expect(await decryptNote("plain text", "conv-a")).toBeNull();
     expect(await decryptNote("", "conv-a")).toBeNull();
+  });
+
+  it("never creates a key when only reading (restore-first flow)", async () => {
+    vi.resetModules();
+    const fresh = (await import("./notesCrypto")) as NotesCryptoModule;
+    expect(fresh.hasNotesKey()).toBe(false);
+    expect(await fresh.decryptNote("e2enote1:some-ciphertext", "conv-a")).toBeNull();
+    expect(await fresh.decryptNotesMeta("e2enote1:some-meta", "conv-a")).toBeNull();
+    // A fresh device that only wants to restore a backup must NOT silently
+    // mint its own key — otherwise the restore banner never shows and an
+    // orphan key gets in the way of cross-device recovery.
+    expect(fresh.hasNotesKey()).toBe(false);
+  });
+
+  it("creates the key only on the first write", async () => {
+    vi.resetModules();
+    const fresh = (await import("./notesCrypto")) as NotesCryptoModule;
+    expect(fresh.hasNotesKey()).toBe(false);
+    const payload = await fresh.encryptNote("первая запись", "conv-a");
+    expect(payload.startsWith(NOTES_MARKER_PREFIX)).toBe(true);
+    expect(fresh.hasNotesKey()).toBe(true);
   });
 
   it("rejects corrupted payloads", async () => {

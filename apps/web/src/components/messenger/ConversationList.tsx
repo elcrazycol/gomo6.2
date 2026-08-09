@@ -151,7 +151,7 @@ const NotesCard = memo(function NotesCard({
           ) : creating ? (
             <span className="conversation-preview muted">Создаём чат...</span>
           ) : (
-            <span className="conversation-preview muted notes-subtitle">Только для тебя · 🔒 E2E</span>
+            <span className="conversation-preview muted notes-subtitle">Только для тебя · E2E</span>
           )}
           {unread > 0 && <span className="count-badge">{unread > 99 ? "99+" : unread}</span>}
         </div>

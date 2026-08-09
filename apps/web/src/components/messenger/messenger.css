@@ -3437,3 +3437,45 @@ main.is-messenger-page {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* ── Notes: import result warning ── */
+.notes-settings-import-warn {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid hsl(38 92% 55% / 0.45);
+  border-radius: 8px;
+  background: hsl(38 92% 55% / 0.12);
+  font-size: 12px;
+  line-height: 1.45;
+  color: hsl(var(--foreground));
+}
+
+/* ── Notes: mobile-friendly key import panel ── */
+@media (max-width: 640px) {
+  .notes-settings-import {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .notes-settings-import input {
+    flex: none;
+    width: 100%;
+    padding: 12px 12px;
+    font-size: 14px; /* ≥16px would be even better for iOS; 14px keeps the key visible */
+    letter-spacing: 0.02em;
+  }
+
+  .notes-settings-import button {
+    width: 100%;
+    padding: 12px 12px;
+    font-size: 14px;
+  }
+
+  /* A 64-char hex key must never force horizontal scroll on small screens */
+  .notes-exported-key {
+    font-size: 11px;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+}

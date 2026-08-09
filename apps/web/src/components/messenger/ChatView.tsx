@@ -320,10 +320,7 @@ export const ChatView = memo(function ChatView({
             <div className="chat-topbar-info">
               <div className="chat-topbar-username flex items-center gap-1">
                 {conversation.is_notes ? (
-                  <span className="font-bold text-sm flex items-center gap-1.5">
-                    Заметки
-                    <span className="notes-lock-badge" title="End-to-end шифрование"><Lock size={11} /></span>
-                  </span>
+                  <span className="font-bold text-sm">Заметки</span>
                 ) : conversation.is_group ? (
                   <span className="font-bold text-sm">{conversation.group_name || "Группа"}</span>
                 ) : (
@@ -332,7 +329,7 @@ export const ChatView = memo(function ChatView({
               </div>
               <p className="presence-copy">
                 {conversation.is_notes
-                  ? "Только для тебя · 🔒 шифрование на устройстве"
+                  ? "Шифрование на устройстве"
                   : typingUsername
                     ? <em>{conversation.is_group ? "печатают..." : "печатает..."}</em>
                     : conversation.is_group

@@ -62,10 +62,14 @@ function encodeAad(conversationId: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`gomo6:notes:${conversationId}`);
 }
 
-async function loadOrCreateKey(): Promise<CryptoKey | null> {
+// Loads the device key without ever creating one. Reading notes must never
+// silently mint a key: on a fresh device that only wants to restore a backup,
+// auto-creation would hide the "restore" banner and leave a useless local key
+// in the way (which is exactly what made cross-device restore confusing).
+// Returns null when no key is stored yet.
+async function loadKey(): Promise<CryptoKey | null> {
   if (cachedKey) return cachedKey;
   if (!cryptoAvailable()) return null;
-
   try {
     const stored = localStorage.getItem(KEY_STORAGE);
     if (stored) {
@@ -76,8 +80,17 @@ async function loadOrCreateKey(): Promise<CryptoKey | null> {
       }
     }
   } catch {
-    // Corrupted key — fall through and generate a fresh one.
+    // Corrupted key — treat as missing.
   }
+  return null;
+}
+
+// Creates the device key on first use. Called only when the user actually
+// WRITES a note (encryptNote / encryptNotesMeta) or explicitly asks for a key
+// (ensureNotesKey) — never from decrypt or fingerprint paths.
+async function loadOrCreateKey(): Promise<CryptoKey | null> {
+  const existing = await loadKey();
+  if (existing) return existing;
 
   const raw = crypto.getRandomValues(new Uint8Array(32));
   const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", true, ["encrypt", "decrypt"]);
@@ -131,7 +144,7 @@ export async function encryptNote(plaintext: string, conversationId: string): Pr
  */
 export async function decryptNote(payload: string, conversationId: string): Promise<string | null> {
   if (!payload.startsWith(NOTES_MARKER)) return null;
-  const key = await loadOrCreateKey();
+  const key = await loadKey();
   if (!key) return null;
   try {
     const blob = base64ToBytes(payload.slice(NOTES_MARKER.length));
@@ -151,7 +164,9 @@ export async function decryptNote(payload: string, conversationId: string): Prom
 
 /** Exports the device key as a 64-char hex string for backup/restore. */
 export async function exportNotesKey(): Promise<string | null> {
-  const key = await loadOrCreateKey();
+  // Never mint a key just to export one — a fresh device without a key should
+  // restore a backup, not silently generate a new one.
+  const key = await loadKey();
   if (!key) return null;
   const raw = await crypto.subtle.exportKey("raw", key);
   return bytesToHex(new Uint8Array(raw));
@@ -226,7 +241,7 @@ export async function decryptNotesMeta(
 
 /** Short fingerprint of the active key (first 8 hex chars of SHA-256). */
 export async function notesKeyFingerprint(): Promise<string | null> {
-  const key = await loadOrCreateKey();
+  const key = await loadKey();
   if (!key) return null;
   const raw = await crypto.subtle.exportKey("raw", key);
   const digest = await crypto.subtle.digest("SHA-256", raw);

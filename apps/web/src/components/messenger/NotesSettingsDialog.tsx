@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { exportNotesKey, hasNotesKey, importNotesKey, notesKeyFingerprint } from "@/utils/notesCrypto";
+import { exportNotesKey, hasNotesKey, importNotesKey, NOTES_LOCKED, notesKeyFingerprint } from "@/utils/notesCrypto";
 import { useMessengerStore } from "@/stores/messengerStore";
 
 interface Props {
@@ -18,12 +18,14 @@ export function NotesSettingsDialog({ open, onOpenChange, conversationId }: Prop
   const [copied, setCopied] = useState(false);
   const [importValue, setImportValue] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
+  const [importWarn, setImportWarn] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setCopied(false);
     setImportError(null);
+    setImportWarn(null);
     setRestored(false);
     setImportValue("");
     setHasKey(hasNotesKey());
@@ -60,13 +62,29 @@ export function NotesSettingsDialog({ open, onOpenChange, conversationId }: Prop
       return;
     }
     setImportError(null);
+    setImportWarn(null);
     setImportValue("");
     setRestored(true);
     await refreshKeyState();
     // Reload messages + previews so the restored key takes effect immediately.
     const store = useMessengerStore.getState();
-    if (conversationId) void store.loadMessages(conversationId);
+    if (conversationId) {
+      try {
+        await store.loadMessages(conversationId);
+      } catch {
+        // The error banner in the chat covers network failures.
+      }
+    }
     void store.loadConversations();
+    // Honest feedback: notes written with a previous device key stay locked.
+    const locked = useMessengerStore
+      .getState()
+      .messages.filter((m) => m.content === NOTES_LOCKED).length;
+    setImportWarn(
+      locked > 0
+        ? `Некоторые заметки (${locked}) остались зашифрованными — они были записаны другим ключом (на этом или другом устройстве), и восстановленный ключ их не открывает. Новые заметки будут шифроваться восстановленным ключом.`
+        : null,
+    );
     window.setTimeout(() => setRestored(false), 3000);
   }, [importValue, refreshKeyState, conversationId]);
 
@@ -147,6 +165,7 @@ export function NotesSettingsDialog({ open, onOpenChange, conversationId }: Prop
               </button>
             </div>
             {importError && <div className="notes-settings-import-error">{importError}</div>}
+            {importWarn && <div className="notes-settings-import-warn">{importWarn}</div>}
           </div>
         </div>
       </DialogContent>
