@@ -127,9 +127,9 @@ A-записи для:
 
 ### How CI/CD works
 
-Push to `main` → `ci.yml` (lint, typecheck, build) → on success → `deploy.yml` (builds 4 images in parallel → pushes to `ghcr.io/scramble22/` → SSH to VPS → pulls images → `docker compose up -d`).
+Active deployment is `.forgejo/workflows/deploy.yml` (Codeberg): change detection via the Codeberg compare API → incremental checkout into a persistent repo cache on the runner (`$HOME/gomo6-src`) → `docker buildx build --push` to the Codeberg container registry (`codeberg.org/crazycol/gomo6-*`, layer dedup — only changed layers upload) → per-service `docker pull` + retag + `docker compose up -d --no-build` on the VPS (`scripts/restart-service.sh`). Secret `CODEREG_TOKEN` (codeberg PAT, `read:package`+`write:package`) is required; the VPS pulls anonymously from public packages.
 
-The deploy script in `.github/workflows/deploy.yml` looks for the repo at `/root/gomo6.2` or `/home/*/gomo6.2`. The directory MUST be named `gomo6.2`.
+The deploy script looks for the repo at `/root/gomo6.2` or `/home/*/gomo6.2`. The directory MUST be named `gomo6.2`.
 
 ### Backup old server before migration
 

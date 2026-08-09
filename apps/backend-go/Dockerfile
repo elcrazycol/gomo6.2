@@ -42,10 +42,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Cross-compile for the VPS. Note: -trimpath, NOT -a — -a would recompile the
 # whole stdlib on every push and destroy the cache. GOMEMLIMIT guards the
-# low-RAM VPS during compilation.
+# low-RAM VPS during compilation. -ldflags="-s -w" strips debug info: the
+# binary shrinks ~30MB → ~22MB, so the changed layer that travels to the VPS
+# (and to the registry) is smaller. Panic stack traces still work (pclntab is
+# kept); only dlv/profiling symbol info is dropped.
 ENV CGO_ENABLED=0 GOMEMLIMIT=256MiB
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -o main cmd/server/main.go
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -mod=vendor -trimpath -ldflags="-s -w" -o main cmd/server/main.go
 
 # ---- Runtime stage: VPS arch ------------------------------------------------
 FROM --platform=$TARGETPLATFORM alpine:3.23

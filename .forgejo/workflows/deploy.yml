@@ -5,44 +5,58 @@
 #
 # Runner: your own Mac M1 Pro (self-hosted, host-mode, labels: self-hosted /
 #         macos / arm64 / macos-arm64 — all `:host`).
-# VPS:    1 vCPU / 1 GB — it NEVER builds anything, it only loads images and
+# VPS:    1 vCPU / 1 GB — it NEVER builds anything; it only pulls images and
 #         starts containers.
 #
-# Pipeline:
+# Pipeline (v3 — registry-based):
 #   1. build-and-ship — detects which services changed via the Codeberg
-#                       COMPARE API (no git clone needed!), then builds ONLY
-#                       those services in parallel (matrix). Everything heavy
-#                       (Go compile, npm ci, Vite) runs NATIVE on arm64 — the
-#                       Dockerfiles use `FROM --platform=$BUILDPLATFORM`
-#                       builder stages, so QEMU never touches the compiler.
-#                       The finished linux/amd64 image is piped straight into
-#                       the VPS docker daemon over SSH (zstd-compressed
-#                       `docker save`): no registry, no credentials, one hop.
-#   2. restart        — skips itself when nothing changed, otherwise
-#                       `docker compose up -d --no-build` recreates exactly
-#                       the containers whose image changed.
+#      COMPARE API (no full git clone needed!), then for each changed service:
+#        a. Checkout via INCREMENTAL fetch into a persistent repo cache on the
+#           runner ($HOME/gomo6-src). Only the changed blobs travel over the
+#           wire — a normal commit checks out in ~5s instead of ~47s.
+#        b. docker buildx build --push to the Codeberg container registry.
+#           Layer dedup: only CHANGED layers upload (web ~3-5MB, backend
+#           ~12-14MB) instead of the whole ~23MB image on every push.
+#        c. Per-service restart on the VPS: docker pull the new layers (fast —
+#           the VPS has a datacenter link), retag to the docker-compose image
+#           name, `docker compose up -d --no-build <service>`. Caddy is
+#           restarted by the web job whenever the Caddyfile changed.
+#   2. No second job — each service restarts as soon as its image lands.
 #
-# Why this is fast:
-#   - "Nothing changed" pushes finish in seconds: change detection is a single
-#     API call, checkout/build/stream are all skipped.
-#   - Even changed services use a SHALLOW checkout (fetch-depth: 1) — the full
-#     history is never downloaded. (The repo is ~300MB because of committed
-#     backend binaries; remove them from history to shrink clones further.)
-#   - BuildKit/Go/npm caches persist on the Mac between runs.
+# Why the old `docker save | zstd | ssh docker load` stream was slow:
+#   - The images are tiny (~21-23MB) and zstd compresses them ~0% (their
+#     layers are already gzip-compressed inside), so every push sent the FULL
+#     image over the runner's home uplink (~1.4 Mbps per parallel stream) —
+#     hence 2m11s-2m29s per image.
+#   - With a registry, unchanged layers are skipped entirely and the VPS pulls
+#     from Codeberg over its fast datacenter link.
+#
+# Expected timing for a web-only commit: 2s detect + ~5s checkout + ~35s
+# build+push + ~8s VPS pull+restart ≈ 60s. Backend commits add ~10-15s
+# (bigger changed layer — the ~12-14MB binary over the uplink).
 #
 # Secrets (Codeberg repo/org → Settings → Actions → Secrets):
 #   VPS_HOST, VPS_USER, VPS_SSH_KEY,
 #   VPS_PORT (optional, default 22),
+#   CODEREG_TOKEN — Codeberg personal access token (account `crazycol`) with
+#                   `read:package` and `write:package` scopes. Used by the
+#                   runner to push images to codeberg.org/crazycol/*.
 #   VITE_DEPAY_INTEGRATION_ID (only used by the web build)
 #
 # One-time setup:
-#   Runner: native forgejo-runner v13 binary + `.forgejo-runner.yaml` with
-#           `server.connections.codeberg` (uuid+token from the Codeberg UI)
-#   VPS:    apt install zstd        (decompresses the streamed images)
+#   - Runner: native forgejo-runner binary + `.forgejo-runner.yaml` with
+#             `server.connections.codeberg` (uuid+token from the Codeberg UI).
+#   - Codeberg packages must be PUBLIC (default for a public repo) so the VPS
+#     can `docker pull codeberg.org/crazycol/gomo6-*:latest` without auth.
+#     If a pull is denied: codeberg.org/crazycol/-/packages → set public.
+#   - The FIRST run after this change clones the repo once (~40s) and pushes
+#     the full images once (~23MB each); afterwards both are incremental.
+#   - zstd is no longer needed on the VPS (no more image streaming).
 #
 # The VPS must have the repo checked out at /root/gomo6.2 or /home/*/gomo6.2
-# with a production .env (see AGENTS.md). Images are tagged with the exact
-# names from docker-compose.yml, so the VPS never pulls and never builds.
+# with a production .env (see AGENTS.md). The compose `image:` names stay
+# ghcr.io/elcrazycol/* — the workflow retags the pulled image to that name,
+# so the VPS never builds and never needs registry credentials.
 #
 # If your VPS is arm64 instead of amd64, change --platform below once.
 # =============================================================================
@@ -62,8 +76,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # Build & ship — one matrix job per service, all running in parallel.
   # Change detection uses the Codeberg compare API, so no checkout is needed
-  # to find out whether a service changed. Checkout happens only afterwards,
-  # and only for services that will actually build.
+  # to find out whether a service changed.
   # ---------------------------------------------------------------------------
   build-and-ship:
     name: Build & ship ${{ matrix.service }}
@@ -73,7 +86,7 @@ jobs:
       matrix:
         include:
           - service: backend
-            context: ./apps/backend-go
+            context: apps/backend-go
             dockerfile: apps/backend-go/Dockerfile
             file_pattern: '^apps/backend-go/'
           - service: web
@@ -95,8 +108,10 @@ jobs:
         run: |
           set -euo pipefail
           NEED=false
+          CADDY=false
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             NEED=true
+            CADDY=true
           else
             BEFORE="${{ github.event.before }}"
             SHA="${{ github.sha }}"
@@ -119,26 +134,67 @@ jobs:
                 esac
                 # Compose / Caddyfile / dockerignore at repo root → everything.
                 echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore)$' && NEED=true
+                echo "$DIFF" | grep -qE '^Caddyfile$' && CADDY=true
               fi
             else
               NEED=true
             fi
           fi
           echo "changed=$NEED" >> "$GITHUB_OUTPUT"
-          echo "changed=$NEED"
+          echo "caddy_changed=$CADDY" >> "$GITHUB_OUTPUT"
+          echo "changed=$NEED caddy_changed=$CADDY"
 
-      - name: Checkout (shallow — the diff already came from the API)
-        if: steps.detect.outputs.changed == 'true'
-        # Forgejo-maintained mirror of actions/checkout — no GitHub involved.
-        uses: https://code.forgejo.org/actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Build linux/amd64 image (native arm64, disk-persisted cache)
+      - name: Checkout & registry login (incremental fetch, serialized)
         if: steps.detect.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/elcrazycol/gomo6-${{ matrix.service }}:latest"
+          SRC="$HOME/gomo6-src"
+          LOCK="$HOME/gomo6-src.lock"
+          REPO="${{ github.repository }}"
+          OWNER="${REPO%/*}"
+          AUTH_URL="https://oauth2:${{ github.token }}@codeberg.org/$REPO.git"
+          # The 4 matrix jobs share one cached repo — serialize fetch/reset.
+          # macOS bash has no flock, so use a mkdir lock with a retry loop.
+          # A stale lock from a crashed job (SIGKILL/reboot never fires the
+          # EXIT trap) is swept automatically when older than 10 minutes.
+          find "$LOCK" -mmin +10 -delete 2>/dev/null || true
+          for i in $(seq 1 150); do
+            mkdir "$LOCK" 2>/dev/null && break
+            [ "$i" -eq 150 ] && { echo "Timed out waiting for checkout lock"; exit 1; }
+            sleep 1
+          done
+          trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+          if [ -d "$SRC/.git" ]; then
+            if ! git -C "$SRC" fetch --depth 1 "$AUTH_URL" main; then
+              echo "Fetch failed (force push?) — re-cloning the cache"
+              rm -rf "$SRC"
+            fi
+          fi
+          if [ ! -d "$SRC/.git" ]; then
+            git clone --depth 1 "$AUTH_URL" "$SRC"
+            # Never store the ephemeral runner token in the cached remote URL.
+            git -C "$SRC" remote set-url origin "https://codeberg.org/$REPO.git"
+          fi
+          git -C "$SRC" reset --hard FETCH_HEAD
+          git -C "$SRC" clean -fdxq
+          # docker login under the same lock: all 4 jobs write
+          # ~/.docker/config.json, and a read-modify-write race could drop the
+          # credential. The build step below reuses this login. Idempotent; the
+          # config persists between runs.
+          echo "${{ secrets.CODEREG_TOKEN }}" | docker login codeberg.org \
+            -u "$OWNER" --password-stdin
+
+      - name: Build & push image (native arm64 build → codeberg registry)
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          OWNER="${REPO%/*}"          # derive — no github.repository_owner dependency
+          REG="codeberg.org/$OWNER"
+          IMAGE="$REG/gomo6-${{ matrix.service }}:latest"
+          SRC="$HOME/gomo6-src"
+          if [ "${{ matrix.context }}" = "." ]; then CTX="$SRC"; else CTX="$SRC/${{ matrix.context }}"; fi
+          # docker login already ran (serialized) in the checkout step.
           # No arrays here: expanding an empty array under `set -u` aborts on
           # macOS's default bash 3.2 ("unbound variable"). Build args as a
           # plain string instead (values never contain spaces).
@@ -146,92 +202,39 @@ jobs:
           if [ "${{ matrix.service }}" = "web" ]; then
             BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}"
           fi
+          # --push + layer dedup: only layers the registry does not have yet
+          # travel over the uplink (docker push checks each blob). The heavy
+          # compiler stages run NATIVE on arm64 — QEMU never touches them.
+          # --provenance=false: plain OCI manifests, no attestation layers.
           docker buildx build \
             --platform linux/amd64 \
-            --load \
+            --push \
+            --provenance=false \
             -t "$IMAGE" \
             --cache-from "type=local,src=$HOME/buildx-cache/${{ matrix.service }}" \
             --cache-to "type=local,dest=$HOME/buildx-cache/${{ matrix.service }},mode=max" \
             $BUILD_ARGS \
-            -f "${{ matrix.dockerfile }}" \
-            "${{ matrix.context }}"
+            -f "$SRC/${{ matrix.dockerfile }}" \
+            "$CTX"
 
-      - name: Stream image into VPS docker (no registry)
+      - name: Restart ${{ matrix.service }} on VPS (pull + compose up)
         if: steps.detect.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/elcrazycol/gomo6-${{ matrix.service }}:latest"
           KEY="$HOME/.ssh/vps_deploy_key"
           mkdir -p "$HOME/.ssh"
           # printf guarantees the trailing newline an SSH private key needs
           # (Forgejo may strip the last newline of a multiline secret).
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > "$KEY"
           chmod 600 "$KEY"
-          docker save "$IMAGE" \
-            | zstd -T0 -1 \
-            | ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
-                -o StrictHostKeyChecking=accept-new \
-                -o ConnectTimeout=15 \
-                "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-                'zstd -d | docker load'
-          rm -f "$KEY"
-
-  # ---------------------------------------------------------------------------
-  # Restart — recreates exactly the containers that got a new image.
-  # Skips itself (no SSH at all) when nothing relevant changed.
-  # ---------------------------------------------------------------------------
-  restart:
-    name: Restart on VPS
-    needs: build-and-ship
-    runs-on: [self-hosted, macos, arm64]
-    steps:
-      - name: Skip if nothing changed
-        id: check
-        run: |
-          set -euo pipefail
-          # Fail-safe: restart UNLESS we are certain nothing changed. If the
-          # API call fails we must not skip — build jobs may have already
-          # streamed new images to the VPS.
-          CHANGED=true
-          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            BEFORE="${{ github.event.before }}"
-            SHA="${{ github.sha }}"
-            if [ -n "$BEFORE" ] && [ "$BEFORE" != "$SHA" ]; then
-              N="$(curl -fsS --max-time 20 \
-                -H "Authorization: token ${{ github.token }}" \
-                "https://codeberg.org/api/v1/repos/${{ github.repository }}/compare/${BEFORE}...${SHA}" 2>/dev/null \
-                | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("files",[])))' 2>/dev/null \
-                || echo fail)"
-              [ "$N" = "0" ] && CHANGED=false
-            fi
-          fi
-          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch deploy script from repo (no checkout)
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          set -euo pipefail
-          curl -fsS --max-time 15 \
-            -H "Authorization: token ${{ github.token }}" \
-            "https://codeberg.org/${{ github.repository }}/raw/branch/main/scripts/remote-deploy.sh" \
-            -o /tmp/gomo6-remote-deploy.sh
-
-      - name: docker compose up --no-build
-        if: steps.check.outputs.changed == 'true'
-        run: |
-          set -euo pipefail
-          KEY="$HOME/.ssh/vps_deploy_key"
-          mkdir -p "$HOME/.ssh"
-          # printf guarantees the trailing newline an SSH private key needs
-          # (Forgejo may strip the last newline of a multiline secret).
-          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > "$KEY"
-          chmod 600 "$KEY"
+          REPO="${{ github.repository }}"
+          OWNER="${REPO%/*}"
           scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
               -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-              /tmp/gomo6-remote-deploy.sh \
-              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-remote-deploy.sh"
+              "$HOME/gomo6-src/scripts/restart-service.sh" \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-restart-service.sh"
           ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
               -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-              'bash /tmp/gomo6-remote-deploy.sh'
+              "REG=codeberg.org/$OWNER COMPOSE_NAMESPACE=ghcr.io/elcrazycol CADDY_CHANGED=${{ steps.detect.outputs.caddy_changed }} bash /tmp/gomo6-restart-service.sh ${{ matrix.service }}"
           rm -f "$KEY"
