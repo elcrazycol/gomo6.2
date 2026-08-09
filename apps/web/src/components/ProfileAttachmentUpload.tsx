@@ -17,6 +17,12 @@ interface ProfileAttachmentUploadProps {
    * private, authorization-gated bucket.
    */
   bucket?: string;
+  /**
+   * Set false when a parent (e.g. the wall-post composer) owns the drop zone —
+   * then the button keeps working but no drag handlers are attached here, so
+   * drops are handled once by the parent.
+   */
+  dropZone?: boolean;
 }
 
 interface UploadingFile {
@@ -40,7 +46,7 @@ const iconFor = (type: string) => {
   }
 };
 
-export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket = "content" }: ProfileAttachmentUploadProps) => {
+export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket = "content", dropZone = true }: ProfileAttachmentUploadProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -130,10 +136,8 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket 
     setUploadingFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  return (
-    <FileDropZone onFiles={processFiles} disabled={uploading}>
-      {(isDragging) => (
-        <div className="space-y-3">
+  const renderContent = (isDragging: boolean) => (
+    <div className="space-y-3">
           {/* Компактная кнопка */}
           <input
             ref={inputRef}
@@ -223,7 +227,14 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket 
         </div>
       )}
         </div>
-      )}
+  );
+
+  if (!dropZone) {
+    return renderContent(false);
+  }
+  return (
+    <FileDropZone onFiles={processFiles} disabled={uploading}>
+      {renderContent}
     </FileDropZone>
   );
 };

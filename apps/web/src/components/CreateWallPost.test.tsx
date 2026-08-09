@@ -1,7 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { toast } from "sonner";
+import { uploadAttachments } from "@/utils/mediaUpload";
+
+vi.mock("@/utils/mediaUpload", () => ({
+  uploadAttachments: vi.fn(),
+}));
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -528,6 +533,43 @@ describe("CreateWallPost", () => {
     await waitFor(() => {
       const textarea = screen.getByTestId("rich-editor-textarea");
       expect(textarea).toHaveValue("[e:test-emoji-id]");
+    });
+  });
+
+  describe("drag & drop", () => {
+    it("shows the drop hint while a file drag hovers the card", () => {
+      setupApiMocks();
+      render(<Component {...defaultProps} />);
+      const card = screen.getByTestId("wall-post-composer");
+
+      fireEvent.dragEnter(card, { dataTransfer: { files: [], types: ["Files"] } });
+
+      expect(screen.getByText("Отпустите, чтобы прикрепить")).toBeInTheDocument();
+    });
+
+    it("attaches files dropped anywhere on the composer card", async () => {
+      setupApiMocks();
+      vi.mocked(uploadAttachments).mockResolvedValue([
+        {
+          url: "drop.jpg",
+          type: "image",
+          mime: "image/jpeg",
+          name: "drop.jpg",
+          size: 100,
+        },
+      ]);
+      render(<Component {...defaultProps} />);
+      const card = screen.getByTestId("wall-post-composer");
+      const file = new File(["x"], "drop.jpg", { type: "image/jpeg" });
+
+      fireEvent.drop(card, {
+        dataTransfer: { files: [file], types: ["Files"] },
+      });
+
+      await waitFor(() => {
+        expect(uploadAttachments).toHaveBeenCalledWith([file], "wall");
+        expect(screen.getByText("1 влож.")).toBeInTheDocument();
+      });
     });
   });
 });

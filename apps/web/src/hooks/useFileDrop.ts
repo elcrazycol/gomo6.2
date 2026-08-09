@@ -49,6 +49,9 @@ export function useFileDrop(onFiles: (files: File[]) => void) {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    // Stop propagation so nested drop zones never double-handle the same drop
+    // (e.g. a card-wide zone wrapping a component that keeps its own zone).
+    e.stopPropagation();
     dragDepth.current = 0;
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
@@ -6,13 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { AttachmentMeta } from "@/types/forum";
 import { api } from "@/integrations/api/compat";
-import { ImageIcon, Loader2, Send, Smile } from "lucide-react";
+import { ImageIcon, ImagePlus, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
+import { uploadAttachments } from "@/utils/mediaUpload";
+import { useFileDrop } from "@/hooks/useFileDrop";
 import type { WallPost } from "@/utils/wallNormalizers";
 
 // Same precedent as the messenger (4000 chars); the editor hard-stops input here.
 const MAX_WALL_POST_LENGTH = 4000;
+// Mirrors the ProfileAttachmentUpload maxFiles used on the wall.
+const MAX_WALL_ATTACHMENTS = 8;
 
 interface CreateWallPostProps {
   profileUserId: string;
@@ -71,6 +75,25 @@ export const CreateWallPost = ({
 
   const isEditing = !!editingPost;
   const canSubmit = content.trim().length > 0 || attachments.length > 0;
+
+  // Files dropped anywhere on the composer card attach via the same upload
+  // path as the paperclip button.
+  const handleDropFiles = useCallback(async (files: File[]) => {
+    if (isSubmitting) return;
+    const remaining = MAX_WALL_ATTACHMENTS - attachments.length;
+    if (remaining <= 0) return;
+    try {
+      const uploaded = await uploadAttachments(files.slice(0, remaining), "wall");
+      if (uploaded.length > 0) {
+        setAttachments((prev) => [...prev, ...uploaded]);
+      }
+    } catch (error) {
+      console.error("Wall post drop upload failed:", error);
+      toast.error("Не удалось загрузить вложения");
+    }
+  }, [attachments, isSubmitting]);
+
+  const { isDragging: isWallDragging, dragHandlers: wallDragHandlers } = useFileDrop(handleDropFiles);
 
   useEffect(() => {
     setContent(editingPost?.content || "");
@@ -187,7 +210,19 @@ export const CreateWallPost = ({
   };
 
   return (
-    <Card className="overflow-hidden border-border/70 bg-card shadow-sm">
+    <Card data-testid="wall-post-composer" className="relative overflow-hidden border-border/70 bg-card shadow-sm" {...wallDragHandlers}>
+      {/* Drag & drop attach hint covering the whole composer */}
+      {isWallDragging && attachments.length < MAX_WALL_ATTACHMENTS && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary/60 bg-background/60 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-primary/25 bg-card px-8 py-6 shadow-xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <ImagePlus className="h-6 w-6" />
+            </div>
+            <span className="text-sm font-semibold text-foreground">Отпустите, чтобы прикрепить</span>
+            <span className="text-xs text-muted-foreground">Фото, видео и файлы появятся в записи</span>
+          </div>
+        </div>
+      )}
       <CardContent className="p-0">
         <div className="border-b border-border/60 px-3 py-2.5 sm:px-5 sm:py-3">
           <div className="text-sm font-semibold">
@@ -228,7 +263,7 @@ export const CreateWallPost = ({
                 </Button>
               </EmojiPicker>
 
-              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} bucket="wall" />
+              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} bucket="wall" dropZone={false} />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:text-xs">
