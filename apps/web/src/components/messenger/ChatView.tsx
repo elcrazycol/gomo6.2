@@ -14,6 +14,7 @@ import { NotesSettingsDialog } from "./NotesSettingsDialog";
 import { NotesOrganizeDialog } from "./NotesOrganizeDialog";
 import { hasNotesKey } from "@/utils/notesCrypto";
 import { isConsecutive } from "./messageListUtils";
+import { chunkAttachments, MAX_ALBUM_ATTACHMENTS } from "./attachmentAlbum";
 import type { Attachment, MessageView } from "./types";
 
 interface Props {
@@ -56,6 +57,8 @@ export const ChatView = memo(function ChatView({
   const [giftDetailRecipientId, setGiftDetailRecipientId] = useState<string | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<MessageView | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [isBatchSending, setIsBatchSending] = useState(false);
+  const batchSendingRef = useRef(false);
   // Notes self-chat organization
   const [notesFolderFilter, setNotesFolderFilter] = useState<string | null>(null);
   const [organizeMessage, setOrganizeMessage] = useState<MessageView | null>(null);
@@ -151,24 +154,63 @@ export const ChatView = memo(function ChatView({
   const handleCancelReply = useCallback(() => setReplyToMessage(null), []);
 
   const handleSend = useCallback(async () => {
-    if ((!draft.trim() && pendingAttachments.length === 0) || isSending) return;
-    const clientId = `c${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-    // Keep the draft when the send fails (e.g. notes encryption error) so the
-    // text is never lost.
-    const sentId = await sendMessage(
-      draft.trim() || " ",
-      clientId,
-      replyToMessage?.id ?? undefined,
-      pendingAttachments.length > 0 ? pendingAttachments : undefined,
-    );
-    if (!sentId) return;
-    setDraft("");
-    setReplyToMessage(null);
-    setPendingAttachments([]);
-    // Always bring the author back to the bottom so their message is visible,
-    // even when they were reading history. When already at the bottom,
-    // followOutput covers the scroll and this call is a no-op.
-    requestAnimationFrame(() => messageListRef.current?.scrollToBottom());
+    if ((!draft.trim() && pendingAttachments.length === 0) || isSending || batchSendingRef.current) return;
+
+    const attachmentsToSend = [...pendingAttachments];
+    const batches = attachmentsToSend.length > 0
+      ? chunkAttachments(attachmentsToSend)
+      : [[] as Attachment[]];
+    const caption = draft.trim() || " ";
+    let firstSent = true;
+
+    // Keep the composer locked across every message in a 6 + 1 + ... send.
+    // The store's isSending flag belongs to one request and can become false
+    // between batches, so it is not sufficient as the batch-level mutex.
+    batchSendingRef.current = true;
+    setIsBatchSending(true);
+
+    try {
+      // One selected batch becomes one message. A batch is capped at six so the
+      // renderer can always present it as a complete mosaic. Keep the caption
+      // only on the final batch; otherwise a 7+ photo send duplicates the text.
+      for (let index = 0; index < batches.length; index += 1) {
+        const clientId = `c${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 8)}`;
+        let sentId = "";
+        try {
+          sentId = await sendMessage(
+            index === batches.length - 1 ? caption : " ",
+            clientId,
+            firstSent ? replyToMessage?.id ?? undefined : undefined,
+            batches[index].length > 0 ? batches[index] : undefined,
+          );
+        } catch {
+          // sendMessage normally converts request failures into an empty id,
+          // but keep the same retry-safe remainder if a lower layer throws.
+        }
+        if (!sentId) {
+          // Keep only the failed batch and everything after it. Retrying now
+          // cannot duplicate the batches that were already accepted.
+          setPendingAttachments(attachmentsToSend.slice(index * MAX_ALBUM_ATTACHMENTS));
+          // The reply target was consumed by the first successful batch. If
+          // this is a retry of a later batch, do not attach it to the same
+          // quoted message a second time.
+          if (!firstSent) setReplyToMessage(null);
+          return;
+        }
+        firstSent = false;
+        setPendingAttachments(attachmentsToSend.slice((index + 1) * MAX_ALBUM_ATTACHMENTS));
+      }
+
+      setDraft("");
+      setReplyToMessage(null);
+      setPendingAttachments([]);
+      // Always bring the author back to the bottom so their latest album part is
+      // visible, even when they were reading history.
+      requestAnimationFrame(() => messageListRef.current?.scrollToBottom());
+    } finally {
+      batchSendingRef.current = false;
+      setIsBatchSending(false);
+    }
   }, [draft, isSending, sendMessage, replyToMessage, pendingAttachments]);
 
   const handleStartEdit = useCallback((msgId: string, content: string) => {
@@ -462,7 +504,7 @@ export const ChatView = memo(function ChatView({
       <MessageComposer
         draft={draft}
         setDraft={setDraft}
-        isSending={isSending}
+        isSending={isSending || isBatchSending}
         onSend={handleSend}
         composerRef={composerRef}
         onTyping={onTyping}

@@ -14,7 +14,8 @@ import {
   useAuthenticatedAttachmentUrl,
 } from "./attachmentMedia";
 import { MessengerLightbox } from "./MessengerLightbox";
-import { MessageMediaCarousel } from "./MessageMediaCarousel";
+import { MessageMediaMosaic } from "./MessageMediaMosaic";
+import { chunkAttachments } from "./attachmentAlbum";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { EmojiInline } from "@/components/EmojiInline";
 import type { Attachment } from "./types";
@@ -448,7 +449,11 @@ export const MessageContent = memo(function MessageContent({ content, attachment
   const hasLinks = segments.some((s) => s.type === "link");
   const hasAttachments = attachments && attachments.length > 0;
   const hasEmojis = /\[e:[^\]]+\]/.test(content);
-  const visualAttachments = attachments?.filter((attachment) => attachment.type === "image" || attachment.type === "video") ?? [];
+  const visualAttachments = useMemo(
+    () => attachments?.filter((attachment) => attachment.type === "image" || attachment.type === "video") ?? [],
+    [attachments],
+  );
+  const mediaBatches = useMemo(() => chunkAttachments(visualAttachments), [visualAttachments]);
   const isMediaMessage = !hasQuotedMessage
     && !segments.some((segment) => segment.type === "link")
     && visualAttachments.length > 0
@@ -482,13 +487,22 @@ export const MessageContent = memo(function MessageContent({ content, attachment
     return (
       <>
         <div className={`message-content message-content-media${content.trim() ? " has-caption" : ""}`}>
-          {visualAttachments.length > 1 ? (
-            <MessageMediaCarousel attachments={visualAttachments} onOpen={setLightboxIndex} />
-          ) : (
+          {visualAttachments.length === 1 ? (
             <div className="msg-attachments">
-              {visualAttachments.map((att, i) => (
-                <AttachmentView key={att.id || i} attachment={att} fitToViewport />
-              ))}
+              <AttachmentView attachment={visualAttachments[0]} fitToViewport />
+            </div>
+          ) : (
+            <div className="msg-media-mosaic-stack">
+              {mediaBatches.map((batch, batchIndex) => {
+                const offset = batchIndex * 6;
+                return (
+                  <MessageMediaMosaic
+                    key={`${batch[0]?.id ?? batch[0]?.url ?? "batch"}-${batchIndex}`}
+                    attachments={batch}
+                    onOpen={(index) => setLightboxIndex(offset + index)}
+                  />
+                );
+              })}
             </div>
           )}
           {content.trim() && <div className="message-media-caption">{renderedText}</div>}

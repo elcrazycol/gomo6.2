@@ -61,25 +61,33 @@ function makeImageAttachment(url: string, id: string): Attachment {
   };
 }
 
-describe('MessageContent media carousel', () => {
-  it('renders a swipeable carousel for multi-photo messages', () => {
+describe('MessageContent media mosaic', () => {
+  it('renders every photo in a six-item album mosaic', () => {
     const { container } = render(
       <MessageContent
         content=""
         attachments={[makeImageAttachment('a.jpg', 'a'), makeImageAttachment('b.jpg', 'b')]}
       />,
     );
-    expect(container.querySelector('.msg-media-carousel')).toBeInTheDocument();
-    expect(container.querySelector('.msg-media-counter')).toHaveTextContent('1 / 2');
-    expect(container.querySelectorAll('.msg-media-slide')).toHaveLength(2);
+    const mosaic = container.querySelector('.msg-media-mosaic');
+    expect(mosaic).toBeInTheDocument();
+    expect(mosaic).toHaveClass('mosaic-count-2');
+    expect(container.querySelectorAll('.msg-media-mosaic-tile')).toHaveLength(2);
     expect(container.querySelector('.is-media-grid')).not.toBeInTheDocument();
   });
 
-  it('keeps a single photo as a plain attachment, not a carousel', () => {
+  it('renders a six-photo mosaic without hiding any tile', () => {
+    const attachments = Array.from({ length: 6 }, (_, index) => makeImageAttachment(`${index}.jpg`, `${index}`));
+    const { container } = render(<MessageContent content="" attachments={attachments} />);
+    expect(container.querySelector('.msg-media-mosaic')).toHaveClass('mosaic-count-6');
+    expect(container.querySelectorAll('.msg-media-mosaic-tile')).toHaveLength(6);
+  });
+
+  it('keeps a single photo in the stable single-attachment renderer', () => {
     const { container } = render(
       <MessageContent content="" attachments={[makeImageAttachment('a.jpg', 'a')]} />,
     );
-    expect(container.querySelector('.msg-media-carousel')).not.toBeInTheDocument();
+    expect(container.querySelector('.msg-media-mosaic')).not.toBeInTheDocument();
     expect(container.querySelector('.msg-attachment-image')).toBeInTheDocument();
   });
 
@@ -90,8 +98,8 @@ describe('MessageContent media carousel', () => {
         attachments={[makeImageAttachment('a.jpg', 'a'), makeImageAttachment('b.jpg', 'b')]}
       />,
     );
-    const slides = document.body.querySelectorAll('.msg-media-slide-open');
-    fireEvent.click(slides[1]);
+    const tiles = document.body.querySelectorAll('.msg-media-mosaic-tile');
+    fireEvent.click(tiles[1]);
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toBeInTheDocument();
 

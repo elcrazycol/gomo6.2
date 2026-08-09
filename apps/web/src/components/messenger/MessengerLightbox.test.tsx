@@ -26,6 +26,14 @@ describe("MessengerLightbox", () => {
     expect(document.body.querySelector('[aria-label="Скачать"]')).toBeInTheDocument();
     expect(document.body.querySelector('[aria-label="Сбросить масштаб"]')).toBeInTheDocument();
     expect(document.body.querySelectorAll(".msg-lightbox-slide")).toHaveLength(3);
+    expect(document.body.querySelectorAll(".msg-lightbox-thumbnail")).toHaveLength(3);
+  });
+
+  it("selects a photo from the thumbnail strip", () => {
+    render(<MessengerLightbox attachments={attachments} initialIndex={0} onClose={vi.fn()} />);
+    const thumbnails = document.body.querySelectorAll(".msg-lightbox-thumbnail");
+    fireEvent.click(thumbnails[2]);
+    expect(thumbnails[2]).toHaveAttribute("aria-current", "true");
   });
 
   it("closes via the close button", () => {
