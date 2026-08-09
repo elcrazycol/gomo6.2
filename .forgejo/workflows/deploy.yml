@@ -84,7 +84,8 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        # Forgejo-maintained mirror of actions/checkout — no GitHub involved.
+        uses: https://code.forgejo.org/actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -167,7 +168,8 @@ jobs:
     runs-on: [self-hosted, macos, arm64]
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        # Forgejo-maintained mirror of actions/checkout — no GitHub involved.
+        uses: https://code.forgejo.org/actions/checkout@v4
 
       - name: docker compose up --no-build
         run: |
