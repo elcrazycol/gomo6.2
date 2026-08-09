@@ -193,14 +193,21 @@ jobs:
           # makes every push fail with 401/reqPackageAccess. A fresh dir has no
           # credsStore, so credentials are stored as a plain file and buildx
           # reads them back. The build step below reuses this login.
-          # Fresh config dir on EVERY run: a reused config points back at the
-          # macOS keychain, whose stale codeberg credential silently wins over
-          # new logins (-25299 / 401 reqPackageAccess — the whole bug series).
-          # A brand-new dir is the exact path proven to work (login+push OK).
+          # Registry auth — fully keychain-free, buildx-safe:
+          #  - A custom DOCKER_CONFIG shadows ~/.docker/cli-plugins, so docker
+          #    can no longer find the buildx plugin ("unknown flag: --platform"
+          #    — the whole bug series). Restore discovery via cliPluginsExtraDirs.
+          #  - Write the auth directly instead of `docker login`: Docker
+          #    Desktop's CLI injects credsStore: osxkeychain and stores creds
+          #    in the macOS keychain, where a stale codeberg entry silently
+          #    wins over new logins (-25299 / 401 reqPackageAccess). A plain
+          #    auths entry in config.json never touches the keychain.
           rm -rf "$HOME/.docker-gomo6"
+          mkdir -p "$HOME/.docker-gomo6"
           export DOCKER_CONFIG="$HOME/.docker-gomo6"
-          echo "${{ secrets.CODEREG_TOKEN }}" | docker login codeberg.org \
-            -u "$OWNER" --password-stdin
+          AUTH="$(printf '%s:%s' "$OWNER" "${{ secrets.CODEREG_TOKEN }}" | base64)"
+          printf '{"auths":{"codeberg.org":{"auth":"%s"}},"cliPluginsExtraDirs":["%s"]}' \
+            "$AUTH" "$HOME/.docker/cli-plugins" > "$DOCKER_CONFIG/config.json"
 
       - name: Build & push image (native arm64 build → codeberg registry)
         if: steps.detect.outputs.changed == 'true'
