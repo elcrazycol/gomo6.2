@@ -41,3 +41,12 @@ dist-ssr
 # Test coverage
 *.out
 coverage/
+
+# Build artifacts (purged from git history - rebuild with go build)
+apps/backend-go/server
+apps/backend-go/main
+apps/backend-go/server_new
+apps/backend-go/gomo6-server
+apps/backend-go/test-server
+apps/backend-go/bin/
+apps/backend-go/garage_data/
