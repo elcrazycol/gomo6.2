@@ -19,7 +19,7 @@ interface PackData {
 
 export default function EmojiMyPacks() {
   const navigate = useNavigate();
-  const { subscribedPackIds, subscribedPacks, refreshData, unsubscribeFromPack } = useEmojiData();
+  const { subscribedPackIds, subscribedPacks, ownedPacks, refreshData, unsubscribeFromPack } = useEmojiData();
   const [myPacks, setMyPacks] = useState<PackData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -109,7 +109,7 @@ export default function EmojiMyPacks() {
         {/* Subscribed packs */}
         <div>
           <h2 className="text-lg font-semibold mb-3">Подписки</h2>
-          {subscribedPacks.length === 0 ? (
+          {subscribedPacks.length === 0 && ownedPacks.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Download className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p>Вы не подписаны ни на один пак</p>
@@ -119,7 +119,7 @@ export default function EmojiMyPacks() {
             </div>
           ) : (
             <div className="space-y-2">
-              {subscribedPacks.map(pack => (
+              {[...subscribedPacks, ...ownedPacks.filter((pack) => !subscribedPacks.some((subscribed) => subscribed.id === pack.id))].map(pack => (
                 <div key={pack.id} className="flex items-center gap-3 p-3 rounded-lg border">
                   {pack.icon_url ? (
                     <img src={storageUrl('emojis', pack.icon_url)} alt={pack.name} className="w-10 h-10 object-contain" />

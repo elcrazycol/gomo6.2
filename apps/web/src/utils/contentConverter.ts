@@ -283,7 +283,10 @@ export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => 
   const walk = (node: Record<string, unknown>): string => {
     if (node.type === "text") return (node.text as string) || "";
     if (node.type === "hardBreak") return "\n";
-    if (node.type === "customEmoji") return "[e:" + ((node.attrs as Record<string, unknown>)?.emojiId || "") + "]";
+    // A custom emoji is an atomic inline character. Keep the plain-text
+    // representation one UTF-16 code unit so character limits do not count
+    // the database UUID or expose the old [e:...] transport marker.
+    if (node.type === "customEmoji") return "\uFFFC";
     if (node.type === "mention") {
       const attrs = (node.attrs as Record<string, unknown>) || {};
       return "@" + ((attrs.label as string) || (attrs.id as string) || "");

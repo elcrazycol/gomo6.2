@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Button } from '@/components/ui/button';
-import { Upload, X, Loader2, AlertCircle } from 'lucide-react';
+import { Upload, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { processEmojiImage, validateEmojiFile, CompressionResult } from '@/utils/emojiCompression';
 
 interface EmojiUploaderProps {
@@ -13,11 +12,13 @@ export function EmojiUploader({ onUpload, disabled }: EmojiUploaderProps) {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [resultLabel, setResultLabel] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     setPreview(null);
+    setResultLabel(null);
 
     const validation = validateEmojiFile(file);
     if (!validation.valid) {
@@ -30,6 +31,7 @@ export function EmojiUploader({ onUpload, disabled }: EmojiUploaderProps) {
       const result = await processEmojiImage(file);
       const previewUrl = URL.createObjectURL(result.file);
       setPreview(previewUrl);
+      setResultLabel(`${result.width}×${result.height}px · ${(result.outputBytes / 1024).toFixed(0)} КБ${result.isAnimated ? ' · анимация' : ' · WebP'}`);
       onUpload({ ...result, file: result.file });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Processing failed');
@@ -61,6 +63,14 @@ export function EmojiUploader({ onUpload, disabled }: EmojiUploaderProps) {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
+        onKeyDown={(event) => {
+          if ((event.key === 'Enter' || event.key === ' ') && !disabled) {
+            event.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
       >
         <input
           ref={inputRef}
@@ -85,11 +95,17 @@ export function EmojiUploader({ onUpload, disabled }: EmojiUploaderProps) {
           <div className="flex flex-col items-center gap-1 text-muted-foreground">
             <Upload className="h-6 w-6" />
             <span className="text-sm">Перетащите PNG, JPG, WebP или GIF</span>
-            <span className="text-xs">Статика: до 3KB, Анимация: до 15KB</span>
+            <span className="text-xs">Статика автоматически станет WebP до 128×128px · анимация до 512 КБ</span>
           </div>
         )}
       </div>
 
+      {resultLabel && !error && (
+        <div className="flex items-center gap-1 text-emerald-600 text-xs">
+          <CheckCircle2 className="h-3 w-3" />
+          Готово: {resultLabel}
+        </div>
+      )}
       {error && (
         <div className="flex items-center gap-1 text-destructive text-xs">
           <AlertCircle className="h-3 w-3" />

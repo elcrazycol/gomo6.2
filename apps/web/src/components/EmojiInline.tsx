@@ -32,7 +32,6 @@ export const EmojiInline = ({ emojiId, code, className = "", size }: EmojiInline
         alt={emoji.name}
         className={`inline-block align-middle mx-0.5 ${className}`}
         style={style || { height: '1.2em', width: 'auto' }}
-        title={`:${emoji.name}:`}
         draggable={false}
       />
     );

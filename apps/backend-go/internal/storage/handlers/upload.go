@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/md5"
 	"database/sql"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -18,9 +23,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/gomo6/backend/internal/storage"
+	_ "golang.org/x/image/webp"
 )
 
-const maxUploadBytes = 10 * 1024 * 1024
+const (
+	maxUploadBytes      = 10 * 1024 * 1024
+	maxEmojiUploadBytes = 512 * 1024
+	maxEmojiDimension   = 128
+)
 
 type imageVariantResponse struct {
 	PreviewKey  string `json:"preview_key"`
@@ -196,6 +206,12 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
+	if bucket == "emojis" {
+		if err := validateEmojiUpload(data); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+	}
 
 	contentType := header.Header.Get("Content-Type")
 	if contentType == "" {
@@ -278,6 +294,20 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		response["variants"] = variants
 	}
 	c.JSON(http.StatusOK, models.SuccessResponse(response))
+}
+
+func validateEmojiUpload(data []byte) error {
+	if len(data) > maxEmojiUploadBytes {
+		return fmt.Errorf("emoji file too large (max %dKB)", maxEmojiUploadBytes/1024)
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("invalid emoji image")
+	}
+	if config.Width <= 0 || config.Height <= 0 || config.Width > maxEmojiDimension || config.Height > maxEmojiDimension {
+		return fmt.Errorf("emoji dimensions must not exceed %d×%dpx", maxEmojiDimension, maxEmojiDimension)
+	}
+	return nil
 }
 
 func isImageBucket(bucket string) bool {

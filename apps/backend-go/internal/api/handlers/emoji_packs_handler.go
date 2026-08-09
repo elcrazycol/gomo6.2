@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -17,11 +18,12 @@ func NewEmojiPacksHandler(db *sql.DB) *EmojiPacksHandler {
 }
 
 type EmojiData struct {
-	ID         string `json:"id"`
-	PackID     string `json:"pack_id"`
-	Name       string `json:"name"`
-	ImageURL   string `json:"image_url"`
-	IsAnimated bool   `json:"is_animated"`
+	ID              string   `json:"id"`
+	PackID          string   `json:"pack_id"`
+	Name            string   `json:"name"`
+	ImageURL        string   `json:"image_url"`
+	IsAnimated      bool     `json:"is_animated"`
+	UnicodeTriggers []string `json:"unicode_triggers"`
 }
 
 type EmojiPackWithEmojis struct {
@@ -37,6 +39,34 @@ type EmojiPackWithEmojis struct {
 	CreatedAt       string      `json:"created_at"`
 	UpdatedAt       string      `json:"updated_at"`
 	Emojis          []EmojiData `json:"emojis,omitempty"`
+}
+
+func decodeUnicodeTriggers(raw []byte) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	var triggers []string
+	if err := json.Unmarshal(raw, &triggers); err != nil || triggers == nil {
+		return []string{}
+	}
+	return triggers
+}
+
+func scanEmojiRow(scanner interface{ Scan(...any) error }) (EmojiData, error) {
+	var emoji EmojiData
+	var triggersRaw []byte
+	err := scanner.Scan(
+		&emoji.ID,
+		&emoji.PackID,
+		&emoji.Name,
+		&emoji.ImageURL,
+		&emoji.IsAnimated,
+		&triggersRaw,
+	)
+	if err == nil {
+		emoji.UnicodeTriggers = decodeUnicodeTriggers(triggersRaw)
+	}
+	return emoji, err
 }
 
 func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
@@ -65,7 +95,7 @@ func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 	}
 
 	rows, err := h.db.Query(`
-		SELECT id, pack_id, name, image_url, is_animated
+		SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
 		FROM custom_emojis WHERE pack_id = $1 ORDER BY sort_order, created_at
 	`, pack.ID)
 	if err != nil {
@@ -76,11 +106,10 @@ func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 
 	pack.Emojis = make([]EmojiData, 0)
 	for rows.Next() {
-		var e EmojiData
-		if err := rows.Scan(&e.ID, &e.PackID, &e.Name, &e.ImageURL, &e.IsAnimated); err != nil {
-			continue
+		emoji, scanErr := scanEmojiRow(rows)
+		if scanErr == nil {
+			pack.Emojis = append(pack.Emojis, emoji)
 		}
-		pack.Emojis = append(pack.Emojis, e)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(pack))
@@ -105,15 +134,30 @@ func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
 
 	packs := make([]EmojiPackWithEmojis, 0)
 	for rows.Next() {
-		var p EmojiPackWithEmojis
+		var pack EmojiPackWithEmojis
 		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.IconURL,
-			&p.AuthorID, &p.EmojiCount, &p.SubscriberCount, &p.IsPublic,
-			&p.CreatedAt, &p.UpdatedAt,
+			&pack.ID, &pack.Name, &pack.Slug, &pack.Description, &pack.IconURL,
+			&pack.AuthorID, &pack.EmojiCount, &pack.SubscriberCount, &pack.IsPublic,
+			&pack.CreatedAt, &pack.UpdatedAt,
 		); err != nil {
 			continue
 		}
-		packs = append(packs, p)
+
+		emojiRows, queryErr := h.db.Query(`
+			SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
+			FROM custom_emojis WHERE pack_id = $1 ORDER BY sort_order, created_at
+		`, pack.ID)
+		if queryErr == nil {
+			pack.Emojis = make([]EmojiData, 0)
+			for emojiRows.Next() {
+				emoji, scanErr := scanEmojiRow(emojiRows)
+				if scanErr == nil {
+					pack.Emojis = append(pack.Emojis, emoji)
+				}
+			}
+			emojiRows.Close()
+		}
+		packs = append(packs, pack)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(packs))
@@ -139,38 +183,38 @@ func (h *EmojiPacksHandler) GetMySubscriptions(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	type PackWithEmojis struct {
+	type packWithEmojis struct {
 		EmojiPackWithEmojis
 		Emojis []EmojiData `json:"emojis"`
 	}
 
-	packs := make([]PackWithEmojis, 0)
+	packs := make([]packWithEmojis, 0)
 	for rows.Next() {
-		var p PackWithEmojis
+		var pack packWithEmojis
 		if err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.IconURL,
-			&p.AuthorID, &p.EmojiCount, &p.SubscriberCount, &p.IsPublic,
-			&p.CreatedAt, &p.UpdatedAt,
+			&pack.ID, &pack.Name, &pack.Slug, &pack.Description, &pack.IconURL,
+			&pack.AuthorID, &pack.EmojiCount, &pack.SubscriberCount, &pack.IsPublic,
+			&pack.CreatedAt, &pack.UpdatedAt,
 		); err != nil {
 			continue
 		}
 
-		emojiRows, err := h.db.Query(`
-			SELECT id, pack_id, name, image_url, is_animated
+		emojiRows, queryErr := h.db.Query(`
+			SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
 			FROM custom_emojis WHERE pack_id = $1 ORDER BY sort_order, created_at
-		`, p.ID)
-		if err == nil {
-			p.Emojis = make([]EmojiData, 0)
+		`, pack.ID)
+		if queryErr == nil {
+			pack.Emojis = make([]EmojiData, 0)
 			for emojiRows.Next() {
-				var e EmojiData
-				if err := emojiRows.Scan(&e.ID, &e.PackID, &e.Name, &e.ImageURL, &e.IsAnimated); err == nil {
-					p.Emojis = append(p.Emojis, e)
+				emoji, scanErr := scanEmojiRow(emojiRows)
+				if scanErr == nil {
+					pack.Emojis = append(pack.Emojis, emoji)
 				}
 			}
 			emojiRows.Close()
 		}
 
-		packs = append(packs, p)
+		packs = append(packs, pack)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(packs))
@@ -191,20 +235,19 @@ func (h *EmojiPacksHandler) ResolveEmojis(c *gin.Context) {
 		c.JSON(http.StatusOK, models.SuccessResponse([]EmojiData{}))
 		return
 	}
-
 	if len(req.IDs) > 200 {
 		req.IDs = req.IDs[:200]
 	}
 
 	emojis := make([]EmojiData, 0, len(req.IDs))
 	for _, id := range req.IDs {
-		var e EmojiData
-		err := h.db.QueryRow(`
-			SELECT id, pack_id, name, image_url, is_animated
+		row := h.db.QueryRow(`
+			SELECT id, pack_id, name, image_url, is_animated, unicode_triggers
 			FROM custom_emojis WHERE id = $1
-		`, id).Scan(&e.ID, &e.PackID, &e.Name, &e.ImageURL, &e.IsAnimated)
+		`, id)
+		emoji, err := scanEmojiRow(row)
 		if err == nil {
-			emojis = append(emojis, e)
+			emojis = append(emojis, emoji)
 		}
 	}
 

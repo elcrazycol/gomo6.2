@@ -523,6 +523,22 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 				// Emoji packs (protected)
 				protected.GET("/my-emoji-packs", emojiPacksHandler.GetMyPacks)
 				protected.GET("/my-emoji-subscriptions", emojiPacksHandler.GetMySubscriptions)
+
+				// Emoji pack writes use the generic CRUD handler but must be routed
+				// through the authenticated/RLS group. Previously only GET routes
+				// existed, so creating packs and adding/removing emojis returned 404.
+				protected.POST("/emoji_packs", universalHandler.HandleTableRequest)
+				protected.PUT("/emoji_packs", universalHandler.HandleTableRequest)
+				protected.PUT("/emoji_packs/*path", universalHandler.HandleTableRequest)
+				protected.DELETE("/emoji_packs", universalHandler.HandleTableRequest)
+				protected.DELETE("/emoji_packs/*path", universalHandler.HandleTableRequest)
+				protected.POST("/custom_emojis", universalHandler.HandleTableRequest)
+				protected.PUT("/custom_emojis", universalHandler.HandleTableRequest)
+				protected.PUT("/custom_emojis/*path", universalHandler.HandleTableRequest)
+				protected.DELETE("/custom_emojis", universalHandler.HandleTableRequest)
+				protected.DELETE("/custom_emojis/*path", universalHandler.HandleTableRequest)
+				protected.POST("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
+				protected.DELETE("/user_emoji_subscriptions", universalHandler.HandleTableRequest)
 			}
 		}
 	}

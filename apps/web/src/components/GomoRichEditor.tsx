@@ -26,6 +26,8 @@ import { CharacterCount } from "@tiptap/extension-character-count";
 import { isMentionPopupActive, mentionSuggestion } from "@/components/editor/mentionSuggestions";
 import { CustomTabExtension } from "@/components/CustomTabExtension";
 import { CustomEmojiNode } from "@/components/emoji/CustomEmojiNode";
+import { useEmojiData } from "@/contexts/EmojiDataContext";
+import { createCustomEmojiSuggestionExtension } from "@/components/editor/customEmojiSuggestions";
 
 interface GomoRichEditorProps {
   contentJson?: unknown;
@@ -311,6 +313,9 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   onSubmit,
 }, ref) => {
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const { customEmojiList } = useEmojiData();
+  const customEmojiListRef = useRef(customEmojiList);
+  customEmojiListRef.current = customEmojiList;
   const composerKey = useMemo(() => String(resetKey ?? "stable"), [resetKey]);
   // Start "handled" at the current key: useEditor already applies the initial
   // content at creation, so we only need to reset when resetKey changes.
@@ -348,9 +353,16 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       SpoilerMark,
       HashtagMark,
       PasteCleanup,
-      CharacterCount.configure({ limit: maxLength ?? null, mode: "textSize" }),
+      CharacterCount.configure({
+        limit: maxLength ?? null,
+        mode: "textSize",
+        // ProseMirror exposes custom atoms through textBetween as a leaf
+        // separator. Count each custom emoji as one character, not its UUID.
+        textCounter: (text) => Array.from(text).length,
+      }),
       CustomTabExtension,
       CustomEmojiNode,
+      createCustomEmojiSuggestionExtension(() => customEmojiListRef.current),
     ],
     [placeholder, maxLength]
   );
@@ -397,7 +409,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
     insertEmoji: (data: { emojiId: string; packId: string; url: string; name: string }) => {
       editor?.chain().focus().insertContent({
         type: 'customEmoji',
-        attrs: { emojiId: data.emojiId, url: data.url, name: data.name },
+        attrs: { emojiId: data.emojiId, fallback: null, name: data.name },
       }).run();
     },
   }), [editor]);

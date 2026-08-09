@@ -196,6 +196,18 @@ var expectedRoutes = []string{
 	"GET /api/v1/emoji_packs",
 	"GET /api/v1/custom_emojis",
 	"GET /api/v1/user_emoji_subscriptions",
+	"POST /api/v1/emoji_packs",
+	"PUT /api/v1/emoji_packs",
+	"PUT /api/v1/emoji_packs/*path",
+	"DELETE /api/v1/emoji_packs",
+	"DELETE /api/v1/emoji_packs/*path",
+	"POST /api/v1/custom_emojis",
+	"PUT /api/v1/custom_emojis",
+	"PUT /api/v1/custom_emojis/*path",
+	"DELETE /api/v1/custom_emojis",
+	"DELETE /api/v1/custom_emojis/*path",
+	"POST /api/v1/user_emoji_subscriptions",
+	"DELETE /api/v1/user_emoji_subscriptions",
 
 	// Protected REST
 	"POST /api/v1/profiles",

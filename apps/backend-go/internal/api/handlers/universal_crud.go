@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/cache"
@@ -40,6 +43,19 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 
 	// Add foreign keys based on table
 	switch tableName {
+	case "emoji_packs":
+		if authorID, ok := result["author_id"].(string); ok {
+			values["author_id"] = authorID
+		}
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
+	case "custom_emojis":
+		if packID, ok := result["pack_id"].(string); ok {
+			values["pack_id"] = packID
+		}
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/custom_emojis*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
+		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
 	case "profiles":
 		if username, ok := result["username"].(string); ok && username != "" {
 			values["username"] = username
@@ -144,15 +160,6 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/friends*user_id=%s*", userID))
 		}
-	case "emoji_packs":
-		fmt.Printf("[CacheInvalidator] Invalidating emoji_packs cache: id=%s\n", values["id"])
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
-	case "custom_emojis":
-		fmt.Printf("[CacheInvalidator] Invalidating custom_emojis cache: id=%s\n", values["id"])
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/custom_emojis*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs*")
-		cache.InvalidateByPattern(h.redis, "data:/api/v1/emoji_packs/by-slug*")
 	case "user_emoji_subscriptions":
 		if userID, ok := result["user_id"].(string); ok && userID != "" {
 			fmt.Printf("[CacheInvalidator] Invalidating user_emoji_subscriptions cache: user_id=%s\n", userID)
@@ -724,6 +731,54 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 	return clauses, args, argIndex, true
 }
 
+func validateCustomEmojiAsset(data map[string]interface{}, userID string) error {
+	value, ok := data["image_url"]
+	if !ok {
+		return nil
+	}
+	imageURL, ok := value.(string)
+	if userID == "" || !ok || imageURL == "" || strings.Contains(imageURL, "://") || !strings.HasPrefix(imageURL, userID+"/") {
+		return fmt.Errorf("image_url must reference the authenticated user's emoji storage")
+	}
+	return nil
+}
+
+func validateCustomEmojiTriggers(data map[string]interface{}) error {
+	raw, ok := data["unicode_triggers"]
+	if !ok {
+		return fmt.Errorf("unicode_triggers must contain 1 to 3 emoji")
+	}
+	var encoded []byte
+	switch value := raw.(type) {
+	case []byte:
+		encoded = value
+	case string:
+		encoded = []byte(value)
+	default:
+		return fmt.Errorf("unicode_triggers must be an array")
+	}
+	var triggers []string
+	if err := json.Unmarshal(encoded, &triggers); err != nil || len(triggers) < 1 || len(triggers) > 3 {
+		return fmt.Errorf("unicode_triggers must contain 1 to 3 emoji")
+	}
+	for _, trigger := range triggers {
+		if !utf8.ValidString(trigger) || strings.TrimSpace(trigger) == "" || len([]rune(trigger)) > 16 {
+			return fmt.Errorf("invalid unicode emoji trigger")
+		}
+		containsEmoji := false
+		for _, r := range trigger {
+			if unicode.In(r, unicode.So) || r == '\u200d' || r == '\ufe0f' {
+				containsEmoji = true
+				break
+			}
+		}
+		if !containsEmoji {
+			return fmt.Errorf("unicode_triggers must contain emoji characters")
+		}
+	}
+	return nil
+}
+
 func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	data, err := parseJSONObjectBody(c)
 	if err != nil {
@@ -733,6 +788,41 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	if err := normalizeJSONValuesForDB(data); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
+	}
+	if tableName == "custom_emojis" {
+		if err := validateCustomEmojiTriggers(data); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+		if err := validateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+	}
+
+	// Emoji packs and their assets are owned by the authenticated author. Keep
+	// these checks here because the generic table surface otherwise accepts any
+	// valid UUID/pack_id supplied by the client.
+	if tableName == "emoji_packs" {
+		uid := authenticatedUserID(c)
+		if uid == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		data["author_id"] = uid
+	}
+	if tableName == "custom_emojis" {
+		uid := authenticatedUserID(c)
+		packID, _ := data["pack_id"].(string)
+		if uid == "" || packID == "" {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse("pack_id is required"))
+			return
+		}
+		var ownsPack bool
+		if err := h.db.QueryRowContext(c.Request.Context(), "SELECT EXISTS(SELECT 1 FROM emoji_packs WHERE id = $1 AND author_id = $2)", packID, uid).Scan(&ownsPack); err != nil || !ownsPack {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("You can only edit your own emoji pack"))
+			return
+		}
 	}
 
 	// K1: force ownership so writes cannot impersonate another user.
@@ -938,6 +1028,16 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
+	if tableName == "custom_emojis" {
+		if err := validateCustomEmojiTriggers(data); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+		if err := validateCustomEmojiAsset(data, authenticatedUserID(c)); err != nil {
+			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
+			return
+		}
+	}
 
 	// K1: never allow rewriting authorship through a generic update.
 	if tableName == "profile_wall_posts" {
@@ -997,6 +1097,26 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	var clauses []string
+
+	if tableName == "emoji_packs" {
+		uid := authenticatedUserID(c)
+		if uid == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		clauses = append(clauses, "author_id = $"+strconv.Itoa(argIndex))
+		args = append(args, uid)
+		argIndex++
+	} else if tableName == "custom_emojis" {
+		uid := authenticatedUserID(c)
+		if uid == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		clauses = append(clauses, "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $"+strconv.Itoa(argIndex)+")")
+		args = append(args, uid)
+		argIndex++
+	}
 
 	// Extract optional record ID from URL path (e.g., /api/v1/user_session_time/abc-123).
 	if recordID := extractRecordID(c.Request.URL.Path, tableName); recordID != "" {
@@ -1147,6 +1267,26 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 	var args []interface{}
 	var clauses []string
 	argIndex := 1
+
+	if tableName == "emoji_packs" {
+		uid := authenticatedUserID(c)
+		if uid == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		clauses = append(clauses, "author_id = $"+strconv.Itoa(argIndex))
+		args = append(args, uid)
+		argIndex++
+	} else if tableName == "custom_emojis" {
+		uid := authenticatedUserID(c)
+		if uid == "" {
+			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+			return
+		}
+		clauses = append(clauses, "pack_id IN (SELECT id FROM emoji_packs WHERE author_id = $"+strconv.Itoa(argIndex)+")")
+		args = append(args, uid)
+		argIndex++
+	}
 
 	// Extract optional record ID from URL path (e.g., /api/v1/user_session_time/abc-123).
 	if recordID := extractRecordID(c.Request.URL.Path, tableName); recordID != "" {

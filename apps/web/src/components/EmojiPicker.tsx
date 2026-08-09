@@ -15,7 +15,7 @@ interface EmojiPickerProps {
 }
 
 export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPickerProps) => {
-  const { subscribedPacks, allEmojis, isLoading } = useEmojiData();
+  const { subscribedPacks, ownedPacks, isLoading } = useEmojiData();
   const [open, setOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -68,12 +68,14 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   const getFilteredEmojis = useCallback((pack: EmojiPackData): EmojiData[] => {
     if (!pack.emojis) return [];
     if (!search) return pack.emojis;
+    const query = search.trim().toLowerCase();
     return pack.emojis.filter(e =>
-      e.name.toLowerCase().includes(search.toLowerCase())
+      (e.unicode_triggers || []).some((trigger) => trigger.toLowerCase().includes(query))
     );
   }, [search]);
 
-  const currentPack = subscribedPacks.find(p => p.id === selectedPackId) || subscribedPacks[0];
+  const availablePacks = [...subscribedPacks, ...ownedPacks.filter((pack) => !subscribedPacks.some((subscribed) => subscribed.id === pack.id))];
+  const currentPack = availablePacks.find(p => p.id === selectedPackId) || availablePacks[0];
 
   const handleEmojiClick = (emoji: EmojiData, pack: EmojiPackData) => {
     const url = storageUrl('emojis', emoji.image_url);
@@ -83,7 +85,15 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   return (
     <>
       <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(!open)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setOpen((isOpen) => !isOpen);
+          }
+        }}
         ref={triggerRef as React.Ref<HTMLDivElement>}
       >
         {children || (
@@ -103,7 +113,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
             <div className="flex items-center justify-center h-64">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
             </div>
-          ) : subscribedPacks.length === 0 ? (
+          ) : availablePacks.length === 0 ? (
             <div className="p-6 text-center text-muted-foreground">
               <PackagePlus className="h-8 w-8 mx-auto mb-2 opacity-50" />
               <p className="text-sm mb-3">Нет подписанных паков</p>
@@ -128,7 +138,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
 
               {/* Pack tabs */}
               <div className="flex gap-1 p-2 border-b overflow-x-auto">
-                {subscribedPacks.map((pack) => (
+                {availablePacks.map((pack) => (
                   <Button
                     key={pack.id}
                     variant={(currentPack?.id === pack.id && !search) ? "default" : "ghost"}
@@ -150,7 +160,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
               <ScrollArea className="flex-1 p-2">
                 {search ? (
                   // Search results across all packs
-                  subscribedPacks.map(pack => {
+                  availablePacks.map(pack => {
                     const filtered = getFilteredEmojis(pack);
                     if (filtered.length === 0) return null;
                     return (
@@ -162,7 +172,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
                               key={emoji.id}
                               className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center"
                               onClick={() => handleEmojiClick(emoji, pack)}
-                              title={emoji.name}
+                              title={(emoji.unicode_triggers || []).join(' ') || 'Кастомный эмодзи'}
                             >
                               <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain" />
                             </button>
@@ -180,7 +190,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
                           key={emoji.id}
                           className="h-9 w-9 p-0 hover:bg-muted rounded flex items-center justify-center"
                           onClick={() => handleEmojiClick(emoji, currentPack)}
-                          title={emoji.name}
+                          title={(emoji.unicode_triggers || []).join(' ') || 'Кастомный эмодзи'}
                         >
                           <img src={storageUrl('emojis', emoji.image_url)} alt={emoji.name} className="w-6 h-6 object-contain" />
                         </button>
