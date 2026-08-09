@@ -3,27 +3,32 @@
 # =============================================================================
 # Gomo6 — Forgejo Actions deployment (Codeberg).
 #
-# Runner: your own Mac M1 Pro (self-hosted, labels: self-hosted / macos / arm64).
+# Runner: your own Mac M1 Pro (self-hosted, host-mode, labels: self-hosted /
+#         macos / arm64 / macos-arm64 — all `:host`).
 # VPS:    1 vCPU / 1 GB — it NEVER builds anything, it only loads images and
 #         starts containers.
 #
-# Pipeline (warm caches: ≈ 30 s for a single-service push; a full 4-service
-# push is ~40-60 s; the very first build after a cache wipe takes minutes):
-#   1. build-and-ship — builds ONLY the services whose files actually changed,
-#                       all up to 4 in parallel (matrix). Everything heavy
+# Pipeline:
+#   1. build-and-ship — detects which services changed via the Codeberg
+#                       COMPARE API (no git clone needed!), then builds ONLY
+#                       those services in parallel (matrix). Everything heavy
 #                       (Go compile, npm ci, Vite) runs NATIVE on arm64 — the
 #                       Dockerfiles use `FROM --platform=$BUILDPLATFORM`
 #                       builder stages, so QEMU never touches the compiler.
 #                       The finished linux/amd64 image is piped straight into
 #                       the VPS docker daemon over SSH (zstd-compressed
 #                       `docker save`): no registry, no credentials, one hop.
-#   2. restart        — `docker compose up -d --no-build` recreates exactly
-#                       the containers whose image changed, nothing else.
+#   2. restart        — skips itself when nothing changed, otherwise
+#                       `docker compose up -d --no-build` recreates exactly
+#                       the containers whose image changed.
 #
-# Where the speed comes from (all caches live on the Mac between runs):
-#   - BuildKit local cache   ~/buildx-cache/<service>  (mode=max, full layers)
-#   - Go build cache         --mount=type=cache in the backend Dockerfile
-#   - npm cache              --mount=type=cache in the frontend Dockerfiles
+# Why this is fast:
+#   - "Nothing changed" pushes finish in seconds: change detection is a single
+#     API call, checkout/build/stream are all skipped.
+#   - Even changed services use a SHALLOW checkout (fetch-depth: 1) — the full
+#     history is never downloaded. (The repo is ~300MB because of committed
+#     backend binaries; remove them from history to shrink clones further.)
+#   - BuildKit/Go/npm caches persist on the Mac between runs.
 #
 # Secrets (Codeberg repo/org → Settings → Actions → Secrets):
 #   VPS_HOST, VPS_USER, VPS_SSH_KEY,
@@ -31,7 +36,8 @@
 #   VITE_DEPAY_INTEGRATION_ID (only used by the web build)
 #
 # One-time setup:
-#   Runner: forgejo-runner register --labels self-hosted,macos,arm64
+#   Runner: native forgejo-runner v13 binary + `.forgejo-runner.yaml` with
+#           `server.connections.codeberg` (uuid+token from the Codeberg UI)
 #   VPS:    apt install zstd        (decompresses the streamed images)
 #
 # The VPS must have the repo checked out at /root/gomo6.2 or /home/*/gomo6.2
@@ -55,8 +61,9 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # Build & ship — one matrix job per service, all running in parallel.
-  # Each job first checks (cheap git diff) whether its service changed and
-  # skips everything if not.
+  # Change detection uses the Codeberg compare API, so no checkout is needed
+  # to find out whether a service changed. Checkout happens only afterwards,
+  # and only for services that will actually build.
   # ---------------------------------------------------------------------------
   build-and-ship:
     name: Build & ship ${{ matrix.service }}
@@ -83,13 +90,7 @@ jobs:
             file_pattern: '^apps/dev-dashboard/'
 
     steps:
-      - name: Checkout
-        # Forgejo-maintained mirror of actions/checkout — no GitHub involved.
-        uses: https://code.forgejo.org/actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Detect changes
+      - name: Detect changes (Codeberg API — no clone)
         id: detect
         run: |
           set -euo pipefail
@@ -99,23 +100,39 @@ jobs:
           else
             BEFORE="${{ github.event.before }}"
             SHA="${{ github.sha }}"
-            if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-              NEED=true
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "$SHA" ]; then
+              DIFF="$(curl -fsS --max-time 20 \
+                -H "Authorization: token ${{ github.token }}" \
+                "https://codeberg.org/api/v1/repos/${{ github.repository }}/compare/${BEFORE}...${SHA}" 2>/dev/null \
+                | python3 -c 'import json,sys; print("\n".join(f.get("filename","") for f in json.load(sys.stdin).get("files",[])))' 2>/dev/null \
+                || true)"
+              if [ -z "$DIFF" ]; then
+                # API unavailable or `before` is gone (force push) — build to be safe.
+                NEED=true
+              else
+                # Own directory touched → rebuild.
+                echo "$DIFF" | grep -qE "${{ matrix.file_pattern }}" && NEED=true
+                # Shared root files / workspace manifests → rebuild all frontends.
+                case "${{ matrix.service }}" in
+                  web|docs|dev-dashboard)
+                    echo "$DIFF" | grep -qE '^(package\.json|package-lock\.json|turbo\.json)$|^apps/.*/package\.json$' && NEED=true ;;
+                esac
+                # Compose / Caddyfile / dockerignore at repo root → everything.
+                echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore)$' && NEED=true
+              fi
             else
-              DIFF="$(git diff --name-only "$BEFORE" "$SHA")"
-              # Own directory touched → rebuild.
-              echo "$DIFF" | grep -qE "${{ matrix.file_pattern }}" && NEED=true
-              # Shared root files / workspace manifests → rebuild all frontends.
-              case "${{ matrix.service }}" in
-                web|docs|dev-dashboard)
-                  echo "$DIFF" | grep -qE '^(package\.json|package-lock\.json|turbo\.json)$|^apps/.*/package\.json$' && NEED=true ;;
-              esac
-              # Compose / Caddyfile / dockerignore at repo root → everything.
-              echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore)$' && NEED=true
+              NEED=true
             fi
           fi
           echo "changed=$NEED" >> "$GITHUB_OUTPUT"
           echo "changed=$NEED"
+
+      - name: Checkout (shallow — the diff already came from the API)
+        if: steps.detect.outputs.changed == 'true'
+        # Forgejo-maintained mirror of actions/checkout — no GitHub involved.
+        uses: https://code.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Build linux/amd64 image (native arm64, disk-persisted cache)
         if: steps.detect.outputs.changed == 'true'
@@ -160,18 +177,48 @@ jobs:
           rm -f "$KEY"
 
   # ---------------------------------------------------------------------------
-  # Restart — recreate exactly the containers that got a new image.
+  # Restart — recreates exactly the containers that got a new image.
+  # Skips itself (no SSH at all) when nothing relevant changed.
   # ---------------------------------------------------------------------------
   restart:
     name: Restart on VPS
     needs: build-and-ship
     runs-on: [self-hosted, macos, arm64]
     steps:
-      - name: Checkout
-        # Forgejo-maintained mirror of actions/checkout — no GitHub involved.
-        uses: https://code.forgejo.org/actions/checkout@v4
+      - name: Skip if nothing changed
+        id: check
+        run: |
+          set -euo pipefail
+          CHANGED=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED=true
+          else
+            BEFORE="${{ github.event.before }}"
+            SHA="${{ github.sha }}"
+            if [ -n "$BEFORE" ] && [ "$BEFORE" != "$SHA" ]; then
+              N="$(curl -fsS --max-time 20 \
+                -H "Authorization: token ${{ github.token }}" \
+                "https://codeberg.org/api/v1/repos/${{ github.repository }}/compare/${BEFORE}...${SHA}" 2>/dev/null \
+                | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("files",[])))' 2>/dev/null \
+                || echo 0)"
+              [ "$N" != "0" ] && CHANGED=true
+            else
+              CHANGED=true
+            fi
+          fi
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch deploy script from repo (no checkout)
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 15 \
+            -H "Authorization: token ${{ github.token }}" \
+            "https://codeberg.org/${{ github.repository }}/raw/branch/main/scripts/remote-deploy.sh" \
+            -o /tmp/gomo6-remote-deploy.sh
 
       - name: docker compose up --no-build
+        if: steps.check.outputs.changed == 'true'
         run: |
           set -euo pipefail
           KEY="$HOME/.ssh/vps_deploy_key"
@@ -182,7 +229,7 @@ jobs:
           chmod 600 "$KEY"
           scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
               -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-              scripts/remote-deploy.sh \
+              /tmp/gomo6-remote-deploy.sh \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-remote-deploy.sh"
           ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
               -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
