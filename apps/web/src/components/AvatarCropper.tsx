@@ -5,7 +5,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react";
 
 interface AvatarCropperProps {
   imageSrc: string;
-  onCropComplete: (croppedImage: string) => void;
+  onCropComplete: (croppedImage: Blob) => void;
   onCancel: () => void;
 }
 
@@ -223,7 +223,9 @@ export const AvatarCropper = ({ imageSrc, onCropComplete, onCancel }: AvatarCrop
       );
       ctx.restore();
 
-      onCropComplete(canvas.toDataURL("image/png"));
+      canvas.toBlob((blob) => {
+        if (blob) onCropComplete(blob);
+      }, "image/png");
     };
     img.src = imageSrc;
   };

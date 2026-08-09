@@ -653,7 +653,7 @@ const Profile = () => {
     }, [currentUser, userId, isEditing, readAvatarFile]),
   );
 
-  const handleCropConfirm = async (croppedImageData?: string) => {
+  const handleCropConfirm = async (croppedImage?: Blob) => {
     if (!userId) return;
 
     // Show loader immediately and close crop dialog
@@ -661,25 +661,20 @@ const Profile = () => {
     setAvatarUploading(true);
 
     try {
-      let blob: Blob;
-
-      if (croppedImageData) {
-        // Use cropped image from AvatarCropper
-        const response = await fetch(croppedImageData);
-        blob = await response.blob();
-      } else if (cropImage) {
-        // Fallback: convert current cropImage to blob
-        const response = await fetch(cropImage);
-        blob = await response.blob();
-      } else {
+      if (!croppedImage) {
         setAvatarUploading(false);
         return;
       }
 
-      const croppedFile = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-      const fileName = `${userId}/avatar_${Date.now()}.jpg`;
+      // AvatarCropper returns a Blob directly. Do not fetch a data: URL:
+      // CSP correctly blocks data: in connect-src, and no network request
+      // is needed for an image already in memory.
+      const blob = croppedImage;
 
-      await uploadFile('post-images', fileName, croppedFile);
+      const croppedFile = new File([blob], 'avatar.png', { type: 'image/png' });
+      const fileName = `${userId}/avatar_${Date.now()}.png`;
+
+      const uploaded = await uploadFile('post-images', fileName, croppedFile);
 
       const token = (await api.auth.getSession()).data.session?.access_token;
       const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -687,7 +682,7 @@ const Profile = () => {
       const updateRes = await        fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({ avatar_url: fileName }),
+        body: JSON.stringify({ avatar_url: uploaded.path }),
       });
 
       if (!updateRes.ok) {
@@ -697,7 +692,7 @@ const Profile = () => {
         return;
       }
 
-      setAvatarUrl(fileName);
+      setAvatarUrl(uploaded.path);
       setAvatarUploading(false);
       toast.success("Аватар обновлен");
 

@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { AvatarCropper } from './AvatarCropper';
 
 // Re-implementing pure geometry functions from AvatarCropper.tsx for testing
 // These are internal to the component but the logic is worth verifying
@@ -29,6 +31,62 @@ const computeMaxOffset = (naturalWidth: number, naturalHeight: number, imageScal
 const clampOffset = (next: Point, max: Point) => ({
   x: clamp(next.x, -max.x, max.x),
   y: clamp(next.y, -max.y, max.y),
+});
+
+describe('AvatarCropper', () => {
+  const nativeImage = globalThis.Image;
+  let clientWidthDescriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 280 });
+
+    class MockImage {
+      width = 1200;
+      height = 800;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('Image', MockImage);
+  });
+
+  afterEach(() => {
+    if (clientWidthDescriptor) {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', clientWidthDescriptor);
+    }
+    vi.stubGlobal('Image', nativeImage);
+    vi.restoreAllMocks();
+  });
+
+  it('emits a PNG Blob without fetching a data URL', async () => {
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage,
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+      callback(new Blob(['cropped'], { type: 'image/png' }));
+    });
+    const toDataURL = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => {
+      throw new Error('Avatar cropping must not create a data URL');
+    });
+    const onCropComplete = vi.fn();
+
+    render(<AvatarCropper imageSrc="data:image/jpeg;base64,source" onCropComplete={onCropComplete} onCancel={vi.fn()} />);
+    await waitFor(() => expect(screen.getByAltText('Предпросмотр аватара')).toHaveStyle({ width: '1200px' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => expect(onCropComplete).toHaveBeenCalledOnce());
+    expect(onCropComplete.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(onCropComplete.mock.calls[0][0].type).toBe('image/png');
+    expect(toDataURL).not.toHaveBeenCalled();
+    expect(drawImage).toHaveBeenCalled();
+  });
 });
 
 describe('AvatarCropper geometry', () => {
