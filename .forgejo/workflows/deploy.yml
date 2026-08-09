@@ -165,12 +165,19 @@ jobs:
           done
           trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
           if [ -d "$SRC/.git" ]; then
-            if ! git -C "$SRC" fetch --depth 1 "$AUTH_URL" main; then
-              echo "Fetch failed (force push?) — re-cloning the cache"
-              rm -rf "$SRC"
-            fi
             REV=FETCH_HEAD   # `git fetch` always writes .git/FETCH_HEAD
-          else
+            if ! git -C "$SRC" fetch --depth 1 "$AUTH_URL" main; then
+              # Transient network errors (SSL resets on flaky links) are common —
+              # retry once before falling back to a fresh clone.
+              echo "Fetch failed — one retry for transient network errors"
+              sleep 2
+              if ! git -C "$SRC" fetch --depth 1 "$AUTH_URL" main; then
+                echo "Fetch failed again (force push?) — re-cloning the cache"
+                rm -rf "$SRC"
+              fi
+            fi
+          fi
+          if [ ! -d "$SRC/.git" ]; then
             git clone --depth 1 "$AUTH_URL" "$SRC"
             # Never store the ephemeral runner token in the cached remote URL.
             git -C "$SRC" remote set-url origin "https://codeberg.org/$REPO.git"
