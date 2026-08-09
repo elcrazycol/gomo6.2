@@ -5,6 +5,7 @@ import { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
 import { AudioAttachment } from "@/components/AudioAttachment";
+import { FileDropZone } from "@/components/FileDropZone";
 
 interface AttachmentUploadProps {
   value: AttachmentMeta[];
@@ -138,25 +139,40 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
   };
 
   return (
-    <div className="space-y-2">
-      {/* Простая кнопка */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPT.join(',')}
-        multiple
-        className="hidden"
-        onChange={handleFiles}
-      />
-      <button
-        type="button"
-        onClick={handleSelect}
-        disabled={uploading}
-        className="h-9 w-9 rounded-md border border-border/70 bg-background hover:bg-muted flex items-center justify-center transition-colors disabled:opacity-50"
-        aria-label="Добавить файл"
-      >
-        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-      </button>
+    <FileDropZone
+      onFiles={(files) => {
+        if (value.length + files.length > maxFiles) {
+          toast.error(`Максимум ${maxFiles} файлов`);
+          return;
+        }
+        void processFiles(files);
+      }}
+      disabled={uploading}
+    >
+      {(isDragging) => (
+        <div className="space-y-2">
+          {/* Простая кнопка */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPT.join(',')}
+            multiple
+            className="hidden"
+            onChange={handleFiles}
+          />
+          <button
+            type="button"
+            onClick={handleSelect}
+            disabled={uploading}
+            className={`h-9 w-9 rounded-md border flex items-center justify-center transition-colors disabled:opacity-50 ${
+              isDragging
+                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary/40"
+                : "border-border/70 bg-background hover:bg-muted"
+            }`}
+            aria-label="Добавить файл"
+          >
+            {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          </button>
       
       {/* Загружаемые файлы */}
       {uploadingFiles.length > 0 && (
@@ -247,6 +263,8 @@ export const AttachmentUpload = ({ value, onChange, maxFiles = 6 }: AttachmentUp
           ))}
         </div>
       )}
-    </div>
+        </div>
+      )}
+    </FileDropZone>
   );
 };

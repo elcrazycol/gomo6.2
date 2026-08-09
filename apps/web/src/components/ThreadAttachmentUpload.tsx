@@ -3,6 +3,7 @@ import { Upload, Loader2, X } from "lucide-react";
 import { AttachmentMeta } from "@/utils/mediaUpload";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
+import { FileDropZone } from "@/components/FileDropZone";
 
 interface ThreadAttachmentUploadProps {
   value: AttachmentMeta[];
@@ -116,58 +117,72 @@ export const ThreadAttachmentUpload = ({ value, onChange, maxFiles = 8 }: Thread
   };
 
   return (
-    <>
-      {/* Компактная кнопка */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPT.join(',')}
-        multiple
-        className="hidden"
-        onChange={handleFiles}
-      />
-      <button
-        type="button"
-        onClick={handleSelect}
-        disabled={uploading}
-        className="h-8 w-8 sm:h-10 sm:w-10 rounded-xl border border-border/50 bg-background/80 backdrop-blur-sm hover:bg-muted/50 flex items-center justify-center transition-colors disabled:opacity-50"
-        aria-label="Добавить файл"
-      >
-        {uploading ? <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" /> : <Upload className="w-4 h-4 sm:w-5 sm:h-5" />}
-      </button>
-      
-      {/* Прогресс загрузки - отдельная панель */}
-      {uploadingFiles.length > 0 && (
-        <div className="absolute top-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10 p-2">
-          <div className="max-w-4xl mx-auto space-y-1">
-            {uploadingFiles.map(uploadingFile => (
-              <div key={uploadingFile.id} className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-primary/20 rounded flex items-center justify-center flex-shrink-0">
-                  <Upload className="w-2 h-2" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{uploadingFile.name}</p>
-                  <div className="w-full bg-muted/60 rounded-full h-1 mt-0.5">
-                    <div 
-                      className="bg-primary h-1 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadingFile.progress}%` }}
-                    />
+    <FileDropZone
+      onFiles={(files) => {
+        if (value.length + files.length > maxFiles) return;
+        void processFiles(files);
+      }}
+      disabled={uploading}
+    >
+      {(isDragging) => (
+        <>
+          {/* Компактная кнопка */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPT.join(',')}
+            multiple
+            className="hidden"
+            onChange={handleFiles}
+          />
+          <button
+            type="button"
+            onClick={handleSelect}
+            disabled={uploading}
+            className={`h-8 w-8 sm:h-10 sm:w-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-50 ${
+              isDragging
+                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary/40"
+                : "border-border/50 bg-background/80 backdrop-blur-sm hover:bg-muted/50"
+            }`}
+            aria-label="Добавить файл"
+          >
+            {uploading ? <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" /> : <Upload className="w-4 h-4 sm:w-5 sm:h-5" />}
+          </button>
+
+          {/* Прогресс загрузки - отдельная панель */}
+          {uploadingFiles.length > 0 && (
+            <div className="absolute top-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-b border-border/50 z-10 p-2">
+              <div className="max-w-4xl mx-auto space-y-1">
+                {uploadingFiles.map(uploadingFile => (
+                  <div key={uploadingFile.id} className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-primary/20 rounded flex items-center justify-center flex-shrink-0">
+                      <Upload className="w-2 h-2" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{uploadingFile.name}</p>
+                      <div className="w-full bg-muted/60 rounded-full h-1 mt-0.5">
+                        <div 
+                          className="bg-primary h-1 rounded-full transition-all duration-300"
+                          style={{ width: `${uploadingFile.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 text-xs text-muted-foreground font-mono">
+                      {uploadingFile.progress}%
+                    </div>
+                    <button
+                      onClick={() => removeUploadingFile(uploadingFile.id)}
+                      className="flex-shrink-0 p-0.5 hover:bg-muted/40 rounded transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
-                </div>
-                <div className="flex-shrink-0 text-xs text-muted-foreground font-mono">
-                  {uploadingFile.progress}%
-                </div>
-                <button
-                  onClick={() => removeUploadingFile(uploadingFile.id)}
-                  className="flex-shrink-0 p-0.5 hover:bg-muted/40 rounded transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          )}
+        </>
       )}
-    </>
+    </FileDropZone>
   );
 };

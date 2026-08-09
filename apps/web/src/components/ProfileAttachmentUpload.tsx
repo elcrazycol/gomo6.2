@@ -5,6 +5,7 @@ import { AttachmentMeta } from "@/types/forum";
 import { uploadAttachments } from "@/utils/mediaUpload";
 import { clearMediaCache } from "@/utils/mediaCache";
 import { AudioAttachment } from "@/components/AudioAttachment";
+import { FileDropZone } from "@/components/FileDropZone";
 
 interface ProfileAttachmentUploadProps {
   value: AttachmentMeta[];
@@ -55,14 +56,14 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket 
     inputRef.current?.click();
   };
 
-  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
+  // Shared upload path for both the file input and drag & drop.
+  const processFiles = async (files: File[]) => {
     if (files.length === 0) return;
-    
+
     if (value.length + files.length > maxFiles) {
       return;
     }
-    
+
     setUploading(true);
     const newUploadingFiles: UploadingFile[] = files.map(file => ({
       id: Math.random().toString(36).substr(2, 9),
@@ -109,9 +110,14 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket 
       setUploadingFiles(prev => prev.filter(f => !newUploadingFiles.find(nf => nf.id === f.id)));
     } finally {
       setUploading(false);
-      if (inputRef.current) {
-        inputRef.current.value = '';
-      }
+    }
+  };
+
+  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    await processFiles(files);
+    if (inputRef.current) {
+      inputRef.current.value = '';
     }
   };
 
@@ -125,25 +131,31 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket 
   };
 
   return (
-    <div className="space-y-3">
-      {/* Компактная кнопка */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*,video/*,audio/*,.pdf,.txt,.doc,.docx"
-        multiple
-        className="hidden"
-        onChange={handleFiles}
-      />
-      <button
-        type="button"
-        onClick={handleSelect}
-        disabled={uploading}
-        className="h-9 w-9 rounded-md border border-border/70 bg-background hover:bg-muted flex items-center justify-center transition-colors disabled:opacity-50"
-        aria-label="Добавить файл"
-      >
-        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-      </button>
+    <FileDropZone onFiles={processFiles} disabled={uploading}>
+      {(isDragging) => (
+        <div className="space-y-3">
+          {/* Компактная кнопка */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,video/*,audio/*,.pdf,.txt,.doc,.docx"
+            multiple
+            className="hidden"
+            onChange={handleFiles}
+          />
+          <button
+            type="button"
+            onClick={handleSelect}
+            disabled={uploading}
+            className={`h-9 w-9 rounded-md border flex items-center justify-center transition-colors disabled:opacity-50 ${
+              isDragging
+                ? "border-primary bg-primary/10 text-primary ring-1 ring-primary/40"
+                : "border-border/70 bg-background hover:bg-muted"
+            }`}
+            aria-label="Добавить файл"
+          >
+            {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          </button>
       
       {/* Загружаемые файлы */}
       {uploadingFiles.length > 0 && (
@@ -210,6 +222,8 @@ export const ProfileAttachmentUpload = ({ value, onChange, maxFiles = 6, bucket 
           ))}
         </div>
       )}
-    </div>
+        </div>
+      )}
+    </FileDropZone>
   );
 };

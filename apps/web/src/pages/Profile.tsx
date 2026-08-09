@@ -22,6 +22,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useFileDrop } from "@/hooks/useFileDrop";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "@/components/AdminBadge";
 import { ProfileWall } from "@/components/ProfileWall";
@@ -626,10 +627,7 @@ const Profile = () => {
     toast.success("Вышли");
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !userId) return;
-
+  const readAvatarFile = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (event) => {
       if (event.target?.result) {
@@ -637,7 +635,23 @@ const Profile = () => {
       }
     };
     reader.readAsDataURL(file);
+  }, []);
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    readAvatarFile(file);
   };
+
+  // Drag & drop an image straight onto the avatar (edit mode only).
+  const { isDragging: isAvatarDragging, dragHandlers: avatarDragHandlers } = useFileDrop(
+    useCallback((files: File[]) => {
+      const file = files[0];
+      if (file && !!currentUser?.id && currentUser.id === userId && isEditing) {
+        readAvatarFile(file);
+      }
+    }, [currentUser, userId, isEditing, readAvatarFile]),
+  );
 
   const handleCropConfirm = async (croppedImageData?: string) => {
     if (!userId) return;
@@ -910,7 +924,12 @@ const Profile = () => {
               {canViewSection(privateHideAvatar) && (
               <div className="relative">
                 <div
-                  className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-opacity"
+                  {...(isOwnProfile && isEditing ? avatarDragHandlers : {})}
+                  className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center overflow-hidden cursor-pointer hover:opacity-80 transition-all duration-150 ${
+                    isOwnProfile && isEditing && isAvatarDragging
+                      ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-105"
+                      : ""
+                  }`}
                   onClick={handleAvatarClick}
                 >
                   {avatarUploading ? (

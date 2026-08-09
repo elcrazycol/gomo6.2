@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Upload, X } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 import { compressImageWithMetadataRemoval, getUserPrivacySettings } from "@/lib/imageProcessing";
+import { FileDropZone } from "@/components/FileDropZone";
 
 interface ImageUploadProps {
   images?: string[];
@@ -86,8 +87,8 @@ export const ImageUpload = ({
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  // Shared upload path for both the file input and drag & drop.
+  const uploadImages = async (files: File[]) => {
     if (files.length === 0) return;
 
     if (previews.length + files.length > maxImages) {
@@ -161,10 +162,15 @@ export const ImageUpload = ({
       toast.error((error instanceof Error ? error.message : String(error)) || "Ошибка загрузки изображений. Проверьте настройки storage на сервере.");
     } finally {
       setUploading(false);
-      // Reset input
-      if (e.target) {
-        e.target.value = '';
-      }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    await uploadImages(files);
+    // Reset input
+    if (e.target) {
+      e.target.value = '';
     }
   };
 
@@ -185,66 +191,76 @@ export const ImageUpload = ({
   };
 
   return (
-    <div className="space-y-2">
-      <div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-          onChange={handleFileChange}
-          disabled={uploading || previews.length >= maxImages}
-          multiple
-          className="hidden"
-        />
-        {triggerMode === "zone" ? (
-          <button
-            type="button"
-            disabled={uploading || previews.length >= maxImages}
-            onClick={handleButtonClick}
-            className="w-full rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
-          >
-            {triggerText ||
-              (uploading
-                ? "Загрузка..."
-                : previews.length === 0
-                ? "Нажми, чтобы добавить фото"
-                : `Нажми, чтобы добавить фото (${previews.length}/${maxImages})`)}
-          </button>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={uploading || previews.length >= maxImages}
-            onClick={handleButtonClick}
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            {uploading ? "Загрузка..." : previews.length === 0 ? "Загрузить фото" : `Добавить фото (${previews.length}/${maxImages})`}
-          </Button>
-        )}
-      </div>
-      {previews.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {previews.map((preview, index) => (
-            <div key={index} className="relative inline-block">
-              <img
-                src={storageUrl("content", preview) || preview}
-                alt={`Preview ${index + 1}`}
-                className="max-w-xs max-h-48 border border-border rounded"
-              />
+    <FileDropZone onFiles={uploadImages} disabled={uploading || previews.length >= maxImages}>
+      {(isDragging) => (
+        <div className="space-y-2">
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+              onChange={handleFileChange}
+              disabled={uploading || previews.length >= maxImages}
+              multiple
+              className="hidden"
+            />
+            {triggerMode === "zone" ? (
+              <button
+                type="button"
+                disabled={uploading || previews.length >= maxImages}
+                onClick={handleButtonClick}
+                className={`w-full rounded-lg border border-dashed px-3 py-4 text-sm transition-colors disabled:opacity-50 ${
+                  isDragging
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                {isDragging
+                  ? "Отпустите, чтобы добавить фото"
+                  : triggerText ||
+                    (uploading
+                      ? "Загрузка..."
+                      : previews.length === 0
+                      ? "Нажми, чтобы добавить фото"
+                      : `Нажми, чтобы добавить фото (${previews.length}/${maxImages})`)}
+              </button>
+            ) : (
               <Button
                 type="button"
-                variant="destructive"
+                variant={isDragging ? "default" : "outline"}
                 size="sm"
-                className="absolute top-1 right-1"
-                onClick={() => handleRemove(index)}
+                disabled={uploading || previews.length >= maxImages}
+                onClick={handleButtonClick}
               >
-                <X className="h-4 w-4" />
+                <Upload className="h-4 w-4 mr-2" />
+                {isDragging ? "Отпустите, чтобы добавить" : uploading ? "Загрузка..." : previews.length === 0 ? "Загрузить фото" : `Добавить фото (${previews.length}/${maxImages})`}
               </Button>
+            )}
+          </div>
+          {previews.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {previews.map((preview, index) => (
+                <div key={index} className="relative inline-block">
+                  <img
+                    src={storageUrl("content", preview) || preview}
+                    alt={`Preview ${index + 1}`}
+                    className="max-w-xs max-h-48 border border-border rounded"
+                  />
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="absolute top-1 right-1"
+                    onClick={() => handleRemove(index)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
-    </div>
+    </FileDropZone>
   );
 };
