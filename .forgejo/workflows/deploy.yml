@@ -186,13 +186,6 @@ jobs:
           fi
           git -C "$SRC" reset --hard "$REV"
           git -C "$SRC" clean -fdxq
-          # docker login under the same lock (all 4 jobs write the same config).
-          # DOCKER_CONFIG points at a DEDICATED config dir: the macOS keychain
-          # often holds a stale codeberg credential that silently wins over any
-          # new login ("specified item already exists in the keychain"), which
-          # makes every push fail with 401/reqPackageAccess. A fresh dir has no
-          # credsStore, so credentials are stored as a plain file and buildx
-          # reads them back. The build step below reuses this login.
           # Registry auth — fully keychain-free, buildx-safe:
           #  - A custom DOCKER_CONFIG shadows ~/.docker/cli-plugins, so docker
           #    can no longer find the buildx plugin ("unknown flag: --platform"
