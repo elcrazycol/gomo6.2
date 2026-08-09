@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
+import { ProfileAttachmentUpload, type ProfileAttachmentUploadHandle } from "@/components/ProfileAttachmentUpload";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { api } from "@/integrations/api/compat";
 import { ImageIcon, ImagePlus, Loader2, Send, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
-import { uploadAttachments } from "@/utils/mediaUpload";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import type { WallPost } from "@/utils/wallNormalizers";
 
@@ -72,25 +71,19 @@ export const CreateWallPost = ({
   const [attachments, setAttachments] = useState<AttachmentMeta[]>(() => normalizeAttachments(editingPost));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editorResetKey, setEditorResetKey] = useState(0);
+  const attachmentUploadRef = useRef<ProfileAttachmentUploadHandle>(null);
 
   const isEditing = !!editingPost;
   const canSubmit = content.trim().length > 0 || attachments.length > 0;
 
   // Files dropped anywhere on the composer card attach via the same upload
-  // path as the paperclip button.
-  const handleDropFiles = useCallback(async (files: File[]) => {
+  // path as the paperclip button — routed through the uploader's ref so the
+  // live progress chips render in one unified place.
+  const handleDropFiles = useCallback((files: File[]) => {
     if (isSubmitting) return;
     const remaining = MAX_WALL_ATTACHMENTS - attachments.length;
     if (remaining <= 0) return;
-    try {
-      const uploaded = await uploadAttachments(files.slice(0, remaining), "wall");
-      if (uploaded.length > 0) {
-        setAttachments((prev) => [...prev, ...uploaded]);
-      }
-    } catch (error) {
-      console.error("Wall post drop upload failed:", error);
-      toast.error("Не удалось загрузить вложения");
-    }
+    attachmentUploadRef.current?.attachFiles(files.slice(0, remaining));
   }, [attachments, isSubmitting]);
 
   const { isDragging: isWallDragging, dragHandlers: wallDragHandlers } = useFileDrop(handleDropFiles);
@@ -263,7 +256,7 @@ export const CreateWallPost = ({
                 </Button>
               </EmojiPicker>
 
-              <ProfileAttachmentUpload value={attachments} onChange={setAttachments} maxFiles={8} bucket="wall" dropZone={false} />
+              <ProfileAttachmentUpload ref={attachmentUploadRef} value={attachments} onChange={setAttachments} maxFiles={8} bucket="wall" dropZone={false} />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:text-xs">

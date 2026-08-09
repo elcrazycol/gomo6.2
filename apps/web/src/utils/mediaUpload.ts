@@ -280,14 +280,25 @@ const inferType = (file: File): AttachmentType => {
   return "file";
 };
 
-export const uploadAttachments = async (files: File[], bucket: string = "content"): Promise<AttachmentMeta[]> => {
+export type AttachmentUploadProgress = {
+  index: number;
+  name: string;
+  percent: number;
+};
+
+export const uploadAttachments = async (
+  files: File[],
+  bucket: string = "content",
+  onProgress?: (progress: AttachmentUploadProgress) => void,
+): Promise<AttachmentMeta[]> => {
   const { data: { session } } = await api.auth.getSession();
   if (!session?.user) throw new Error("Нужно войти для загрузки");
   const user = session.user;
 
   const results: AttachmentMeta[] = [];
 
-  for (const original of files) {
+  for (let index = 0; index < files.length; index += 1) {
+    const original = files[index];
     const type = inferType(original);
     let file: File = original;
     let poster: string | undefined;
@@ -341,8 +352,18 @@ export const uploadAttachments = async (files: File[], bucket: string = "content
     const ext = file.name.split(".").pop() || "bin";
     const key = `${user.id}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-    // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access)
-    const uploaded = await uploadFile(bucket, key, file, session.access_token, false);
+    // Upload file through backend (avoids CORS/S3-signature issues with direct Garage access).
+    // The XHR path reports real byte progress — the local mapping keeps the bar moving
+    // smoothly from 2% (processing done) to ~95% while the body uploads, then 100% below.
+    onProgress?.({ index, name: original.name, percent: 2 });
+    const uploaded = await uploadFile(bucket, key, file, session.access_token, false, (p) => {
+      onProgress?.({
+        index,
+        name: original.name,
+        percent: 2 + Math.round(Math.min(100, Math.max(0, p)) * 0.93),
+      });
+    });
+    onProgress?.({ index, name: original.name, percent: 100 });
     if (type === "image" && !uploaded.variants) {
       throw new Error("Сервер не вернул preview для изображения");
     }

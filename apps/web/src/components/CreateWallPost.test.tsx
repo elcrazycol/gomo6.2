@@ -2,11 +2,6 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { toast } from "sonner";
-import { uploadAttachments } from "@/utils/mediaUpload";
-
-vi.mock("@/utils/mediaUpload", () => ({
-  uploadAttachments: vi.fn(),
-}));
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -82,33 +77,55 @@ vi.mock("@/components/GomoRichEditor", () => {
   };
 });
 
-vi.mock("@/components/ProfileAttachmentUpload", () => ({
-  ProfileAttachmentUpload: ({ value, onChange }: any) => (
-    <div data-testid="profile-attachment-upload">
-      <span>{value.length} attachments</span>
-      <button
-        data-testid="add-attachment"
-        onClick={() =>
-          onChange([
-            ...value,
-            {
-              url: "test.jpg",
-              type: "image",
-              mime: "image/jpeg",
-              name: "test.jpg",
-              size: 1024,
-            },
-          ])
-        }
-      >
-        Add Image
-      </button>
-      <button data-testid="clear-attachments" onClick={() => onChange([])}>
-        Clear
-      </button>
-    </div>
-  ),
-}));
+vi.mock("@/components/ProfileAttachmentUpload", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require("react");
+  return {
+    ProfileAttachmentUpload: React.forwardRef(
+      ({ value, onChange }: any, ref: any) => {
+        React.useImperativeHandle(ref, () => ({
+          attachFiles: (files: File[]) => {
+            onChange([
+              ...value,
+              ...files.map((f) => ({
+                url: `mock-${f.name}`,
+                type: "image",
+                mime: f.type || "image/jpeg",
+                name: f.name,
+                size: 100,
+              })),
+            ]);
+          },
+        }));
+        return (
+          <div data-testid="profile-attachment-upload">
+            <span>{value.length} attachments</span>
+            <button
+              data-testid="add-attachment"
+              onClick={() =>
+                onChange([
+                  ...value,
+                  {
+                    url: "test.jpg",
+                    type: "image",
+                    mime: "image/jpeg",
+                    name: "test.jpg",
+                    size: 1024,
+                  },
+                ])
+              }
+            >
+              Add Image
+            </button>
+            <button data-testid="clear-attachments" onClick={() => onChange([])}>
+              Clear
+            </button>
+          </div>
+        );
+      }
+    ),
+  };
+});
 
 vi.mock("@/components/EmojiPicker", () => ({
   EmojiPicker: ({ onEmojiSelect, children }: any) => (
@@ -549,15 +566,6 @@ describe("CreateWallPost", () => {
 
     it("attaches files dropped anywhere on the composer card", async () => {
       setupApiMocks();
-      vi.mocked(uploadAttachments).mockResolvedValue([
-        {
-          url: "drop.jpg",
-          type: "image",
-          mime: "image/jpeg",
-          name: "drop.jpg",
-          size: 100,
-        },
-      ]);
       render(<Component {...defaultProps} />);
       const card = screen.getByTestId("wall-post-composer");
       const file = new File(["x"], "drop.jpg", { type: "image/jpeg" });
@@ -567,7 +575,6 @@ describe("CreateWallPost", () => {
       });
 
       await waitFor(() => {
-        expect(uploadAttachments).toHaveBeenCalledWith([file], "wall");
         expect(screen.getByText("1 влож.")).toBeInTheDocument();
       });
     });
