@@ -363,7 +363,7 @@ docker compose up -d --build
 > ```bash
 > bash scripts/generate-garage-config.sh .env   # создаёт .garage.toml (mode 600)
 > ```
-> Этот шаг выполняется автоматически в `deploy.yml`, `deploy.sh` и `scripts/deploy-vps.sh`. Ротация только Garage-ключей: `bash scripts/generate-keys.sh --rotate-garage --quiet .env` (не трогает JWT/сессии пользователей).
+> Рендер выполняется при первичной настройке и при ротации ключей — автодеплой (Codeberg Actions) `.garage.toml` не трогает. Ротация только Garage-ключей: `bash scripts/generate-keys.sh --rotate-garage --quiet .env` (не трогает JWT/сессии пользователей).
 
 ---
 
@@ -471,6 +471,27 @@ docker image prune -f
 ```
 
 > 💡 Caddy и база данных не перезапускаются, если их конфигурация не изменилась — downtime минимальный.
+
+---
+
+## 🤖 Авто-деплой (Codeberg Actions)
+
+Каждый пуш в `main` автоматически деплоится на VPS через Codeberg Actions (`.forgejo/workflows/deploy.yml`):
+
+1. **Detect** — Codeberg compare API определяет изменённые сервисы (без полного клона; коммиты, не трогающие код сервисов, — холостой ран ~1с)
+2. **Checkout** — инкрементальный `git fetch` в кэш раннера `$HOME/gomo6-src` (первый раз — полный клон ~40с, дальше только диффы)
+3. **Build & push** — `docker buildx build --push` в реестр Codeberg (`codeberg.org/crazycol/gomo6-*`): дедупликация слоёв, по сети едут только изменившиеся слои (web ~3-5 MB, backend ~12-14 MB вместо ~23 MB целиком)
+4. **Restart** — `scripts/restart-service.sh` на VPS: pull → ретаг под имя из `docker-compose.yml` (`ghcr.io/elcrazycol/*`) → `docker compose up -d --no-build <service>`
+
+**Секреты** (Codeberg → Settings → Actions → Secrets): `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT` (опц.), `CODEREG_TOKEN` — PAT аккаунта `crazycol` со скоупами `read:package` + `write:package` (пуш образов в реестр).
+
+**Реестр**: пакеты `codeberg.org/crazycol/gomo6-*` публичные — VPS тянет образы анонимно, без токенов. Если pull на VPS отклонили — проверь видимость пакетов в `codeberg.org/crazycol/-/packages`.
+
+**Нюансы:**
+- Пулы на VPS сериализуются через `flock` — 4 параллельных джоба делят общие базовые слои (alpine), и containerd на маленьком VPS может уронить конкурентный коммит блоба (`failed commit on ref ... no such file or directory`). Плюс 3 ретрая пулла.
+- Caddy перезапускается веб-джобом только при изменении `Caddyfile`.
+- Backend собирается со `-ldflags="-s -w"` (бинарник 16 MB вместо 30).
+- Первый запуск после миграции: полный клон репо + полная заливка всех 4 образов в реестр (разово).
 
 ---
 

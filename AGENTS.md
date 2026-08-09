@@ -106,9 +106,9 @@ cd ~/gomo6.2
 docker compose up -d
 ```
 
-### Step 6: Update GitHub Actions secrets
+### Step 6: Update Codeberg Actions secrets
 
-GitHub → Settings → Secrets and variables → Actions:
+Codeberg → Settings → Actions → Secrets:
 
 | Secret | Значение |
 |--------|----------|
@@ -116,6 +116,7 @@ GitHub → Settings → Secrets and variables → Actions:
 | `VPS_USER` | `root` |
 | `VPS_SSH_KEY` | Приватный ключ сервера (весь вывод `cat ~/.ssh/id_ed25519`) |
 | `VPS_PORT` | `22` (если стандартный) |
+| `CODEREG_TOKEN` | Codeberg PAT аккаунта `crazycol` со скоупами `read:package` + `write:package` (пуш образов в реестр) |
 
 ### Step 7: Update DNS
 

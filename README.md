@@ -6,8 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/scramble22/gomo6.2/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-44cc11?style=flat-square&logo=githubactions&logoColor=white" alt="CI"></a>
-  <a href="https://github.com/scramble22/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://img.shields.io/github/actions/workflow/status/elcrazycol/gomo6.2/deploy.yml?style=flat-square&logo=devbox&label=deploy"
-alt="Deploy"></a>
+  <a href="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml"><img alt="deploy" src="https://codeberg.org/crazycol/gomo6.2/actions/workflows/deploy.yml/badge.svg" alt="Deploy"></a>
   <a href="https://github.com/scramble22/gomo6.2/blob/main/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/elcrazycol/gomo6.2?style=flat-square">
 </a>
 </p>
@@ -121,13 +120,20 @@ go run cmd/server/main.go
 
 ### Auto-deploy (primary)
 
-Push to `main` → green CI → automatic deploy to VPS.
+Push to `main` → Codeberg Actions (`deploy.yml`) → automatic deploy to VPS.
 
-GitHub Actions secrets:
+The pipeline:
+1. **Detect** — Codeberg compare API finds changed services (no full clone; no-op commits run in ~1s)
+2. **Checkout** — incremental `git fetch` into a persistent cache on the runner (`$HOME/gomo6-src`)
+3. **Build & push** — `docker buildx build --push` to the Codeberg container registry (`codeberg.org/crazycol/gomo6-*`); layer dedup — only changed layers travel
+4. **Restart** — per-service `docker pull` + retag + `docker compose up -d --no-build` on the VPS ([`scripts/restart-service.sh`](scripts/restart-service.sh), flock-serialized pulls)
+
+Codeberg Actions secrets (Settings → Actions → Secrets):
 - `VPS_HOST` — server IP
 - `VPS_USER` — SSH user (usually `root`)
 - `VPS_SSH_KEY` — private SSH key
 - `VPS_PORT` — SSH port (default `22`)
+- `CODEREG_TOKEN` — Codeberg PAT (account `crazycol`) with `read:package` + `write:package` — pushes images to the registry
 
 ### Manual deploy
 
@@ -158,7 +164,7 @@ docker compose up -d
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `ci.yml` | push, PR | go build + gofmt + go vet + golangci-lint + govulncheck + tsc (3 apps) + eslint + build (3 apps) + gitleaks + hadolint |
-| `deploy.yml` | push to main (after green CI) | Build 4 images → push to ghcr.io → SSH to VPS → pull images → docker compose up |
+| `deploy.yml` | push to main (Codeberg Actions) | Detect changes → incremental checkout → buildx build → push to codeberg.org/crazycol registry → per-service restart on VPS (`restart-service.sh`) |
 | `full-tests.yml` | daily cron or manual | Postgres + Redis services, go test -race, migrations, integration smoke |
 
 ```bash

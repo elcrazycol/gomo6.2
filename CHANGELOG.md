@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Deploy moved from GitHub Actions + `docker save | zstd | ssh docker load` streaming to **Codeberg Actions + Codeberg container registry** (`.forgejo/workflows/deploy.yml`):
+  - Change detection via the Codeberg compare API — no-op commits finish in ~1s
+  - Incremental checkout into a persistent runner cache (`$HOME/gomo6-src`) — ~47s → ~2-10s
+  - `docker buildx build --push` with layer dedup — only changed layers travel over the uplink
+  - Per-service restart on the VPS via `scripts/restart-service.sh` (pull → retag → `compose up -d --no-build`; flock-serialized pulls + retries on containerd races)
+  - Full deploy wall time: ~4 min → ~1 min
+- Backend binary stripped (`-ldflags="-s -w"`): 30 MB → 16 MB
+
 ## [1.0.0] — 2026-05-24
 
 ### Added
