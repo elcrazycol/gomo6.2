@@ -24,11 +24,35 @@ const profileWallAuthorJSON = `COALESCE(
   '{}'::json
 ) AS author`
 
-// handleProfileWallPostsGet — GET /profile_wall_posts with nested author (users join).
+// wallPostCountsSQL returns the correlated-subquery columns that embed the
+// interaction state of every wall post. The {viewer} placeholder is replaced
+// with the authenticated viewer's parameter reference by
+// profileWallFinishSelectQuery.
+//
+// Embedding counts here removed the biggest request amplifier in the wall UI:
+// the client used to fire 5 requests per post (likes count, comments count,
+// reposts count, my like, my repost) — a 20-post wall cost 100 requests.
+const wallPostCountsSQL = `
+       (SELECT COUNT(*) FROM profile_wall_post_likes l WHERE l.post_id = p.id) AS likes_count,
+       (SELECT COUNT(*) FROM profile_wall_post_comments cm WHERE cm.post_id = p.id) AS comments_count,
+       (SELECT COUNT(*) FROM profile_wall_post_reposts r WHERE r.post_id = p.id) AS reposts_count,
+       EXISTS(SELECT 1 FROM profile_wall_post_likes l WHERE l.post_id = p.id AND l.user_id = {viewer}) AS liked_by_viewer,
+       (SELECT r.id FROM profile_wall_post_reposts r WHERE r.post_id = p.id AND r.user_id = {viewer} AND r.wall_user_id = {viewer} LIMIT 1) AS my_repost_record_id,
+       (SELECT r.reposted_wall_post_id FROM profile_wall_post_reposts r WHERE r.post_id = p.id AND r.user_id = {viewer} AND r.wall_user_id = {viewer} LIMIT 1) AS my_reposted_wall_post_id,`
+
+// wallCommentCountsSQL — same idea for comments: like count + my like state
+// embedded, so the comment tree needs no per-comment requests.
+const wallCommentCountsSQL = `
+       (SELECT COUNT(*) FROM profile_wall_comment_likes cl WHERE cl.comment_id = c.id) AS likes_count,
+       EXISTS(SELECT 1 FROM profile_wall_comment_likes cl WHERE cl.comment_id = c.id AND cl.user_id = {viewer}) AS liked_by_viewer,`
+
+// handleProfileWallPostsGet — GET /profile_wall_posts with nested author (users join)
+// and per-post interaction counts (likes/comments/reposts + viewer state).
 func (h *UniversalHandler) handleProfileWallPostsGet(c *gin.Context) {
 	query := `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
+       ` + wallPostCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
@@ -47,6 +71,7 @@ func (h *UniversalHandler) handleProfileWallPostCommentsGet(c *gin.Context) {
 	// JOIN drops such orphans entirely.
 	query := `
 SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
+       ` + wallCommentCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
@@ -122,6 +147,11 @@ func (h *UniversalHandler) profileWallFinishSelectQuery(c *gin.Context, baseQuer
 		" OR (COALESCE("+privacyAlias+".private_profile, false) = false AND COALESCE("+privacyAlias+".private_hide_wall, false) = false)"+
 		" OR EXISTS (SELECT 1 FROM friendships f WHERE (f.user1_id = "+ownerColumn+" AND f.user2_id = "+viewerArg+") OR (f.user1_id = "+viewerArg+" AND f.user2_id = "+ownerColumn+")))")
 	args = append(args, claims.UserID)
+
+	// The viewer parameter reference is only known now that the filter clauses
+	// are built; substitute it into the {viewer} placeholder used by the count
+	// subqueries in the SELECT list.
+	baseQuery = strings.ReplaceAll(baseQuery, "{viewer}", viewerArg)
 
 	query := baseQuery
 	if len(clauses) > 0 {
@@ -213,29 +243,33 @@ func decodeMaybeJSONB(val interface{}) interface{} {
 	}
 }
 
-func (h *UniversalHandler) fetchProfileWallPostWithAuthor(id string) (map[string]interface{}, error) {
+func (h *UniversalHandler) fetchProfileWallPostWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
 SELECT p.id, p.user_id, p.author_id, p.title, p.content, p.content_json, p.image_url, p.attachments,
        p.repost_of_post_id, p.created_at, p.updated_at, p.is_pinned, p.pinned_order,
+       ` + wallPostCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_posts p
 LEFT JOIN users u ON u.id = p.author_id
 WHERE p.id = $1`
-	return h.fetchOneProfileWallRow(q, id)
+	query := strings.ReplaceAll(q, "{viewer}", "$2")
+	return h.fetchOneProfileWallRow(query, id, viewerID)
 }
 
-func (h *UniversalHandler) fetchProfileWallCommentWithAuthor(id string) (map[string]interface{}, error) {
+func (h *UniversalHandler) fetchProfileWallCommentWithAuthor(id string, viewerID string) (map[string]interface{}, error) {
 	q := `
 SELECT c.id, c.post_id, c.user_id, c.parent_id, c.content, c.content_json, c.created_at, c.updated_at,
+       ` + wallCommentCountsSQL + `
        ` + profileWallAuthorJSON + `
 FROM profile_wall_post_comments c
 LEFT JOIN users u ON u.id = c.user_id
 WHERE c.id = $1`
-	return h.fetchOneProfileWallRow(q, id)
+	query := strings.ReplaceAll(q, "{viewer}", "$2")
+	return h.fetchOneProfileWallRow(query, id, viewerID)
 }
 
-func (h *UniversalHandler) fetchOneProfileWallRow(q string, id string) (map[string]interface{}, error) {
-	rows, err := h.db.Query(q, id)
+func (h *UniversalHandler) fetchOneProfileWallRow(q string, args ...interface{}) (map[string]interface{}, error) {
+	rows, err := h.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -282,12 +316,13 @@ func (h *UniversalHandler) tryRespondProfileWallEnriched(c *gin.Context, tableNa
 		return false
 	}
 	idStr := fmt.Sprint(id)
+	viewerID := authenticatedUserID(c)
 	var row map[string]interface{}
 	var err error
 	if tableName == "profile_wall_posts" {
-		row, err = h.fetchProfileWallPostWithAuthor(idStr)
+		row, err = h.fetchProfileWallPostWithAuthor(idStr, viewerID)
 	} else {
-		row, err = h.fetchProfileWallCommentWithAuthor(idStr)
+		row, err = h.fetchProfileWallCommentWithAuthor(idStr, viewerID)
 	}
 	if err != nil || row == nil {
 		c.JSON(http.StatusOK, models.SuccessResponse(result))

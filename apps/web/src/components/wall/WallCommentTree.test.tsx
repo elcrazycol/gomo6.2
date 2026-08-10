@@ -428,8 +428,8 @@ describe("WallCommentTree", () => {
     });
   });
 
-  it("loads the like state and toggles a like", async () => {
-    const { container } = renderTree({ comments: [rootComment], likesCount: 0 });
+  it("toggles a like without fetching per-comment like state on mount", async () => {
+    const { container } = renderTree({ comments: [rootComment] });
     await waitFor(() => {
       expect(screen.getByText("Первый комментарий")).toBeInTheDocument();
     });
@@ -437,6 +437,10 @@ describe("WallCommentTree", () => {
     const likeButton = container.querySelector(".lucide-heart")?.closest("button");
     expect(likeButton).toBeTruthy();
     expect(likeButton).not.toHaveTextContent("1");
+
+    // Optimization guard: the like count/state arrives embedded in the
+    // comments GET — mounting a comment must NOT fire like requests.
+    expect(mockFrom).not.toHaveBeenCalledWith("profile_wall_comment_likes");
 
     await userEvent.click(likeButton!);
 
@@ -447,7 +451,9 @@ describe("WallCommentTree", () => {
   });
 
   it("renders the initial like count when present", async () => {
-    const { container } = renderTree({ comments: [rootComment], likesCount: 3, isLiked: true });
+    const { container } = renderTree({
+      comments: [makeComment({ likes_count: 3, liked_by_viewer: true })],
+    });
     await waitFor(() => {
       expect(screen.getByText("Первый комментарий")).toBeInTheDocument();
     });
@@ -456,6 +462,8 @@ describe("WallCommentTree", () => {
     await waitFor(() => {
       expect(likeButton).toHaveTextContent("3");
     });
+    // No per-comment like fetch on mount — count came embedded in the comment.
+    expect(mockFrom).not.toHaveBeenCalledWith("profile_wall_comment_likes");
   });
 
   it("reverts the like when the API call fails", async () => {

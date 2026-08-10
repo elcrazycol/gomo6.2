@@ -23,6 +23,15 @@ export interface WallPost {
     is_anonymous: boolean;
     avatar_url?: string | null;
   };
+  /** Interaction counts embedded by the server in the wall GET — the client
+   * must NOT fire per-post count requests. Missing on WebSocket-delivered
+   * posts (a brand-new post has 0 of everything anyway). */
+  likes_count?: number;
+  comments_count?: number;
+  reposts_count?: number;
+  liked_by_viewer?: boolean;
+  my_repost_record_id?: string | null;
+  my_reposted_wall_post_id?: string | null;
   [key: string]: unknown;
 }
 
@@ -42,6 +51,9 @@ export interface WallComment {
     is_anonymous: boolean;
     avatar_url?: string | null;
   };
+  /** Comment like counts embedded by the server — no per-comment requests. */
+  likes_count?: number;
+  liked_by_viewer?: boolean;
 }
 
 export const normalizeWallPostAuthor = (author: unknown, fallbackUsername?: string) => {
@@ -107,6 +119,8 @@ export const normalizeWallComment = (comment: Record<string, unknown>): WallComm
     content_json: contentJson,
     created_at: (comment.created_at as string | null | undefined) || new Date().toISOString(),
     updated_at: (comment.updated_at as string | null | undefined) || new Date().toISOString(),
+    likes_count: (comment?.likes_count as number | undefined) ?? 0,
+    liked_by_viewer: Boolean(comment?.liked_by_viewer),
     author: normalizeWallPostAuthor(comment?.author as Record<string, unknown> | null | undefined),
   };
 };

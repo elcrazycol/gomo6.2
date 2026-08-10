@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useState, useCallback } from "react";
+import { type MouseEvent as ReactMouseEvent, useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
@@ -72,13 +72,13 @@ export const WallPostCard = ({
   const navigate = useNavigate();
   const attachments = useMemo(() => normalizeAttachments(post), [post]);
   const canManage = currentUserId === post.author_id || currentUserId === post.user_id;
-  const [likesCount, setLikesCount] = useState(0);
-  const [commentsCount, setCommentsCount] = useState(0);
-  const [repostsCount, setRepostsCount] = useState(0);
-  const [isLiked, setIsLiked] = useState(false);
-  const [isReposted, setIsReposted] = useState(false);
-  const [repostRecordId, setRepostRecordId] = useState<string | null>(null);
-  const [repostedWallPostId, setRepostedWallPostId] = useState<string | null>(null);
+  const [likesCount, setLikesCount] = useState(post.likes_count ?? 0);
+  const [commentsCount, setCommentsCount] = useState(post.comments_count ?? 0);
+  const [repostsCount, setRepostsCount] = useState(post.reposts_count ?? 0);
+  const [isLiked, setIsLiked] = useState(Boolean(post.liked_by_viewer));
+  const [isReposted, setIsReposted] = useState(Boolean(post.my_repost_record_id));
+  const [repostRecordId, setRepostRecordId] = useState<string | null>(post.my_repost_record_id ?? null);
+  const [repostedWallPostId, setRepostedWallPostId] = useState<string | null>(post.my_reposted_wall_post_id ?? null);
   const [commentsOpen, setCommentsOpen] = useState(forceCommentsOpen);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
@@ -89,47 +89,11 @@ export const WallPostCard = ({
   const [repostJson, setRepostJson] = useState<unknown>(EMPTY_EDITOR_STATE);
   const [repostResetKey, setRepostResetKey] = useState(0);
 
-  useEffect(() => {
-    const loadInteractionState = async () => {
-      try {
-        const [
-          likesCountResult,
-          commentsCountResult,
-          repostsCountResult,
-          likeStateResult,
-          repostStateResult,
-        ] = await Promise.all([
-          api.from("profile_wall_post_likes").select("id", { count: "exact", head: true }).eq("post_id", post.id),
-          api.from("profile_wall_post_comments").select("id", { count: "exact", head: true }).eq("post_id", post.id),
-          api.from("profile_wall_post_reposts").select("id", { count: "exact", head: true }).eq("post_id", post.id),
-          currentUserId
-            ? api.from("profile_wall_post_likes").select("id").eq("post_id", post.id).eq("user_id", currentUserId).maybeSingle()
-            : Promise.resolve({ data: null, error: null } as Record<string, unknown>),
-          currentUserId
-            ? api
-                .from("profile_wall_post_reposts")
-                .select("id, reposted_wall_post_id")
-                .eq("post_id", post.id)
-                .eq("user_id", currentUserId)
-                .eq("wall_user_id", currentUserId)
-                .maybeSingle()
-            : Promise.resolve({ data: null, error: null } as Record<string, unknown>),
-        ]);
-
-        setLikesCount(likesCountResult.count || 0);
-        setCommentsCount(commentsCountResult.count || 0);
-        setRepostsCount(repostsCountResult.count || 0);
-        setIsLiked(Boolean((likeStateResult as { data: unknown }).data));
-        setIsReposted(Boolean((repostStateResult as { data: unknown }).data));
-        setRepostRecordId((repostStateResult as { data: { id: string } | null }).data?.id || null);
-        setRepostedWallPostId((repostStateResult as { data: { reposted_wall_post_id: string } | null }).data?.reposted_wall_post_id || null);
-      } catch (error) {
-        console.error("Error loading wall interaction state:", error);
-      }
-    };
-
-    loadInteractionState();
-  }, [currentUserId, post.id]);
+  // Interaction state comes embedded in the wall GET response (likes_count,
+  // comments_count, reposts_count, liked_by_viewer, my_repost_record_id,
+  // my_reposted_wall_post_id). The previous version fired 5 requests per post
+  // on mount — a 20-post wall cost 100 requests. WS-delivered posts have no
+  // counts yet, so default to 0/false (correct for a brand-new post).
 
   const handleToggleComments = () => {
     setCommentsOpen((prev) => !prev);

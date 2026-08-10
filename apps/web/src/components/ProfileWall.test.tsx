@@ -810,6 +810,54 @@ describe("ProfileWall", () => {
     expect(screen.getByTestId("user-badge")).toHaveTextContent("testuser");
   });
 
+  // ─── WallPostCard: embedded interaction counts ──────────────────────────────
+
+  it("renders embedded like/comment/repost counts and fires no per-post fetches", async () => {
+    setupApiMocks({
+      posts: [createMockPost({
+        id: "count-post",
+        content: "Counted post",
+        likes_count: 5,
+        comments_count: 2,
+        reposts_count: 1,
+        liked_by_viewer: true,
+        my_repost_record_id: "rr-1",
+        my_reposted_wall_post_id: "copy-1",
+      })],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Counted post")).toBeInTheDocument();
+    });
+
+    // Counts come embedded in the wall GET — the client must not fire the old
+    // per-post count/state queries (5 requests per post before this fix).
+    expect(mockFrom).not.toHaveBeenCalledWith("profile_wall_post_likes");
+    expect(mockFrom).not.toHaveBeenCalledWith("profile_wall_post_reposts");
+    expect(mockFrom).toHaveBeenCalledWith("profile_wall_posts");
+
+    // 5 likes, 2 comments, 1 repost rendered in the action row.
+    const likeButton = screen.getByText("Нравится").closest("button");
+    expect(likeButton).toHaveTextContent("5");
+    const commentButton = screen.getByText("Комментировать").closest("button");
+    expect(commentButton).toHaveTextContent("2");
+    // Viewer already reposted → the label flips to "Убрать".
+    const repostButton = screen.getByText("Убрать").closest("button");
+    expect(repostButton).toHaveTextContent("1");
+    // Liked by viewer → button is in active state (text-primary class).
+    expect(likeButton?.className).toContain("text-primary");
+  });
+
   // ─── WallPostCard: pinned indicator ─────────────────────────────────────────
 
   it("shows pinned badge for pinned posts", async () => {

@@ -165,6 +165,35 @@ func TestInvalidateByPattern_MatchingKeys(t *testing.T) {
 	}
 }
 
+// TestInvalidateByPattern_WallListMatchesViewerScopedKey locks down the wall
+// freshness contract: the DataCacheMiddleware cache keys are viewer-scoped
+// ("...|viewer=<id>" suffix), so the owner-list invalidation pattern built by
+// InvalidateCacheForProfileWall must match that exact key shape — otherwise the
+// embedded interaction counts in the wall GET would go stale after a
+// like/comment/repost.
+func TestInvalidateByPattern_WallListMatchesViewerScopedKey(t *testing.T) {
+	client, mr := newTestRedis(t)
+	ownerKey := "data:/api/v1/profile_wall_posts?user_id=eq.owner-1&select=id,title|viewer=viewer-1"
+	otherViewerKey := "data:/api/v1/profile_wall_posts?user_id=eq.owner-1&select=id,title|viewer=viewer-2"
+	otherOwnerKey := "data:/api/v1/profile_wall_posts?user_id=eq.owner-2&select=id,title|viewer=viewer-1"
+	for _, k := range []string{ownerKey, otherViewerKey, otherOwnerKey} {
+		mr.Set(k, "v1")
+	}
+
+	// Pattern built by middleware.InvalidateCacheForProfileWall(owner-1).
+	InvalidateByPattern(client, "data:/api/v1/profile_wall_posts*user_id=eq.owner-1*")
+
+	if mr.Exists(ownerKey) {
+		t.Error("viewer-scoped wall list key for the owner should be deleted")
+	}
+	if mr.Exists(otherViewerKey) {
+		t.Error("all viewer variants of the owner's wall list should be deleted")
+	}
+	if !mr.Exists(otherOwnerKey) {
+		t.Error("another owner's wall list must NOT be deleted")
+	}
+}
+
 func TestInvalidateByPattern_NoMatch(t *testing.T) {
 	client, mr := newTestRedis(t)
 	inv := NewInvalidator(client)

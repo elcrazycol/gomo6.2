@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ChevronDown, Edit3, Heart, Loader2, Reply, Trash2 } from "lucide-react";
@@ -66,26 +66,11 @@ export const WallCommentNode = ({
   const isMaxDepth = depth >= MAX_COMMENT_DEPTH;
   const threadColor = getThreadColor(depth);
 
-  const [likeCount, setLikeCount] = useState(0);
-  const [isLiked, setIsLiked] = useState(false);
+  // Comment like count + my like state come embedded in the comments GET
+  // response (likes_count / liked_by_viewer) — no per-comment requests.
+  const [likeCount, setLikeCount] = useState(comment.likes_count ?? 0);
+  const [isLiked, setIsLiked] = useState(Boolean(comment.liked_by_viewer));
   const [likeLoading, setLikeLoading] = useState(false);
-
-  useEffect(() => {
-    if (!currentUserId) return;
-    const loadLikeState = async () => {
-      try {
-        const [countRes, stateRes] = await Promise.all([
-          api.from("profile_wall_comment_likes").select("id", { count: "exact", head: true }).eq("comment_id", comment.id),
-          api.from("profile_wall_comment_likes").select("id").eq("comment_id", comment.id).eq("user_id", currentUserId).maybeSingle(),
-        ]);
-        setLikeCount(countRes.count || 0);
-        setIsLiked(Boolean(stateRes.data));
-      } catch {
-        // silent
-      }
-    };
-    loadLikeState();
-  }, [comment.id, currentUserId]);
 
   const handleLikeToggle = useCallback(async () => {
     if (!currentUserId || likeLoading) return;

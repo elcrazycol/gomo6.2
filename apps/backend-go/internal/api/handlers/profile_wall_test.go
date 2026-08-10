@@ -157,7 +157,7 @@ func TestTryRespondProfileWallEnriched_PostDBError(t *testing.T) {
 	result := map[string]interface{}{"id": "post123"}
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.id = \$1`).
-		WithArgs("post123").
+		WithArgs("post123", "viewer").
 		WillReturnError(sqlmock.ErrCancelled)
 
 	enriched := h.tryRespondProfileWallEnriched(c, "profile_wall_posts", result)
@@ -190,7 +190,7 @@ func TestTryRespondProfileWallEnriched_PostSuccess(t *testing.T) {
 		AddRow("post123", "u1", "u1", "Hello!", "World", nil, nil, nil, nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, authorJSON)
 
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.id = \$1`).
-		WithArgs("post123").
+		WithArgs("post123", "viewer").
 		WillReturnRows(rows)
 
 	enriched := h.tryRespondProfileWallEnriched(c, "profile_wall_posts", result)
@@ -232,7 +232,7 @@ func TestTryRespondProfileWallEnriched_CommentSuccess(t *testing.T) {
 		AddRow("comm123", "post1", "u2", "Nice post!", nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", authorJSON)
 
 	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE c\.id = \$1`).
-		WithArgs("comm123").
+		WithArgs("comm123", "viewer").
 		WillReturnRows(rows)
 
 	enriched := h.tryRespondProfileWallEnriched(c, "profile_wall_post_comments", result)
@@ -373,6 +373,56 @@ func TestHandleProfileWallPostsGet_WithOrFilter(t *testing.T) {
 	}
 }
 
+// TestHandleProfileWallPostsGet_EmbedsInteractionCounts verifies the wall GET
+// returns the per-post interaction state (likes/comments/reposts counts +
+// viewer state) embedded in every post row — this is what lets the client
+// render the wall with ZERO per-post count requests.
+func TestHandleProfileWallPostsGet_EmbedsInteractionCounts(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// The regex requires `l.user_id = $1` (the substituted viewer reference in
+	// the count subqueries) — if the {viewer} placeholder were ever left
+	// unsubstituted, the query would not match and this test would fail.
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*l\.user_id = \$1.*FROM profile_wall_posts p LEFT JOIN users u.*`).
+		WithArgs("viewer").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "user_id", "author_id", "title", "content", "content_json", "image_url", "attachments",
+			"repost_of_post_id", "created_at", "updated_at", "is_pinned", "pinned_order",
+			"likes_count", "comments_count", "reposts_count", "liked_by_viewer",
+			"my_repost_record_id", "my_reposted_wall_post_id", "author",
+		}).
+			AddRow("post1", "u1", "u1", "Post", "Content", nil, nil, nil, nil,
+				"2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil,
+				int64(7), int64(3), int64(1), true, "repost-1", "copy-1", `{"username": "u1"}`))
+
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts", nil, &auth.Claims{UserID: "viewer"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 post, got %d", len(resp.Data))
+	}
+	row := resp.Data[0]
+	if row["likes_count"] != float64(7) || row["comments_count"] != float64(3) || row["reposts_count"] != float64(1) {
+		t.Fatalf("unexpected counts: %+v", row)
+	}
+	if row["liked_by_viewer"] != true {
+		t.Fatalf("expected liked_by_viewer=true, got %v", row["liked_by_viewer"])
+	}
+	if row["my_repost_record_id"] != "repost-1" || row["my_reposted_wall_post_id"] != "copy-1" {
+		t.Fatalf("unexpected repost state: %+v", row)
+	}
+}
+
 // ─── Profile Wall Comments: GET edge cases ───────────────────────────────────
 
 func TestHandleProfileWallCommentsGet_WithFilter(t *testing.T) {
@@ -433,7 +483,7 @@ func TestUniversalPost_ProfileWallPost(t *testing.T) {
 	// Enrichment fetch
 	authorJSON := `{"username": "testuser", "avatar_url": null}`
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.id = \$1`).
-		WithArgs("new_post").
+		WithArgs("new_post", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "content_json", "image_url", "attachments", "repost_of_post_id", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("new_post", "u1", "u1", "My Wall Post", "Hello world!", nil, nil, nil, nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, authorJSON))
 
@@ -486,7 +536,7 @@ func TestUniversalPost_ProfileWallComment(t *testing.T) {
 	// Enrichment fetch
 	authorJSON := `{"username": "commenter", "avatar_url": null}`
 	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE c\.id = \$1`).
-		WithArgs("new_comment").
+		WithArgs("new_comment", "u2").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "content_json", "created_at", "updated_at", "author"}).
 			AddRow("new_comment", "post1", "u2", "Great post!", nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", authorJSON))
 
@@ -677,7 +727,7 @@ func TestUniversalPut_ProfileWallComment_CannotMovePost(t *testing.T) {
 	// Enrichment fetch
 	authorJSON := `{"username": "commenter", "avatar_url": null}`
 	mock.ExpectQuery(`(?s).*SELECT c\.id.*FROM profile_wall_post_comments c LEFT JOIN users u.*WHERE c\.id = \$1`).
-		WithArgs("c1").
+		WithArgs("c1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "post_id", "user_id", "content", "content_json", "created_at", "updated_at", "author"}).
 			AddRow("c1", "post1", "u1", "updated", nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", authorJSON))
 
@@ -760,7 +810,7 @@ func TestUniversalPut_ProfileWallPost(t *testing.T) {
 	// Enrichment
 	authorJSON := `{"username": "testuser", "avatar_url": null}`
 	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*WHERE p\.id = \$1`).
-		WithArgs("post1").
+		WithArgs("post1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "content_json", "image_url", "attachments", "repost_of_post_id", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}).
 			AddRow("post1", "u1", "u1", "My Post", "Updated content", nil, nil, nil, nil, "2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z", false, nil, authorJSON))
 
