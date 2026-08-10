@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, Link, useNavigate, useSearchParams, Navigate, useLocation } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,7 @@ import { AgeVerification } from "@/components/AgeVerification";
 import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
 import { renderTags } from "@/components/ThreadCard";
@@ -134,13 +136,10 @@ const Board = () => {
         setUser(sessionUser);
 
         if (sessionUser) {
-        const [rolesResponse] = await Promise.all([
-          fetch(`/api/v1/user_roles?user_id=eq.${sessionUser.id}`).then(r => r.json()),
-        ]);
-        
-        const roles: { role: string }[] = (rolesResponse.data || []) as { role: string }[];
-        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
-      }
+          // Roles via a TTL-cached batched call instead of a fetch on every mount.
+          const meta = await getCurrentUserMeta(sessionUser.id);
+          setIsModerator(meta.roles.some((r) => r === 'moderator' || r === 'admin'));
+        }
     } finally {
       setAuthResolved(true);
     }
@@ -736,6 +735,9 @@ const Board = () => {
       }
       setIsJoined(false);
       toast.success("Вы вышли из саба");
+      // Raw write bypasses query-builder — drop memberships/boards GET cache.
+      invalidateByPrefix('/api/v1/gomosub_memberships');
+      invalidateByPrefix('/api/v1/boards');
       return;
     }
 
@@ -754,6 +756,9 @@ const Board = () => {
     }
     setIsJoined(true);
     toast.success("Вы вступили в саб");
+    // Raw write bypasses query-builder — drop memberships/boards GET cache.
+    invalidateByPrefix('/api/v1/gomosub_memberships');
+    invalidateByPrefix('/api/v1/boards');
   };
 
   if (!board || checkingRules) {

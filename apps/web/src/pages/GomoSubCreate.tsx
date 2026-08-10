@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api } from "@/integrations/api/compat";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -272,6 +273,8 @@ const GomoSubCreate = () => {
       }
 
       toast.success("G-саб создан");
+      // Raw RPC write bypasses query-builder — drop boards GET cache.
+      invalidateByPrefix('/api/v1/boards');
       navigate(`/g/${slug}`);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);

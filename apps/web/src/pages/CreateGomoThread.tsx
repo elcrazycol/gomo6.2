@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -167,6 +168,9 @@ const CreateGomoThread = () => {
       }
 
       toast.success("Тред создан");
+      // Raw RPC write bypasses query-builder — drop threads/boards GET cache.
+      invalidateByPrefix('/api/v1/threads');
+      invalidateByPrefix('/api/v1/boards');
       navigate(`/g/${board.slug}/thread/${threadData.id}`);
     } catch (err) {
       console.error('CreateGomoThread error:', err);

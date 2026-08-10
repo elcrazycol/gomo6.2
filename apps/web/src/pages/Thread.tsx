@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -39,6 +40,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
@@ -70,6 +72,11 @@ interface PostWithExtras extends PostModel {
   nickname_emoji_id?: string | null;
   avatar_url?: string;
 }
+// Record a thread visit at most once per browser session. The backend upsert
+// is idempotent, but writing on EVERY mount/back-navigation is needless DB
+// load — one write per unique thread per session is enough.
+const recordedVisits = new Set<string>();
+
 const Thread = () => {
   const { slug, threadId, channelSlug } = useParams();
   const location = useLocation();
@@ -310,41 +317,14 @@ const Thread = () => {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        const token = session.access_token;
-        const headers = { 'Authorization': `Bearer ${token}` };
-
-        const rolesRes = await fetch(`/api/v1/user_roles?user_id=eq.${session.user.id}`, { headers });
-        const rolesResult = await rolesRes.json();
-        const roles = rolesResult.data;
-        setIsAdmin(roles?.some((r: { role: string }) => r.role === 'admin') || false);
-        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
-
-        const profileRes = await fetch(`/api/v1/profiles?id=eq.${session.user.id}`, { headers });
-        const profileResult = await profileRes.json();
-        const profile = profileResult.data?.[0];
-
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-          setCurrentUserAvatar(profile.avatar_url || null);
-        }
-
-        const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${session.user.id}`, { headers });
-        const achResult = await achRes.json();
-        const achievements = achResult.data;
-
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
-            .map((a: { achievements: { reward_value: string } }) => a.achievements.reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
+        // Roles + nickname color + username/avatar via a TTL-cached batched
+        // call instead of 3 duplicate fetches on every page mount.
+        const meta = await getCurrentUserMeta(session.user.id);
+        setIsAdmin(meta.roles.includes('admin'));
+        setIsModerator(meta.roles.some((r) => r === 'moderator' || r === 'admin'));
+        setCurrentUserUsername(meta.username);
+        setCurrentUserAvatar(meta.avatarUrl || null);
+        setCurrentUserColor(meta.color);
       }
     };
     checkAuth();
@@ -457,10 +437,10 @@ const Thread = () => {
         setPollData({ ...poll, user_votes: userVotes });
       }
 
-      if (user && thread && token) {
+      if (user && thread && token && !recordedVisits.has(thread.id)) {
         try {
           const hasCustomMessage = (thread as ThreadWithExtras).custom_message && ((thread as ThreadWithExtras).custom_message ?? "").trim().length > 0;
-          await fetch('/api/v1/thread_custom_message_visits', {
+          const visitRes = await fetch('/api/v1/thread_custom_message_visits', {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -469,6 +449,8 @@ const Thread = () => {
               has_custom_message: hasCustomMessage
             }),
           });
+          // Only remember successful records so a transient failure retries.
+          if (visitRes.ok) recordedVisits.add(thread.id);
         } catch (error) {
           console.error("Thread visit tracking unavailable:", error);
         }
@@ -573,6 +555,9 @@ const Thread = () => {
       // Background cache invalidation (no reset — placeholderData keeps old data visible)
       queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
       queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
+      // The raw RPC write bypasses query-builder, so drop the GET cache too.
+      invalidateByPrefix('/api/v1/posts');
+      invalidateByPrefix('/api/v1/threads');
 
       // Auto-scroll to bottom after own post
       if (shouldStickBottomRef.current) {
@@ -652,6 +637,8 @@ const Thread = () => {
       // Remove from local state immediately for instant feedback
       setAllPosts(prev => prev.filter(p => p.id !== postId));
       queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
+      // Raw DELETE bypasses query-builder — drop the GET cache.
+      invalidateByPrefix('/api/v1/posts');
     }
   };
 
@@ -668,6 +655,9 @@ const Thread = () => {
       toast.error("Ошибка удаления треда");
     } else {
       toast.success("Тред удален");
+      // Raw DELETE bypasses query-builder — drop the threads/boards GET cache.
+      invalidateByPrefix('/api/v1/threads');
+      invalidateByPrefix('/api/v1/boards');
       navigate(`${pathPrefix}/${slug}`);
     }
   };
@@ -695,6 +685,9 @@ const Thread = () => {
       setEditContentJson(null);
       queryClient.invalidateQueries({ queryKey: ['posts', threadId] });
       queryClient.invalidateQueries({ queryKey: ['thread', threadId] });
+      // Raw PUT bypasses query-builder — drop the GET cache.
+      invalidateByPrefix('/api/v1/posts');
+      invalidateByPrefix('/api/v1/threads');
     }
   };
 

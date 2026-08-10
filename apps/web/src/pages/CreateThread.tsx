@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -306,6 +307,10 @@ const CreateThread = () => {
       }
 
       toast.success('Тред создан!');
+      // Raw RPC write bypasses query-builder — drop the threads/boards GET cache
+      // so the board list and thread counts reflect the new thread immediately.
+      invalidateByPrefix('/api/v1/threads');
+      invalidateByPrefix('/api/v1/boards');
       const prefix = board?.is_gomosub ? "/g" : "";
       navigate(`${prefix}/${board.slug}/thread/${threadData.id}`);
       setAttachments([]);
