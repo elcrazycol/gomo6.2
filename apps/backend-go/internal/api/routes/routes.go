@@ -20,6 +20,10 @@ import (
 )
 
 func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *websocket.Hub) {
+	// Lightweight per-route request/latency/error metrics for every handler
+	// registered below (admin-only at GET /api/v1/metrics).
+	router.Use(middleware.MetricsMiddleware())
+
 	// Readiness check (registered after all initialization is complete)
 	// Docker healthcheck uses /health (registered in main.go BEFORE heavy init)
 	// This /ready endpoint confirms the full stack is operational
@@ -59,7 +63,10 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	registerRateLimiter := middleware.NewAuthRateLimiter(redis, 5, time.Minute)   // 5/min per IP for register (anti abuse)
 	verify2FARateLimiter := middleware.NewAuthRateLimiter(redis, 20, time.Minute) // 20/min per IP for the 2FA step
 	oauthRateLimiter := middleware.NewOAuthRateLimiter(20, 10, time.Minute)       // 20/min token, 10/min revoke
-	globalRateLimiter := middleware.NewGlobalRateLimiter(redis, 300, time.Minute) // 300 req/min per IP for public endpoints
+	// Generic REST rate limiting: authenticated requests get a per-user budget
+	// (900/min by default), anonymous requests share a per-IP bucket (300/min).
+	// Both are tunable via RATE_LIMIT_PER_USER / RATE_LIMIT_PER_IP env vars.
+	globalRateLimiter := middleware.NewGlobalRateLimiterFromEnv(redis, time.Minute)
 	// Upload limits: per-user request rate + hourly byte quota. Redis-backed so
 	// the budget holds across instances and /storage/v1/upload cannot be used to
 	// exhaust object storage.
@@ -137,6 +144,17 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// Client-side error reporting handler
 	clientErrorsHandler := handlers.NewClientErrorsHandler(db)
 
+	// Admin-only request metrics (per-route counts, latency, 4xx/5xx/429).
+	// Zero-dependency in-memory counters from MetricsMiddleware. Use this to spot
+	// N+1 request storms, chatty endpoints and rate-limit floods without log
+	// spelunking: sorted by request volume, error rates included.
+	router.GET("/api/v1/metrics",
+		middleware.AuthMiddleware(authService),
+		adminOnlyMiddleware(db),
+		func(c *gin.Context) {
+			c.JSON(200, middleware.MetricsSnapshot())
+		})
+
 	// WebSocket handler disabled for now
 	// wsHandler := handlers.NewWebSocketHandler(wsHub)
 
@@ -213,16 +231,21 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	// REST compatibility routes
 	rest := router.Group("/api/v1")
 	{
-		// Global rate limiting for public endpoints (200 req/min per IP)
-		rest.Use(middleware.GlobalRateLimitMiddleware(globalRateLimiter))
 		// Populate claims if auth token is present (does not block anonymous requests).
 		// MUST run BEFORE DataCacheMiddleware: the cache key is bound to the viewer
 		// identity (see data_cache.go), otherwise per-user responses (profile walls,
 		// friends, privacy settings, likes) would be cached across users and even
-		// served to anonymous visitors on cache hits.
+		// served to anonymous visitors on cache hits. It also runs BEFORE the rate
+		// limiter so authenticated requests are keyed by user ID, not IP.
 		rest.Use(middleware.OptionalAuthMiddlewareWithDB(authService, db))
-		// Apply data caching middleware for GET requests (2 minute TTL)
+		// Apply data caching middleware for GET requests (2 minute TTL). Cache hits
+		// abort before the rate limiter below, so repeated reads within the TTL are
+		// free: no rate-limit budget burned and no DB hit. Only cache misses and
+		// write requests consume the rate-limit budget.
 		rest.Use(middleware.DataCacheMiddleware(redis, middleware.DefaultDataCacheTTL))
+		// Global rate limiting: per-user budget for authenticated requests, per-IP
+		// for anonymous (env-tunable). See global_rate_limit.go.
+		rest.Use(middleware.GlobalRateLimitMiddleware(globalRateLimiter))
 
 		// Search endpoint (full-text, public)
 		rest.GET("/search", searchHandler.Search)
@@ -344,6 +367,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/thread_custom_message_visits", universalHandler.HandleTableRequest)
 		genericProtected.GET("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
+		// Writes: the frontend records a thread visit (idempotent upsert) on every
+		// thread view. GET-only routes made Gin return 404 before the already
+		// implemented upsert handler was reached — every thread view fired a 404.
+		genericProtected.POST("/thread_custom_message_visits", universalHandler.HandleTableRequest)
+		genericProtected.POST("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/thread_custom_message_visits", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/thread_custom_message_visits/*path", universalHandler.HandleTableRequest)
 
 		// Profile wall uses the universal CRUD handler for reads and mutations.
 		// Register every method here; registering GET only makes Gin return 404

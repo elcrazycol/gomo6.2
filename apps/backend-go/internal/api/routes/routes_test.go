@@ -47,6 +47,7 @@ func newTestRouter(t *testing.T, withHub bool) *gin.Engine {
 var expectedRoutes = []string{
 	// Top-level
 	"GET /ready",
+	"GET /api/v1/metrics",
 	"GET /api/v1/docs/json",
 	"POST /api/v1/audio/metadata",
 	"GET /api/v1/test-auth",
@@ -145,6 +146,10 @@ var expectedRoutes = []string{
 	"PUT /api/v1/user_daily_visits/*path",
 	"GET /api/v1/thread_custom_message_visits",
 	"GET /api/v1/thread_custom_message_visits/*path",
+	"POST /api/v1/thread_custom_message_visits",
+	"POST /api/v1/thread_custom_message_visits/*path",
+	"PUT /api/v1/thread_custom_message_visits",
+	"PUT /api/v1/thread_custom_message_visits/*path",
 	"GET /api/v1/profile_wall_posts",
 	"GET /api/v1/profile_wall_posts/*path",
 	"POST /api/v1/profile_wall_posts",
