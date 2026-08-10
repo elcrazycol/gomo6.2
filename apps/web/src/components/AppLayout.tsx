@@ -15,6 +15,7 @@ import { Settings, SkipBack, SkipForward, Play, Pause, Volume2, X, Search } from
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchGlobal, type GlobalSearchResult } from "@/utils/globalSearch";
 import { useAuth } from "@/hooks/useAuth";
+import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { useQueryClient } from "@tanstack/react-query";
 import { DropsShop } from "@/components/DropsShop";
 import { eventManager } from "@/services/eventManager";
@@ -880,6 +881,21 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
     window.addEventListener('auth:expired', handler);
     return () => window.removeEventListener('auth:expired', handler);
   }, [navigate, queryClient]);
+
+  // When the current user edits their profile (avatar/name/nickname emoji...),
+  // the app broadcasts 'profile-cache:invalidate'. Beyond the profile caches
+  // (ProfileCacheContext/currentUserMeta/queryCache), the nickname emoji is
+  // embedded in thread/post feed payloads — invalidate those react-query keys
+  // (debounced via useProfileInvalidation) so feeds (board, thread, profile
+  // pages) refetch and show the new emoji instead of stale data.
+  useProfileInvalidation(() => {
+    queryClient.invalidateQueries({ queryKey: ['threads'] });
+    queryClient.invalidateQueries({ queryKey: ['posts'] });
+    queryClient.invalidateQueries({ queryKey: ['thread'] });
+    queryClient.invalidateQueries({ queryKey: ['profiles'] });
+    queryClient.invalidateQueries({ queryKey: ['profile'] });
+    queryClient.invalidateQueries({ queryKey: ['user-threads'] });
+  });
 
   useEffect(() => {
     const syncMessengerChrome = () => {

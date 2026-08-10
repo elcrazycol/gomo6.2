@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/integrations/api/compat";
+import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { ThreadCard } from "@/components/ThreadCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
@@ -194,6 +195,11 @@ export const ThreadFeed = ({
     loadThreads();
     return () => { abortRef.current?.abort(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload when the current user edits their profile: the nickname emoji is
+  // embedded in the thread payload, and without this the feed would show the
+  // old emoji until the next manual reload.
+  useProfileInvalidation(() => { loadThreads(); });
 
   useEffect(() => {
     const observer = new IntersectionObserver(

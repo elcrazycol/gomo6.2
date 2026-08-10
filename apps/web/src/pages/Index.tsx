@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { PrefetchLink } from "@/components/PrefetchLink";
 import { api } from "@/integrations/api/compat";
@@ -17,6 +17,7 @@ import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
+import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { ThreadCard } from "@/components/ThreadCard";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -98,6 +99,9 @@ const Index = () => {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  // Always-current handle to the subscriptions loader so the profile
+  // invalidation listener can reload the feed from outside the effect closure.
+  const loadSubscriptionsRef = useRef<() => void>(() => {});
   
   useSessionTime(user?.id);
   useOnlineStatus(user?.id);
@@ -339,8 +343,14 @@ const Index = () => {
       setSubscriptionsLoading(false);
     };
 
+    loadSubscriptionsRef.current = loadSubscriptions;
     loadSubscriptions();
   }, [user?.id]);
+
+  // Reload the subscriptions feed when the current user edits their profile:
+  // the nickname emoji is embedded in the feed payload and would otherwise
+  // stay stale until the next page load.
+  useProfileInvalidation(() => { loadSubscriptionsRef.current(); });
 
   const handleLogout = async () => {
     await api.auth.signOut();

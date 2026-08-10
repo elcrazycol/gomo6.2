@@ -19,6 +19,7 @@ import { AgeVerification } from "@/components/AgeVerification";
 import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { renderPreviewContent } from "@/utils/emojiUtils.tsx";
@@ -525,6 +526,18 @@ const Board = () => {
     loadChannelThreads();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [board?.id, channelSlug, ageVerified, isGomoRoute, channels]);
+
+  // Reload the thread list when the current user edits their profile: the
+  // nickname emoji is embedded in the thread payload and would otherwise stay
+  // stale until the next navigation.
+  useProfileInvalidation(() => {
+    if (!board) return;
+    if (board.slug === 'd' && !ageVerified && !isGomoRoute) return;
+    const resolvedChannelId = isGomoRoute && channelSlug
+      ? channels.find(ch => ch.slug === channelSlug)?.id || null
+      : null;
+    loadThreadsRef.current(board.id, false, resolvedChannelId);
+  });
 
   useEffect(() => {
     const loadMembership = async () => {

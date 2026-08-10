@@ -20,6 +20,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
+import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -170,6 +171,12 @@ const Board = () => {
     }, 30000);
     return () => clearInterval(interval);
   }, [board]);
+
+  // Reload when the current user edits their profile: the nickname emoji is
+  // embedded in the thread payload and would otherwise stay stale.
+  useProfileInvalidation(() => {
+    if (board) loadThreads(board.id);
+  });
 
   const loadThreads = async (boardId: string) => {
     // Fetch threads from Go backend
