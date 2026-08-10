@@ -471,9 +471,11 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	// Invalidate cache for this profile
+	// Invalidate cache for this profile (and its profile wall, whose posts
+	// embed the author's nickname emoji in the cached JSON).
 	if h.redis != nil {
 		middleware.InvalidateCacheForProfile(h.redis, id)
+		middleware.InvalidateCacheForProfileWall(h.redis, id)
 	}
 
 	// Check profile achievements (avatar, bio)
