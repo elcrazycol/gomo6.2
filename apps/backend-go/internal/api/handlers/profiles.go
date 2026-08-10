@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/gomo6/backend/internal/cache"
 	"github.com/gomo6/backend/internal/middleware"
 	"github.com/gomo6/backend/internal/models"
 	"github.com/google/uuid"
@@ -32,6 +33,91 @@ func (h *ProfilesHandler) SetAchievementChecker(ac *AchievementChecker) {
 // SetRedis sets the Redis client for cache invalidation
 func (h *ProfilesHandler) SetRedis(redis *redis.Client) {
 	h.redis = redis
+}
+
+// invalidateAuthorContentCache clears every cached response that embeds this
+// user's profile fields (display_name, nickname_emoji_id, avatar_url) via a
+// users JOIN: the user's own threads, their posts, and the board thread lists
+// they appear in. The profile-scoped patterns in InvalidateCacheForProfile
+// only match profiles* keys, so without this a nickname-emoji change would
+// stay stale in cached threads/posts/board feeds until the data-cache TTL
+// expires. Threads are queried by author (threads.user_id) and each thread
+// ID is invalidated precisely — the author may have any number of them.
+func (h *ProfilesHandler) invalidateAuthorContentCache(c *gin.Context, userID string) {
+	if h.redis == nil || h.db == nil || userID == "" {
+		return
+	}
+
+	// The user's threads: invalidate the thread page, its post list, and the
+	// board thread lists (including board_id=in.(...) feeds on the main page,
+	// which the eq.-only patterns below can't match).
+	rows, err := h.db.QueryContext(c.Request.Context(),
+		"SELECT id::text, COALESCE(board_id::text, '') FROM threads WHERE user_id = $1", userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var threadID, boardID string
+			if rows.Scan(&threadID, &boardID) != nil {
+				continue
+			}
+			cache.InvalidateForThread(h.redis, threadID, boardID)
+			if boardID != "" {
+				// Cover board_id=in.(...) aggregate feeds (main page), not just
+				// board_id=eq.<boardID> — the raw board id substring matches
+				// both.
+				cache.InvalidateByPattern(h.redis, "data:/api/v1/threads*"+boardID+"*")
+			}
+		}
+	}
+
+	// The user's posts: invalidate the post itself and its thread's post list.
+	rows, err = h.db.QueryContext(c.Request.Context(),
+		"SELECT id::text, COALESCE(thread_id::text, '') FROM posts WHERE user_id = $1", userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var postID, threadID string
+			if rows.Scan(&postID, &threadID) != nil {
+				continue
+			}
+			cache.InvalidateForPost(h.redis, postID, threadID)
+		}
+	}
+
+	// The user's wall posts on ANY wall (including other users' walls): the
+	// wall list caches embed the author's profile fields via a users JOIN
+	// (profile_wall.go LEFT JOIN users u ON u.id = p.author_id), so a change
+	// here must also refresh every wall the user has posted on.
+	rows, err = h.db.QueryContext(c.Request.Context(),
+		"SELECT DISTINCT user_id::text FROM profile_wall_posts WHERE author_id = $1", userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var wallOwnerID string
+			if rows.Scan(&wallOwnerID) != nil || wallOwnerID == "" {
+				continue
+			}
+			middleware.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
+		}
+	}
+
+	// The user's wall comments on any wall: comment lists embed the commenter's
+	// profile fields the same way. Resolve the wall owner via the commented post.
+	rows, err = h.db.QueryContext(c.Request.Context(), `
+		SELECT DISTINCT wp.user_id::text
+		FROM profile_wall_post_comments c
+		JOIN profile_wall_posts wp ON wp.id = c.post_id
+		WHERE c.user_id = $1`, userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var wallOwnerID string
+			if rows.Scan(&wallOwnerID) != nil || wallOwnerID == "" {
+				continue
+			}
+			middleware.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
+		}
+	}
 }
 
 // GetProfiles godoc
@@ -476,6 +562,11 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	if h.redis != nil {
 		middleware.InvalidateCacheForProfile(h.redis, id)
 		middleware.InvalidateCacheForProfileWall(h.redis, id)
+		// Threads and posts embed the author's profile fields (display_name,
+		// nickname_emoji_id, avatar_url) via a users JOIN — without this the
+		// first message of an authored thread would keep the old emoji until
+		// the data-cache TTL expires.
+		h.invalidateAuthorContentCache(c, id)
 	}
 
 	// Check profile achievements (avatar, bio)

@@ -9,9 +9,11 @@ import (
 	"database/sql"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/redis/go-redis/v9"
 )
 
 // ──────────────────────────── GetProfiles ────────────────────────────
@@ -207,6 +209,170 @@ func TestGetProfile_DBError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+func TestUpdateProfile_InvalidatesAuthorContentCache(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	handler.SetRedis(client)
+
+	// Seed the data cache with keys that embed the author's profile fields
+	// (nickname emoji / display name / avatar via a users JOIN).
+	seeded := []string{
+		"data:/api/v1/threads?id=eq.thread1",                    // author's thread page
+		"data:/api/v1/threads?board_id=eq.board1",               // board thread list
+		"data:/api/v1/threads?board_id=in.(board1,board2)",      // main-page aggregate feed
+		"data:/api/v1/posts?thread_id=eq.thread1",               // thread's post list
+		"data:/api/v1/posts?id=eq.post1",                        // author's post page
+		"data:/api/v1/profiles?id=eq.u1",                        // profile itself
+		"data:/api/v1/profile_wall_posts?user_id=eq.u1",         // own wall
+		"data:/api/v1/profile_wall_posts?user_id=eq.wallOwner1", // OTHER user's wall with u1's post
+		"data:/api/v1/threads?id=eq.other-thread",               // UNRELATED — must survive
+		"data:/api/v1/posts?thread_id=eq.other-thread",          // UNRELATED — must survive
+	}
+	for _, k := range seeded {
+		mr.Set(k, `{"data":[]}`)
+	}
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]interface{}{
+		"bio": "Updated bio!",
+	}
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+
+	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), bio = \$1 WHERE id = \$2`).
+		WithArgs("Updated bio!", "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// invalidateAuthorContentCache: threads + posts authored by u1.
+	mock.ExpectQuery(`SELECT id::text.*FROM threads WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id"}).AddRow("thread1", "board1"))
+	mock.ExpectQuery(`SELECT id::text.*FROM posts WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id"}).AddRow("post1", "thread1"))
+	// Wall posts authored by u1 on OTHER users' walls (wallOwner1, wallOwner2).
+	mock.ExpectQuery(`SELECT DISTINCT user_id::text.*FROM profile_wall_posts WHERE author_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("wallOwner1").AddRow("wallOwner2"))
+	// Wall comments by u1 resolve the wall owner through the commented post.
+	mock.ExpectQuery(`(?s).*SELECT DISTINCT wp\.user_id.*FROM profile_wall_post_comments c.*JOIN profile_wall_posts wp.*WHERE c\.user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("wallOwner1"))
+
+	// GetProfile tail call.
+	selectRow := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
+		nil, "Updated bio!", nil, 100, 10, 2, true,
+		time.Now(), time.Now(), false, false,
+	)
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(selectRow)
+
+	handler.UpdateProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	// Author-embedded keys must be gone.
+	mustBeGone := []string{
+		"data:/api/v1/threads?id=eq.thread1",
+		"data:/api/v1/threads?board_id=eq.board1",
+		"data:/api/v1/threads?board_id=in.(board1,board2)",
+		"data:/api/v1/posts?thread_id=eq.thread1",
+		"data:/api/v1/posts?id=eq.post1",
+		"data:/api/v1/profiles?id=eq.u1",
+		"data:/api/v1/profile_wall_posts?user_id=eq.u1",
+		"data:/api/v1/profile_wall_posts?user_id=eq.wallOwner1", // u1 posted on wallOwner1's wall
+	}
+	for _, k := range mustBeGone {
+		if mr.Exists(k) {
+			t.Errorf("cache key %q should have been invalidated after profile update", k)
+		}
+	}
+
+	// Unrelated keys must survive.
+	mustSurvive := []string{
+		"data:/api/v1/threads?id=eq.other-thread",
+		"data:/api/v1/posts?thread_id=eq.other-thread",
+	}
+	for _, k := range mustSurvive {
+		if !mr.Exists(k) {
+			t.Errorf("unrelated cache key %q must survive a profile update", k)
+		}
+	}
+}
+
+func TestUpdateProfile_NoAuthorContent_NothingToInvalidate(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	handler.SetRedis(client)
+
+	mr.Set("data:/api/v1/threads?id=eq.other-thread", `{"data":[]}`)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]interface{}{
+		"bio": "Updated bio!",
+	}
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+
+	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), bio = \$1 WHERE id = \$2`).
+		WithArgs("Updated bio!", "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Author has no threads and no posts — both queries return empty rows.
+	mock.ExpectQuery(`SELECT id::text.*FROM threads WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "board_id"}))
+	mock.ExpectQuery(`SELECT id::text.*FROM posts WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id"}))
+	mock.ExpectQuery(`SELECT DISTINCT user_id::text.*FROM profile_wall_posts WHERE author_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+	mock.ExpectQuery(`(?s).*SELECT DISTINCT wp\.user_id.*FROM profile_wall_post_comments c.*JOIN profile_wall_posts wp.*WHERE c\.user_id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+
+	selectRow := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
+		nil, "Updated bio!", nil, 100, 10, 2, true,
+		time.Now(), time.Now(), false, false,
+	)
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(selectRow)
+
+	handler.UpdateProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+	if !mr.Exists("data:/api/v1/threads?id=eq.other-thread") {
+		t.Errorf("unrelated thread cache must survive when the author has no content")
 	}
 }
 
