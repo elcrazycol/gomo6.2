@@ -409,6 +409,28 @@ describe('query-builder: GET cache', () => {
     expect(mockRawRequest).toHaveBeenCalledTimes(1);
   });
 
+  it('caches profiles for the full 5-minute TTL (hover cards / walls / member lists)', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 'u1', username: 'alice' }], error: null });
+
+    await from('profiles').select('*').eq('id', 'u1');
+    vi.advanceTimersByTime(4 * 60 * 1000); // 4min — within the 5min profiles TTL
+    await from('profiles').select('*').eq('id', 'u1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets online-status reads override the 5-min profiles TTL via ttlMs', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 'u1', is_online: true }], error: null });
+
+    await from('profiles', { ttlMs: 30 * 1000 }).select('id, is_online, last_seen').eq('id', 'u1');
+    vi.advanceTimersByTime(60 * 1000); // 1min — past the 30s override, within the 5min default
+    await from('profiles', { ttlMs: 30 * 1000 }).select('id, is_online, last_seen').eq('id', 'u1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidates the threads cache when a posts write happens (post_count)', async () => {
     mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
 

@@ -16,8 +16,10 @@ export function useUserStatus(userId: string | undefined) {
     queryFn: async () => {
       if (!userId) return null;
 
+      // ttlMs 30s: profiles table defaults to 5min cache, but online status is
+      // time-sensitive (refetchInterval below) and must not be served stale.
       const { data, error } = await api
-        .from('profiles')
+        .from('profiles', { ttlMs: 30 * 1000 })
         .select('id, is_online, last_seen')
         .eq('id', userId)
         .single();
@@ -47,8 +49,9 @@ export function useBulkUserStatus(userIds: string[]) {
     queryFn: async () => {
       if (userIds.length === 0) return [];
 
+      // Same 30s override as useUserStatus — online state must stay fresh.
       const { data, error } = await api
-        .from('profiles')
+        .from('profiles', { ttlMs: 30 * 1000 })
         .select('id, is_online, last_seen')
         .in('id', userIds);
 

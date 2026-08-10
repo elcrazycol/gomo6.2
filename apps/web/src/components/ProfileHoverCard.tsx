@@ -90,12 +90,15 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Use React Query for caching - only fetch when card is shown
-  // 30s staleTime ensures avatar/profile changes appear quickly
+  // Profiles change rarely (avatar/name/bio); is_online comes via realtime
+  // (useRealtimeStatus) so a 5-minute staleTime is safe and kills the repeated
+  // hover refetches that used to fire 4 requests per card every 30s.
+  // Profile edits still invalidate instantly via 'profile-cache:invalidate'.
   const { data } = useQuery({
     queryKey: ['profile-hover', userId],
     queryFn: () => fetchProfileData(userId),
     enabled: showCard && !!userId,
-    staleTime: 30 * 1000,
+    staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
 

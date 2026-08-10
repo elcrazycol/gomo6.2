@@ -41,6 +41,10 @@ const TABLE_TTL_MS: Record<string, number> = {
   boards: 5 * 60 * 1000,
   emoji_groups: 5 * 60 * 1000,
   gift_catalog: 5 * 60 * 1000,
+  // Profiles change rarely (avatar/name/bio) and every hover card, wall and
+  // member list reads them — 5min TTL dedupes those reads app-wide. Profile
+  // edits still reset the whole cache via 'profile-cache:invalidate'.
+  profiles: 5 * 60 * 1000,
   posts: 5 * 1000,
   threads: 5 * 1000,
   notifications: 10 * 1000,
