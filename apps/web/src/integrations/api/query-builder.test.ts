@@ -420,6 +420,17 @@ describe('query-builder: GET cache', () => {
     expect(mockRawRequest).toHaveBeenCalledTimes(1);
   });
 
+  it('caches user_achievements within the 60s TTL (hover cards / color hook)', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 'a1', user_id: 'u1' }], error: null });
+
+    await from('user_achievements').select('*').eq('user_id', 'u1');
+    vi.advanceTimersByTime(45 * 1000); // 45s — within the 60s TTL
+    await from('user_achievements').select('*').eq('user_id', 'u1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('lets online-status reads override the 5-min profiles TTL via ttlMs', async () => {
     vi.useFakeTimers();
     mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 'u1', is_online: true }], error: null });

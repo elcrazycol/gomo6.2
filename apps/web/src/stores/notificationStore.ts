@@ -76,6 +76,11 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
         }
 
         if (notif.type === "achievement_unlock" && notif.achievement) {
+          // Achievements are unlocked server-side (WS event), so the client
+          // queryCache never sees the INSERT — broadcast the standard profile
+          // invalidation so hover cards / color hook refresh immediately
+          // instead of waiting out the user_achievements TTL.
+          window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));
           update.lastUnlockedAchievement = {
             notification_id: notif.id,
             id: notif.achievement.id || "",

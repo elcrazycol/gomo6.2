@@ -74,10 +74,11 @@ describe("LikesCacheContext", () => {
     expect(result.current.getLikeData("id-1", true)!.count).toBe(7);
   });
 
-  it("loadLikeData fetches from API", async () => {
+  it("loadLikeData fetches via batch on next tick", async () => {
     mockRpc.mockImplementation((fn: string) => {
-      if (fn === "get_post_likes_count") return Promise.resolve({ data: 10 });
-      if (fn === "has_user_liked_post") return Promise.resolve({ data: true });
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({ data: [{ post_id: "post-1", count: 10, is_liked: true }] });
+      }
       return Promise.resolve({ data: null });
     });
 
@@ -85,20 +86,63 @@ describe("LikesCacheContext", () => {
 
     let data: any;
     await act(async () => {
-      data = await result.current.loadLikeData("post-1", "user-1", false);
+      const p = result.current.loadLikeData("post-1", "user-1", false);
+      vi.advanceTimersByTime(1); // flush coalesce timer
+      data = await p;
     });
 
     expect(data.count).toBe(10);
     expect(data.isLiked).toBe(true);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith("get_post_likes_batch", { post_ids: "post-1", user_uuid: "user-1" });
+  });
+
+  it("loadLikeData coalesces multiple posts in one tick into a single batch", async () => {
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({
+          data: [
+            { post_id: "p1", count: 5, is_liked: true },
+            { post_id: "p2", count: 2, is_liked: false },
+          ],
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    const { result } = renderHook(() => useLikesCache(), { wrapper });
+
+    let d1: any, d2: any;
+    await act(async () => {
+      const p1 = result.current.loadLikeData("p1", "user-1", false);
+      const p2 = result.current.loadLikeData("p2", "user-1", false);
+      vi.advanceTimersByTime(1);
+      [d1, d2] = await Promise.all([p1, p2]);
+    });
+
+    // ONE batch call for both ids — this is the whole point of coalescing.
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith("get_post_likes_batch", { post_ids: "p1,p2", user_uuid: "user-1" });
+    expect(d1.count).toBe(5);
+    expect(d1.isLiked).toBe(true);
+    expect(d2.count).toBe(2);
+    expect(d2.isLiked).toBe(false);
   });
 
   it("loadLikeData returns cached data on second call", async () => {
-    mockRpc.mockResolvedValue({ data: 5 });
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({ data: [{ post_id: "post-1", count: 5, is_liked: true }] });
+      }
+      return Promise.resolve({ data: null });
+    });
 
     const { result } = renderHook(() => useLikesCache(), { wrapper });
 
     await act(async () => {
-      await result.current.loadLikeData("post-1", "user-1", false);
+      const p = result.current.loadLikeData("post-1", "user-1", false);
+      vi.advanceTimersByTime(1);
+      await p;
     });
 
     const callCountAfterFirst = mockRpc.mock.calls.length;
@@ -118,7 +162,9 @@ describe("LikesCacheContext", () => {
 
     let data: any;
     await act(async () => {
-      data = await result.current.loadLikeData("post-1", "user-1", false);
+      const p = result.current.loadLikeData("post-1", "user-1", false);
+      vi.advanceTimersByTime(1);
+      data = await p;
     });
 
     expect(data.count).toBe(0);
@@ -143,20 +189,33 @@ describe("LikesCacheContext", () => {
   });
 
   it("deduplicates concurrent requests for same post", async () => {
-    mockRpc.mockResolvedValue({ data: 42 });
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({ data: [{ post_id: "post-1", count: 42, is_liked: false }] });
+      }
+      return Promise.resolve({ data: null });
+    });
 
     const { result } = renderHook(() => useLikesCache(), { wrapper });
 
     const p1 = result.current.loadLikeData("post-1", null, false);
     const p2 = result.current.loadLikeData("post-1", null, false);
 
-    const [d1, d2] = await Promise.all([p1, p2]);
+    let d1: any, d2: any;
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      [d1, d2] = await Promise.all([p1, p2]);
+    });
     expect(d1.count).toBe(d2.count);
+    expect(d1.count).toBe(42);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 
-  it("loadLikeData for thread uses thread functions", async () => {
+  it("loadLikeData for thread uses thread batch function", async () => {
     mockRpc.mockImplementation((fn: string) => {
-      if (fn === "get_thread_likes_count") return Promise.resolve({ data: 20 });
+      if (fn === "get_thread_likes_batch") {
+        return Promise.resolve({ data: [{ thread_id: "thread-1", count: 20, is_liked: true }] });
+      }
       return Promise.resolve({ data: null });
     });
 
@@ -164,11 +223,13 @@ describe("LikesCacheContext", () => {
 
     let data: any;
     await act(async () => {
-      data = await result.current.loadLikeData("thread-1", null, true);
+      const p = result.current.loadLikeData("thread-1", null, true);
+      vi.advanceTimersByTime(1);
+      data = await p;
     });
 
     expect(data.count).toBe(20);
-    expect(mockRpc).toHaveBeenCalledWith("get_thread_likes_count", { thread_uuid: "thread-1" });
+    expect(mockRpc).toHaveBeenCalledWith("get_thread_likes_batch", { thread_ids: "thread-1", user_uuid: "" });
   });
 
   it("loadLikeDataBatch fetches many posts with ONE rpc call and fills cache", async () => {

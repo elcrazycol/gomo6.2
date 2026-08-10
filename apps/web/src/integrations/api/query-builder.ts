@@ -45,6 +45,9 @@ const TABLE_TTL_MS: Record<string, number> = {
   // member list reads them — 5min TTL dedupes those reads app-wide. Profile
   // edits still reset the whole cache via 'profile-cache:invalidate'.
   profiles: 5 * 60 * 1000,
+  // Achievements change only when the user unlocks a new one; hover cards and
+  // the color hook read them on every render — 60s TTL dedupes those reads.
+  user_achievements: 60 * 1000,
   posts: 5 * 1000,
   threads: 5 * 1000,
   notifications: 10 * 1000,

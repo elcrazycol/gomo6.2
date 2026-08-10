@@ -38,7 +38,6 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { renderBbCode } from "@/utils/bbcodePlugins";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
-import { useLikesCache } from "@/contexts/LikesCacheContext";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -119,15 +118,10 @@ const Thread = () => {
 
   const [user, setUser] = useState<{ id: string } | null>(null);
 
-  // Preload like counts/status for the visible page with ONE batch request
-  // instead of two RPCs per post (LikeButton per-item calls then hit cache).
-  const { loadLikeDataBatch } = useLikesCache();
-  useEffect(() => {
-    if (postsFetching || postsPage.length === 0) return;
-    const ids = (postsPage as PostWithExtras[]).map(p => p.id);
-    loadLikeDataBatch(ids, user?.id || null, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postsPage, postsFetching, user?.id]);
+  // NOTE: no explicit like preload here — LikesCacheContext coalesces the
+  // per-item loadLikeData calls of all LikeButtons mounting in the same tick
+  // into a single get_post_likes_batch request automatically (child effects
+  // run before any parent preload effect, so preload alone can't cover them).
 
   // Append additional pages (load more)
   const prevPostOffset = useRef(postOffset);
