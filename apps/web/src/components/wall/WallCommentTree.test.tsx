@@ -30,6 +30,14 @@ vi.mock("@/components/ProcessedContent", () => ({
   ProcessedContent: ({ content }: any) => <span data-testid="processed-content">{content}</span>,
 }));
 
+// Keep the avatar URL assertion deterministic: Radix AvatarImage waits for
+// the browser image-load event, which jsdom does not dispatch automatically.
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children, className }: any) => <div className={className}>{children}</div>,
+  AvatarImage: (props: any) => <img alt="" {...props} />,
+  AvatarFallback: ({ children, className }: any) => <div className={className}>{children}</div>,
+}));
+
 vi.mock("@/components/GomoRichEditor", () => ({
   GomoRichEditor: ({ placeholder, onChange, onSubmit, resetKey, text, legacyContent, maxLength }: any) => (
     <div data-testid="gomo-rich-editor" data-placeholder={placeholder} data-reset-key={resetKey} data-max-length={maxLength}>
@@ -211,6 +219,20 @@ describe("WallCommentTree", () => {
     renderTree({ comments: [rootComment] });
     await waitFor(() => {
       expect(screen.getByText("1 комментарий")).toBeInTheDocument();
+    });
+  });
+
+  it("resolves stored avatar keys through the storage URL helper", async () => {
+    const commentWithAvatar = makeComment({
+      author: { username: "alice", display_name: null, is_anonymous: false, avatar_url: "user-1/avatar.webp" },
+    });
+    renderTree({ comments: [commentWithAvatar] });
+
+    await waitFor(() => {
+      expect(screen.getByAltText("alice")).toHaveAttribute(
+        "src",
+        "/storage/v1/object/post-images/user-1/avatar.webp",
+      );
     });
   });
 

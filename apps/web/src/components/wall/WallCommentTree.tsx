@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { MessageCircle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { WallCommentTreeContext } from "./WallCommentContext";
@@ -296,8 +297,29 @@ export const WallCommentTree = ({
   return (
     <WallCommentTreeContext.Provider value={contextValue}>
       <div className="space-y-3 border-t border-border/60 pt-4">
+        <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+              <MessageCircle className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold">Обсуждение</h3>
+              <p className="text-xs text-muted-foreground">Спокойное место для мыслей</p>
+            </div>
+          </div>
+          {!loading && comments.length > 0 && (
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {comments.length} {comments.length === 1 ? "комментарий" : comments.length < 5 ? "комментария" : "комментариев"}
+            </span>
+          )}
+        </div>
+
         {currentUserId && (
-          <div className="space-y-2 rounded-lg border border-border/50 bg-muted/10 p-3">
+          <div className="rounded-2xl border border-primary/15 bg-primary/[0.025] p-2.5 shadow-sm sm:p-3">
+            <div className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-primary/70" />
+              <span>Поделитесь мыслью</span>
+            </div>
             <WallCommentComposer
               placeholder="Напишите комментарий"
               onSubmit={submitTopLevel}
@@ -331,9 +353,6 @@ export const WallCommentTree = ({
           <div className="py-3 text-center text-sm text-muted-foreground">Тут пока пусто, но это можно исправить.</div>
         ) : (
           <>
-            <div className="text-xs text-muted-foreground">
-              {comments.length} {comments.length === 1 ? "комментарий" : comments.length < 5 ? "комментария" : "комментариев"}
-            </div>
             <div className="space-y-0">
               {rootComments.map((comment) => {
                 const children = tree.get(comment.id) || [];

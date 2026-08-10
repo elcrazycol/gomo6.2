@@ -37,6 +37,8 @@ interface GomoRichEditorProps {
   resetKey?: string | number;
   /** Maximum number of characters (plain text). Omit for no limit. */
   maxLength?: number;
+  /** Hide the formatting toolbar while a compact composer is idle. */
+  showToolbar?: boolean;
   onChange: (value: { json: unknown; text: string }) => void;
   onSubmit?: () => void;
 }
@@ -309,6 +311,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   minHeightClassName = "min-h-[120px]",
   resetKey,
   maxLength,
+  showToolbar = true,
   onChange,
   onSubmit,
 }, ref) => {
@@ -433,7 +436,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   return (
     <div className="space-y-2">
-      <Toolbar editor={editor} />
+      {showToolbar && <Toolbar editor={editor} />}
       <div ref={editorContainerRef}>
         <EditorContent editor={editor} />
       </div>

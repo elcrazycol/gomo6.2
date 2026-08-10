@@ -1,9 +1,15 @@
 import { useState, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-import { ChevronDown, Edit3, Heart, Loader2, Reply, Trash2 } from "lucide-react";
+import { ChevronDown, Edit3, Ellipsis, Heart, Loader2, Reply, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { ProcessedContent } from "@/components/ProcessedContent";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
@@ -12,6 +18,7 @@ import { useCommentTree, MAX_COMMENT_DEPTH, getThreadColor } from "./WallComment
 import { api } from "@/integrations/api/compat";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { safeDate } from "@/utils/safeDate";
+import { storageUrl } from "@/utils/storage";
 
 interface WallCommentNodeProps {
   comment: WallComment;
@@ -65,12 +72,15 @@ export const WallCommentNode = ({
 
   const isMaxDepth = depth >= MAX_COMMENT_DEPTH;
   const threadColor = getThreadColor(depth);
+  const avatarUrl = storageUrl("post-images", comment.author.avatar_url);
+  const authorLabel = comment.author.display_name || comment.author.username;
 
   // Comment like count + my like state come embedded in the comments GET
   // response (likes_count / liked_by_viewer) — no per-comment requests.
   const [likeCount, setLikeCount] = useState(comment.likes_count ?? 0);
   const [isLiked, setIsLiked] = useState(Boolean(comment.liked_by_viewer));
   const [likeLoading, setLikeLoading] = useState(false);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
 
   const handleLikeToggle = useCallback(async () => {
     if (!currentUserId || likeLoading) return;
@@ -102,45 +112,28 @@ export const WallCommentNode = ({
   return (
     <div className="relative">
       {depth > 0 && (
-        <button
-          type="button"
-          aria-label={isCollapsed ? "Развернуть ветку" : "Свернуть ветку"}
-          className="absolute bottom-0 left-0 top-0 z-10 w-4 cursor-pointer sm:w-5"
-          style={{
-            borderLeft: `3px solid ${threadColor}`,
-            opacity: isCollapsed ? 1 : 0.7,
-            transition: "opacity 150ms ease, border-color 150ms ease",
-            borderRadius: "2px",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = "1";
-            e.currentTarget.style.borderLeftColor = "rgba(128,128,128,0.55)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = isCollapsed ? "1" : "0.7";
-            e.currentTarget.style.borderLeftColor = threadColor;
-          }}
-          onClick={() => toggleCollapse(comment.id)}
+        <div
+          aria-hidden="true"
+          className="absolute bottom-0 left-1.5 top-0 border-l-2 border-primary/15 sm:left-2"
+          style={{ borderColor: threadColor }}
         />
       )}
 
-      <div
-        className={depth > 0 ? "pl-3 sm:pl-5" : ""}
-      >
-        <div className="group rounded-md py-2.5 transition-colors hover:bg-muted/30">
-          <div className="flex items-start gap-2.5">
+      <div className={depth > 0 ? "pl-4 sm:pl-7" : ""}>
+        <div className={`group rounded-2xl py-2.5 transition-colors hover:bg-muted/20 ${depth > 0 ? "border-l border-transparent" : ""}`}>
+          <div className="flex items-start gap-3">
             <Link
               to={`/profile/${comment.user_id}`}
               className="mt-0.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              <Avatar className="h-7 w-7 sm:h-8 sm:w-8">
+              <Avatar className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
                 <AvatarImage
-                  src={comment.author.avatar_url || undefined}
-                  alt={comment.author.username}
+                  src={avatarUrl || undefined}
+                  alt={authorLabel}
                 />
-                <AvatarFallback className="text-[10px]">
-                  {(comment.author.display_name || comment.author.username).charAt(0).toUpperCase()}
+                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
+                  {authorLabel.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
             </Link>
@@ -152,7 +145,7 @@ export const WallCommentNode = ({
                   className="text-sm font-semibold text-foreground hover:underline"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {comment.author.display_name || comment.author.username}
+                  {authorLabel}
                 </Link>
                 {comment.author.nickname_emoji_id && <NicknameEmoji emojiId={comment.author.nickname_emoji_id} />}
                 <span className="text-xs text-muted-foreground">
@@ -184,7 +177,7 @@ export const WallCommentNode = ({
                   />
                 </div>
               ) : (
-                <div className="mt-1 break-words text-sm leading-relaxed">
+                <div className="mt-1.5 max-w-[68ch] break-words text-sm leading-6 text-foreground/95">
                   <ProcessedContent
                     content={comment.content || ""}
                     contentJson={comment.content_json}
@@ -196,7 +189,7 @@ export const WallCommentNode = ({
               )}
 
               {!isEditing && (
-                <div className="mt-1.5 flex items-center gap-1">
+                <div className="mt-2 flex flex-wrap items-center gap-1 opacity-90 transition-opacity sm:opacity-70 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                   {currentUserId && (
                     <Button
                       type="button"
@@ -224,58 +217,90 @@ export const WallCommentNode = ({
                     </Button>
                   )}
 
-                  {canEdit && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                      onClick={() => (isEditing ? cancelEdit() : startEdit(comment))}
-                      title="Редактировать"
-                    >
-                      <Edit3 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-
-                  {canDelete && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => deleteComment(comment.id)}
-                      disabled={isSubmitting[`delete:${comment.id}`]}
-                      title="Удалить"
-                    >
-                      {isSubmitting[`delete:${comment.id}`] ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  )}
-
                   {hasChildren && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      className="h-8 gap-1 rounded-xl px-2 text-xs text-muted-foreground hover:text-foreground"
                       onClick={() => toggleCollapse(comment.id)}
+                      aria-expanded={!isCollapsed}
                     >
                       <ChevronDown
                         className={`h-3.5 w-3.5 transition-transform duration-200 ${isCollapsed ? "" : "rotate-180"}`}
                       />
-                      <span className="hidden sm:inline">
-                        {isCollapsed ? `${children.length} ${children.length === 1 ? "ответ" : "ответов"}` : "Свернуть"}
+                      <span>
+                        {isCollapsed ? `Показать ${children.length} ${children.length === 1 ? "ответ" : children.length < 5 ? "ответа" : "ответов"}` : "Свернуть"}
                       </span>
                     </Button>
+                  )}
+
+                  {(canEdit || canDelete) && (                      <>
+                        <div className="hidden items-center gap-1 sm:flex">
+                        {canEdit && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                            onClick={() => (isEditing ? cancelEdit() : startEdit(comment))}
+                            title="Редактировать"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            onClick={() => deleteComment(comment.id)}
+                            disabled={isSubmitting[`delete:${comment.id}`]}
+                            title="Удалить"
+                          >
+                            {isSubmitting[`delete:${comment.id}`] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
+                      </div>
+                      <>
+                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-muted-foreground sm:hidden" aria-label="Действия с комментарием" onClick={() => setMobileActionsOpen(true)}>
+                          <Ellipsis className="h-4 w-4" />
+                        </Button>
+                        <Sheet open={mobileActionsOpen} onOpenChange={setMobileActionsOpen}>
+                          <SheetContent side="bottom" className="rounded-t-3xl px-4 pb-8 pt-6 sm:hidden">
+                            <SheetHeader className="mb-4 text-left">
+                              <SheetTitle>Действия с комментарием</SheetTitle>
+                            </SheetHeader>
+                            <div className="grid gap-2">
+                              {canEdit && (
+                                <Button type="button" variant="outline" className="h-11 justify-start rounded-xl" onClick={() => {
+                                    setMobileActionsOpen(false);
+                                    if (isEditing) cancelEdit();
+                                    else startEdit(comment);
+                                  }}>
+                                  <Edit3 className="mr-2 h-4 w-4" />Редактировать
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button type="button" variant="outline" className="h-11 justify-start rounded-xl text-destructive hover:text-destructive" onClick={() => {
+                                  setMobileActionsOpen(false);
+                                  void deleteComment(comment.id);
+                                }}>
+                                  <Trash2 className="mr-2 h-4 w-4" />Удалить
+                                </Button>
+                              )}
+                            </div>
+                          </SheetContent>
+                        </Sheet>
+                      </>
+                    </>
                   )}
                 </div>
               )}
 
               {isReplying && currentUserId && (
-                <div className="mt-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                <div className="mt-3 rounded-2xl border border-primary/20 bg-primary/[0.035] p-3 shadow-sm">
                   <div className="mb-2 text-[11px] text-muted-foreground">
                     Ответ <span className="font-medium text-foreground/70">{comment.author.display_name || comment.author.username}</span>
                   </div>
@@ -295,40 +320,26 @@ export const WallCommentNode = ({
           </div>
         </div>
 
-        <div
-          className="overflow-hidden transition-all duration-300 ease-in-out"
-          style={{
-            maxHeight: isCollapsed ? "0px" : "2000px",
-            opacity: isCollapsed ? 0 : 1,
-          }}
-        >
-          {hasChildren && (
-            <div className="space-y-0">
-              {children.map((child) => {
-                const childChildren = tree.get(child.id) || [];
-                return (
-                  <WallCommentNode
-                    key={child.id}
-                    comment={child}
-                    children={childChildren}
-                    tree={tree}
-                    depth={isMaxDepth ? depth : depth + 1}
-                  />
-                );
-              })}
-            </div>
-          )}
+        <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}>
+          <div className="min-h-0 overflow-hidden">
+            {hasChildren && (
+              <div className="space-y-0">
+                {children.map((child) => {
+                  const childChildren = tree.get(child.id) || [];
+                  return (
+                    <WallCommentNode
+                      key={child.id}
+                      comment={child}
+                      children={childChildren}
+                      tree={tree}
+                      depth={isMaxDepth ? depth : depth + 1}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-
-        {isCollapsed && hasChildren && (
-          <button
-            type="button"
-            className="ml-2 mt-1 text-xs font-medium text-muted-foreground hover:underline"
-            onClick={() => toggleCollapse(comment.id)}
-          >
-            Показать {children.length} {children.length === 1 ? "ответ" : "ответов"}
-          </button>
-        )}
       </div>
     </div>
   );

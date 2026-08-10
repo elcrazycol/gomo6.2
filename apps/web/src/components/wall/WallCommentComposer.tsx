@@ -1,4 +1,5 @@
-import { Loader2, Send } from "lucide-react";
+import { useState } from "react";
+import { Loader2, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
 
@@ -14,6 +15,8 @@ interface WallCommentComposerProps {
   /** Maximum number of characters for a comment. Defaults to 4000. */
   maxLength?: number;
   compact?: boolean;
+  /** Start as a calm one-line prompt and reveal the editor on focus. */
+  focusToExpand?: boolean;
 }
 
 export const WallCommentComposer = ({
@@ -27,9 +30,27 @@ export const WallCommentComposer = ({
   resetKey,
   maxLength = 4000,
   compact = false,
+  focusToExpand = false,
 }: WallCommentComposerProps) => {
+  const [expanded, setExpanded] = useState(!focusToExpand);
+  const isExpanded = !focusToExpand || expanded || Boolean(text.trim());
+
+  if (focusToExpand && !isExpanded) {
+    return (
+      <button
+        type="button"
+        className="group flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border/70 bg-background/80 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => setExpanded(true)}
+        aria-label={placeholder}
+      >
+        <Sparkles className="h-4 w-4 text-primary/70 transition-transform group-hover:rotate-12" />
+        <span>{placeholder}…</span>
+      </button>
+    );
+  }
+
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md ${compact ? "" : "p-3"}`}>
       <GomoRichEditor
         resetKey={resetKey}
         maxLength={maxLength}
@@ -39,16 +60,18 @@ export const WallCommentComposer = ({
         onSubmit={onSubmit}
         placeholder={placeholder}
         minHeightClassName={compact ? "min-h-[60px]" : "min-h-[84px]"}
+        showToolbar={!compact || isExpanded}
       />
       <div className="flex items-center justify-end gap-2">
         {onCancel && (
-          <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
             Отмена
           </Button>
         )}
         <Button
           type="button"
           size="sm"
+          className="rounded-xl"
           onClick={onSubmit}
           disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim()) || text.trim() === "\u200b"}
         >
