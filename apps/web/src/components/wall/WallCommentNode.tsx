@@ -72,6 +72,9 @@ export const WallCommentNode = ({
 
   const isMaxDepth = depth >= MAX_COMMENT_DEPTH;
   const threadColor = getThreadColor(depth);
+  const branchOffset = depth === 0 ? "ml-[18px] pl-[18px] sm:ml-5 sm:pl-5" : "ml-4 pl-4";
+  const connectorOffset = "-left-4 w-4 sm:-left-5 sm:w-5";
+  const lineOffset = depth === 0 ? "left-[18px] top-7 sm:left-5 sm:top-8" : "left-4 top-7";
   const avatarUrl = storageUrl("post-images", comment.author.avatar_url);
   const authorLabel = comment.author.display_name || comment.author.username;
 
@@ -108,19 +111,27 @@ export const WallCommentNode = ({
   }, [currentUserId, comment.id, isLiked, likeCount, likeLoading]);
 
   const replyAuthorName = depth > 0 ? (comment.author.display_name || comment.author.username) : null;
+  const childrenId = `wall-comment-children-${comment.id}`;
 
   return (
     <div className="relative">
       {depth > 0 && (
         <div
           aria-hidden="true"
-          className="absolute bottom-0 left-1.5 top-0 border-l-2 border-primary/15 sm:left-2"
+          className={`pointer-events-none absolute ${connectorOffset} top-2.5 h-4 rounded-bl-xl border-b-2 border-l-2`}
           style={{ borderColor: threadColor }}
         />
       )}
 
-      <div className={depth > 0 ? "pl-4 sm:pl-7" : ""}>
-        <div className={`group rounded-2xl py-2.5 transition-colors hover:bg-muted/20 ${depth > 0 ? "border-l border-transparent" : ""}`}>
+      {hasChildren && !isCollapsed && (
+        <div
+          aria-hidden="true"
+          className={`pointer-events-none absolute bottom-0 ${lineOffset} border-l-2`}
+          style={{ borderColor: threadColor }}
+        />
+      )}
+
+      <div className="group rounded-2xl py-2.5 transition-colors hover:bg-muted/20">
           <div className="flex items-start gap-3">
             <Link
               to={`/profile/${comment.user_id}`}
@@ -225,6 +236,7 @@ export const WallCommentNode = ({
                       className="h-8 gap-1 rounded-xl px-2 text-xs text-muted-foreground hover:text-foreground"
                       onClick={() => toggleCollapse(comment.id)}
                       aria-expanded={!isCollapsed}
+                      aria-controls={childrenId}
                     >
                       <ChevronDown
                         className={`h-3.5 w-3.5 transition-transform duration-200 ${isCollapsed ? "" : "rotate-180"}`}
@@ -320,10 +332,13 @@ export const WallCommentNode = ({
           </div>
         </div>
 
-        <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}>
+        <div
+          id={childrenId}
+          className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
+        >
           <div className="min-h-0 overflow-hidden">
             {hasChildren && (
-              <div className="space-y-0">
+              <div className={`relative mt-1 space-y-0 ${branchOffset}`}>
                 {children.map((child) => {
                   const childChildren = tree.get(child.id) || [];
                   return (
@@ -340,7 +355,6 @@ export const WallCommentNode = ({
             )}
           </div>
         </div>
-      </div>
     </div>
   );
 };

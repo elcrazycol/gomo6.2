@@ -211,15 +211,18 @@ describe("WallCommentTree", () => {
       expect(screen.getByText("alice")).toBeInTheDocument();
       // "bob" appears both as the author link and inside the "ответ …" line
       expect(screen.getAllByText("bob").length).toBeGreaterThan(0);
-      expect(screen.getByText("2 комментария")).toBeInTheDocument();
+      expect(screen.queryByText("Обсуждение")).not.toBeInTheDocument();
+      expect(screen.queryByText("2 комментария")).not.toBeInTheDocument();
     });
   });
 
   it("shows the singular '1 комментарий' counter", async () => {
     renderTree({ comments: [rootComment] });
     await waitFor(() => {
-      expect(screen.getByText("1 комментарий")).toBeInTheDocument();
+      expect(screen.getByText("Первый комментарий")).toBeInTheDocument();
     });
+    expect(screen.queryByText("1 комментарий")).not.toBeInTheDocument();
+    expect(screen.queryByText("Обсуждение")).not.toBeInTheDocument();
   });
 
   it("resolves stored avatar keys through the storage URL helper", async () => {
