@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { CustomEmojiNode, snapEmojiClick } from "./CustomEmojiNode";
+import { CustomEmojiNode, snapEmojiClick, clickOnLeftHalf } from "./CustomEmojiNode";
 
 const emojiId = "12345678-1234-1234-1234-123456789012";
 
@@ -43,6 +43,14 @@ describe("CustomEmojiNode", () => {
     expect(doc.textBetween(3, 4, undefined, "�")).toBe("B");
     expect(doc.resolve(emojiPosition).nodeAfter?.type.name).toBe("customEmoji");
     expect(doc.resolve(emojiPosition + emoji.nodeSize).nodeBefore?.type.name).toBe("customEmoji");
+  });
+
+  it("places the caret on the clicked half of the emoji box", () => {
+    const rect = { left: 100, width: 20 };
+    expect(clickOnLeftHalf(rect, 90)).toBe(true); // clearly left
+    expect(clickOnLeftHalf(rect, 109)).toBe(true); // left of the midpoint
+    expect(clickOnLeftHalf(rect, 110)).toBe(false); // exactly on the midpoint → right
+    expect(clickOnLeftHalf(rect, 125)).toBe(false); // clearly right
   });
 
   it("registers handleClickOn for emoji clicks", () => {

@@ -1,4 +1,4 @@
-import { Node, mergeAttributes, InputRule, nodePasteRule } from '@tiptap/core';
+import { Node, mergeAttributes, InputRule, nodePasteRule, type NodeViewProps } from '@tiptap/core';
 import { Plugin, TextSelection } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 import { ReactNodeViewRenderer, NodeViewWrapper } from '@tiptap/react';
@@ -52,8 +52,16 @@ export const snapEmojiClick = (
   return true;
 };
 
-const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> } }) => {
+/**
+ * Whether a click at clientX falls on the left half of the emoji box.
+ * The caret is then placed before the emoji instead of after it.
+ */
+export const clickOnLeftHalf = (rect: { left: number; width: number }, clientX: number): boolean =>
+  clientX < rect.left + rect.width / 2;
+
+const EmojiNodeView = ({ node, editor, getPos }: NodeViewProps) => {
   const { allEmojis, resolveEmojis } = useEmojiData();
+  const wrapperRef = React.useRef<HTMLElement | null>(null);
   const emojiId = node.attrs.emojiId;
   const fallback = node.attrs.fallback;
 
@@ -65,6 +73,52 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
     }
   }, [emojiId, emoji, resolveEmojis]);
 
+  // Clicking a non-editable inline element makes the browser place the caret
+  // flush against it (or even create a selection), and ProseMirror's own click
+  // handling cannot reliably correct that afterwards — typing then lands in a
+  // position that does not work. Take over the pointer events at the DOM level,
+  // before they bubble to the ProseMirror view, and place the caret
+  // deterministically before/after the emoji depending on which half was hit.
+  React.useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+
+    const onMouseDown = (event: MouseEvent) => {
+      // Only plain left clicks. Modified clicks (shift to extend, context menu,
+      // etc.) keep their default browser/ProseMirror behavior.
+      if (event.button !== 0 || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+
+      let pos: number;
+      try {
+        pos = getPos();
+      } catch {
+        return; // node view being torn down
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const rect = el.getBoundingClientRect();
+      const target = clickOnLeftHalf(rect, event.clientX) ? pos : pos + node.nodeSize;
+      editor.chain().focus().setTextSelection(target).run();
+    };
+
+    // The caret was already placed on mousedown. Swallow the click so
+    // ProseMirror's click handling cannot override the selection again.
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0 || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    el.addEventListener('mousedown', onMouseDown);
+    el.addEventListener('click', onClick);
+    return () => {
+      el.removeEventListener('mousedown', onMouseDown);
+      el.removeEventListener('click', onClick);
+    };
+  }, [editor, getPos, node.nodeSize]);
+
   if (emoji && emojiId) {
     const url = storageUrl('emojis', emoji.image_url);
     // The wrapper must stay a leaf: no inner span with text, otherwise the
@@ -72,6 +126,7 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
     // keeps the image inside the text line box.
     return (
       <NodeViewWrapper
+        ref={wrapperRef}
         as="span"
         style={{ display: 'inline-block', verticalAlign: 'baseline', margin: '0 0.1em' }}
         contentEditable={false}
@@ -88,6 +143,7 @@ const EmojiNodeView = ({ node }: { node: { attrs: Record<string, string | null> 
 
   return (
     <NodeViewWrapper
+      ref={wrapperRef}
       as="span"
       style={{ display: 'inline-block', verticalAlign: 'baseline', margin: '0 0.1em' }}
       contentEditable={false}
