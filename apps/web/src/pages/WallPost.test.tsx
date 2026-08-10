@@ -6,16 +6,24 @@ import WallPost from "./WallPost";
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
 const mockGetUser = vi.fn();
+const mockLoadProfile = vi.fn();
+const mockGetCurrentUserMeta = vi.fn();
 const mockParams: { userId?: string; postId?: string } = {};
 
 vi.mock("@/integrations/api/compat", () => ({
   api: {
     auth: {
-      // The page's unused getToken() helper calls getSession, but only
-      // getUser is exercised at runtime.
       getUser: (...args: any[]) => mockGetUser(...args),
     },
   },
+}));
+
+vi.mock("@/contexts/ProfileCacheContext", () => ({
+  useProfileCache: () => ({ loadProfile: (...args: any[]) => mockLoadProfile(...args) }),
+}));
+
+vi.mock("@/utils/currentUserMeta", () => ({
+  getCurrentUserMeta: (...args: any[]) => mockGetCurrentUserMeta(...args),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -47,22 +55,6 @@ function renderPage() {
   );
 }
 
-// The fetch stub is re-applied in beforeEach and intentionally never unstubbed:
-// restoring the real jsdom fetch lets a late-resolving component promise call it
-// with a relative URL, producing an unhandled "Failed to parse URL" rejection.
-// Each test file runs in an isolated worker, so the stub cannot leak elsewhere.
-function mockFetchProfiles(results: Record<string, { data: any[] }>) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((url: string) => {
-      const profile = results[url] ?? { data: [] };
-      return Promise.resolve({
-        json: () => Promise.resolve({ success: true, ...profile }),
-      } as Response);
-    }),
-  );
-}
-
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("WallPost page", () => {
@@ -71,10 +63,8 @@ describe("WallPost page", () => {
     mockParams.userId = "wall-owner";
     mockParams.postId = "post-1";
     mockGetUser.mockResolvedValue({ data: { user: { id: "current-user" } } });
-    mockFetchProfiles({
-      "/api/v1/profiles?id=eq.wall-owner": { data: [{ id: "wall-owner", username: "owner" }] },
-      "/api/v1/profiles?id=eq.current-user": { data: [{ id: "current-user", username: "currentuser" }] },
-    });
+    mockLoadProfile.mockResolvedValue({ username: "owner", color: "", isAdmin: false, customization: null });
+    mockGetCurrentUserMeta.mockResolvedValue({ username: "currentuser", roles: [], color: "" });
   });
 
   afterEach(() => {
@@ -113,9 +103,8 @@ describe("WallPost page", () => {
 
   it("passes null currentUserId for anonymous visitors", async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-    mockFetchProfiles({
-      "/api/v1/profiles?id=eq.wall-owner": { data: [{ id: "wall-owner", username: "owner" }] },
-    });
+    mockLoadProfile.mockResolvedValue({ username: "owner", color: "", isAdmin: false, customization: null });
+    mockGetCurrentUserMeta.mockResolvedValue({ username: "", roles: [], color: "" });
 
     renderPage();
 
@@ -138,12 +127,25 @@ describe("WallPost page", () => {
   });
 
   it("falls back to a generic header when the profile has no username", async () => {
-    mockFetchProfiles({});
+    mockLoadProfile.mockResolvedValue({ username: "", color: "", isAdmin: false, customization: null });
+    mockGetCurrentUserMeta.mockResolvedValue({ username: "", roles: [], color: "" });
     renderPage();
 
     await waitFor(() => {
       expect(screen.getByTestId("profile-wall")).toBeInTheDocument();
     });
     expect(screen.getByText("Запись на стене")).toBeInTheDocument();
+  });
+
+  it("loads wall owner via ProfileCacheContext (cached) instead of a raw fetch", async () => {
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("profile-wall")).toBeInTheDocument();
+    });
+
+    // Owner + current user are resolved through the shared caches, not fetch.
+    expect(mockLoadProfile).toHaveBeenCalledWith("wall-owner");
+    expect(mockGetCurrentUserMeta).toHaveBeenCalledWith("current-user");
   });
 });

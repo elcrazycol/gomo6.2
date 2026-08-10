@@ -134,6 +134,33 @@ describe("ProfileCacheContext", () => {
     expect(result.current.getProfile("user-1")).toBeNull();
   });
 
+  it("clears all entries on the profile-cache:invalidate DOM event", async () => {
+    const { result } = renderHook(() => useProfileCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadProfile("user-1");
+      await result.current.loadProfile("user-2");
+    });
+    expect(result.current.getProfile("user-1")).not.toBeNull();
+    expect(result.current.getProfile("user-2")).not.toBeNull();
+
+    // Profile edits anywhere in the app broadcast this event; the whole cache
+    // must reset so nothing serves stale username/avatar/color/emoji.
+    act(() => {
+      window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));
+    });
+
+    expect(result.current.getProfile("user-1")).toBeNull();
+    expect(result.current.getProfile("user-2")).toBeNull();
+
+    // Next load refetches (fresh data) instead of serving the stale entry.
+    mockFrom.mockClear();
+    await act(async () => {
+      await result.current.loadProfile("user-1");
+    });
+    expect(mockFrom).toHaveBeenCalled();
+  });
+
   it("detects admin role", async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "profiles") return makeChain({ data: { username: "admin" }, error: null });

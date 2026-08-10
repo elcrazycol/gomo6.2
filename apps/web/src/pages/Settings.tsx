@@ -17,6 +17,7 @@ import { TwoFASection } from "@/components/TwoFASection";
 import { PasskeysSettings } from "@/components/PasskeysSettings";
 import { SessionsSettings } from "@/components/SessionsSettings";
 import { applyTheme, DEFAULT_DARK_MODE, DEFAULT_THEME, type ColorTheme, getStoredTheme, syncSharedAppearanceCookies } from "@/utils/theme";
+import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 
 const defaultPrivacySettings = {
   show_online_status: true,
@@ -137,36 +138,10 @@ const Settings = () => {
       setUser(user);
       
       if (user) {
-        const token = (await api.auth.getSession()).data.session?.access_token;
-        const headers = { 'Authorization': `Bearer ${token}` };
-
-        // Load current user profile and color
-        const profileRes = await fetch(`/api/v1/profiles?id=eq.${user.id}`, { headers });
-        const profileResult = await profileRes.json();
-        const profile = profileResult.data?.[0];
-
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-        }
-
-        // Load current user color
-        const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${user.id}`, { headers });
-        const achResult = await achRes.json();
-        const achievements = achResult.data;
-
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown> | undefined)?.reward_type === "username_color")
-            .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
+        // Username + nickname color via the TTL-cached batched helper.
+        const meta = await getCurrentUserMeta(user.id);
+        setCurrentUserUsername(meta.username);
+        setCurrentUserColor(meta.color);
       }
       
       setLoading(false);

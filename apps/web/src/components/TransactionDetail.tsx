@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowUpRight, ArrowDownLeft, ShoppingCart, Gift, Droplets, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/integrations/api/compat";
+import { useProfileCache } from "@/contexts/ProfileCacheContext";
 import { formatDropsLabel } from "@/utils/formatDropsLabel";
 import type { TransactionItemData } from "./TransactionItem";
 
@@ -40,6 +40,7 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 }
 
 export function TransactionDetail({ open, onOpenChange, transaction }: TransactionDetailProps) {
+  const { loadProfile } = useProfileCache();
   const [counterparty, setCounterparty] = useState<{ username: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -49,21 +50,17 @@ export function TransactionDetail({ open, onOpenChange, transaction }: Transacti
     let cancelled = false;
     (async () => {
       try {
-        const session = await api.auth.getSession();
-        const token = session.data.session?.access_token;
-        if (!token) return;
-        const res = await fetch(`/api/v1/profiles/${transaction.reference_id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (!cancelled && data.success && data.data) {
-          setCounterparty({ username: data.data.username });
+        // Goes through ProfileCacheContext (5 min TTL), so reopening the same
+        // transaction dialog reuses the cached profile instead of a fresh fetch.
+        const profile = await loadProfile(transaction.reference_id);
+        if (!cancelled && profile.username) {
+          setCounterparty({ username: profile.username });
         }
       } catch { /* silent */ }
     })();
 
     return () => { cancelled = true; };
-  }, [open, transaction?.reference_id, transaction?.reference_type]);
+  }, [open, transaction?.reference_id, transaction?.reference_type, loadProfile]);
 
   useEffect(() => {
     if (!open) {

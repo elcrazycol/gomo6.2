@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Palette, Award, ArrowLeft, Save } from "lucide-react";
-import { clearCustomizationCache, dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
+import { dispatchProfileCacheInvalidate } from "@/utils/profileCustomization";
 import { storageUrl } from "@/utils/storage";
 
 import { ProfilePreview } from "./ProfilePreview";
@@ -113,7 +113,8 @@ const CustomProfile = () => {
 
       if (error) throw error;
 
-      clearCustomizationCache(user.id);
+      // Clears the customization cache AND notifies ProfileCacheContext +
+      // currentUserMeta — all profile caches reset together.
       dispatchProfileCacheInvalidate();
       initialSnapshotRef.current = JSON.stringify({ usernameCss, badgeText, badgeCss });
       setHasChanges(false);

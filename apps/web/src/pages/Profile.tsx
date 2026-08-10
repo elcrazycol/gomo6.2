@@ -23,7 +23,8 @@ import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useFileDrop } from "@/hooks/useFileDrop";
-import { getProfileCustomization, parseCssToStyle, clearCustomizationCache, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
+import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
+import { getProfileCustomization, parseCssToStyle, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { AdminBadge } from "@/components/AdminBadge";
@@ -42,6 +43,7 @@ import { FriendRequestsList } from "@/components/FriendRequestsList";
 import { useFriendsStore } from "@/stores/friendsStore";
 import { SpotifyNowPlaying } from "@/components/SpotifyNowPlaying";
 import type { GiftCatalogItem } from "@/components/GiftCard";
+import { getCurrentUserMeta, getGiftCatalog } from "@/utils/currentUserMeta";
 import { Users } from "lucide-react";
 
 interface Profile {
@@ -224,42 +226,12 @@ const Profile = () => {
       setCurrentUser(user);
       
       if (user) {
-        const token = (await api.auth.getSession()).data.session?.access_token;
-        const headers = { 'Authorization': `Bearer ${token}` };
-
-        // Load roles
-        const rolesRes = await fetch(`/api/v1/user_roles?user_id=eq.${user.id}`, { headers });
-        const rolesResult = await rolesRes.json();
-        const roles = rolesResult.data;
-        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
-
-        // Load current user profile and color
-        const profileRes = await fetch(`/api/v1/profiles?id=eq.${user.id}`, { headers });
-        const profileResult = await profileRes.json();
-        const profile = profileResult.data?.[0];
-
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-        }
-
-        // Load current user color
-        const achRes = await fetch(`/api/v1/user_achievements?user_id=eq.${user.id}`, { headers });
-        const achResult = await achRes.json();
-        const achievements = achResult.data;
-
-        if (achievements) {
-          const colorRewards = achievements
-            .filter((a: { achievements?: { reward_type: string; reward_value: string } | undefined }) => a.achievements?.reward_type === "username_color")
-            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
+        // Roles + nickname color + username via a TTL-cached single batched
+        // call — every page used to fire these 3 fetches independently.
+        const meta = await getCurrentUserMeta(user.id);
+        setIsModerator(meta.roles.some((r) => r === 'moderator' || r === 'admin'));
+        setCurrentUserUsername(meta.username);
+        setCurrentUserColor(meta.color);
       }
     };
     checkAuth();
@@ -273,16 +245,15 @@ const Profile = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load gift catalog
+  // Load gift catalog (TTL-cached — public data that rarely changes)
   useEffect(() => {
-    const loadCatalog = async () => {
-      try {
-        const res = await fetch("/api/v1/gift_catalog");
-        const result = await res.json();
-        setGiftCatalog(result.data || []);
-      } catch { /* ignore */ }
-    };
-    loadCatalog();
+    let cancelled = false;
+    getGiftCatalog()
+      .then((items) => {
+        if (!cancelled) setGiftCatalog(items);
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
   }, []);
 
   // Load gift count for profile
@@ -312,25 +283,14 @@ const Profile = () => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-  // Realtime status polling for profile
+  // Live online status via WebSocket presence — the previous 10s HTTP polling
+  // fired 6 requests/min per open profile page for the same data.
+  const realtimeStatus = useUserRealtimeStatus(userId);
   useEffect(() => {
-    if (!userId) return;
-    // Poll profile status every 10 seconds
-    const pollStatus = async () => {
-      try {
-        const res = await fetch(`/api/v1/profiles?id=eq.${userId}`);
-        const result = await res.json();
-        const updated = result.data?.[0];
-        if (updated) {
-          setIsOnline(updated.is_online || false);
-          setLastSeen(updated.last_seen_at || null);
-        }
-      } catch { /* ignore polling errors */ }
-    };
-    pollStatus();
-    const interval = setInterval(pollStatus, 10000);
-    return () => clearInterval(interval);
-  }, [userId]);
+    if (!realtimeStatus) return;
+    setIsOnline(realtimeStatus.is_online);
+    if (realtimeStatus.last_seen) setLastSeen(realtimeStatus.last_seen);
+  }, [realtimeStatus]);
 
   // Update online status for current user
   useOnlineStatus(currentUser?.id);
@@ -627,6 +587,8 @@ const Profile = () => {
     // где пользователь подтверждает текущий пароль (current_password).
     toast.success("Профиль обновлен");
     setIsEditing(false);
+    // Username/bio/avatar caches must not serve the old values for 5 minutes.
+    dispatchProfileCacheInvalidate();
     loadProfile();
   };
 
@@ -703,6 +665,8 @@ const Profile = () => {
       setAvatarUrl(uploaded.path);
       setAvatarUploading(false);
       toast.success("Аватар обновлен");
+      // Header/profile caches hold the old avatar_url — reset them now.
+      dispatchProfileCacheInvalidate();
 
       // Reload avatar history
       await loadAvatarHistory();
@@ -725,6 +689,8 @@ const Profile = () => {
 
       if (data) {
         toast.success("Аватар удален");
+        // Deleting the current avatar may change profile.avatar_url.
+        dispatchProfileCacheInvalidate();
 
         // Reload history
         const historyResult = await loadAvatarHistory();
@@ -780,8 +746,9 @@ const Profile = () => {
 
       setNicknameEmojiId(sel.emojiId);
       // The emoji is stored on the user, not in profile_customization — but the
-      // profile object is cached everywhere, so refresh local caches too.
-      clearCustomizationCache(userId!);
+      // profile object is cached everywhere, so refresh local caches too
+      // (dispatchProfileCacheInvalidate clears the customization cache AND
+      // notifies ProfileCacheContext + currentUserMeta).
       dispatchProfileCacheInvalidate();
       // The wall embeds the author's emoji in each post, so refetch it.
       setWallRefreshKey(k => k + 1);
@@ -805,7 +772,6 @@ const Profile = () => {
       if (!res.ok) throw new Error('Failed to remove nickname emoji');
 
       setNicknameEmojiId(null);
-      clearCustomizationCache(userId!);
       dispatchProfileCacheInvalidate();
       // The wall embeds the author's emoji in each post, so refetch it.
       setWallRefreshKey(k => k + 1);
@@ -858,6 +824,9 @@ const Profile = () => {
       setIsEditing(false);
       setNewDisplayName("");
       setNewUsername("");
+      
+      // Bio/display_name/anonymity changed — reset all profile caches.
+      dispatchProfileCacheInvalidate();
       
       // Reload profile to show updated bio with processed tags
       await loadProfile();
@@ -921,6 +890,8 @@ const Profile = () => {
       toast.success("Юзернейм изменён");
       setProfile(prev => prev ? { ...prev, username: newUsername } : null);
       setUsername(newUsername);
+      // Header/currentUserMeta caches keyed by the OLD username must reset.
+      dispatchProfileCacheInvalidate();
       setShowUsernameDialog(false);
       setNewUsername("");
       setConfirmUsername("");

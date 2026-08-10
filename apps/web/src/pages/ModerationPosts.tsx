@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { useModeratorGate } from "@/hooks/useModeratorGate";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -16,9 +17,6 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Settings } from "lucide-react";
 import { storageUrl } from "@/utils/storage";
 
-interface LocalUser {
-  id: string;
-}
 
 interface Report {
   id: string;
@@ -53,10 +51,7 @@ interface ReportedContent {
 
 const Moderation = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
-  const [isModerator, setIsModerator] = useState(false);
-  const [currentUserUsername, setCurrentUserUsername] = useState("");
-  const [currentUserColor, setCurrentUserColor] = useState("");
+  const { user, isModerator, currentUserUsername, currentUserColor } = useModeratorGate();
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [moderatorNote, setModeratorNote] = useState("");
@@ -64,73 +59,6 @@ const Moderation = () => {
   const [warningReason, setWarningReason] = useState("");
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState("7");
-
-  const checkAuth = useCallback(async () => {
-    const { data: { user } } = await api.auth.getUser();
-    
-    if (!user) {
-      navigate("/auth");
-      return;
-    }
-
-    setUser(user as LocalUser);
-
-    const { data: roles } = await api
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id);
-
-    const isMod = roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin');
-    
-    if (!isMod) {
-      toast.error("У вас нет доступа к этой странице");
-      navigate("/");
-      return;
-    }
-
-    setIsModerator(true);
-
-    // Load current user profile and color
-    const { data: profile } = await api
-      .from("profiles")
-      .select("username")
-      .eq("id", user.id)
-      .single();
-
-    if (profile) {
-      setCurrentUserUsername((profile as Record<string, unknown>).username as string);
-    }
-
-    // Load current user color
-    const { data: achievements } = await api
-      .from("user_achievements")
-      .select(`
-        achievement_id,
-        achievements (
-          reward_type,
-          reward_value
-        )
-      `)
-      .eq("user_id", user.id);
-
-    if (achievements) {
-      const colorRewards = achievements
-        .filter((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>)?.reward_type === "username_color")
-        .map((a: Record<string, unknown>) => (a.achievements as Record<string, unknown>).reward_value);
-
-      const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-      for (const p of priority) {
-        if (colorRewards.includes(p)) {
-          setCurrentUserColor(p);
-          break;
-        }
-      }
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
 
   const loadReports = useCallback(async () => {
     try {

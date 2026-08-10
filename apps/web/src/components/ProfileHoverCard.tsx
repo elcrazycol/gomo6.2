@@ -1,5 +1,5 @@
 import { useState, cloneElement, useRef, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/integrations/api/compat";
 import { User, Droplets } from "lucide-react";
 import { format } from "date-fns";
@@ -98,6 +98,18 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
     staleTime: 30 * 1000,
     gcTime: 10 * 60 * 1000,
   });
+
+  // When the viewed user edits their profile (avatar/name/bio...), the rest of
+  // the app broadcasts 'profile-cache:invalidate'. Drop our react-query cache
+  // so the next hover shows fresh data instantly instead of up to 30s stale.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const handler = () => {
+      queryClient.invalidateQueries({ queryKey: ["profile-hover"] });
+    };
+    window.addEventListener("profile-cache:invalidate", handler);
+    return () => window.removeEventListener("profile-cache:invalidate", handler);
+  }, [queryClient]);
 
   // Fetch drops only when card is shown and showDrops is enabled
   const { data: dropsData } = useQuery({

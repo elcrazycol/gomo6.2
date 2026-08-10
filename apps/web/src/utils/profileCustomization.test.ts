@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseCssToStyle, getProfileCustomization, clearCustomizationCache } from "./profileCustomization";
+import { parseCssToStyle, getProfileCustomization, clearCustomizationCache, dispatchProfileCacheInvalidate } from "./profileCustomization";
 
 const mockFrom = vi.fn();
 vi.mock("@/integrations/api/compat", () => ({
@@ -146,5 +146,34 @@ describe("clearCustomizationCache", () => {
     await getProfileCustomization("user-1");
 
     expect(mockFrom).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("dispatchProfileCacheInvalidate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearCustomizationCache();
+  });
+
+  it("dispatches the invalidate event and clears the customization cache", async () => {
+    mockFrom.mockReturnValue(makeChain({ data: { username_css: null, profile_badge_text: null, profile_badge_css: null }, error: null }));
+
+    // Prime the cache for two users
+    await getProfileCustomization("user-1");
+    await getProfileCustomization("user-2");
+    expect(mockFrom).toHaveBeenCalledTimes(2);
+
+    const listener = vi.fn();
+    window.addEventListener("profile-cache:invalidate", listener);
+
+    dispatchProfileCacheInvalidate();
+
+    // Event broadcast so ProfileCacheContext / currentUserMeta also reset
+    expect(listener).toHaveBeenCalledTimes(1);
+    window.removeEventListener("profile-cache:invalidate", listener);
+
+    // Cache cleared → next call must refetch, not serve the old value
+    await getProfileCustomization("user-1");
+    expect(mockFrom).toHaveBeenCalledTimes(3);
   });
 });

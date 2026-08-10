@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
+import { invalidateByPrefix } from "@/integrations/api/queryCache";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -20,6 +21,7 @@ import { Settings } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -97,36 +99,12 @@ const Board = () => {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        const [rolesResponse, profileResponse, achievementsResponse] = await Promise.all([
-          fetch(`/api/v1/user_roles?user_id=eq.${session.user.id}`).then(r => r.json()),
-          fetch(`/api/v1/profiles?id=eq.${session.user.id}`).then(r => r.json()),
-          fetch(`/api/v1/user_achievements?user_id=eq.${session.user.id}`).then(r => r.json()),
-        ]);
-        
-        const roles: { role: string }[] = (rolesResponse.data || []) as { role: string }[];
-        setIsModerator(roles?.some((r: { role: string }) => r.role === 'moderator' || r.role === 'admin') || false);
-
-        // Load current user profile
-        const profile = profileResponse.data?.[0];
-        if (profile) {
-          setCurrentUserUsername(profile.username);
-        }
-
-        // Load current user color
-        const achievements: { achievements?: { reward_type: string; reward_value: string } }[] = (achievementsResponse.data || []) as { achievements?: { reward_type: string; reward_value: string } }[];
-        if (achievements.length) {
-          const colorRewards = achievements
-            .filter((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements?.reward_type === "username_color")
-            .map((a: { achievements?: { reward_type: string; reward_value: string } }) => a.achievements!.reward_value);
-
-          const priority = ['purple', 'gold', 'orange', 'red', 'blue', 'green', 'yellow', 'cyan'];
-          for (const p of priority) {
-            if (colorRewards.includes(p)) {
-              setCurrentUserColor(p);
-              break;
-            }
-          }
-        }
+        // Roles + nickname color + username via a TTL-cached batched call
+        // instead of 3 duplicate fetches on every page mount.
+        const meta = await getCurrentUserMeta(session.user.id);
+        setIsModerator(meta.roles.some((r) => r === 'moderator' || r === 'admin'));
+        setCurrentUserUsername(meta.username);
+        setCurrentUserColor(meta.color);
       }
     };
     checkAuth();
@@ -303,6 +281,10 @@ const Board = () => {
     }
 
     toast.success('Тред создан');
+    // Raw POST bypasses query-builder — drop the threads/boards GET cache so
+    // the board list shows the new thread on next load.
+    invalidateByPrefix('/api/v1/threads');
+    invalidateByPrefix('/api/v1/boards');
     setTitle('');
     setContent('');
     setContentJson(null);

@@ -96,7 +96,15 @@ export const clearCustomizationCache = (userId?: string) => {
   }
 };
 
-/** Dispatch a DOM event so ProfileCacheContext can clear its own cache too. */
+/**
+ * Broadcast that the current user's profile changed (username, avatar, display
+ * name, nickname emoji, customization...). This is the single entry point every
+ * profile mutation must call:
+ *  - clears the module-level customization cache here, and
+ *  - dispatches a DOM event that ProfileCacheContext and currentUserMeta
+ *    listen to, so ALL client-side profile caches reset together.
+ */
 export const dispatchProfileCacheInvalidate = () => {
+  clearCustomizationCache();
   window.dispatchEvent(new CustomEvent('profile-cache:invalidate'));
 };

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProfileHoverCard } from "./ProfileHoverCard";
@@ -7,6 +7,7 @@ const mockFrom = vi.fn();
 const mockGetProfileCustomization = vi.fn();
 const mockUseQuery = vi.fn();
 const mockUseUserRealtimeStatus = vi.fn();
+const mockInvalidateQueries = vi.fn();
 
 vi.mock("@/integrations/api/compat", () => ({
   api: {
@@ -16,6 +17,7 @@ vi.mock("@/integrations/api/compat", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (...args: any[]) => mockUseQuery(...args),
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }));
 
 vi.mock("@/utils/profileCustomization", () => ({
@@ -267,5 +269,19 @@ describe("ProfileHoverCard", () => {
       </ProfileHoverCard>,
     );
     expect(mockUseUserRealtimeStatus).toHaveBeenCalledWith("user-1");
+  });
+
+  it("invalidates its react-query cache on the profile-cache:invalidate event", () => {
+    render(
+      <ProfileHoverCard userId="user-1">
+        <span>Hover me</span>
+      </ProfileHoverCard>,
+    );
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("profile-cache:invalidate"));
+    });
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["profile-hover"] });
   });
 });
