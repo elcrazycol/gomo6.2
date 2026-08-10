@@ -13,7 +13,6 @@ import { Loader2, Smile, X } from "lucide-react";
 import { EmojiPicker } from "@/components/EmojiPicker";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
-import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
 
 type GomoBoard = {
   id: string;
@@ -40,8 +39,6 @@ const CreateGomoThread = () => {
     setAttachments(attachments);
   };
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const editorRef = useRef<GomoRichEditorHandle | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement | null>(null);
   const [showGallery, setShowGallery] = useState(false);
@@ -127,12 +124,6 @@ const CreateGomoThread = () => {
       return;
     }
 
-    // Turnstile gate: a fresh widget token is required before creating a thread.
-    if (isTurnstileEnabled() && !turnstileToken) {
-      toast.error("Подтвердите, что вы не робот");
-      return;
-    }
-
     setCreating(true);
     try {
       // Use RPC backend API (not old PostgREST-style POST /api/v1/threads)
@@ -144,7 +135,6 @@ const CreateGomoThread = () => {
         image_urls: imageUrl ? [imageUrl] : [],
         attachments: attachments.length ? attachments : null,
         ...(channelId ? { channel_id: channelId } : {}),
-        cf_turnstile_response: turnstileToken ?? undefined,
       };
 
       const session = await api.auth.getSession();
@@ -185,7 +175,6 @@ const CreateGomoThread = () => {
     } catch (err) {
       console.error('CreateGomoThread error:', err);
       toast.error('Ошибка при создании треда');
-      turnstileRef.current?.reset();
     } finally {
       setCreating(false);
     }
@@ -309,15 +298,6 @@ const CreateGomoThread = () => {
               </div>
             )}
           </div>
-
-          {/* Cloudflare Turnstile — human verification before creating a thread */}
-          {isTurnstileEnabled() && (
-            <TurnstileWidget
-              ref={turnstileRef}
-              action="create_thread"
-              onToken={setTurnstileToken}
-            />
-          )}
 
           <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-between">
             <Button

@@ -210,16 +210,6 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		return
 	}
 
-	// ── Cloudflare Turnstile check (server-side siteverify, fail closed) ──
-	// Human browser submissions must carry a valid token minted for the
-	// "create_post" action on an approved frontend hostname. Authenticated bot
-	// SDK calls (gomo6_bot_ tokens, is_bot flag set by BotAuthMiddleware) are
-	// trusted service accounts and are exempt from the browser challenge.
-	if !verifyTurnstileForRequest(c, req.TurnstileToken, "create_post") {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Turnstile verification failed"))
-		return
-	}
-
 	if req.ThreadID == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("thread_id is required"))
 		return
@@ -395,16 +385,6 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 	var req models.CreateThreadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("Invalid request body"))
-		return
-	}
-
-	// ── Cloudflare Turnstile check (server-side siteverify, fail closed) ──
-	// Human browser submissions must carry a valid token minted for the
-	// "create_thread" action on an approved frontend hostname. Authenticated
-	// bot SDK calls (gomo6_bot_ tokens, is_bot flag set by BotAuthMiddleware)
-	// are trusted service accounts and are exempt from the browser challenge.
-	if !verifyTurnstileForRequest(c, req.TurnstileToken, "create_thread") {
-		c.JSON(http.StatusForbidden, models.ErrorResponse("Turnstile verification failed"))
 		return
 	}
 

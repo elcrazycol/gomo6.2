@@ -428,6 +428,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		genericProtected.GET("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
 		genericProtected.GET("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
+		// Writes: the frontend inserts/upserts the acceptance row when the user
+		// accepts a gomosub's rules (Board.tsx handleAcceptRules). GET-only routes
+		// made Gin return 404 before the already-implemented upsert handler was
+		// reached — every "Принять правила" click fired a 404 and the frontend
+		// crashed on JSON.parse of the non-JSON 404 body.
+		genericProtected.POST("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
+		genericProtected.POST("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/gomosub_rules_acceptance", universalHandler.HandleTableRequest)
+		genericProtected.PUT("/gomosub_rules_acceptance/*path", universalHandler.HandleTableRequest)
 
 		genericProtected.GET("/user_settings_changes", universalHandler.HandleTableRequest)
 		genericProtected.GET("/user_settings_changes/*path", universalHandler.HandleTableRequest)

@@ -42,7 +42,6 @@ import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
-import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
 import { getUserPrivacySettings } from "@/lib/imageProcessing";
 import {
   Dialog,
@@ -177,8 +176,6 @@ const Thread = () => {
   const [reportReason, setReportReason] = useState("");
   const [reportingPost, setReportingPost] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
 
   // Use React Query hook for subscription status
   const { data: isSubscribed = false } = useThreadSubscription(threadId, user?.id);
@@ -517,12 +514,6 @@ const Thread = () => {
       return;
     }
 
-    // Turnstile gate: a fresh widget token is required before any post.
-    if (isTurnstileEnabled() && !turnstileToken) {
-      toast.error("Подтвердите, что вы не робот");
-      return;
-    }
-
     setLoading(true);
     try {
       shouldStickBottomRef.current = isNearBottom();
@@ -546,7 +537,6 @@ const Thread = () => {
           reply_to: replyingTo,
           is_private: isPrivateMessage,
           private_recipient_id: isPrivateMessage ? privateRecipientId : null,
-          cf_turnstile_response: turnstileToken ?? undefined,
         }),
       });
 
@@ -591,8 +581,6 @@ const Thread = () => {
       setReplyingTo(null);
       setIsPrivateMessage(false);
       setPrivateRecipientId(null);
-      // Tokens are single-use — mint a fresh challenge for the next post.
-      turnstileRef.current?.reset();
       
       setTimeout(() => {
         setIsClearing(false);
@@ -600,7 +588,6 @@ const Thread = () => {
     } catch (err) {
       console.error("handleSubmitPost failed:", err);
       toast.error("Ошибка отправки");
-      turnstileRef.current?.reset();
     } finally {
       setLoading(false);
     }
@@ -1563,16 +1550,6 @@ const Thread = () => {
                     <Send className="h-4 w-4 sm:h-5 sm:w-5" />
                   </Button>
                 </div>
-
-                {/* Cloudflare Turnstile — human verification before posting */}
-                {isTurnstileEnabled() && (
-                  <TurnstileWidget
-                    ref={turnstileRef}
-                    action="create_post"
-                    onToken={setTurnstileToken}
-                    className="pt-1"
-                  />
-                )}
               </form>
                 </div>
               )}

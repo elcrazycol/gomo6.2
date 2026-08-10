@@ -320,7 +320,6 @@ type CreateThreadRequest struct {
 	Attachments       JSONB           `json:"attachments,omitempty"` // Added for full attachment support
 	Poll              *PollRequest    `json:"poll,omitempty"`
 	BoardServerDomain string          `json:"board_server_domain,omitempty"`
-	TurnstileToken    string          `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token (browser submissions)
 }
 
 type CreatePostRequest struct {
@@ -333,7 +332,6 @@ type CreatePostRequest struct {
 	IsPrivate          bool            `json:"is_private"`
 	PrivateRecipientID *string         `json:"private_recipient_id,omitempty"`
 	ThreadServerDomain string          `json:"thread_server_domain,omitempty"`
-	TurnstileToken     string          `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token (browser submissions)
 }
 
 type RegisterRequest struct {

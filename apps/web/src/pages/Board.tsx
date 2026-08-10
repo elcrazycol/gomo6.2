@@ -412,12 +412,18 @@ const Board = () => {
           let accepted = false;
 
           if (user?.id) {
-            const acceptanceResponse = await fetch(`/api/v1/gomosub_rules_acceptance?user_id=eq.${user.id}&board_id=eq.${boardData.id}`);
-            const acceptanceResult = await acceptanceResponse.json();
-            const acceptance = acceptanceResult.data?.[0];
+            try {
+              const acceptanceResponse = await fetch(`/api/v1/gomosub_rules_acceptance?user_id=eq.${user.id}&board_id=eq.${boardData.id}`);
+              if (acceptanceResponse.ok) {
+                const acceptanceResult = await acceptanceResponse.json();
+                const acceptance = acceptanceResult.data?.[0];
 
-            if (acceptance?.accepted_at) {
-              accepted = !boardData.rules_updated_at || new Date(acceptance.accepted_at) >= new Date(boardData.rules_updated_at);
+                if (acceptance?.accepted_at) {
+                  accepted = !boardData.rules_updated_at || new Date(acceptance.accepted_at) >= new Date(boardData.rules_updated_at);
+                }
+              }
+            } catch {
+              // Non-JSON/network failure — fall through, the rules dialog will show.
             }
           } else {
             const storedVersion = localStorage.getItem(`gomosub-rules:${boardData.id}`);
@@ -696,6 +702,13 @@ const Board = () => {
           accepted_at: new Date().toISOString(),
         }),
       });
+
+      if (!response.ok) {
+        // Non-JSON error bodies (e.g. 404/500 from a missing route) must not
+        // crash the dialog on JSON.parse.
+        toast.error("Не удалось сохранить согласие с правилами");
+        return;
+      }
       const result = await response.json();
 
       if (!result.success) {
