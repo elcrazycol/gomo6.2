@@ -1,6 +1,50 @@
 // Query builder module — api.from() compatible with Go backend
 // Provides the fluent query builder API: .select(), .eq(), .order(), .single(), etc.
 import { apiClient } from './client';
+import { getCached, invalidateByPrefix } from './queryCache';
+
+// Re-export for tests and app-wide teardown.
+export { clearQueryCache } from './queryCache';
+
+// ── GET cache invalidation on writes ─────────────────────────────────────────
+// Writing to a table invalidates cached GETs that read it. Writes that mutate
+// a *different* table's visible data (likes → thread/post row counts, wall
+// interactions → wall post lists) must list those prefixes too, mirroring the
+// backend's cache invalidator.
+const INVALIDATE_ON_WRITE: Record<string, string[]> = {
+  thread_likes: ['/api/v1/threads', '/api/v1/thread_likes'],
+  post_likes: ['/api/v1/posts', '/api/v1/post_likes'],
+  // A post write changes the thread's post_count and the thread list ordering.
+  posts: ['/api/v1/threads'],
+  // A friend request write changes the friends list on accept.
+  friend_requests: ['/api/v1/friends'],
+  profile_wall_post_likes: ['/api/v1/profile_wall_posts', '/api/v1/profile_wall_post_likes'],
+  profile_wall_post_reposts: ['/api/v1/profile_wall_posts', '/api/v1/profile_wall_post_reposts'],
+  profile_wall_post_comments: ['/api/v1/profile_wall_posts', '/api/v1/profile_wall_post_comments'],
+  profile_wall_comment_likes: ['/api/v1/profile_wall_post_comments', '/api/v1/profile_wall_comment_likes'],
+};
+
+const invalidateOnWrite = (table: string) => {
+  invalidateByPrefix(`/api/v1/${table}`);
+  const related = INVALIDATE_ON_WRITE[table];
+  if (related) related.forEach((prefix) => invalidateByPrefix(prefix));
+};
+
+// ── GET cache TTL per table ──────────────────────────────────────────────────
+// Rarely-changing reference data can be cached for minutes; hot, frequently
+// mutated rows (posts/threads/notifications) get a short TTL so the UI never
+// serves visibly stale counts. Calls may override per-query via
+// from(table, { ttlMs }) — passing 0 disables caching for that query.
+// Note: gift_catalog/notifications are currently read via raw fetch / stores;
+// their entries are future-proofing so a later from() migration inherits the TTL.
+const TABLE_TTL_MS: Record<string, number> = {
+  boards: 5 * 60 * 1000,
+  emoji_groups: 5 * 60 * 1000,
+  gift_catalog: 5 * 60 * 1000,
+  posts: 5 * 1000,
+  threads: 5 * 1000,
+  notifications: 10 * 1000,
+};
 
 // ── Real-time channels (placeholder) ──────────────────────────────────────────
 
@@ -136,7 +180,7 @@ const popIdFilter = (q: QueryState): string | undefined => {
 
 // ── Query builder ─────────────────────────────────────────────────────────────
 
-export const from = (table: string): TableApi => {
+export const from = (table: string, opts?: { ttlMs?: number }): TableApi => {
   const queryState: QueryState = {
     select: '*',
     selectOptions: null,
@@ -222,17 +266,33 @@ export const from = (table: string): TableApi => {
       options.headers = { 'Content-Type': 'application/json' };
     }
 
-    const response = await apiClient.rawRequest(url, options);
+    // GETs are cached app-wide (except count/head probes, which must be
+    // cheap and fresh). Writes invalidate the affected table's cache so the
+    // next read reflects the change immediately.
+    let response: unknown;
+    if (method === 'GET' && !queryState.selectOptions?.count) {
+      response = await getCached<unknown>(url, () => apiClient.rawRequest(url, options), {
+        // Per-table default, overridable via from(table, { ttlMs }).
+        ttlMs: opts?.ttlMs ?? TABLE_TTL_MS[table],
+        shouldCache: (r) => !(r as { error?: unknown })?.error,
+      });
+    } else {
+      response = await apiClient.rawRequest(url, options);
+    }
+
+    if (method !== 'GET') {
+      invalidateOnWrite(table);
+    }
 
     // Handle count mode
     if (queryState.selectOptions?.count === 'exact') {
-      const list = Array.isArray(response.data)
-        ? response.data
-        : response.data
-          ? [response.data]
+      const list = Array.isArray((response as QueryResponse).data)
+        ? (response as QueryResponse).data
+        : (response as QueryResponse).data
+          ? [(response as QueryResponse).data]
           : [];
-      if (queryState.selectOptions.head) return { ...response, data: null, count: list.length } as unknown as QueryResponse;
-      return { ...response, count: list.length } as unknown as QueryResponse;
+      if (queryState.selectOptions.head) return { ...(response as QueryResponse), data: null, count: list.length } as unknown as QueryResponse;
+      return { ...(response as QueryResponse), count: list.length } as unknown as QueryResponse;
     }
     return response as unknown as QueryResponse;
   };

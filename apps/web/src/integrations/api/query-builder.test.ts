@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { from, channel, removeChannel } from './query-builder';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { from, channel, removeChannel, clearQueryCache } from './query-builder';
 
 vi.mock('./client', () => ({
   apiClient: {
@@ -12,6 +12,13 @@ const mockRawRequest = vi.mocked(apiClient.rawRequest);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The GET cache is module-level; without this, entries from one test would
+  // leak into the next (same URL → cached response → rawRequest not called).
+  clearQueryCache();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('query-builder: channel', () => {
@@ -282,5 +289,143 @@ describe('query-builder: special table routing', () => {
     await from('thread_likes').delete().eq('thread_id', 't1');
     const url = mockRawRequest.mock.calls[0][0] as string;
     expect(url).toContain('/api/v1/threads/t1/like');
+  });
+});
+
+describe('query-builder: GET cache', () => {
+  it('serves repeated identical GETs from cache without re-requesting', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('posts').select('*').eq('thread_id', 't1');
+    await from('posts').select('*').eq('thread_id', 't1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates parallel identical GETs into a single request', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await Promise.all([
+      from('posts').select('*').eq('thread_id', 't1'),
+      from('posts').select('*').eq('thread_id', 't1'),
+    ]);
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a deep clone so callers cannot poison the cache', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1, tags: ['a'] }], error: null });
+
+    const first = await from('posts').select('*').eq('id', 'p1');
+    (first.data as Array<{ id: number; tags: string[] }>)[0].tags.push('mutated');
+
+    const second = await from('posts').select('*').eq('id', 'p1');
+    expect((second.data as Array<{ id: number; tags: string[] }>)[0].tags).toEqual(['a']);
+  });
+
+  it('does not cache errored responses', async () => {
+    mockRawRequest.mockResolvedValueOnce({ success: false, data: null, error: 'boom' });
+    mockRawRequest.mockResolvedValueOnce({ success: true, data: [{ id: 1 }], error: null });
+
+    const first = await from('posts').select('*').eq('thread_id', 't1');
+    expect(first.error).toBeTruthy();
+
+    const second = await from('posts').select('*').eq('thread_id', 't1');
+    expect(mockRawRequest).toHaveBeenCalledTimes(2);
+    expect(second.data).toEqual([{ id: 1 }]);
+  });
+
+  it('invalidates the table cache on writes', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('posts').select('*').eq('thread_id', 't1');
+    await from('posts').update({ content: 'edited' }).eq('id', 'p1');
+    await from('posts').select('*').eq('thread_id', 't1');
+
+    // First GET cached, write invalidates, second GET must re-fetch.
+    expect(mockRawRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it('invalidates thread cache when a thread_likes write happens', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
+
+    await from('threads').select('*').eq('id', 't1');
+    await from('thread_likes').insert({ thread_id: 't1' });
+    await from('threads').select('*').eq('id', 't1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not cache count/head probes', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('posts').select('*', { count: 'exact' });
+    await from('posts').select('*', { count: 'exact' });
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches rarely-changing tables (boards) for 5 minutes', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('boards').select('*').eq('id', 'b1');
+    vi.advanceTimersByTime(4 * 60 * 1000); // 4 min — still within TTL
+    await from('boards').select('*').eq('id', 'b1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches hot tables (posts) after the short 5s TTL', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('posts').select('*').eq('id', 'p1');
+    vi.advanceTimersByTime(6 * 1000); // 6s — past the 5s TTL
+    await from('posts').select('*').eq('id', 'p1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps hot tables cached within their short TTL', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('posts').select('*').eq('id', 'p1');
+    vi.advanceTimersByTime(3 * 1000); // 3s — within the 5s TTL
+    await from('posts').select('*').eq('id', 'p1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows overriding the per-table TTL via from(table, { ttlMs })', async () => {
+    vi.useFakeTimers();
+    mockRawRequest.mockResolvedValue({ success: true, data: [{ id: 1 }], error: null });
+
+    await from('posts', { ttlMs: 60 * 1000 }).select('*').eq('id', 'p1');
+    vi.advanceTimersByTime(30 * 1000); // 30s — would exceed the 5s default, not the override
+    await from('posts', { ttlMs: 60 * 1000 }).select('*').eq('id', 'p1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the threads cache when a posts write happens (post_count)', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
+
+    await from('threads').select('*').eq('id', 't1');
+    await from('posts').update({ content: 'edited' }).eq('id', 'p1');
+    await from('threads').select('*').eq('id', 't1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it('invalidates the friends cache when a friend_requests write happens', async () => {
+    mockRawRequest.mockResolvedValue({ success: true, data: [], error: null });
+
+    await from('friends').select('*').eq('user_id', 'u1');
+    await from('friend_requests').update({ status: 'accepted' }).eq('id', 'fr1');
+    await from('friends').select('*').eq('user_id', 'u1');
+
+    expect(mockRawRequest).toHaveBeenCalledTimes(3);
   });
 });
