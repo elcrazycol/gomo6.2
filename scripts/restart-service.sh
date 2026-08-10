@@ -36,6 +36,22 @@ for d in /root/gomo6.2 /home/*/gomo6.2; do
 done
 [ -f docker-compose.yml ] || { echo "gomo6.2 repo not found"; exit 1; }
 
+# Sync compose/Caddyfile shipped by the workflow (scp'd to /tmp). The VPS repo
+# is not git-pulled by this pipeline, but docker-compose.yml drives the env of
+# --no-build container recreations and Caddyfile is bind-mounted into caddy —
+# both must be current or the deployed config (env vars, CSP) silently goes
+# stale (this is exactly how the Turnstile CSP outage happened).
+if [ -f /tmp/gomo6-docker-compose.yml ]; then
+  echo "[restart-service] installing synced docker-compose.yml"
+  install -m 0644 /tmp/gomo6-docker-compose.yml "$(pwd)/docker-compose.yml"
+  rm -f /tmp/gomo6-docker-compose.yml
+fi
+if [ -f /tmp/gomo6-Caddyfile ]; then
+  echo "[restart-service] installing synced Caddyfile"
+  install -m 0644 /tmp/gomo6-Caddyfile "$(pwd)/Caddyfile"
+  rm -f /tmp/gomo6-Caddyfile
+fi
+
 REGISTRY="${REG:-codeberg.org/crazycol}"            # Codeberg container registry
 COMPOSE_NAMESPACE="${COMPOSE_NAMESPACE:-ghcr.io/elcrazycol}" # image: names in docker-compose.yml
 

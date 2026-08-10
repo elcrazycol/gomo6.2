@@ -256,6 +256,19 @@ jobs:
               -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
               "$HOME/gomo6-src/scripts/restart-service.sh" \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-restart-service.sh"
+          # The VPS repo (/root/gomo6.2) is never git-pulled by this pipeline,
+          # yet docker-compose.yml (env for --no-build restarts) and Caddyfile
+          # (bind-mounted into caddy) are read LIVE from it. Sync both from the
+          # fresh runner checkout; restart-service.sh installs them into the
+          # repo dir before composing up, so CSP/env never silently go stale.
+          scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
+              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$HOME/gomo6-src/docker-compose.yml" \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-docker-compose.yml"
+          scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
+              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              "$HOME/gomo6-src/Caddyfile" \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-Caddyfile"
           ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
               -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \

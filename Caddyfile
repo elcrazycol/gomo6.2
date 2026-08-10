@@ -24,16 +24,16 @@
 # path_regexp extracts bucket name and rewrites Host to <bucket>.storage.garage.localhost
 # so Garage resolves the correct bucket in virtual-hosted style.
 
-{$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost}, mcaptcha.{$DOMAIN:localhost} {
+{$DOMAIN:localhost}, docs.{$DOMAIN:localhost}, dev.{$DOMAIN:localhost} {
 	# ── Security headers ──────────────────────────────────────────────────
 	# HSTS is production-only; localhost must remain usable over HTTP.
-	@production not host localhost docs.localhost dev.localhost mcaptcha.localhost
+	@production not host localhost docs.localhost dev.localhost
 	header @production Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://mcaptcha.{$DOMAIN:localhost} https://challenges.cloudflare.com; script-src 'self' blob: https://integrate.depay.com https://mcaptcha.{$DOMAIN:localhost} https://challenges.cloudflare.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' wss: https://integrate.depay.com https://api.depay.com https://challenges.cloudflare.com; font-src 'self'; media-src 'self' blob:;"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://challenges.cloudflare.com; script-src 'self' blob: https://integrate.depay.com https://challenges.cloudflare.com; worker-src 'self' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://integrate.depay.com https://api.depay.com https://challenges.cloudflare.com; font-src 'self'; media-src 'self' blob:;"
 	}
 
 	# ── Logging ────────────────────────────────────────────────────────────
@@ -271,11 +271,6 @@
 		}
 	}
 
-	# ── mCaptcha (mcaptcha.* subdomain) ─────────────────────────────────
-	@mcaptcha host mcaptcha.{$DOMAIN:localhost}
-	handle @mcaptcha {
-		reverse_proxy mcaptcha:8080
-	}
 	# ── Fallback ─────────────────────────────────────────────────────────
 	handle {
 		respond "Not Found" 404
