@@ -33,10 +33,6 @@ const lazyWithRetry = (
       }
       return module;
     } catch (error) {
-      logClientError(error, 'dynamic_import_failed', {
-        href: window.location.href,
-      });
-
       const hasRetried = (() => {
         try {
           return window.sessionStorage.getItem('gomo6-chunk-reload-tried') === 'true';
@@ -51,13 +47,19 @@ const lazyWithRetry = (
         } catch {
           // ignore
         }
-        // Force the browser to fetch the latest app version.
+        // A stale chunk after a deploy is expected and self-healing: reload
+        // once to fetch the latest index.html + chunks. Not an error — the
+        // auto-reload is the recovery, so don't spam client_errors with it.
         window.location.reload();
         // Keep Suspense alive while the page reloads.
         return new Promise<never>(() => {});
       }
 
-      // Second failure in a row — propagate so the error boundary can show UI.
+      // Second failure in a row — a real problem. Log it and propagate so
+      // the error boundary can show UI.
+      logClientError(error, 'dynamic_import_failed', {
+        href: window.location.href,
+      });
       throw error;
     }
   });
