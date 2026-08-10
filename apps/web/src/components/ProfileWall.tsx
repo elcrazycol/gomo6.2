@@ -24,6 +24,8 @@ interface ProfileWallProps {
   showWall: boolean;
   focusedPostId?: string | null;
   standalone?: boolean;
+  /** Increment to force a refetch (e.g. after the profile owner's nickname emoji changes). */
+  refreshKey?: number;
 }
 
 export const ProfileWall = ({
@@ -34,6 +36,7 @@ export const ProfileWall = ({
   showWall,
   focusedPostId = null,
   standalone = false,
+  refreshKey = 0,
 }: ProfileWallProps) => {
   const [posts, setPosts] = useState<WallPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,7 +147,7 @@ export const ProfileWall = ({
     if (showWall) {
       loadPosts();
     }
-  }, [profileUserId, showWall, loadPosts]);
+  }, [profileUserId, showWall, refreshKey, loadPosts]);
 
   // WebSocket realtime subscription for wall posts
   useEffect(() => {

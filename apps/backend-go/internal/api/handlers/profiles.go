@@ -421,10 +421,13 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 			}
 			query += ", nickname_emoji_id = $" + strconv.Itoa(argIndex)
 			args = append(args, emojiID)
+			argIndex++
 		} else {
+			// An empty string clears the emoji. No placeholder is added, so the
+			// arg index must NOT advance here — otherwise the WHERE clause would
+			// reference a hole in the positional parameters ($2 with 1 arg).
 			query += ", nickname_emoji_id = NULL"
 		}
-		argIndex++
 	}
 
 	if updates.Username != nil {

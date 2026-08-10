@@ -561,7 +561,7 @@ func TestUpdateProfile_Success_ClearNicknameEmoji(t *testing.T) {
 	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
 
 	// An empty string clears the emoji without touching custom_emojis.
-	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), nickname_emoji_id = NULL WHERE id = \$2`).
+	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), nickname_emoji_id = NULL WHERE id = \$1`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 

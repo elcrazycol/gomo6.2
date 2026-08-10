@@ -180,6 +180,7 @@ const Profile = () => {
   const [showLastSeen, setShowLastSeen] = useState(true);
   const [showOnlineStatus, setShowOnlineStatus] = useState(true);
   const [showProfileWall, setShowProfileWall] = useState(true);
+  const [wallRefreshKey, setWallRefreshKey] = useState(0);
   const [allowWallPostsFromOthers, setAllowWallPostsFromOthers] = useState(true);
   const [activeTab, setActiveTab] = useState<'wall' | 'achievements' | 'threads' | 'gifts' | 'friends'>('achievements');
   const [showThreadsTab, setShowThreadsTab] = useState(true);
@@ -782,6 +783,8 @@ const Profile = () => {
       // profile object is cached everywhere, so refresh local caches too.
       clearCustomizationCache(userId!);
       dispatchProfileCacheInvalidate();
+      // The wall embeds the author's emoji in each post, so refetch it.
+      setWallRefreshKey(k => k + 1);
       toast.success("Эмодзи никнейма сохранён");
     } catch (error) {
       toast.error("Не удалось сохранить эмодзи");
@@ -804,6 +807,8 @@ const Profile = () => {
       setNicknameEmojiId(null);
       clearCustomizationCache(userId!);
       dispatchProfileCacheInvalidate();
+      // The wall embeds the author's emoji in each post, so refetch it.
+      setWallRefreshKey(k => k + 1);
       toast.success("Эмодзи никнейма убран");
     } catch (error) {
       toast.error("Не удалось убрать эмодзи");
@@ -1300,6 +1305,7 @@ const Profile = () => {
                 currentUsername={currentUserUsername}
                 canPost={currentUser?.id === userId || allowWallPostsFromOthers}
                 showWall={showProfileWall}
+                refreshKey={wallRefreshKey}
               />
             </div>
           )}
