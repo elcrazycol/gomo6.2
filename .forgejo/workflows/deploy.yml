@@ -134,8 +134,10 @@ jobs:
                   web|docs|dev-dashboard)
                     echo "$DIFF" | grep -qE '^(package\.json|package-lock\.json|turbo\.json)$|^apps/.*/package\.json$' && NEED=true ;;
                 esac
-                # Compose / Caddyfile / dockerignore at repo root → everything.
-                echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore)$' && NEED=true
+                # Compose / Caddyfile / dockerignore at repo root + the deploy
+                # pipeline files themselves → everything (pipeline changes must
+                # re-ship every service).
+                echo "$DIFF" | grep -qE '^(docker-compose\.yml|Caddyfile|\.dockerignore|\.forgejo/workflows/deploy\.yml|scripts/restart-service\.sh)$' && NEED=true
                 echo "$DIFF" | grep -qE '^Caddyfile$' && CADDY=true
               fi
             else
@@ -244,33 +246,29 @@ jobs:
         if: steps.detect.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          KEY="$HOME/.ssh/vps_deploy_key"
+          # Per-job key path: the 4 matrix jobs run in parallel and each removes
+          # its key at the end — a shared path lets one job delete the key while
+          # another is mid-scp/ssh ("no such identity"). BatchMode fails fast
+          # instead of hanging on a password prompt.
+          KEY="$HOME/.ssh/vps_deploy_key_${{ matrix.service }}"
           mkdir -p "$HOME/.ssh"
           # printf guarantees the trailing newline an SSH private key needs
           # (Forgejo may strip the last newline of a multiline secret).
           printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > "$KEY"
           chmod 600 "$KEY"
+          # Remove the key even if a later step fails (private key hygiene).
+          trap 'rm -f "$KEY"' EXIT
           REPO="${{ github.repository }}"
           OWNER="${REPO%/*}"
           scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
-              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
               "$HOME/gomo6-src/scripts/restart-service.sh" \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-restart-service.sh"
-          # The VPS repo (/root/gomo6.2) is never git-pulled by this pipeline,
-          # yet docker-compose.yml (env for --no-build restarts) and Caddyfile
-          # (bind-mounted into caddy) are read LIVE from it. Sync both from the
-          # fresh runner checkout; restart-service.sh installs them into the
-          # repo dir before composing up, so CSP/env never silently go stale.
-          scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
-              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-              "$HOME/gomo6-src/docker-compose.yml" \
-              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-docker-compose.yml"
-          scp -i "$KEY" -P "${{ secrets.VPS_PORT || 22 }}" \
-              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
-              "$HOME/gomo6-src/Caddyfile" \
-              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/gomo6-Caddyfile"
+          # restart-service.sh git-syncs the VPS repo to the latest main from
+          # the public Codeberg HTTPS origin (Caddyfile, docker-compose.yml,
+          # scripts) before composing up — no per-file scp, no VPS credentials.
           ssh -i "$KEY" -p "${{ secrets.VPS_PORT || 22 }}" \
-              -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
+              -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
               "REG=codeberg.org/$OWNER COMPOSE_NAMESPACE=ghcr.io/elcrazycol CADDY_CHANGED=${{ steps.detect.outputs.caddy_changed }} bash /tmp/gomo6-restart-service.sh ${{ matrix.service }}"
           rm -f "$KEY"

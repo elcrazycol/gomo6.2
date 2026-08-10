@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, beforeEach, vi, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, beforeAll, afterEach, afterAll } from "vitest";
 import React from "react";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
@@ -13,6 +13,14 @@ const { mockAuth, mockApiClient, mockToast, mockGetCurrentUserMeta } = vi.hoiste
 }));
 
 const mockFetch = vi.fn();
+
+// Stub fetch for the whole file (mirrors Thread.test.tsx / Profile.test.tsx):
+// vitest isolates each test file, so the stub cannot leak into other files. A
+// per-test `vi.unstubAllGlobals()` in afterEach races with in-flight component
+// async that resumes after the test ends — that continuation then hits the
+// REAL Node fetch with a relative URL and throws an unhandled rejection (the
+// "Failed to parse URL from /api/v1/boards/test" coverage-CI flake).
+vi.stubGlobal("fetch", mockFetch);
 
 vi.mock("@/integrations/api/compat", () => ({ api: { from: vi.fn(), rpc: vi.fn(), auth: mockAuth } }));
 vi.mock("@/integrations/api/client", () => ({ apiClient: mockApiClient }));
@@ -168,9 +176,6 @@ describe("Board (wall)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Install the fetch stub per-test (not at module top level) so it cannot
-    // leak into other test files that share the worker and re-stub global fetch.
-    vi.stubGlobal("fetch", mockFetch);
     mockParams.slug = "test";
     mockParams.channelSlug = undefined;
     mockPathname.current = "/test";
@@ -182,6 +187,9 @@ describe("Board (wall)", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterAll(() => {
     vi.unstubAllGlobals();
   });
 

@@ -71,18 +71,15 @@ cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-### Step 2: Add public key to GitHub
+### Step 2: (not needed) GitHub deploy key
 
-```bash
-cat ~/.ssh/id_ed25519.pub
-```
-
-Copy output → GitHub → `scramble22/gomo6.2` → Settings → Deploy keys → Add deploy key → paste → check "Allow read access" → Add key.
+The GitHub mirror is dead — the repo is deployed from Codeberg. The VPS repo
+clones the public HTTPS URL, so no git credentials are needed on the server.
 
 ### Step 3: Clone the repo
 
 ```bash
-cd ~ && git clone git@github.com:scramble22/gomo6.2.git
+cd ~ && git clone https://codeberg.org/crazycol/gomo6.2.git
 ```
 
 ### Step 4: Create .env
@@ -138,7 +135,7 @@ A-записи для:
 
 Active deployment is `.forgejo/workflows/deploy.yml` (Codeberg): change detection via the Codeberg compare API → incremental checkout into a persistent repo cache on the runner (`$HOME/gomo6-src`) → `docker buildx build --push` to the Codeberg container registry (`codeberg.org/crazycol/gomo6-*`, layer dedup — only changed layers upload) → per-service `docker pull` + retag + `docker compose up -d --no-build` on the VPS (`scripts/restart-service.sh`). Secret `CODEREG_TOKEN` (codeberg PAT, `read:package`+`write:package`) is required; the VPS pulls anonymously from public packages.
 
-**Config files are synced, not git-pulled**: the VPS repo is never `git pull`ed by the pipeline. `docker-compose.yml` and `Caddyfile` are scp'd from the runner checkout to `/tmp` and installed by `restart-service.sh` into the repo dir on every deploy, because compose env drives `--no-build` recreations and the Caddyfile is bind-mounted into caddy. A change to either file takes effect on the next push (caddy is restarted by the web job when the Caddyfile changed).
+**VPS repo syncs via git pull**: the repo at `/root/gomo6.2` tracks the PUBLIC `https://codeberg.org/crazycol/gomo6.2.git` origin (HTTPS, no credentials). `restart-service.sh` runs `git fetch origin main && git reset --hard origin/main` before every `docker compose up`, so `Caddyfile` (bind-mounted into caddy), `docker-compose.yml` (env for `--no-build` recreations) and scripts are always current. `reset --hard` never touches untracked files — `.env`, `.garage.toml` and `*.bak` survive. Caddy is restarted by the web job when the Caddyfile changed.
 
 The deploy script looks for the repo at `/root/gomo6.2` or `/home/*/gomo6.2`. The directory MUST be named `gomo6.2`.
 

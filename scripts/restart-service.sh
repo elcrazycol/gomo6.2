@@ -36,21 +36,23 @@ for d in /root/gomo6.2 /home/*/gomo6.2; do
 done
 [ -f docker-compose.yml ] || { echo "gomo6.2 repo not found"; exit 1; }
 
-# Sync compose/Caddyfile shipped by the workflow (scp'd to /tmp). The VPS repo
-# is not git-pulled by this pipeline, but docker-compose.yml drives the env of
-# --no-build container recreations and Caddyfile is bind-mounted into caddy —
-# both must be current or the deployed config (env vars, CSP) silently goes
-# stale (this is exactly how the Turnstile CSP outage happened).
-if [ -f /tmp/gomo6-docker-compose.yml ]; then
-  echo "[restart-service] installing synced docker-compose.yml"
-  install -m 0644 /tmp/gomo6-docker-compose.yml "$(pwd)/docker-compose.yml"
-  rm -f /tmp/gomo6-docker-compose.yml
-fi
-if [ -f /tmp/gomo6-Caddyfile ]; then
-  echo "[restart-service] installing synced Caddyfile"
-  install -m 0644 /tmp/gomo6-Caddyfile "$(pwd)/Caddyfile"
-  rm -f /tmp/gomo6-Caddyfile
-fi
+# Git-sync the repo to the latest main (public Codeberg HTTPS origin — no
+# credentials needed). This is what keeps Caddyfile (bind-mounted into caddy),
+# docker-compose.yml (env for --no-build restarts) and scripts current.
+# `reset --hard` never touches untracked files, so .env / .garage.toml (and
+# *.bak backups) survive every deploy.
+echo "[restart-service] git sync (current $(git rev-parse --short HEAD))"
+SYNCED=0
+for attempt in 1 2 3; do
+  if git fetch origin main >/dev/null 2>&1 && git reset --hard origin/main >/dev/null 2>&1; then
+    SYNCED=1
+    break
+  fi
+  echo "[restart-service] git sync failed (attempt $attempt/3) — retrying"
+  sleep 3
+done
+[ "$SYNCED" = "1" ] || { echo "[restart-service] git sync failed 3 times — giving up"; exit 1; }
+echo "[restart-service] synced to $(git rev-parse --short HEAD)"
 
 REGISTRY="${REG:-codeberg.org/crazycol}"            # Codeberg container registry
 COMPOSE_NAMESPACE="${COMPOSE_NAMESPACE:-ghcr.io/elcrazycol}" # image: names in docker-compose.yml
