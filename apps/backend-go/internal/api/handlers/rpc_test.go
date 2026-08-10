@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/models"
+	"github.com/redis/go-redis/v9"
 )
 
 // ─── GetPostLikesCount ───────────────────────────────────────────────────────
@@ -993,6 +995,87 @@ func TestCreatePostRPC_Success(t *testing.T) {
 	}
 	if post.Content != "Test post content" {
 		t.Fatalf("expected content 'Test post content', got %q", post.Content)
+	}
+}
+
+// TestCreatePostRPC_InvalidatesBoardCache verifies that creating a post also
+// invalidates the board's thread-list cache (threads?board_id=eq.X), which is
+// keyed by board_id — the thread-scoped invalidation alone leaves it stale.
+func TestCreatePostRPC_InvalidatesBoardCache(t *testing.T) {
+	h, mock := setupRPCHandlerWithSyncStats(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	h.redis = client
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser", Domain: "localhost:8080"}
+	threadID := "550e8400-e29b-41d4-a716-446655440000"
+	boardID := "board-1"
+	now := time.Now()
+
+	// Seed cached board thread list + standalone thread page.
+	boardListKey := "data:/api/v1/threads?board_id=eq." + boardID + "&order=created_at.desc|viewer=anon"
+	threadKey := "data:/api/v1/threads?id=eq." + threadID + "|viewer=anon"
+	if err := mr.Set(boardListKey, `{"data":[]}`); err != nil {
+		t.Fatalf("failed to seed board list cache: %v", err)
+	}
+	if err := mr.Set(threadKey, `{"data":[]}`); err != nil {
+		t.Fatalf("failed to seed thread cache: %v", err)
+	}
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM threads WHERE id = \$1\)`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	// Board lookup: thread belongs to board-1, and the board is public.
+	mock.ExpectQuery(`SELECT board_id FROM threads WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id"}).AddRow(boardID))
+	mock.ExpectQuery(`SELECT visibility, owner_id FROM boards WHERE id = \$1`).
+		WithArgs(boardID).
+		WillReturnRows(sqlmock.NewRows([]string{"visibility", "owner_id"}).AddRow("public", "owner-1"))
+
+	mock.ExpectQuery(`(?s).*INSERT INTO posts.*RETURNING.*`).
+		WithArgs(threadID, "u1", "Test post content",
+			nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), nil, false, nil, "localhost:8080").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "thread_id", "user_id", "content", "content_json",
+			"image_url", "image_urls", "attachments", "reply_to", "is_private",
+			"private_recipient_id", "server_domain", "created_at", "is_remote",
+		}).AddRow(
+			"post-1", threadID, "u1", "Test post content", nil,
+			nil, nil, nil, nil, false,
+			nil, "localhost:8080", now, false,
+		))
+
+	mock.ExpectExec(`UPDATE threads SET post_count = post_count \+ 1, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	mock.ExpectExec(`(?s).*UPDATE users.*SET.*post_count.*FROM.*WHERE u.id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	c, w := newRPCPostContext(map[string]interface{}{
+		"thread_id": threadID,
+		"content":   "Test post content",
+	}, claims)
+	h.CreatePostRPC(c)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if mr.Exists(boardListKey) {
+		t.Errorf("board thread list cache %q was not invalidated after post creation", boardListKey)
+	}
+	if mr.Exists(threadKey) {
+		t.Errorf("standalone thread cache %q was not invalidated after post creation", threadKey)
 	}
 }
 

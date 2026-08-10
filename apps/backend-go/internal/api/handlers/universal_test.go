@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gomo6/backend/internal/auth"
+	"github.com/redis/go-redis/v9"
 )
 
 // ─── HandleTableRequest ──────────────────────────────────────────────────────
@@ -894,5 +896,59 @@ func TestUniversalDelete_WallComments_OwnershipScope(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ─── invalidateCacheForTableResult (posts → board thread list) ───────────────
+
+// TestInvalidatePostClearsBoardThreadList verifies that a post write
+// invalidates the board's thread list cache (threads?board_id=eq.X), which is
+// keyed by board_id and therefore NOT covered by the thread-scoped post
+// invalidation. This mirrors the client-side posts→threads relation.
+func TestInvalidatePostClearsBoardThreadList(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	t.Cleanup(mr.Close)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { client.Close() })
+	h.redis = client
+
+	threadID := "thread-1"
+	boardID := "board-1"
+
+	// Board list + standalone thread page are both cached under distinct keys.
+	boardListKey := "data:/api/v1/threads?board_id=eq." + boardID + "&order=created_at.desc|viewer=anon"
+	threadKey := "data:/api/v1/threads?id=eq." + threadID + "|viewer=anon"
+	if err := mr.Set(boardListKey, `{"data":[]}`); err != nil {
+		t.Fatalf("failed to seed board list cache: %v", err)
+	}
+	if err := mr.Set(threadKey, `{"data":[]}`); err != nil {
+		t.Fatalf("failed to seed thread cache: %v", err)
+	}
+
+	// The helper resolves the thread's board via DB to know which list to clear.
+	mock.ExpectQuery(`SELECT board_id FROM threads WHERE id = \$1`).
+		WithArgs(threadID).
+		WillReturnRows(sqlmock.NewRows([]string{"board_id"}).AddRow(boardID))
+
+	c, _ := newUniversalRequestContext("POST", "/api/v1/posts", nil, nil)
+	h.invalidateCacheForTableResult(c, "posts", map[string]interface{}{
+		"id":        "post-1",
+		"thread_id": threadID,
+	})
+
+	if mr.Exists(boardListKey) {
+		t.Errorf("board thread list cache %q was not invalidated after post write", boardListKey)
+	}
+	if mr.Exists(threadKey) {
+		t.Errorf("standalone thread cache %q was not invalidated after post write", threadKey)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
 	}
 }

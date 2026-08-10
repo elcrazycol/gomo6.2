@@ -21,7 +21,7 @@ import (
 // ─── Cache Invalidation ─────────────────────────────────────────────────────
 
 // invalidateCacheForTableResult invalidates cache based on table and result data
-func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, result map[string]interface{}) {
+func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableName string, result map[string]interface{}) {
 	if h.redis == nil {
 		fmt.Printf("[CacheInvalidator] Redis is nil, skipping invalidation for %s\n", tableName)
 		return
@@ -74,6 +74,10 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 		}
 		fmt.Printf("[CacheInvalidator] Invalidating post cache: id=%s, thread_id=%s\n", values["id"], values["thread_id"])
 		cache.InvalidateForPost(h.redis, values["id"], values["thread_id"])
+		// The board's thread list (threads?board_id=eq.X) is cached under the
+		// board_id and embeds post_count — the post-scoped patterns only match
+		// the standalone thread page, so the list would go stale for the TTL.
+		h.invalidateThreadBoardCache(c, values["thread_id"])
 	case "threads":
 		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
 			values["board_id"] = boardID
@@ -170,6 +174,55 @@ func (h *UniversalHandler) invalidateCacheForTableResult(tableName string, resul
 		fmt.Printf("[CacheInvalidator] Generic invalidation for table %s: %+v\n", tableName, values)
 		cache.InvalidateForTable(h.redis, tableName, values)
 	}
+}
+
+// invalidateWallListCache clears the owner's wall-list cache entry after an
+// interaction write. The wall GET now embeds per-post interaction counts
+// (likes/comments/reposts + viewer state), so a like/comment/repost must
+// invalidate the owner's list key (user_id=eq.<owner>) — the post-scoped
+// patterns alone only match the standalone post page.
+func (h *UniversalHandler) invalidateWallListCache(c *gin.Context, postID string) {
+	if h.redis == nil || postID == "" {
+		return
+	}
+	var ownerID string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		"SELECT user_id FROM profile_wall_posts WHERE id = $1", postID).Scan(&ownerID); err != nil || ownerID == "" {
+		return
+	}
+	middleware.InvalidateCacheForProfileWall(h.redis, ownerID)
+}
+
+// invalidateThreadBoardCache clears the board's thread-list cache after a post
+// write. The board list (threads?board_id=eq.X) is cached under the board_id
+// and embeds per-thread post_count — post-scoped invalidation only matches the
+// standalone thread page, so without this the board list would show a stale
+// post_count until the data-cache TTL expires.
+func (h *UniversalHandler) invalidateThreadBoardCache(c *gin.Context, threadID string) {
+	if h.redis == nil || threadID == "" {
+		return
+	}
+	var boardID string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		"SELECT board_id FROM threads WHERE id = $1", threadID).Scan(&boardID); err != nil || boardID == "" {
+		return
+	}
+	middleware.InvalidateCacheForBoard(h.redis, boardID)
+}
+
+// invalidateCommentLikesCache invalidates every cache whose response embeds
+// comment like counts: the post's comments list and the owner's wall list.
+func (h *UniversalHandler) invalidateCommentLikesCache(c *gin.Context, commentID string) {
+	if h.redis == nil || commentID == "" {
+		return
+	}
+	var postID string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		"SELECT post_id FROM profile_wall_post_comments WHERE id = $1", commentID).Scan(&postID); err != nil || postID == "" {
+		return
+	}
+	middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+	h.invalidateWallListCache(c, postID)
 }
 
 // ─── GET ────────────────────────────────────────────────────────────────────
@@ -957,13 +1010,13 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		}
 
 		// Also invalidate via the new cache system
-		h.invalidateCacheForTableResult(tableName, result)
+		h.invalidateCacheForTableResult(c, tableName, result)
 
 		// Build enriched payload with author data for WebSocket
 		if h.hub != nil {
 			var wsPayload map[string]interface{}
 			if idStr := fmt.Sprint(result["id"]); idStr != "" {
-				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr); enrichErr == nil && enriched != nil {
+				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, authenticatedUserID(c)); enrichErr == nil && enriched != nil {
 					wsPayload = enriched
 				} else {
 					wsPayload = result
@@ -987,6 +1040,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			commentID, _ := result["id"].(string)
 			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+			h.invalidateWallListCache(c, postID)
 		}
 	}
 
@@ -994,9 +1048,16 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Invalidate cache for both the original post and the user's wall
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			h.invalidateWallListCache(c, postID)
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
+		}
+	}
+
+	if tableName == "profile_wall_comment_likes" {
+		if commentID, ok := result["comment_id"].(string); ok {
+			h.invalidateCommentLikesCache(c, commentID)
 		}
 	}
 
@@ -1011,7 +1072,7 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 	}
 
 	// Invalidate cache for the created record
-	h.invalidateCacheForTableResult(tableName, result)
+	h.invalidateCacheForTableResult(c, tableName, result)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
@@ -1220,7 +1281,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		if h.hub != nil {
 			var wsPayload map[string]interface{}
 			if idStr := fmt.Sprint(result["id"]); idStr != "" {
-				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr); enrichErr == nil && enriched != nil {
+				if enriched, enrichErr := h.fetchProfileWallPostWithAuthor(idStr, authenticatedUserID(c)); enrichErr == nil && enriched != nil {
 					wsPayload = enriched
 				} else {
 					wsPayload = result
@@ -1241,6 +1302,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			commentID, _ := result["id"].(string)
 			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+			h.invalidateWallListCache(c, postID)
 		}
 	}
 
@@ -1255,7 +1317,7 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	}
 
 	// Invalidate cache for the updated record
-	h.invalidateCacheForTableResult(tableName, result)
+	h.invalidateCacheForTableResult(c, tableName, result)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }
@@ -1400,6 +1462,7 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			commentID, _ := result["id"].(string)
 			middleware.InvalidateCacheForWallComment(h.redis, commentID, postID)
+			h.invalidateWallListCache(c, postID)
 		}
 	}
 
@@ -1408,20 +1471,28 @@ func (h *UniversalHandler) handleDelete(c *gin.Context, tableName string) {
 			middleware.InvalidateCacheForWallPost(h.redis, postID)
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
 			cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
+			h.invalidateWallListCache(c, postID)
 		}
 	}
 
 	if tableName == "profile_wall_post_reposts" {
 		if postID, ok := result["post_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForWallPost(h.redis, postID)
+			h.invalidateWallListCache(c, postID)
 		}
 		if userID, ok := result["wall_user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, userID)
 		}
 	}
 
+	if tableName == "profile_wall_comment_likes" {
+		if commentID, ok := result["comment_id"].(string); ok {
+			h.invalidateCommentLikesCache(c, commentID)
+		}
+	}
+
 	// Invalidate cache for the deleted record
-	h.invalidateCacheForTableResult(tableName, result)
+	h.invalidateCacheForTableResult(c, tableName, result)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(result))
 }

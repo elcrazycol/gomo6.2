@@ -333,6 +333,13 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 
 	if h.redis != nil {
 		middleware.InvalidateCacheForThread(h.redis, req.ThreadID)
+		// The board's thread list (threads?board_id=eq.X) is cached under the
+		// board_id and embeds post_count. InvalidateForThread only clears the
+		// standalone thread page, so without this the board list would show a
+		// stale post_count for up to the data-cache TTL.
+		if postBoardID != "" {
+			middleware.InvalidateCacheForBoard(h.redis, postBoardID)
+		}
 	}
 
 	if h.wsHub != nil {
