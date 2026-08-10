@@ -28,6 +28,7 @@ interface ThreadCardProps {
     profiles: {
       username: string;
       display_name?: string | null;
+      nickname_emoji_id?: string | null;
       is_anonymous: boolean;
       avatar_url?: string | null;
     } | null;
@@ -45,7 +46,7 @@ interface ThreadCardProps {
   hideTimestampOnCompactMobile?: boolean;
   initialLikesCount?: number;
   initialUserLiked?: boolean;
-  initialRecentLikers?: { username: string; display_name?: string | null; id: string; avatar_url: string | null; is_anonymous: boolean }[];
+  initialRecentLikers?: { username: string; display_name?: string | null; nickname_emoji_id?: string | null; id: string; avatar_url: string | null; is_anonymous: boolean }[];
   initialRecentPost?: {
     id: string;
     content: string;
@@ -55,6 +56,7 @@ interface ThreadCardProps {
     profiles: {
       username: string;
       display_name?: string | null;
+      nickname_emoji_id?: string | null;
       is_anonymous: boolean;
       avatar_url?: string | null;
     } | null;
@@ -253,6 +255,7 @@ const ThreadCard = ({
                 userId={thread.user_id}
                 username={thread.profiles?.username || "Аноним"}
                 displayName={thread.profiles?.display_name}
+                emojiId={thread.profiles?.nickname_emoji_id}
                 isAnonymous={thread.profiles?.is_anonymous}
                 showOutline={false}
                 disableLink={false}
@@ -445,6 +448,7 @@ const ThreadCard = ({
                             userId={liker.id}
                             username={liker.is_anonymous ? "Аноним" : liker.username}
                             displayName={liker.is_anonymous ? undefined : liker.display_name}
+                            emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}
                             isAnonymous={liker.is_anonymous}
                             showOutline={false}
                             className="text-xs"

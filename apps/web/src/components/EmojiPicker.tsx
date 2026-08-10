@@ -12,9 +12,11 @@ interface EmojiPickerProps {
   onEmojiSelect: (data: { emojiId: string; packId: string; url: string; name: string }) => void;
   children?: React.ReactNode;
   triggerRef?: React.RefObject<HTMLElement>;
+  /** Close the panel right after picking an emoji (e.g. one-shot pickers). */
+  closeOnSelect?: boolean;
 }
 
-export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPickerProps) => {
+export const EmojiPicker = ({ onEmojiSelect, children, triggerRef, closeOnSelect = false }: EmojiPickerProps) => {
   const { subscribedPacks, ownedPacks, isLoading } = useEmojiData();
   const [open, setOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string>('');
@@ -80,6 +82,7 @@ export const EmojiPicker = ({ onEmojiSelect, children, triggerRef }: EmojiPicker
   const handleEmojiClick = (emoji: EmojiData, pack: EmojiPackData) => {
     const url = storageUrl('emojis', emoji.image_url);
     onEmojiSelect({ emojiId: emoji.id, packId: pack.id, url, name: emoji.name });
+    if (closeOnSelect) setOpen(false);
   };
 
   return (

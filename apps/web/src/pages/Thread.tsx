@@ -58,6 +58,7 @@ interface ThreadWithExtras extends ThreadModel {
   ephemeral_value?: number;
   username?: string;
   display_name?: string | null;
+  nickname_emoji_id?: string | null;
   avatar_url?: string;
   tags?: { content?: string; format?: string; atmosphere?: string; flag?: string };
 }
@@ -66,6 +67,7 @@ interface PostWithExtras extends PostModel {
   content_json?: unknown;
   username?: string;
   display_name?: string | null;
+  nickname_emoji_id?: string | null;
   avatar_url?: string;
 }
 const Thread = () => {
@@ -773,6 +775,7 @@ const Thread = () => {
                   userId={post.user_id}
                   username={post.username || "Аноним"}
                   displayName={post.display_name}
+                  emojiId={post.nickname_emoji_id}
                   isAnonymous={false}
                   showOutline={false}
                   isThreadOpener={post.user_id === thread?.user_id}
@@ -794,6 +797,7 @@ const Thread = () => {
                 userId={post.user_id}
                 username={post.username || "Аноним"}
                 displayName={post.display_name}
+                emojiId={post.nickname_emoji_id}
                 isAnonymous={false}
                 showOutline={false}
               />
@@ -1065,6 +1069,7 @@ const Thread = () => {
                       userId={thread.user_id}
                     username={(thread as ThreadWithExtras).username || "Аноним"}
                     displayName={(thread as ThreadWithExtras).display_name}
+                    emojiId={(thread as ThreadWithExtras).nickname_emoji_id}
                     isAnonymous={false}
                     showOutline={false}
                     isThreadOpener={true}
@@ -1086,6 +1091,7 @@ const Thread = () => {
                     userId={thread.user_id}
                     username={(thread as ThreadWithExtras).username || "Аноним"}
                     displayName={(thread as ThreadWithExtras).display_name}
+                    emojiId={(thread as ThreadWithExtras).nickname_emoji_id}
                     isAnonymous={false}
                     showOutline={false}
                   />

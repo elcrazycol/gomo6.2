@@ -10,6 +10,7 @@ interface ProfileData {
   customization: unknown;
   isAdmin: boolean;
   avatarUrl?: string;
+  nickname_emoji_id?: string | null;
 }
 
 interface ProfileCacheContextType {
@@ -92,7 +93,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         // Load all data in parallel
         const [profileRes, achievementsRes, rolesRes, customizationRes] = await Promise.all([
-          api.from('profiles').select('username, avatar_url').eq('id', uid).single(),
+          api.from('profiles').select('username, avatar_url, nickname_emoji_id').eq('id', uid).single(),
           api.from('user_achievements').select(`
             achievement_id,
             achievements (
@@ -129,6 +130,7 @@ export const ProfileCacheProvider: React.FC<{ children: React.ReactNode }> = ({ 
           customization: customizationRes.data || null,
           isAdmin,
           avatarUrl: profileRes.data?.avatar_url || undefined,
+          nickname_emoji_id: (profileRes.data as { nickname_emoji_id?: string | null } | null)?.nickname_emoji_id || null,
         };
 
         // Update cache

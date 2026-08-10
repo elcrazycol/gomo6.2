@@ -565,6 +565,7 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 			CASE WHEN f.user1_id = $1 THEN f.user2_id ELSE f.user1_id END AS friend_id,
 			p.username,
 			p.display_name,
+			p.nickname_emoji_id,
 			p.avatar_url,
 			p.is_online
 		FROM friendships f
@@ -581,7 +582,7 @@ func (h *FriendsHandler) GetFriends(c *gin.Context) {
 	var friends []models.FriendResponse
 	for rows.Next() {
 		var friend models.FriendResponse
-		if err := rows.Scan(&friend.FriendshipID, &friend.UserID, &friend.Username, &friend.DisplayName, &friend.AvatarURL, &friend.IsOnline); err != nil {
+		if err := rows.Scan(&friend.FriendshipID, &friend.UserID, &friend.Username, &friend.DisplayName, &friend.NicknameEmojiID, &friend.AvatarURL, &friend.IsOnline); err != nil {
 			continue
 		}
 		friends = append(friends, friend)
@@ -618,7 +619,8 @@ func (h *FriendsHandler) GetRequests(c *gin.Context) {
 			fr.created_at,
 			p.username,
 			p.avatar_url,
-			p.display_name
+			p.display_name,
+			p.nickname_emoji_id
 		FROM friend_requests fr
 		JOIN profiles p ON p.id = fr.sender_id
 		WHERE fr.receiver_id = $1 AND fr.status = 'pending'
@@ -634,7 +636,7 @@ func (h *FriendsHandler) GetRequests(c *gin.Context) {
 	for rows.Next() {
 		var req models.FriendRequestResponse
 		var createdAt time.Time
-		if err := rows.Scan(&req.ID, &req.SenderID, &req.ReceiverID, &req.Status, &createdAt, &req.SenderUsername, &req.SenderAvatarURL, &req.SenderDisplayName); err != nil {
+		if err := rows.Scan(&req.ID, &req.SenderID, &req.ReceiverID, &req.Status, &createdAt, &req.SenderUsername, &req.SenderAvatarURL, &req.SenderDisplayName, &req.SenderNicknameEmojiID); err != nil {
 			continue
 		}
 		req.CreatedAt = createdAt.Format(time.RFC3339)

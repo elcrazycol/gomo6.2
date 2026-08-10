@@ -21,17 +21,14 @@ func TestGetProfiles_Success_NoFilter(t *testing.T) {
 	c, w := newGETContext("/api/v1/profiles", nil)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
 		100, 10, 2, true, time.Now(), time.Now(), false, false,
-	).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
+	).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
 		100, 10, 2, true, time.Now(), time.Now(), false, false,
-	).AddRow(
-		"u2", "user2", "user2", "user2@example.com", "localhost:8080", nil, nil, nil,
+	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, nil, nil,
 		50, 5, 1, false, nil, time.Now(), false, false,
 	)
 
@@ -61,11 +58,10 @@ func TestGetProfiles_Success_IDFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"550e8400-e29b-41d4-a716-446655440000", "testuser", "testuser", "test@example.com",
+	}).AddRow("550e8400-e29b-41d4-a716-446655440000", "testuser", "testuser", nil, "test@example.com",
 		"localhost:8080", nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -109,11 +105,10 @@ func TestGetProfiles_Success_UsernameFilter(t *testing.T) {
 	})
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -156,11 +151,10 @@ func TestGetProfile_Success(t *testing.T) {
 	// Only the SELECT query is expected.
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -238,11 +232,10 @@ func TestGetProfile_EmailHiddenFromAnonymous(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -276,11 +269,10 @@ func TestGetProfile_OtherUserSeesNoEmail(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u2"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u2", "user2", "user2", "user2@example.com", "localhost:8080",
+	}).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080",
 		nil, nil, nil, 50, 5, 1, false,
 		nil, time.Now(), false, false,
 	)
@@ -311,11 +303,10 @@ func TestGetProfile_OwnerSeesEmail(t *testing.T) {
 	c.Params = []gin.Param{{Key: "id", Value: "u1"}}
 
 	row := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -345,14 +336,12 @@ func TestGetProfiles_EmailsHiddenFromAnonymous(t *testing.T) {
 	c, w := newGETContext("/api/v1/profiles", nil)
 
 	rows := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080", nil, nil, nil,
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080", nil, nil, nil,
 		100, 10, 2, true, time.Now(), time.Now(), false, false,
-	).AddRow(
-		"u2", "user2", "user2", "user2@example.com", "localhost:8080", nil, nil, nil,
+	).AddRow("u2", "user2", "user2", nil, "user2@example.com", "localhost:8080", nil, nil, nil,
 		50, 5, 1, false, nil, time.Now(), false, false,
 	)
 
@@ -403,11 +392,10 @@ func TestUpdateProfile_Success_UpdateBio(t *testing.T) {
 
 	// GetProfile is called at the end — id "u1" is not a UUID, so RecomputeUserProfileStats won't fire
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		nil, "Updated bio!", nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -476,11 +464,10 @@ func TestUpdateProfile_Success_UpdateAvatar(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	selectRow := sqlmock.NewRows([]string{
-		"id", "username", "display_name", "email", "domain", "avatar_url", "bio", "bio_json",
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
 		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
 		"created_at", "is_remote", "is_anonymous",
-	}).AddRow(
-		"u1", "testuser", "testuser", "test@example.com", "localhost:8080",
+	}).AddRow("u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
 		&avatarURL, nil, nil, 100, 10, 2, true,
 		time.Now(), time.Now(), false, false,
 	)
@@ -512,5 +499,125 @@ func TestUpdateProfile_DBError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", w.Code)
+	}
+}
+
+// ──────────────────────── UpdateProfile nickname emoji ──────────────────────
+
+func TestUpdateProfile_Success_SetNicknameEmoji(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]interface{}{
+		"nickname_emoji_id": "11111111-1111-1111-1111-111111111111",
+	}
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+
+	// The emoji must exist in custom_emojis before it is persisted.
+	mock.ExpectQuery(`(?s).*SELECT EXISTS.*custom_emojis ce.*JOIN emoji_packs ep.*user_emoji_subscriptions.*WHERE ce.id = \$1.*ep.is_public`).
+		WithArgs("11111111-1111-1111-1111-111111111111", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), nickname_emoji_id = \$1 WHERE id = \$2`).
+		WithArgs("11111111-1111-1111-1111-111111111111", "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	selectRow := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow(
+		"u1", "testuser", "testuser", "11111111-1111-1111-1111-111111111111", "test@example.com", "localhost:8080",
+		nil, nil, nil, 100, 10, 2, true,
+		time.Now(), time.Now(), false, false,
+	)
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(selectRow)
+
+	handler.UpdateProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	profile := profileFromAPIResponse(t, resp)
+	if profile.NicknameEmojiID == nil || *profile.NicknameEmojiID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("expected nickname_emoji_id to be set, got %v", profile.NicknameEmojiID)
+	}
+}
+
+func TestUpdateProfile_Success_ClearNicknameEmoji(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]interface{}{
+		"nickname_emoji_id": "",
+	}
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+
+	// An empty string clears the emoji without touching custom_emojis.
+	mock.ExpectExec(`UPDATE users SET updated_at = NOW\(\), nickname_emoji_id = NULL WHERE id = \$2`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	selectRow := sqlmock.NewRows([]string{
+		"id", "username", "display_name", "nickname_emoji_id", "email", "domain", "avatar_url", "bio", "bio_json",
+		"garma", "post_count", "thread_count", "is_online", "last_seen_at",
+		"created_at", "is_remote", "is_anonymous",
+	}).AddRow(
+		"u1", "testuser", "testuser", nil, "test@example.com", "localhost:8080",
+		nil, nil, nil, 100, 10, 2, true,
+		time.Now(), time.Now(), false, false,
+	)
+	mock.ExpectQuery(`SELECT id, username.*FROM users.*WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnRows(selectRow)
+
+	handler.UpdateProfile(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateProfile_RejectsUnknownNicknameEmoji(t *testing.T) {
+	handler, mock := setupProfilesHandler(t)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]interface{}{
+		"nickname_emoji_id": "22222222-2222-2222-2222-222222222222",
+	}
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+
+	mock.ExpectQuery(`(?s).*SELECT EXISTS.*custom_emojis ce.*JOIN emoji_packs ep.*user_emoji_subscriptions.*WHERE ce.id = \$1.*ep.is_public`).
+		WithArgs("22222222-2222-2222-2222-222222222222", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	handler.UpdateProfile(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUpdateProfile_RejectsMalformedNicknameEmoji(t *testing.T) {
+	handler, _ := setupProfilesHandler(t)
+
+	claims := &auth.Claims{UserID: "u1", Username: "testuser"}
+	body := map[string]interface{}{
+		"nickname_emoji_id": "not-a-uuid",
+	}
+	c, w := newPUTContext("/api/v1/profiles/u1", body, claims, map[string]string{"id": "u1"})
+
+	// Malformed ids are rejected before any SQL runs.
+	handler.UpdateProfile(c)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }

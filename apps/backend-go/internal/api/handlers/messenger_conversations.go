@@ -39,6 +39,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			(SELECT COUNT(*) FROM chat_members WHERE conversation_id = c.id) AS member_count,
 			-- 1:1 fields (NULL for groups)
 			ou.id AS other_id, ou.username AS other_username, ou.display_name AS other_display_name,
+			ou.nickname_emoji_id AS other_nickname_emoji_id,
 			ou.avatar_url AS other_avatar_url, ou.account_number AS other_account_number,
 			ou.is_online AS other_is_online, ou.last_seen_at AS other_last_seen_at
 		FROM chat_members cm
@@ -57,7 +58,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 	conversations := []ConversationResponse{}
 	for rows.Next() {
 		var conv ConversationResponse
-		var otherID, otherUsername, otherDisplayName, otherAvatar, otherLastSeen sql.NullString
+		var otherID, otherUsername, otherDisplayName, otherNicknameEmojiID, otherAvatar, otherLastSeen sql.NullString
 		var otherAccount sql.NullInt64
 		var otherOnline sql.NullBool
 		var preview, lastMsgAt, lastMsgSender, pinnedMsg sql.NullString
@@ -69,7 +70,7 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 			&conv.UnreadCount, &conv.IsMuted,
 			&conv.IsGroup, &groupName, &groupAvatar, &conv.IsNotes,
 			&conv.MemberCount,
-			&otherID, &otherUsername, &otherDisplayName,
+			&otherID, &otherUsername, &otherDisplayName, &otherNicknameEmojiID,
 			&otherAvatar, &otherAccount, &otherOnline, &otherLastSeen,
 		); err != nil {
 			serverError(c, "scan conversation row", err)
@@ -116,6 +117,9 @@ func (h *MessengerHandler) ListConversations(c *gin.Context) {
 		// 1:1 fields
 		if otherID.Valid {
 			conv.OtherUserID = &otherID.String
+		}
+		if otherNicknameEmojiID.Valid {
+			conv.OtherNicknameEmojiID = &otherNicknameEmojiID.String
 		}
 		if otherUsername.Valid {
 			conv.OtherUsername = &otherUsername.String
@@ -674,7 +678,7 @@ func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 
 	rows, err := h.dbFor(c).Query(`
 		SELECT
-			u.id, u.username, u.display_name, u.avatar_url,
+			u.id, u.username, u.display_name, u.nickname_emoji_id, u.avatar_url,
 			cm.role, cm.joined_at,
 			u.is_online, u.last_seen_at
 		FROM chat_members cm
@@ -691,11 +695,11 @@ func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 	members := []GroupMemberResponse{}
 	for rows.Next() {
 		var m GroupMemberResponse
-		var displayName, avatarURL, lastSeen sql.NullString
+		var displayName, nicknameEmojiID, avatarURL, lastSeen sql.NullString
 		var online sql.NullBool
 
 		if err := rows.Scan(
-			&m.UserID, &m.Username, &displayName, &avatarURL,
+			&m.UserID, &m.Username, &displayName, &nicknameEmojiID, &avatarURL,
 			&m.Role, &m.JoinedAt,
 			&online, &lastSeen,
 		); err != nil {
@@ -704,6 +708,9 @@ func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 		}
 		if displayName.Valid {
 			m.DisplayName = &displayName.String
+		}
+		if nicknameEmojiID.Valid {
+			m.NicknameEmojiID = &nicknameEmojiID.String
 		}
 		if avatarURL.Valid {
 			m.AvatarURL = &avatarURL.String

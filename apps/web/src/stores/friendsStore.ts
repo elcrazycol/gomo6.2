@@ -8,6 +8,7 @@ export interface Friend {
   user_id: string;
   username: string;
   display_name?: string | null;
+  nickname_emoji_id?: string | null;
   avatar_url?: string | null;
   is_online: boolean;
 }
@@ -18,6 +19,7 @@ export interface FriendRequest {
   sender_username: string;
   sender_avatar_url?: string | null;
   sender_display_name?: string | null;
+  sender_nickname_emoji_id?: string | null;
   receiver_id: string;
   status: string;
   created_at: string;

@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { ProcessedContent } from "@/components/ProcessedContent";
+import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { WallCommentComposer } from "./WallCommentComposer";
 import { useCommentTree, MAX_COMMENT_DEPTH, getThreadColor } from "./WallCommentContext";
 import { api } from "@/integrations/api/compat";
@@ -168,6 +169,7 @@ export const WallCommentNode = ({
                 >
                   {comment.author.display_name || comment.author.username}
                 </Link>
+                {comment.author.nickname_emoji_id && <NicknameEmoji emojiId={comment.author.nickname_emoji_id} />}
                 <span className="text-xs text-muted-foreground">
                   {formatDistanceToNow(safeDate(comment.created_at), { locale: ru, addSuffix: true })}
                 </span>

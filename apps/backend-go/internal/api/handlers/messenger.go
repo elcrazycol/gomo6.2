@@ -58,13 +58,14 @@ type ConversationResponse struct {
 	LastReadAt          *string `json:"last_read_at"`
 	IsMuted             bool    `json:"is_muted"`
 	// 1:1 fields (null for groups)
-	OtherUserID      *string `json:"other_user_id"`
-	OtherUsername    *string `json:"other_username"`
-	OtherDisplayName *string `json:"other_display_name"`
-	OtherAvatarURL   *string `json:"other_avatar_url"`
-	OtherAccountNum  *int    `json:"other_account_number"`
-	OtherIsOnline    *bool   `json:"other_is_online"`
-	OtherLastSeenAt  *string `json:"other_last_seen_at"`
+	OtherUserID          *string `json:"other_user_id"`
+	OtherUsername        *string `json:"other_username"`
+	OtherDisplayName     *string `json:"other_display_name"`
+	OtherNicknameEmojiID *string `json:"other_nickname_emoji_id"`
+	OtherAvatarURL       *string `json:"other_avatar_url"`
+	OtherAccountNum      *int    `json:"other_account_number"`
+	OtherIsOnline        *bool   `json:"other_is_online"`
+	OtherLastSeenAt      *string `json:"other_last_seen_at"`
 	// Group fields
 	IsGroup     bool    `json:"is_group"`
 	GroupName   *string `json:"group_name"`
@@ -170,14 +171,15 @@ type AddMembersRequest struct {
 
 // GroupMemberResponse represents a member of a group
 type GroupMemberResponse struct {
-	UserID      string  `json:"user_id"`
-	Username    string  `json:"username"`
-	DisplayName *string `json:"display_name"`
-	AvatarURL   *string `json:"avatar_url"`
-	Role        string  `json:"role"`
-	JoinedAt    string  `json:"joined_at"`
-	IsOnline    *bool   `json:"is_online"`
-	LastSeenAt  *string `json:"last_seen_at"`
+	UserID          string  `json:"user_id"`
+	Username        string  `json:"username"`
+	DisplayName     *string `json:"display_name"`
+	NicknameEmojiID *string `json:"nickname_emoji_id"`
+	AvatarURL       *string `json:"avatar_url"`
+	Role            string  `json:"role"`
+	JoinedAt        string  `json:"joined_at"`
+	IsOnline        *bool   `json:"is_online"`
+	LastSeenAt      *string `json:"last_seen_at"`
 }
 
 // ─── Handler ────────────────────────────────────────────────────────────────

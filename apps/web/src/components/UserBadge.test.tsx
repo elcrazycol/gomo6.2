@@ -30,6 +30,10 @@ vi.mock("@/components/AdminBadge", () => ({
   AdminBadge: ({ userId }: any) => <span data-testid="admin-badge">{userId}</span>,
 }));
 
+vi.mock("@/components/NicknameEmoji", () => ({
+  NicknameEmoji: ({ emojiId }: any) => <span data-testid="nickname-emoji">{emojiId}</span>,
+}));
+
 vi.mock("@/hooks/useUserColor", () => ({
   useUserColor: () => ({ data: "" }),
 }));
@@ -112,6 +116,20 @@ describe("UserBadge", () => {
     render(<UserBadge userId="u1" username="testuser" isThreadOpener />);
     await waitFor(() => {
       expect(screen.getByText("TO")).toBeInTheDocument();
+    });
+  });
+
+  it("renders nickname emoji to the right of the name", async () => {
+    render(<UserBadge userId="u1" username="testuser" emojiId="emoji-1" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("nickname-emoji")).toHaveTextContent("emoji-1");
+    });
+  });
+
+  it("does not render nickname emoji when absent", async () => {
+    render(<UserBadge userId="u1" username="testuser" />);
+    await waitFor(() => {
+      expect(screen.queryByTestId("nickname-emoji")).not.toBeInTheDocument();
     });
   });
 });

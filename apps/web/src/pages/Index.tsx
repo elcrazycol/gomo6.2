@@ -13,6 +13,7 @@ import { ProfileHoverCard } from "@/components/ProfileHoverCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Users } from "lucide-react";
 import { UserBadge } from "@/components/UserBadge";
+import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
@@ -74,6 +75,7 @@ interface SubscribedPostUpdate {
   board_is_gomosub: boolean;
   author_username: string;
   author_display_name?: string | null;
+  author_nickname_emoji_id?: string | null;
 }
 
 const Index = () => {
@@ -303,14 +305,14 @@ const Index = () => {
             authorIds.length
               ? api
                   .from("profiles")
-                  .select("id, username, display_name")
+                  .select("id, username, display_name, nickname_emoji_id")
                   .in("id", authorIds)
-              : Promise.resolve({ data: [] as { id: string; username: string; display_name?: string | null }[] }),
+              : Promise.resolve({ data: [] as { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null }[] }),
           ]);
 
           const postUpdates: SubscribedPostUpdate[] = postsData.map((post: { id: string; content: string; created_at: string; thread_id: string; user_id: string | null }) => {
             const thread = ((postThreads as { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }[]) ?? []).find((t: { id: string; title: string; boards?: { slug: string; is_gomosub?: boolean } }) => t.id === post.thread_id);
-            const author = (postAuthors ?? []).find((a: { id: string; username: string; display_name?: string | null }) => a.id === post.user_id);
+            const author = (postAuthors ?? []).find((a: { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null }) => a.id === post.user_id);
             return {
               id: post.id,
               content: post.content,
@@ -322,6 +324,7 @@ const Index = () => {
               board_is_gomosub: Boolean(thread?.boards?.is_gomosub),
               author_username: author?.username || "Аноним",
               author_display_name: author?.display_name,
+              author_nickname_emoji_id: author?.nickname_emoji_id,
             };
           });
           setSubscribedPostUpdates(postUpdates);
@@ -447,8 +450,12 @@ const Index = () => {
                           to={`${item.board_is_gomosub ? "/g" : ""}/${item.board_slug}/thread/${item.thread_id}`}
                           className="block rounded-lg border border-border p-3 hover:bg-thread-hover transition-colors"
                         >
-                          <div className="text-xs text-muted-foreground mb-1">
-                            @{item.author_display_name?.trim() || item.author_username} - {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: ru })}
+                          <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                            <span>
+                              @{item.author_display_name?.trim() || item.author_username}
+                            </span>
+                            {item.author_nickname_emoji_id && <NicknameEmoji emojiId={item.author_nickname_emoji_id} />}
+                            <span>- {formatDistanceToNow(safeDate(item.created_at), { addSuffix: true, locale: ru })}</span>
                           </div>
                           <div className="font-medium text-sm">{item.thread_title}</div>
                           <div className="text-sm text-muted-foreground line-clamp-2 mt-1">{item.content}</div>

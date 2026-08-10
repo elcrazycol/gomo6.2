@@ -17,13 +17,15 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ProfileSkeleton } from "@/components/skeletons/ContentSkeletons";
-import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare } from "lucide-react";
+import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gift, MessageSquare, Smile, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useFileDrop } from "@/hooks/useFileDrop";
-import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
+import { getProfileCustomization, parseCssToStyle, clearCustomizationCache, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
+import { EmojiPicker } from "@/components/EmojiPicker";
+import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { AdminBadge } from "@/components/AdminBadge";
 import { ProfileWall } from "@/components/ProfileWall";
 import { ThreadCard } from "@/components/ThreadCard";
@@ -46,6 +48,7 @@ interface Profile {
   id: string;
   username: string;
   display_name?: string | null;
+  nickname_emoji_id?: string | null;
   bio: string | null;
   bio_json?: unknown;
   is_anonymous: boolean;
@@ -170,6 +173,8 @@ const Profile = () => {
   const [showUsernameDialog, setShowUsernameDialog] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
   const [customization, setCustomization] = useState<ProfileCustomization | null>(null);
+  const [nicknameEmojiId, setNicknameEmojiId] = useState<string | null>(null);
+  const nicknameEmojiButtonRef = useRef<HTMLDivElement>(null);
   const [lastSeen, setLastSeen] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [showLastSeen, setShowLastSeen] = useState(true);
@@ -415,9 +420,11 @@ const Profile = () => {
       }
       setPrivacyChecked(true);
 
-      // Load customization
+      // Load customization (the nickname emoji lives on the user profile, not
+      // in profile_customization — the latter is read-scoped to the viewer).
       const custom = await getProfileCustomization(userId!);
       setCustomization(custom);
+      setNicknameEmojiId((data as { nickname_emoji_id?: string | null }).nickname_emoji_id || null);
 
       // Load likes received count (protected RPC)
       if (token) {
@@ -757,6 +764,53 @@ const Profile = () => {
   };
 
 
+  // ── Nickname emoji (custom emoji shown right of the display name) ──
+  const handleNicknameEmojiSelect = async (sel: { emojiId: string }) => {
+    if (!currentUser || currentUser.id !== userId) return;
+    try {
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const res = await fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ nickname_emoji_id: sel.emojiId }),
+      });
+      if (!res.ok) throw new Error('Failed to save nickname emoji');
+
+      setNicknameEmojiId(sel.emojiId);
+      // The emoji is stored on the user, not in profile_customization — but the
+      // profile object is cached everywhere, so refresh local caches too.
+      clearCustomizationCache(userId!);
+      dispatchProfileCacheInvalidate();
+      toast.success("Эмодзи никнейма сохранён");
+    } catch (error) {
+      toast.error("Не удалось сохранить эмодзи");
+      console.error(error);
+    }
+  };
+
+  const handleNicknameEmojiRemove = async () => {
+    if (!currentUser || currentUser.id !== userId) return;
+    try {
+      const token = (await api.auth.getSession()).data.session?.access_token;
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const res = await fetch(`/api/v1/profiles/${encodeURIComponent(userId!)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ nickname_emoji_id: "" }),
+      });
+      if (!res.ok) throw new Error('Failed to remove nickname emoji');
+
+      setNicknameEmojiId(null);
+      clearCustomizationCache(userId!);
+      dispatchProfileCacheInvalidate();
+      toast.success("Эмодзи никнейма убран");
+    } catch (error) {
+      toast.error("Не удалось убрать эмодзи");
+      console.error(error);
+    }
+  };
+
   const handleSaveAndExit = async () => {
     try {
       const token = (await api.auth.getSession()).data.session?.access_token;
@@ -959,12 +1013,41 @@ const Profile = () => {
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   {isEditing && isOwnProfile ? (
-                    <Input
-                      value={newDisplayName || profile.display_name || profile.username}
-                      onChange={(e) => setNewDisplayName(e.target.value)}
-                      className="text-2xl font-bold h-auto p-0 border-none bg-transparent"
-                      placeholder="Имя отображения"
-                    />
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <Input
+                        value={newDisplayName || profile.display_name || profile.username}
+                        onChange={(e) => setNewDisplayName(e.target.value)}
+                        className="text-2xl font-bold h-auto p-0 border-none bg-transparent flex-1 min-w-0"
+                        placeholder="Имя отображения"
+                      />
+                      <EmojiPicker
+                        closeOnSelect
+                        onEmojiSelect={handleNicknameEmojiSelect}
+                        triggerRef={nicknameEmojiButtonRef}
+                      >
+                        <button
+                          type="button"
+                          title={nicknameEmojiId ? "Изменить эмодзи никнейма" : "Выбрать эмодзи для никнейма"}
+                          className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-muted hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center overflow-hidden"
+                        >
+                          {nicknameEmojiId ? (
+                            <NicknameEmoji emojiId={nicknameEmojiId} className="h-5 w-5" />
+                          ) : (
+                            <Smile className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
+                      </EmojiPicker>
+                      {nicknameEmojiId && (
+                        <button
+                          type="button"
+                          title="Убрать эмодзи никнейма"
+                          onClick={handleNicknameEmojiRemove}
+                          className="h-9 w-9 shrink-0 rounded-full border border-border bg-muted/50 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40 transition-colors flex items-center justify-center"
+                        >
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-wrap">
                       <h1 
@@ -973,6 +1056,7 @@ const Profile = () => {
                       >
                         {profile.display_name?.trim() || profile.username}
                       </h1>
+                      {(nicknameEmojiId || profile.nickname_emoji_id) && <NicknameEmoji emojiId={nicknameEmojiId || profile.nickname_emoji_id} />}
                       {customization?.profile_badge_text && (
                         <span
                           className="px-2 py-1 rounded text-xs font-medium ml-2"

@@ -7,6 +7,7 @@ import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { getProfileCustomization, parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
+import { NicknameEmoji } from "./NicknameEmoji";
 import { processProfileBio } from "@/utils/profileBio";
 import { storageUrl } from "@/utils/storage";
 import { OnlineStatus } from "./OnlineStatus";
@@ -222,6 +223,7 @@ export const ProfileHoverCard = ({ userId, children, disabled = false, showDrops
                 <span className={usernameClassName} style={usernameStyle}>
                   {(p.display_name as string)?.trim() || (p.username as string)}
                 </span>
+                {p.nickname_emoji_id && <NicknameEmoji emojiId={p.nickname_emoji_id as string} />}
                 {customization?.profile_badge_text && (
                   <span
                     className="px-1.5 py-0.5 rounded text-xs font-medium"

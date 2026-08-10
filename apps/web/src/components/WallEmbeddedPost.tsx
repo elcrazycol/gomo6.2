@@ -49,6 +49,7 @@ export const EmbeddedWallPost = ({
           userId={post.author_id}
           username={post.author.username}
           displayName={post.author.display_name}
+          emojiId={post.author.nickname_emoji_id}
           isAnonymous={post.author.is_anonymous}
           disableLink={false}
           stopPropagationOnClick

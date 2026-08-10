@@ -24,7 +24,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
   const { getLikeData, loadLikeData, updateLikeData } = useLikesCache();
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
-  const [recentLikers, setRecentLikers] = useState<{ username: string; display_name?: string | null; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]>([]);
+  const [recentLikers, setRecentLikers] = useState<{ username: string; display_name?: string | null; nickname_emoji_id?: string | null; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [tooltipOpen, setTooltipOpen] = useState(false);
 
@@ -59,7 +59,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
           [isThread ? 'thread_uuid' : 'post_uuid']: postId,
           limit_count: 3
         });
-        setRecentLikers((likers as { username: string; id: string; avatar_url?: string | null; is_anonymous?: boolean }[]) || []);
+        setRecentLikers((likers as { username: string; id: string; avatar_url?: string | null; nickname_emoji_id?: string | null; is_anonymous?: boolean }[]) || []);
       } catch (error) {
         console.error('Error loading recent likers:', error);
       }
@@ -244,6 +244,7 @@ export const LikeButton = memo(({ postId, currentUserId, postAuthorId, onLikeCha
                       userId={liker.id}
                       username={liker.is_anonymous ? "Аноним" : liker.username}
                       displayName={liker.is_anonymous ? undefined : liker.display_name}
+                      emojiId={liker.is_anonymous ? undefined : liker.nickname_emoji_id}
                       isAnonymous={liker.is_anonymous}
                       showOutline={false}
                       className="text-xs"

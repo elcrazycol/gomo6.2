@@ -30,6 +30,8 @@ vi.mock("@/components/ProcessedContent", () => ({
 }));
 vi.mock("@/components/UserBadge", () => ({ UserBadge: () => null }));
 vi.mock("@/components/AdminBadge", () => ({ AdminBadge: () => null }));
+vi.mock("@/components/NicknameEmoji", () => ({ NicknameEmoji: () => null }));
+vi.mock("@/components/EmojiPicker", () => ({ EmojiPicker: () => null }));
 vi.mock("@/components/ThreadCard", () => ({
   ThreadCard: ({ thread }: { thread: { id: string; title: string } }) => (
     <div data-testid="thread-card">{thread.title}</div>

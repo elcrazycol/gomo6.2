@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ProfileHoverCard } from "./ProfileHoverCard";
 import { getProfileCustomization, parseCssToStyle, type ProfileCustomization } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
+import { NicknameEmoji } from "./NicknameEmoji";
 import { useUserColor } from "@/hooks/useUserColor";
 
 import {
@@ -16,6 +17,8 @@ interface UserBadgeProps {
   userId: string | null;
   username: string;
   displayName?: string | null;
+  /** custom_emojis id shown right of the nickname (users.nickname_emoji_id) */
+  emojiId?: string | null;
   isAnonymous?: boolean;
   showOutline?: boolean;
   disableLink?: boolean;
@@ -29,6 +32,7 @@ export const UserBadge = ({
   userId,
   username,
   displayName,
+  emojiId,
   isAnonymous,
   showOutline = true,
   disableLink = false,
@@ -81,6 +85,7 @@ export const UserBadge = ({
       <span className={usernameClassName} style={usernameStyle}>
         {displayName?.trim() || username}
       </span>
+      {emojiId && <NicknameEmoji emojiId={emojiId} />}
       {customization?.profile_badge_text && (
         <span
           className="px-2 py-0.5 rounded text-xs font-medium ml-1"

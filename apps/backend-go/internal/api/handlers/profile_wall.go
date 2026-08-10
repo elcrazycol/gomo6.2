@@ -16,6 +16,8 @@ import (
 const profileWallAuthorJSON = `COALESCE(
   json_build_object(
     'username', u.username,
+    'display_name', u.display_name,
+    'nickname_emoji_id', u.nickname_emoji_id,
     'is_anonymous', COALESCE(u.is_anonymous, false),
     'avatar_url', u.avatar_url
   ),

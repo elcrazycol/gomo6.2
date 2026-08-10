@@ -354,7 +354,7 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	}
 
 	query := `
-		SELECT u.username, u.id, u.avatar_url, u.is_anonymous
+		SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
 		FROM post_likes pl
 		JOIN users u ON pl.user_id = u.id
 		WHERE pl.post_id = $1
@@ -370,22 +370,24 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 	defer rows.Close()
 
 	var likers []struct {
-		Username    string  `json:"username"`
-		ID          string  `json:"id"`
-		AvatarURL   *string `json:"avatar_url"`
-		IsAnonymous bool    `json:"is_anonymous"`
+		Username        string  `json:"username"`
+		ID              string  `json:"id"`
+		AvatarURL       *string `json:"avatar_url"`
+		NicknameEmojiID *string `json:"nickname_emoji_id"`
+		IsAnonymous     bool    `json:"is_anonymous"`
 	}
 
 	for rows.Next() {
 		var liker struct {
-			Username    string  `json:"username"`
-			ID          string  `json:"id"`
-			AvatarURL   *string `json:"avatar_url"`
-			IsAnonymous bool    `json:"is_anonymous"`
+			Username        string  `json:"username"`
+			ID              string  `json:"id"`
+			AvatarURL       *string `json:"avatar_url"`
+			NicknameEmojiID *string `json:"nickname_emoji_id"`
+			IsAnonymous     bool    `json:"is_anonymous"`
 		}
-		var avatarURL sql.NullString
+		var avatarURL, nicknameEmojiID sql.NullString
 
-		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
+		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
 		if err != nil {
 			serverError(c, "handler error", err)
 			return
@@ -393,6 +395,9 @@ func (h *RPCHandler) GetRecentPostLikers(c *gin.Context) {
 
 		if avatarURL.Valid {
 			liker.AvatarURL = &avatarURL.String
+		}
+		if nicknameEmojiID.Valid {
+			liker.NicknameEmojiID = &nicknameEmojiID.String
 		}
 
 		likers = append(likers, liker)
@@ -435,7 +440,7 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	}
 
 	query := `
-		SELECT u.username, u.id, u.avatar_url, u.is_anonymous
+		SELECT u.username, u.id, u.avatar_url, u.nickname_emoji_id, u.is_anonymous
 		FROM thread_likes tl
 		JOIN users u ON tl.user_id = u.id
 		WHERE tl.thread_id = $1
@@ -451,22 +456,24 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 	defer rows.Close()
 
 	var likers []struct {
-		Username    string  `json:"username"`
-		ID          string  `json:"id"`
-		AvatarURL   *string `json:"avatar_url"`
-		IsAnonymous bool    `json:"is_anonymous"`
+		Username        string  `json:"username"`
+		ID              string  `json:"id"`
+		AvatarURL       *string `json:"avatar_url"`
+		NicknameEmojiID *string `json:"nickname_emoji_id"`
+		IsAnonymous     bool    `json:"is_anonymous"`
 	}
 
 	for rows.Next() {
 		var liker struct {
-			Username    string  `json:"username"`
-			ID          string  `json:"id"`
-			AvatarURL   *string `json:"avatar_url"`
-			IsAnonymous bool    `json:"is_anonymous"`
+			Username        string  `json:"username"`
+			ID              string  `json:"id"`
+			AvatarURL       *string `json:"avatar_url"`
+			NicknameEmojiID *string `json:"nickname_emoji_id"`
+			IsAnonymous     bool    `json:"is_anonymous"`
 		}
-		var avatarURL sql.NullString
+		var avatarURL, nicknameEmojiID sql.NullString
 
-		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &liker.IsAnonymous)
+		err := rows.Scan(&liker.Username, &liker.ID, &avatarURL, &nicknameEmojiID, &liker.IsAnonymous)
 		if err != nil {
 			serverError(c, "handler error", err)
 			return
@@ -474,6 +481,9 @@ func (h *RPCHandler) GetRecentThreadLikers(c *gin.Context) {
 
 		if avatarURL.Valid {
 			liker.AvatarURL = &avatarURL.String
+		}
+		if nicknameEmojiID.Valid {
+			liker.NicknameEmojiID = &nicknameEmojiID.String
 		}
 
 		likers = append(likers, liker)

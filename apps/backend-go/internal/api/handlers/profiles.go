@@ -48,7 +48,7 @@ func (h *ProfilesHandler) SetRedis(redis *redis.Client) {
 // @Router       /profiles [get]
 func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 	query := `
-		SELECT id, username, display_name, email, domain, avatar_url, bio, bio_json, garma, post_count,
+		SELECT id, username, display_name, nickname_emoji_id, email, domain, avatar_url, bio, bio_json, garma, post_count,
 		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 	`
@@ -148,7 +148,7 @@ func (h *ProfilesHandler) GetProfiles(c *gin.Context) {
 		var profile models.User
 		var bioJSON sql.NullString
 		err := rows.Scan(
-			&profile.ID, &profile.Username, &profile.DisplayName, &profile.Email, &profile.Domain,
+			&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 			&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 			&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 			&profile.IsRemote, &profile.IsAnonymous,
@@ -236,7 +236,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	}
 
 	query := `
-		SELECT id, username, display_name, email, domain, avatar_url, bio, bio_json, garma, post_count,
+		SELECT id, username, display_name, nickname_emoji_id, email, domain, avatar_url, bio, bio_json, garma, post_count,
 		       thread_count, is_online, last_seen_at, created_at, is_remote, is_anonymous
 		FROM users
 		WHERE id = $1
@@ -245,7 +245,7 @@ func (h *ProfilesHandler) GetProfile(c *gin.Context) {
 	var profile models.User
 	var bioJSON sql.NullString
 	err := h.db.QueryRow(query, id).Scan(
-		&profile.ID, &profile.Username, &profile.DisplayName, &profile.Email, &profile.Domain,
+		&profile.ID, &profile.Username, &profile.DisplayName, &profile.NicknameEmojiID, &profile.Email, &profile.Domain,
 		&profile.AvatarURL, &profile.Bio, &bioJSON, &profile.Garma, &profile.PostCount,
 		&profile.ThreadCount, &profile.IsOnline, &profile.LastSeen, &profile.CreatedAt,
 		&profile.IsRemote, &profile.IsAnonymous,
@@ -341,12 +341,13 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	var updates struct {
-		AvatarURL   *string          `json:"avatar_url"`
-		Bio         *string          `json:"bio"`
-		BioJSON     *json.RawMessage `json:"bio_json"`
-		DisplayName *string          `json:"display_name"`
-		Username    *string          `json:"username"`
-		IsAnonymous *bool            `json:"is_anonymous"`
+		AvatarURL       *string          `json:"avatar_url"`
+		Bio             *string          `json:"bio"`
+		BioJSON         *json.RawMessage `json:"bio_json"`
+		DisplayName     *string          `json:"display_name"`
+		NicknameEmojiID *string          `json:"nickname_emoji_id"`
+		Username        *string          `json:"username"`
+		IsAnonymous     *bool            `json:"is_anonymous"`
 	}
 
 	if err := c.ShouldBindJSON(&updates); err != nil {
@@ -385,6 +386,44 @@ func (h *ProfilesHandler) UpdateProfile(c *gin.Context) {
 	if updates.DisplayName != nil {
 		query += ", display_name = $" + strconv.Itoa(argIndex)
 		args = append(args, *updates.DisplayName)
+		argIndex++
+	}
+
+	if updates.NicknameEmojiID != nil {
+		emojiID := *updates.NicknameEmojiID
+		if emojiID != "" {
+			// An empty string clears the emoji; otherwise it must reference a
+			// real custom emoji the user may use: the emoji's pack must be
+			// public, authored by the user, or subscribed to (mirrors the
+			// picker, which only offers subscribed/owned packs).
+			if _, err := uuid.Parse(emojiID); err != nil {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Неверный формат эмодзи"))
+				return
+			}
+			var allowed bool
+			if err := h.db.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1
+					FROM custom_emojis ce
+					JOIN emoji_packs ep ON ep.id = ce.pack_id
+					LEFT JOIN user_emoji_subscriptions ues
+						ON ues.pack_id = ep.id AND ues.user_id = $2
+					WHERE ce.id = $1
+					  AND (ep.is_public OR ep.author_id = $2 OR ues.id IS NOT NULL)
+				)
+			`, emojiID, id).Scan(&allowed); err != nil {
+				c.JSON(http.StatusInternalServerError, models.ErrorResponse("Database error"))
+				return
+			}
+			if !allowed {
+				c.JSON(http.StatusBadRequest, models.ErrorResponse("Этот эмодзи недоступен"))
+				return
+			}
+			query += ", nickname_emoji_id = $" + strconv.Itoa(argIndex)
+			args = append(args, emojiID)
+		} else {
+			query += ", nickname_emoji_id = NULL"
+		}
 		argIndex++
 	}
 

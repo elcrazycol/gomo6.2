@@ -47,6 +47,7 @@ interface Thread {
   profiles: {
     username: string;
     display_name?: string | null;
+    nickname_emoji_id?: string | null;
     is_anonymous: boolean;
   } | null;
   latest_post?: {
@@ -57,6 +58,7 @@ interface Thread {
     profiles: {
       username: string;
       display_name?: string | null;
+      nickname_emoji_id?: string | null;
       is_anonymous: boolean;
     } | null;
   };
@@ -216,7 +218,7 @@ const Board = () => {
     allLatestPosts.forEach((p: Record<string, unknown>) => { if (p.user_id) userIds.add(p.user_id as string); });
 
     // Batch fetch all profiles (for is_anonymous)
-    const profilesMap = new Map<string, { id: string; username: string; display_name?: string | null; is_anonymous: boolean }>();
+    const profilesMap = new Map<string, { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous: boolean }>();
 
 
     // Build result with profiles and latest posts
@@ -235,13 +237,13 @@ const Board = () => {
 
       return {
         ...thread,
-        profiles: profile ? { username: profile.username, display_name: profile.display_name, is_anonymous: profile.is_anonymous } : null,
+        profiles: profile ? { username: profile.username, display_name: profile.display_name, nickname_emoji_id: profile.nickname_emoji_id, is_anonymous: profile.is_anonymous } : null,
         latest_post: post ? {
           content: post.content,
           created_at: post.created_at,
           is_private: post.is_private,
           user_id: post.user_id,
-          profiles: postProfile ? { username: postProfile.username, display_name: postProfile.display_name, is_anonymous: postProfile.is_anonymous } : null,
+          profiles: postProfile ? { username: postProfile.username, display_name: postProfile.display_name, nickname_emoji_id: postProfile.nickname_emoji_id, is_anonymous: postProfile.is_anonymous } : null,
         } : undefined,
       };
     });
@@ -510,6 +512,7 @@ const Board = () => {
                       userId={thread.user_id}
                       username={thread.profiles?.username || "Аноним"}
                       displayName={thread.profiles?.display_name}
+                      emojiId={thread.profiles?.nickname_emoji_id}
                       isAnonymous={thread.profiles?.is_anonymous}
                       showOutline={false}
                       disableLink={true}
@@ -528,6 +531,7 @@ const Board = () => {
                             userId={thread.latest_post.user_id}
                             username={thread.latest_post.profiles.username || "Аноним"}
                             displayName={thread.latest_post.profiles.display_name}
+                            emojiId={thread.latest_post.profiles.nickname_emoji_id}
                             isAnonymous={thread.latest_post.profiles.is_anonymous}
                             showOutline={false}
                           />

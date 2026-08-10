@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useFriendsStore, type FriendRequest } from "@/stores/friendsStore";
 import { storageUrl } from "@/utils/storage";
 import { Button } from "@/components/ui/button";
+import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { User, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -95,9 +96,10 @@ const RequestItem = ({ request }: { request: FriendRequest }) => {
       <div className="flex-1 min-w-0">
         <Link
           to={`/profile/${request.sender_id}`}
-          className="font-medium text-sm hover:underline truncate block"
+          className="font-medium text-sm hover:underline truncate block flex items-center gap-1"
         >
           {request.sender_display_name || request.sender_username}
+          {request.sender_nickname_emoji_id && <NicknameEmoji emojiId={request.sender_nickname_emoji_id} />}
         </Link>
         <p className="text-xs text-muted-foreground">
           @{request.sender_username} · {timeAgo}

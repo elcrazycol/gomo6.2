@@ -4,6 +4,7 @@ import { X, Gift, ExternalLink, Search, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropsBalance } from "@/components/DropsBalance";
+import { NicknameEmoji } from "@/components/NicknameEmoji";
 import { storageUrl } from "@/utils/storage";
 import { formatPresence, getInitials } from "./utils";
 import type { GiftCatalogItem } from "@/components/GiftCard";
@@ -287,6 +288,7 @@ export function UserInfoPanel({
                     </div>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <span style={{ fontSize: 13, fontWeight: 500 }}>{m.display_name || m.username}</span>
+                      {m.nickname_emoji_id && <NicknameEmoji emojiId={m.nickname_emoji_id} />}
                       {m.role === "admin" && <span style={{ fontSize: 11, color: "hsl(var(--primary))", marginLeft: 4 }}>admin</span>}
                     </div>
                     {m.is_online && <span className="online-dot" style={{ width: 8, height: 8 }} />}

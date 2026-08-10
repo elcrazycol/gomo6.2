@@ -22,6 +22,7 @@ export type ConversationView = {
   other_user_id: string | null;
   other_username: string | null;
   other_display_name?: string | null;
+  other_nickname_emoji_id?: string | null;
   other_avatar_url: string | null;
   other_account_number: number | null;
   other_is_online: boolean | null;
@@ -99,6 +100,7 @@ export type GroupMember = {
   user_id: string;
   username: string;
   display_name: string | null;
+  nickname_emoji_id?: string | null;
   avatar_url: string | null;
   role: string;
   joined_at: string;

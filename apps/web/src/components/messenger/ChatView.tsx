@@ -408,7 +408,7 @@ export const ChatView = memo(function ChatView({
                 ) : conversation.is_group ? (
                   <span className="font-bold text-sm">{conversation.group_name || "Группа"}</span>
                 ) : (
-                  <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} showOutline={false} disableLink />
+                  <UserBadge userId={conversation.other_user_id || ""} username={conversation.other_username || ""} displayName={conversation.other_display_name} emojiId={conversation.other_nickname_emoji_id} showOutline={false} disableLink />
                 )}
               </div>
               <p className="presence-copy">

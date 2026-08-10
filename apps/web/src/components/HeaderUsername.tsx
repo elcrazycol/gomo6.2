@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { ProfileHoverCard } from "./ProfileHoverCard";
 import { parseCssToStyle } from "@/utils/profileCustomization";
 import { AdminBadge } from "./AdminBadge";
+import { NicknameEmoji } from "./NicknameEmoji";
 import { useProfileCache } from "@/contexts/ProfileCacheContext";
 
 interface CachedProfile {
   username: string;
   display_name?: string | null;
+  nickname_emoji_id?: string | null;
   color?: string;
   customization?: {
     username_css?: string;
@@ -68,6 +70,12 @@ export const HeaderUsername = memo(({ userId, className = "" }: HeaderUsernamePr
           {profileData.display_name?.trim() || profileData.username || 'Профиль'}
           <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-current transition-all duration-300 ease-out group-hover:w-full"></span>
         </span>
+        {profileData.nickname_emoji_id && (
+          <NicknameEmoji
+            emojiId={profileData.nickname_emoji_id}
+            className="transition-transform duration-200 group-hover:translate-x-0.5"
+          />
+        )}
         <div className="transition-transform duration-200 group-hover:translate-x-0.5">
           <AdminBadge userId={userId} />
         </div>

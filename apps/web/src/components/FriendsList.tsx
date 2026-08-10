@@ -4,6 +4,7 @@ import { useFriendsStore, type Friend } from "@/stores/friendsStore";
 import { storageUrl } from "@/utils/storage";
 import { User } from "lucide-react";
 import { OnlineStatus } from "@/components/OnlineStatus";
+import { NicknameEmoji } from "@/components/NicknameEmoji";
 
 interface FriendsListProps {
   userId?: string;
@@ -36,8 +37,9 @@ const FriendItem = ({ friend }: { friend: Friend }) => {
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-sm truncate">
+        <p className="font-medium text-sm truncate flex items-center gap-1">
           {friend.display_name || friend.username}
+          {friend.nickname_emoji_id && <NicknameEmoji emojiId={friend.nickname_emoji_id} />}
         </p>
         <p className="text-xs text-muted-foreground truncate">
           @{friend.username}
