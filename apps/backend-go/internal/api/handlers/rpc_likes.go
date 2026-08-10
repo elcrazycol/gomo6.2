@@ -545,6 +545,122 @@ func (h *RPCHandler) GetUserPostLikesReceivedTimestamps(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(out))
 }
 
+// PostLikeBatchItem is a single item in the batch post-likes response.
+type PostLikeBatchItem struct {
+	PostID  string `json:"post_id"`
+	Count   int    `json:"count"`
+	IsLiked bool   `json:"is_liked"`
+}
+
+// GetPostLikesBatch returns like counts and user-like status for multiple posts in one query.
+// GET /api/rpc/get_post_likes_batch?post_ids=uuid1,uuid2,...&user_uuid=uuid
+//
+// GetPostLikesBatch godoc
+// @Summary      Get post likes batch
+// @Description  Get like counts and user-like status for multiple posts
+// @Tags         RPC
+// @Produce      json
+// @Param        post_ids   query string true "Comma-separated post UUIDs"
+// @Param        user_uuid  query string false "User UUID for is_liked check"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_post_likes_batch [get]
+func (h *RPCHandler) GetPostLikesBatch(c *gin.Context) {
+	idsRaw := c.Query("post_ids")
+	if idsRaw == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("post_ids parameter required"))
+		return
+	}
+
+	rawParts := strings.Split(idsRaw, ",")
+	var postIDs []string
+	for _, p := range rawParts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, err := uuid.Parse(p); err != nil {
+			continue // skip invalid UUIDs silently
+		}
+		postIDs = append(postIDs, p)
+	}
+
+	if len(postIDs) == 0 {
+		c.JSON(http.StatusOK, models.SuccessResponse([]PostLikeBatchItem{}))
+		return
+	}
+
+	// Cap at 50 posts to prevent abuse
+	if len(postIDs) > 50 {
+		postIDs = postIDs[:50]
+	}
+
+	placeholders := make([]string, len(postIDs))
+	args := make([]interface{}, len(postIDs))
+	for i, id := range postIDs {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+		args[i] = id
+	}
+	ph := strings.Join(placeholders, ",")
+
+	// Bulk like counts
+	countQuery := `SELECT post_id, COUNT(*) FROM post_likes WHERE post_id IN (` + ph + `) GROUP BY post_id`
+	countRows, err := h.db.Query(countQuery, args...)
+	if err != nil {
+		serverError(c, "handler error", err)
+		return
+	}
+	defer countRows.Close()
+
+	countMap := make(map[string]int)
+	for countRows.Next() {
+		var pid string
+		var cnt int
+		if err := countRows.Scan(&pid, &cnt); err != nil {
+			continue
+		}
+		countMap[pid] = cnt
+	}
+
+	// Bulk is_liked check (only if user is authenticated)
+	userID := c.Query("user_uuid")
+	likedMap := make(map[string]bool)
+	if userID != "" {
+		if _, err := uuid.Parse(userID); err == nil {
+			uArgs := make([]interface{}, 0, len(postIDs)+1)
+			uArgs = append(uArgs, userID)
+			uPlaceholders := make([]string, len(postIDs))
+			for i, id := range postIDs {
+				uPlaceholders[i] = "$" + strconv.Itoa(i+2)
+				uArgs = append(uArgs, id)
+			}
+			uPh := strings.Join(uPlaceholders, ",")
+			likedQuery := `SELECT post_id FROM post_likes WHERE user_id = $1 AND post_id IN (` + uPh + `)`
+			likedRows, err := h.db.Query(likedQuery, uArgs...)
+			if err == nil {
+				defer likedRows.Close()
+				for likedRows.Next() {
+					var pid string
+					if err := likedRows.Scan(&pid); err == nil {
+						likedMap[pid] = true
+					}
+				}
+			}
+		}
+	}
+
+	result := make([]PostLikeBatchItem, 0, len(postIDs))
+	for _, pid := range postIDs {
+		result = append(result, PostLikeBatchItem{
+			PostID:  pid,
+			Count:   countMap[pid],
+			IsLiked: likedMap[pid],
+		})
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(result))
+}
+
 // ThreadLikeBatchItem is a single item in the batch likes response.
 type ThreadLikeBatchItem struct {
 	ThreadID string `json:"thread_id"`

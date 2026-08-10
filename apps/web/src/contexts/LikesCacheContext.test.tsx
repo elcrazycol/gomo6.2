@@ -170,4 +170,116 @@ describe("LikesCacheContext", () => {
     expect(data.count).toBe(20);
     expect(mockRpc).toHaveBeenCalledWith("get_thread_likes_count", { thread_uuid: "thread-1" });
   });
+
+  it("loadLikeDataBatch fetches many posts with ONE rpc call and fills cache", async () => {
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({
+          data: [
+            { post_id: "p1", count: 5, is_liked: true },
+            { post_id: "p2", count: 2, is_liked: false },
+          ],
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    const { result } = renderHook(() => useLikesCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadLikeDataBatch(["p1", "p2"], "user-1", false);
+    });
+
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith("get_post_likes_batch", { post_ids: "p1,p2", user_uuid: "user-1" });
+
+    // Both entries are now served from cache — zero additional requests.
+    expect(result.current.getLikeData("p1", false)!.count).toBe(5);
+    expect(result.current.getLikeData("p1", false)!.isLiked).toBe(true);
+    expect(result.current.getLikeData("p2", false)!.count).toBe(2);
+    expect(result.current.getLikeData("p2", false)!.isLiked).toBe(false);
+  });
+
+  it("loadLikeDataBatch skips already-cached ids and requests only the rest", async () => {
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({ data: [{ post_id: "p2", count: 7, is_liked: false }] });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    const { result } = renderHook(() => useLikesCache(), { wrapper });
+
+    act(() => {
+      result.current.updateLikeData("p1", false, true, 3);
+    });
+
+    await act(async () => {
+      await result.current.loadLikeDataBatch(["p1", "p2"], null, false);
+    });
+
+    // Only the miss (p2) was requested, and p1's fresher local data is kept.
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith("get_post_likes_batch", { post_ids: "p2", user_uuid: "" });
+    expect(result.current.getLikeData("p1", false)!.count).toBe(3);
+    expect(result.current.getLikeData("p2", false)!.count).toBe(7);
+  });
+
+  it("loadLikeDataBatch for threads uses thread batch function", async () => {
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_thread_likes_batch") {
+        return Promise.resolve({
+          data: [{ thread_id: "t1", count: 9, is_liked: true }],
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    const { result } = renderHook(() => useLikesCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadLikeDataBatch(["t1"], "user-1", true);
+    });
+
+    expect(mockRpc).toHaveBeenCalledWith("get_thread_likes_batch", { thread_ids: "t1", user_uuid: "user-1" });
+    expect(result.current.getLikeData("t1", true)!.count).toBe(9);
+  });
+
+  it("loadLikeDataBatch deduplicates ids and no-ops when everything is cached", async () => {
+    mockRpc.mockImplementation((fn: string) => {
+      if (fn === "get_post_likes_batch") {
+        return Promise.resolve({ data: [{ post_id: "p1", count: 1, is_liked: false }] });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    const { result } = renderHook(() => useLikesCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadLikeDataBatch(["p1", "p1", "p1"], null, false);
+    });
+
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith("get_post_likes_batch", { post_ids: "p1", user_uuid: "" });
+
+    const callsBefore = mockRpc.mock.calls.length;
+    await act(async () => {
+      await result.current.loadLikeDataBatch(["p1"], null, false);
+    });
+    expect(mockRpc.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("loadLikeDataBatch handles API errors gracefully without breaking cache", async () => {
+    mockRpc.mockRejectedValue(new Error("Network error"));
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { result } = renderHook(() => useLikesCache(), { wrapper });
+
+    await act(async () => {
+      await result.current.loadLikeDataBatch(["p1"], "user-1", false);
+    });
+
+    expect(result.current.getLikeData("p1", false)).toBeNull();
+    consoleSpy.mockRestore();
+  });
 });

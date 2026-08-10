@@ -1640,3 +1640,113 @@ func TestGetThreadLikesBatch_WithUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// ─── GetPostLikesBatch ───────────────────────────────────────────────────────
+
+func TestGetPostLikesBatch_Success(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	p1 := "550e8400-e29b-41d4-a716-446655440000"
+	p2 := "550e8400-e29b-41d4-a716-446655440001"
+
+	mock.ExpectQuery(`SELECT post_id, COUNT\(\*\) FROM post_likes WHERE post_id IN \(\$1,\$2\) GROUP BY post_id`).
+		WithArgs(p1, p2).
+		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 5).AddRow(p2, 2))
+
+	c, w := newRPCGETContext(map[string]string{"post_ids": p1 + "," + p2})
+	h.GetPostLikesBatch(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	// Verify per-post items come back in order
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("failed to marshal data: %v", err)
+	}
+	var items []PostLikeBatchItem
+	if err := json.Unmarshal(data, &items); err != nil {
+		t.Fatalf("failed to parse items: %v", err)
+	}
+	if len(items) != 2 || items[0].PostID != p1 || items[0].Count != 5 || items[1].PostID != p2 || items[1].Count != 2 {
+		t.Fatalf("unexpected batch result: %+v", items)
+	}
+}
+
+func TestGetPostLikesBatch_Empty(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	c, w := newRPCGETContext(map[string]string{"post_ids": ""})
+	h.GetPostLikesBatch(c)
+	_ = mock
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestGetPostLikesBatch_WithUser(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	p1 := "550e8400-e29b-41d4-a716-446655440000"
+	p2 := "550e8400-e29b-41d4-a716-446655440001"
+	uid := "660e8400-e29b-41d4-a716-446655440001"
+
+	mock.ExpectQuery(`SELECT post_id, COUNT\(\*\) FROM post_likes WHERE post_id IN \(\$1,\$2\) GROUP BY post_id`).
+		WithArgs(p1, p2).
+		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 3).AddRow(p2, 0))
+
+	mock.ExpectQuery(`SELECT post_id FROM post_likes WHERE user_id = \$1 AND post_id IN \(\$2,\$3\)`).
+		WithArgs(uid, p1, p2).
+		WillReturnRows(sqlmock.NewRows([]string{"post_id"}).AddRow(p1))
+
+	c, w := newRPCGETContext(map[string]string{
+		"post_ids":  p1 + "," + p2,
+		"user_uuid": uid,
+	})
+	h.GetPostLikesBatch(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	data, err := json.Marshal(resp.Data)
+	if err != nil {
+		t.Fatalf("failed to marshal data: %v", err)
+	}
+	var items []PostLikeBatchItem
+	if err := json.Unmarshal(data, &items); err != nil {
+		t.Fatalf("failed to parse items: %v", err)
+	}
+	// p1 liked by the user, p2 not
+	if len(items) != 2 || !items[0].IsLiked || items[1].IsLiked {
+		t.Fatalf("unexpected is_liked flags: %+v", items)
+	}
+}
+
+func TestGetPostLikesBatch_InvalidUUIDsSkipped(t *testing.T) {
+	h, mock := setupRPCHandler(t)
+
+	p1 := "550e8400-e29b-41d4-a716-446655440000"
+
+	// "not-a-uuid" must be skipped silently, leaving a single-placeholder query
+	mock.ExpectQuery(`SELECT post_id, COUNT\(\*\) FROM post_likes WHERE post_id IN \(\$1\) GROUP BY post_id`).
+		WithArgs(p1).
+		WillReturnRows(sqlmock.NewRows([]string{"post_id", "count"}).AddRow(p1, 7))
+
+	c, w := newRPCGETContext(map[string]string{"post_ids": p1 + ",not-a-uuid"})
+	h.GetPostLikesBatch(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}

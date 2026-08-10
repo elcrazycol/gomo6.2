@@ -38,6 +38,7 @@ import { EmojiPicker } from "@/components/EmojiPicker";
 import { renderBbCode } from "@/utils/bbcodePlugins";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
+import { useLikesCache } from "@/contexts/LikesCacheContext";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
@@ -112,6 +113,22 @@ const Thread = () => {
     }
   }, [postsPage, postsFetching, postOffset, postsPerPage]);
 
+  const posts = allPosts;
+  const postsContainerRef = useRef<HTMLDivElement>(null);
+  const postsSentinelRef = useRef<HTMLDivElement>(null);
+
+  const [user, setUser] = useState<{ id: string } | null>(null);
+
+  // Preload like counts/status for the visible page with ONE batch request
+  // instead of two RPCs per post (LikeButton per-item calls then hit cache).
+  const { loadLikeDataBatch } = useLikesCache();
+  useEffect(() => {
+    if (postsFetching || postsPage.length === 0) return;
+    const ids = (postsPage as PostWithExtras[]).map(p => p.id);
+    loadLikeDataBatch(ids, user?.id || null, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postsPage, postsFetching, user?.id]);
+
   // Append additional pages (load more)
   const prevPostOffset = useRef(postOffset);
   useEffect(() => {
@@ -141,11 +158,6 @@ const Thread = () => {
     setHasMorePosts(true);
   }, [threadId]);
 
-  const posts = allPosts;
-  const postsContainerRef = useRef<HTMLDivElement>(null);
-  const postsSentinelRef = useRef<HTMLDivElement>(null);
-
-  const [user, setUser] = useState<{ id: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [currentUserUsername, setCurrentUserUsername] = useState("");

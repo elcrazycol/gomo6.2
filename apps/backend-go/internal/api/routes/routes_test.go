@@ -292,6 +292,7 @@ var expectedRoutes = []string{
 	"GET /api/rpc/get_thread_likes_count",
 	"GET /api/rpc/get_recent_post_likers",
 	"GET /api/rpc/get_recent_thread_likers",
+	"GET /api/rpc/get_post_likes_batch",
 	"GET /api/rpc/get_thread_likes_batch",
 	"POST /api/rpc/resolve_emojis",
 	"GET /api/rpc/has_user_liked_post",

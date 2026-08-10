@@ -13,6 +13,20 @@ export const rpc = (functionName: string, params?: Record<string, unknown>) => {
           const res = await apiClient.getThreadLikesCount(params?.thread_uuid as string);
           return { data: res.data, error: null };
         }
+        case 'get_post_likes_batch': {
+          const res = await apiClient.getPostLikesBatch(
+            (params?.post_ids as string)?.split(',').filter(Boolean) || [],
+            params?.user_uuid as string | undefined
+          );
+          return { data: res.data, error: null };
+        }
+        case 'get_thread_likes_batch': {
+          const res = await apiClient.getThreadLikesBatch(
+            (params?.thread_ids as string)?.split(',').filter(Boolean) || [],
+            params?.user_uuid as string | undefined
+          );
+          return { data: res.data, error: null };
+        }
         case 'has_user_liked_post': {
           const res = await apiClient.hasUserLikedPost(params?.post_uuid as string, params?.user_uuid as string);
           return { data: res.data, error: null };

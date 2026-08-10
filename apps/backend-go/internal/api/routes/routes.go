@@ -581,6 +581,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rpc.GET("/get_thread_likes_count", rpcHandler.GetThreadLikesCount)
 		rpc.GET("/get_recent_post_likers", rpcHandler.GetRecentPostLikers)
 		rpc.GET("/get_recent_thread_likers", rpcHandler.GetRecentThreadLikers)
+		rpc.GET("/get_post_likes_batch", rpcHandler.GetPostLikesBatch)
 		rpc.GET("/get_thread_likes_batch", rpcHandler.GetThreadLikesBatch)
 
 		// Emoji resolve (public — guests need to render custom emojis in posts)

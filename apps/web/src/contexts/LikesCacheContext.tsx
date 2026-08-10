@@ -10,6 +10,7 @@ interface LikeData {
 interface LikesCacheContextType {
   getLikeData: (postId: string, isThread: boolean) => LikeData | null;
   loadLikeData: (postId: string, userId: string | null, isThread: boolean) => Promise<LikeData>;
+  loadLikeDataBatch: (postIds: string[], userId: string | null, isThread: boolean) => Promise<void>;
   updateLikeData: (postId: string, isThread: boolean, isLiked: boolean, count: number) => void;
   clearCache: () => void;
 }
@@ -22,6 +23,9 @@ const MAX_CACHE_SIZE = 200;
 export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
   const [cache, setCache] = useState<Map<string, LikeData>>(new Map());
   const pendingRequests = useRef(new Map<string, Promise<LikeData>>());
+  // Batch requests resolve to void (they only fill the cache), so they need
+  // their own pending map — the per-item map is typed Promise<LikeData>.
+  const pendingBatchRequests = useRef(new Map<string, Promise<void>>());
 
   const getCacheKey = (postId: string, isThread: boolean) => `${isThread ? 'thread' : 'post'}:${postId}`;
 
@@ -119,6 +123,71 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
     return request;
   }, [getLikeData, pendingRequests]);
 
+  // Batch loader: fills the cache for many posts/threads with a SINGLE
+  // batch RPC (get_post_likes_batch / get_thread_likes_batch) instead of two
+  // per item. Individual LikeButtons then hit the cache with 0 requests.
+  // Misses (e.g. a like that happened while the batch was in flight) fall
+  // back to loadLikeData's per-item fetch.
+  const loadLikeDataBatch = useCallback(async (
+    postIds: string[],
+    userId: string | null,
+    isThread: boolean
+  ): Promise<void> => {
+    // Deduplicate and drop ids already present in the cache.
+    const ids = [...new Set(postIds)].filter(id => !getLikeData(id, isThread));
+    if (ids.length === 0) return;
+
+    const key = `batch:${isThread ? 'thread' : 'post'}:${ids.join(',')}:${userId || 'anon'}`;
+    const pending = pendingBatchRequests.current.get(key);
+    if (pending) {
+      try { await pending; } catch { /* noop */ }
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        const batchFunction = isThread ? 'get_thread_likes_batch' : 'get_post_likes_batch';
+        const { data: items } = await api.rpc(batchFunction, {
+          [isThread ? 'thread_ids' : 'post_ids']: ids.join(','),
+          user_uuid: userId || ''
+        }) as { data?: Array<{ thread_id?: string; post_id?: string; count?: number; is_liked?: boolean }> };
+
+        const now = Date.now();
+        setCache(prev => {
+          const next = new Map(prev);
+          for (const item of items || []) {
+            const id = isThread ? item.thread_id : item.post_id;
+            if (!id) continue;
+            const itemKey = getCacheKey(id, isThread);
+            // Keep the newest data if something was written while we fetched
+            const existing = next.get(itemKey);
+            if (existing && existing.timestamp > now) continue;
+
+            if (next.size >= MAX_CACHE_SIZE) {
+              const firstKey = next.keys().next().value;
+              if (firstKey) next.delete(firstKey);
+            }
+            next.set(itemKey, {
+              count: item.count ?? 0,
+              isLiked: !!item.is_liked,
+              timestamp: now
+            });
+          }
+          return next;
+        });
+      } catch (error) {
+        // Individual LikeButtons will retry per-item on next mount; the batch
+        // is an optimization, not a correctness dependency.
+        console.warn('Failed to load like data batch:', (error as Error).message);
+      } finally {
+        pendingBatchRequests.current.delete(key);
+      }
+    })();
+
+    pendingBatchRequests.current.set(key, request);
+    try { await request; } catch { /* noop */ }
+  }, [getLikeData, pendingBatchRequests]);
+
   const updateLikeData = useCallback((
     postId: string,
     isThread: boolean,
@@ -140,10 +209,11 @@ export const LikesCacheProvider = ({ children }: { children: ReactNode }) => {
   const clearCache = useCallback(() => {
     setCache(new Map());
     pendingRequests.current.clear();
+    pendingBatchRequests.current.clear();
   }, []);
 
   return (
-    <LikesCacheContext.Provider value={{ getLikeData, loadLikeData, updateLikeData, clearCache }}>
+    <LikesCacheContext.Provider value={{ getLikeData, loadLikeData, loadLikeDataBatch, updateLikeData, clearCache }}>
       {children}
     </LikesCacheContext.Provider>
   );

@@ -650,8 +650,20 @@ class ApiClient {
     return this.request<number>(`/api/rpc/get_post_likes_count?post_uuid=${postUuid}`);
   }
 
+  async getPostLikesBatch(postIds: string[], userUuid?: string): Promise<ApiResponse<Array<{ post_id: string; count: number; is_liked: boolean }>>> {
+    return this.request<Array<{ post_id: string; count: number; is_liked: boolean }>>(
+      `/api/rpc/get_post_likes_batch?post_ids=${postIds.join(',')}${userUuid ? `&user_uuid=${userUuid}` : ''}`
+    );
+  }
+
   async getThreadLikesCount(threadUuid: string): Promise<ApiResponse<number>> {
     return this.request<number>(`/api/rpc/get_thread_likes_count?thread_uuid=${threadUuid}`);
+  }
+
+  async getThreadLikesBatch(threadIds: string[], userUuid?: string): Promise<ApiResponse<Array<{ thread_id: string; count: number; is_liked: boolean }>>> {
+    return this.request<Array<{ thread_id: string; count: number; is_liked: boolean }>>(
+      `/api/rpc/get_thread_likes_batch?thread_ids=${threadIds.join(',')}${userUuid ? `&user_uuid=${userUuid}` : ''}`
+    );
   }
 
   async hasUserLikedPost(postUuid: string, userUuid: string): Promise<ApiResponse<boolean>> {

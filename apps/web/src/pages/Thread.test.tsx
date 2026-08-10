@@ -38,6 +38,10 @@ vi.mock("@/lib/imageProcessing", () => ({ getUserPrivacySettings: () => Promise.
 vi.mock("@/utils/storage", () => ({ storageUrl: () => null }));
 vi.mock("@/utils/bbcodePlugins", () => ({ renderBbCode: () => null }));
 
+vi.mock("@/contexts/LikesCacheContext", () => ({
+  LikesCacheProvider: ({ children }: any) => children,
+  useLikesCache: () => ({ loadLikeDataBatch: vi.fn() }),
+}));
 vi.mock("@/components/PentagramLoader", () => ({ PentagramLoader: () => <div data-testid="pentagram-loader">Loading...</div> }));
 vi.mock("@/components/ProcessedContent", () => ({
   ProcessedContent: ({ content }: { content: string }) => <span data-testid="processed-content">{content}</span>,
