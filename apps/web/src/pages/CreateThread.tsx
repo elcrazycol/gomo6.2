@@ -12,6 +12,7 @@ import { X, Plus, ImagePlus, Minimize2, Maximize2, ArrowLeft } from "lucide-reac
 import { ProfileAttachmentUpload } from "@/components/ProfileAttachmentUpload";
 import { AttachmentMeta } from "@/types/forum";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
+import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
 import { storageUrl, uploadFile } from "@/utils/storage";
 
 interface Board {
@@ -103,6 +104,8 @@ const CreateThread = () => {
   const [isExpandedView, setIsExpandedView] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPoll, setShowPoll] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const editorRef = useRef<GomoRichEditorHandle>(null);
   const [poll, setPoll] = useState<Poll>({
     question: '',
@@ -248,6 +251,12 @@ const CreateThread = () => {
       }
     }
 
+    // Turnstile gate: a fresh widget token is required before creating a thread.
+    if (isTurnstileEnabled() && !turnstileToken) {
+      toast.error('Подтвердите, что вы не робот');
+      return;
+    }
+
     setLoading(true);
     try {
       const { data: { user } } = await api.auth.getUser();
@@ -268,6 +277,7 @@ const CreateThread = () => {
         content_json: contentJson,
         image_urls: imageUrlsFromAttachments.length > 0 ? imageUrlsFromAttachments : (imageUrls.length > 0 ? imageUrls : []),
         attachments: attachments.length > 0 ? attachments : null,
+        cf_turnstile_response: turnstileToken ?? undefined,
       };
 
       // Add poll if enabled
@@ -318,6 +328,7 @@ const CreateThread = () => {
     } catch (error) {
       console.error('Error creating thread:', error);
       toast.error('Ошибка при создании треда');
+      turnstileRef.current?.reset();
     } finally {
       setLoading(false);
     }
@@ -802,6 +813,15 @@ const CreateThread = () => {
                 </div>
               </div>
             </div>
+
+            {/* Cloudflare Turnstile — human verification before creating a thread */}
+            {isTurnstileEnabled() && (
+              <TurnstileWidget
+                ref={turnstileRef}
+                action="create_thread"
+                onToken={setTurnstileToken}
+              />
+            )}
 
             {/* Create Button */}
             <div className="flex justify-end pt-6">

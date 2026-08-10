@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/integrations/api/compat";
 import { apiClient } from "@/integrations/api/client";
@@ -13,6 +13,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { useQueryClient } from "@tanstack/react-query";
 import { supportsWebAuthn, prepareLoginOptions, serializeAuthentication } from "@/services/passkeys";
 import { Shield } from "lucide-react";
+import TurnstileWidget, { isTurnstileEnabled, type TurnstileWidgetHandle } from "@/components/TurnstileWidget";
 
 const authSchema = z.object({
   username: z.string().trim().min(3, "Юзернейм минимум 3 символа").max(20, "Юзернейм максимум 20 символов"),
@@ -31,6 +32,8 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -71,6 +74,12 @@ const Auth = () => {
       return;
     }
 
+    // Turnstile gate: a fresh widget token is required before any auth request.
+    if (isTurnstileEnabled() && !turnstileToken) {
+      toast.error("Подтвердите, что вы не робот");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -78,6 +87,7 @@ const Auth = () => {
         const { data, error } = await api.auth.signInWithPassword({
           username,
           password,
+          turnstileToken: turnstileToken ?? undefined,
         });
 
         if (error) {
@@ -86,6 +96,7 @@ const Auth = () => {
           } else {
             toast.error(error.message);
           }
+          turnstileRef.current?.reset();
           return;
         }
 
@@ -117,6 +128,7 @@ const Auth = () => {
               display_name: displayName.trim() || undefined,
             },
           } as { data?: { display_name?: string } },
+          turnstileToken: turnstileToken ?? undefined,
         });
 
         if (error) {
@@ -125,6 +137,7 @@ const Auth = () => {
           } else {
             toast.error(error.message);
           }
+          turnstileRef.current?.reset();
           return;
         }
 
@@ -148,6 +161,7 @@ const Auth = () => {
       }
     } catch (_: unknown) {
       toast.error("Произошла ошибка");
+      turnstileRef.current?.reset();
     } finally {
       setLoading(false);
     }
@@ -421,6 +435,16 @@ const Auth = () => {
               </div>
             )}
 
+            {/* Cloudflare Turnstile — human verification for login/register */}
+            {isTurnstileEnabled() && (
+              <TurnstileWidget
+                key={isLogin ? "login" : "signup"}
+                ref={turnstileRef}
+                action={isLogin ? "login" : "signup"}
+                onToken={setTurnstileToken}
+              />
+            )}
+
             <Button type="submit" className="w-full" disabled={loading || (!isLogin && !agreedToTerms)}>
               {loading ? "Загрузка..." : isLogin ? "Войти" : "Зарегистрироваться"}
             </Button>
@@ -454,6 +478,8 @@ const Auth = () => {
               onClick={() => {
                 setIsLogin(!isLogin);
                 setAgreedToTerms(false);
+                setTurnstileToken(null);
+                turnstileRef.current?.reset();
               }}
               className="text-link hover:underline"
               disabled={loading}

@@ -94,6 +94,13 @@ DOMAIN=gomo6.wtf
 JWT_SECRET=<взять из старого .env или сгенерировать: openssl rand -hex 32>
 FEDERATION_KEY=<взять из старого .env или сгенерировать: openssl rand -hex 16>
 ENVIRONMENT=production
+# Cloudflare Turnstile (CAPTCHA) — secret из dash.cloudflare.com → Turnstile → виджет.
+# В продакшене hostnames БЕЗ localhost/127.0.0.1!
+TURNSTILE_SECRET=<секрет виджета Turnstile>
+TURNSTILE_HOSTNAMES=gomo6.wtf
+# Публичный sitekey — для локальной сборки web (в CI передаётся секретом
+# VITE_TURNSTILE_SITEKEY в .forgejo/workflows/deploy.yml).
+VITE_TURNSTILE_SITEKEY=0x4AAAAAAEMbiZqJKU7PLzRG
 ALLOWED_ORIGINS=https://gomo6.wtf,http://gomo6.wtf,https://docs.gomo6.wtf,http://docs.gomo6.wtf,https://dev.gomo6.wtf,http://dev.gomo6.wtf
 EOF
 chmod 600 .env

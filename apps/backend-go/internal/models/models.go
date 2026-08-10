@@ -320,6 +320,7 @@ type CreateThreadRequest struct {
 	Attachments       JSONB           `json:"attachments,omitempty"` // Added for full attachment support
 	Poll              *PollRequest    `json:"poll,omitempty"`
 	BoardServerDomain string          `json:"board_server_domain,omitempty"`
+	TurnstileToken    string          `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token (browser submissions)
 }
 
 type CreatePostRequest struct {
@@ -332,20 +333,23 @@ type CreatePostRequest struct {
 	IsPrivate          bool            `json:"is_private"`
 	PrivateRecipientID *string         `json:"private_recipient_id,omitempty"`
 	ThreadServerDomain string          `json:"thread_server_domain,omitempty"`
+	TurnstileToken     string          `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token (browser submissions)
 }
 
 type RegisterRequest struct {
-	Username    string  `json:"username"`
-	DisplayName *string `json:"display_name,omitempty"`
-	Email       *string `json:"email,omitempty"`
-	Password    string  `json:"password"`
-	Website     string  `json:"website,omitempty"` // Honeypot field — must be empty
+	Username       string  `json:"username"`
+	DisplayName    *string `json:"display_name,omitempty"`
+	Email          *string `json:"email,omitempty"`
+	Password       string  `json:"password"`
+	Website        string  `json:"website,omitempty"`               // Honeypot field — must be empty
+	TurnstileToken string  `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token
 }
 
 type LoginRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"` // backward compat: old frontend sends email
-	Password string `json:"password"`
+	Username       string `json:"username"`
+	Email          string `json:"email"` // backward compat: old frontend sends email
+	Password       string `json:"password"`
+	TurnstileToken string `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token
 }
 
 // GomosubInvite — invite link for private gomosubs

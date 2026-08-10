@@ -69,6 +69,7 @@ describe("apiAuth", () => {
         "testuser",
         "secret123",
         "Test User",
+        undefined,
       );
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.data?.session?.access_token).toBe("token-1");
@@ -90,6 +91,28 @@ describe("apiAuth", () => {
         "testuser",
         "secret123",
         undefined,
+        undefined,
+      );
+      expect(result.error).toBeNull();
+    });
+
+    it("forwards the Turnstile token to apiClient.register", async () => {
+      mockRegister.mockResolvedValue({
+        token: "token-1",
+        user: { id: "user-1", username: "testuser" },
+      });
+
+      const result = await apiAuth.signUp({
+        username: "testuser",
+        password: "secret123",
+        turnstileToken: "cf-token-123",
+      });
+
+      expect(mockRegister).toHaveBeenCalledWith(
+        "testuser",
+        "secret123",
+        undefined,
+        "cf-token-123",
       );
       expect(result.error).toBeNull();
     });
@@ -126,10 +149,32 @@ describe("apiAuth", () => {
         "testuser",
         "secret123",
         "test-device-token",
+        undefined,
       );
       expect(result.data?.user).toEqual({ id: "user-1", username: "testuser" });
       expect(result.data?.session?.access_token).toBe("token-1");
       expect(result.data?.session?.needs_2fa).toBeUndefined();
+      expect(result.error).toBeNull();
+    });
+
+    it("forwards the Turnstile token to apiClient.login", async () => {
+      mockLogin.mockResolvedValue({
+        token: "token-1",
+        user: { id: "user-1", username: "testuser" },
+      });
+
+      const result = await apiAuth.signInWithPassword({
+        username: "testuser",
+        password: "secret123",
+        turnstileToken: "cf-token-456",
+      });
+
+      expect(mockLogin).toHaveBeenCalledWith(
+        "testuser",
+        "secret123",
+        "test-device-token",
+        "cf-token-456",
+      );
       expect(result.error).toBeNull();
     });
 

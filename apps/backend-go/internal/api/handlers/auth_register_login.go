@@ -46,6 +46,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	// ── Cloudflare Turnstile check (server-side siteverify, fail closed) ──
+	// Browser submissions must carry a valid token minted for the "signup"
+	// action on an approved frontend hostname. Missing/misconfigured secret or
+	// hostname allowlist rejects the request.
+	if !verifyTurnstileForRequest(c, req.TurnstileToken, "signup") {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Turnstile verification failed"))
+		return
+	}
+
 	// Validate password strength
 	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -129,11 +138,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Username    string `json:"username"`
-		Email       string `json:"email"` // backward compat: old frontend sends email
-		Password    string `json:"password"`
-		DeviceToken string `json:"device_token,omitempty"`
-		Website     string `json:"website,omitempty"` // Honeypot field — must be empty
+		Username       string `json:"username"`
+		Email          string `json:"email"` // backward compat: old frontend sends email
+		Password       string `json:"password"`
+		DeviceToken    string `json:"device_token,omitempty"`
+		Website        string `json:"website,omitempty"`               // Honeypot field — must be empty
+		TurnstileToken string `json:"cf_turnstile_response,omitempty"` // Cloudflare Turnstile token
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -152,6 +162,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		log.Printf("[Honeypot] Bot detected on login from IP %s (website=%q)", clientIP, req.Website)
 		// Silently succeed to mislead the bot — generic invalid credentials
 		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Invalid credentials"))
+		return
+	}
+
+	// ── Cloudflare Turnstile check (server-side siteverify, fail closed) ──
+	// Browser submissions must carry a valid token minted for the "login"
+	// action on an approved frontend hostname.
+	if !verifyTurnstileForRequest(c, req.TurnstileToken, "login") {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Turnstile verification failed"))
 		return
 	}
 

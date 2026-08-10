@@ -4,22 +4,23 @@ import { apiClient, getDeviceToken } from './client';
 import { useNotificationStore } from '@/stores/notificationStore';
 
 export const apiAuth = {
-  signUp: async ({ username, password, options }: { username: string; password: string; options?: { data?: { display_name?: string } } }) => {
+  signUp: async ({ username, password, options, turnstileToken }: { username: string; password: string; options?: { data?: { display_name?: string } }; turnstileToken?: string }) => {
     try {
       const result = await apiClient.register(
         username,
         password,
-        options?.data?.display_name
+        options?.data?.display_name,
+        turnstileToken
       );
       return { data: { user: result.user, session: { access_token: result.token } }, error: null };
     } catch (error) {
       return { data: null, error: { message: (error as Error).message } };
     }
   },
-  signInWithPassword: async ({ username, password }: { username: string; password: string }) => {
+  signInWithPassword: async ({ username, password, turnstileToken }: { username: string; password: string; turnstileToken?: string }) => {
     try {
       const deviceToken = getDeviceToken();
-      const result = await apiClient.login(username, password, deviceToken);
+      const result = await apiClient.login(username, password, deviceToken, turnstileToken);
       
       if (result.needs_2fa) {
         return { 

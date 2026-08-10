@@ -28,6 +28,22 @@ vi.mock("@/services/websocket", () => ({
   },
 }));
 
+// Turnstile — .env.local sets VITE_TURNSTILE_SITEKEY, so the widget is active.
+// Mock it as always "solved": it hands a fresh token to the form immediately.
+vi.mock("@/components/TurnstileWidget", async () => {
+  const { forwardRef, useEffect } =
+    await vi.importActual<typeof import("react")>("react");
+  return {
+    isTurnstileEnabled: () => true,
+    default: forwardRef((props: any, _ref: any) => {
+      useEffect(() => {
+        props.onToken("test-turnstile-token");
+      }, []);
+      return null;
+    }),
+  };
+});
+
 // ─── Auth API mocks ──────────────────────────────────────────────────────────
 
 const mockSignIn = vi.fn();
@@ -217,6 +233,7 @@ describe("Auth Page", () => {
       expect(mockSignIn).toHaveBeenCalledWith({
         username: "testuser",
         password: "secret123",
+        turnstileToken: "test-turnstile-token",
       });
       expect(mockNavigate).toHaveBeenCalledWith("/", { replace: true });
     });
@@ -313,6 +330,7 @@ describe("Auth Page", () => {
         options: {
           data: { display_name: undefined },
         },
+        turnstileToken: "test-turnstile-token",
       });
     });
 

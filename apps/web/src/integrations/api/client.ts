@@ -330,10 +330,13 @@ class ApiClient {
   }
 
   // Auth Methods
-  async register(username: string, password: string, displayName?: string): Promise<AuthResponse> {
+  async register(username: string, password: string, displayName?: string, turnstileToken?: string): Promise<AuthResponse> {
     const body: Record<string, string> = { username, password };
     if (displayName) {
       body.display_name = displayName;
+    }
+    if (turnstileToken) {
+      body.cf_turnstile_response = turnstileToken;
     }
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/register', {
@@ -352,11 +355,15 @@ class ApiClient {
   async login(
     username: string,
     password: string,
-    deviceToken?: string
+    deviceToken?: string,
+    turnstileToken?: string
   ): Promise<AuthResponse & { needs_2fa?: boolean }> {
     const body: Record<string, string | boolean> = { username, password };
     if (deviceToken) {
       body.device_token = deviceToken;
+    }
+    if (turnstileToken) {
+      body.cf_turnstile_response = turnstileToken;
     }
 
     const response = await this.request<Record<string, unknown>>('/api/v1/auth/login', {

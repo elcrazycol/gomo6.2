@@ -187,6 +187,11 @@ services:
       # Spotify
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+      # Cloudflare Turnstile (CAPTCHA) — server-side siteverify secret + the
+      # frontend hostname allowlist (comma-separated). Production must NOT
+      # include localhost/127.0.0.1.
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+      TURNSTILE_HOSTNAMES: ${TURNSTILE_HOSTNAMES:-gomo6.wtf}
       # Garage S3 — credentials from /garage-keys/s3.env (written by garage-init)
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
@@ -208,6 +213,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        VITE_TURNSTILE_SITEKEY: ${VITE_TURNSTILE_SITEKEY:-}
     restart: unless-stopped
 
   # ── Frontend: Documentation ───────────────────────────────────────────────

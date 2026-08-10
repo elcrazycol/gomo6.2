@@ -68,6 +68,26 @@ describe("ApiClient auth methods", () => {
       expect(apiClient.getToken()).toBe("test-token");
     });
 
+    it("includes cf_turnstile_response when a Turnstile token is provided", async () => {
+      mockFetch({
+        success: true,
+        data: {
+          token: "test-token",
+          user: { id: "user-1", username: "newuser" },
+        },
+      });
+
+      await apiClient.register(
+        "newuser",
+        "secret123",
+        undefined,
+        "cf-token-abc",
+      );
+
+      const callBody = JSON.parse((fetch as any).mock.calls[0][1].body);
+      expect(callBody.cf_turnstile_response).toBe("cf-token-abc");
+    });
+
     it("throws on error response", async () => {
       mockFetchError("Username already taken");
 
@@ -128,6 +148,26 @@ describe("ApiClient auth methods", () => {
         (fetch as any).mock.calls[0][1].body,
       );
       expect(callBody.device_token).toBe("device-token-abc");
+    });
+
+    it("includes cf_turnstile_response when a Turnstile token is provided", async () => {
+      mockFetch({
+        success: true,
+        data: {
+          token: "token",
+          user: { id: "user-1" },
+        },
+      });
+
+      await apiClient.login(
+        "testuser",
+        "pass",
+        undefined,
+        "cf-token-def",
+      );
+
+      const callBody = JSON.parse((fetch as any).mock.calls[0][1].body);
+      expect(callBody.cf_turnstile_response).toBe("cf-token-def");
     });
 
     it("sets needs_2fa flag without saving token", async () => {

@@ -42,6 +42,8 @@
 #                   `read:package` and `write:package` scopes. Used by the
 #                   runner to push images to codeberg.org/crazycol/*.
 #   VITE_DEPAY_INTEGRATION_ID (only used by the web build)
+#   VITE_TURNSTILE_SITEKEY — Cloudflare Turnstile public sitekey (only used by
+#                            the web build; it is a PUBLIC key, safe in CI)
 #
 # One-time setup:
 #   - Runner: native forgejo-runner binary + `.forgejo-runner.yaml` with
@@ -221,7 +223,7 @@ jobs:
           # plain string instead (values never contain spaces).
           BUILD_ARGS=""
           if [ "${{ matrix.service }}" = "web" ]; then
-            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }}"
+            BUILD_ARGS="--build-arg VITE_GIT_COMMIT=${{ github.sha }} --build-arg VITE_DEPAY_INTEGRATION_ID=${{ secrets.VITE_DEPAY_INTEGRATION_ID }} --build-arg VITE_TURNSTILE_SITEKEY=${{ secrets.VITE_TURNSTILE_SITEKEY }}"
           fi
           # --push + layer dedup: only layers the registry does not have yet
           # travel over the uplink (docker push checks each blob). The heavy
