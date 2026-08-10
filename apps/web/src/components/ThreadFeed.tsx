@@ -17,6 +17,8 @@ interface Thread {
   post_count: number;
   profiles: {
     username: string;
+    display_name?: string | null;
+    nickname_emoji_id?: string | null;
     is_anonymous: boolean;
     avatar_url?: string | null;
   } | null;
@@ -128,6 +130,8 @@ export const ThreadFeed = ({
               ...thread,
               profiles: {
                 username: (thread.username as string) || "Аноним",
+                display_name: thread.display_name as string | null,
+                nickname_emoji_id: thread.nickname_emoji_id as string | null,
                 is_anonymous: Boolean(thread.is_anonymous),
                 avatar_url: thread.avatar_url as string | null,
               },
@@ -159,6 +163,8 @@ export const ThreadFeed = ({
         ...thread,
         profiles: {
           username: (thread.username as string) || "Аноним",
+          display_name: thread.display_name as string | null,
+          nickname_emoji_id: thread.nickname_emoji_id as string | null,
           is_anonymous: Boolean(thread.is_anonymous),
           avatar_url: thread.avatar_url as string | null,
         },
