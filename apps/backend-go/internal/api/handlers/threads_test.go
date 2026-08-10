@@ -24,16 +24,17 @@ func TestGetThreads_Success_NoFilter(t *testing.T) {
 		"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
 		"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
 		"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+		"display_name", "nickname_emoji_id",
 		"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
 	}).AddRow(
 		"t1", "b1", nil, "u1", "Thread Title", "Thread content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "testuser", nil, false,
+		time.Now(), time.Now(), false, "testuser", nil, false, nil, nil,
 		"general", "General", false, false,
 	).AddRow(
 		"t2", "b2", nil, "u2", "Another Thread", "More content", nil,
 		nil, "[]", "[]", "[]", 3, "localhost:8080",
-		time.Now(), time.Now(), false, "user2", nil, false,
+		time.Now(), time.Now(), false, "user2", nil, false, nil, nil,
 		"random", "Random", true, false,
 	)
 
@@ -66,11 +67,12 @@ func TestGetThreads_Success_WithBoardFilter(t *testing.T) {
 		"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
 		"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
 		"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+		"display_name", "nickname_emoji_id",
 		"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
 	}).AddRow(
 		"t1", "b1", nil, "u1", "Thread Title", "Thread content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "testuser", nil, false,
+		time.Now(), time.Now(), false, "testuser", nil, false, nil, nil,
 		"general", "General", false, false,
 	)
 
@@ -111,11 +113,12 @@ func TestGetThread_Success(t *testing.T) {
 		"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
 		"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
 		"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+		"display_name", "nickname_emoji_id",
 		"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
 	}).AddRow(
 		"550e8400-e29b-41d4-a716-446655440000", "b1", nil, "u1", "Thread Title", "Content", nil,
 		nil, "[]", "[]", "[]", 5, "localhost:8080",
-		time.Now(), time.Now(), false, "testuser", nil, false,
+		time.Now(), time.Now(), false, "testuser", nil, false, nil, nil,
 		"general", "General", false, false,
 	)
 

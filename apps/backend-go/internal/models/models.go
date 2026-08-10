@@ -139,26 +139,28 @@ type Thread struct {
 
 // ThreadWithBoards extends Thread with board information for frontend compatibility
 type ThreadWithBoards struct {
-	ID           string          `json:"id" db:"id"`
-	BoardID      string          `json:"board_id" db:"board_id"`
-	ChannelID    *string         `json:"channel_id,omitempty" db:"channel_id"`
-	UserID       *string         `json:"user_id" db:"user_id"`
-	Title        string          `json:"title" db:"title"`
-	Content      string          `json:"content" db:"content"`
-	ContentJSON  json.RawMessage `json:"content_json" db:"content_json"`
-	ImageURL     *string         `json:"image_url" db:"image_url"`
-	ImageURLs    JSONB           `json:"image_urls" db:"image_urls"`
-	Attachments  JSONB           `json:"attachments" db:"attachments"` // Added for full attachment support
-	Tags         json.RawMessage `json:"tags" db:"tags"`
-	PostCount    int             `json:"post_count" db:"post_count"`
-	ServerDomain string          `json:"server_domain" db:"server_domain"`
-	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at" db:"updated_at"`
-	IsRemote     bool            `json:"is_remote" db:"is_remote"`
-	Username     string          `json:"username"`
-	AvatarURL    *string         `json:"avatar_url"`
-	IsAnonymous  bool            `json:"is_anonymous"`
-	Boards       BoardInfo       `json:"boards"`
+	ID              string          `json:"id" db:"id"`
+	BoardID         string          `json:"board_id" db:"board_id"`
+	ChannelID       *string         `json:"channel_id,omitempty" db:"channel_id"`
+	UserID          *string         `json:"user_id" db:"user_id"`
+	Title           string          `json:"title" db:"title"`
+	Content         string          `json:"content" db:"content"`
+	ContentJSON     json.RawMessage `json:"content_json" db:"content_json"`
+	ImageURL        *string         `json:"image_url" db:"image_url"`
+	ImageURLs       JSONB           `json:"image_urls" db:"image_urls"`
+	Attachments     JSONB           `json:"attachments" db:"attachments"` // Added for full attachment support
+	Tags            json.RawMessage `json:"tags" db:"tags"`
+	PostCount       int             `json:"post_count" db:"post_count"`
+	ServerDomain    string          `json:"server_domain" db:"server_domain"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
+	IsRemote        bool            `json:"is_remote" db:"is_remote"`
+	Username        string          `json:"username"`
+	DisplayName     *string         `json:"display_name"`
+	NicknameEmojiID *string         `json:"nickname_emoji_id"`
+	AvatarURL       *string         `json:"avatar_url"`
+	IsAnonymous     bool            `json:"is_anonymous"`
+	Boards          BoardInfo       `json:"boards"`
 }
 
 type BoardInfo struct {

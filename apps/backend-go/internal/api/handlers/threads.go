@@ -167,7 +167,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	baseQuery := `
 		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
-		       u.username, u.avatar_url, u.is_anonymous,
+		       u.username, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
 		FROM threads t
 		LEFT JOIN users u ON t.user_id = u.id
@@ -367,6 +367,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 	for rows.Next() {
 		var thread models.ThreadWithBoards
 		var avatarURL sql.NullString
+		var displayName, nicknameEmojiID sql.NullString
 		var boardSlug, boardName string
 		var boardIsGomosub, boardIsRulesBoard bool
 		var contentJSON, tagsJSON []byte
@@ -377,6 +378,7 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 			&thread.ID, &thread.BoardID, &channelID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 			&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 			&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL, &thread.IsAnonymous,
+			&displayName, &nicknameEmojiID,
 			&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 		)
 		if err != nil {
@@ -388,6 +390,12 @@ func (h *ThreadsHandler) GetThreads(c *gin.Context) {
 		}
 		if avatarURL.Valid {
 			thread.AvatarURL = &avatarURL.String
+		}
+		if displayName.Valid {
+			thread.DisplayName = &displayName.String
+		}
+		if nicknameEmojiID.Valid {
+			thread.NicknameEmojiID = &nicknameEmojiID.String
 		}
 		if len(contentJSON) > 0 {
 			var decoded interface{}
@@ -441,7 +449,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	query := `
 		SELECT t.id, t.board_id, t.channel_id, t.user_id, t.title, t.content, t.content_json, t.image_url, t.image_urls,
 		       t.attachments, t.tags, t.post_count, t.server_domain, t.created_at, t.updated_at, t.is_remote,
-		       u.username, u.avatar_url, u.is_anonymous,
+		       u.username, u.avatar_url, u.is_anonymous, u.display_name, u.nickname_emoji_id,
 		       b.slug as board_slug, b.name as board_name, b.is_gomosub as board_is_gomosub, b.is_rules_board as board_is_rules_board
 		FROM threads t
 		LEFT JOIN users u ON t.user_id = u.id
@@ -451,6 +459,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 	var thread models.ThreadWithBoards
 	var avatarURL sql.NullString
+	var displayName, nicknameEmojiID sql.NullString
 	var boardSlug, boardName string
 	var boardIsGomosub, boardIsRulesBoard bool
 	var contentJSON []byte
@@ -462,6 +471,7 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 		&thread.ID, &thread.BoardID, &channelID, &thread.UserID, &thread.Title, &thread.Content, &contentJSON,
 		&thread.ImageURL, &thread.ImageURLs, &thread.Attachments, &tagsJSON, &thread.PostCount, &thread.ServerDomain,
 		&thread.CreatedAt, &thread.UpdatedAt, &thread.IsRemote, &thread.Username, &avatarURL, &thread.IsAnonymous,
+		&displayName, &nicknameEmojiID,
 		&boardSlug, &boardName, &boardIsGomosub, &boardIsRulesBoard,
 	)
 
@@ -487,6 +497,12 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 	}
 	if avatarURL.Valid {
 		thread.AvatarURL = &avatarURL.String
+	}
+	if displayName.Valid {
+		thread.DisplayName = &displayName.String
+	}
+	if nicknameEmojiID.Valid {
+		thread.NicknameEmojiID = &nicknameEmojiID.String
 	}
 	if len(contentJSON) > 0 {
 		var decoded interface{}

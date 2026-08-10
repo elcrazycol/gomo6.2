@@ -54,6 +54,7 @@ interface FeedThread {
   profiles: {
     username: string;
     display_name?: string | null;
+    nickname_emoji_id?: string | null;
     is_anonymous: boolean;
     avatar_url?: string | null;
   } | null;
@@ -258,9 +259,9 @@ const Index = () => {
       const { data: threadAuthors } = threadAuthorIds.length
         ? await api
             .from("profiles")
-            .select("id, username, is_anonymous, avatar_url")
+            .select("id, username, display_name, nickname_emoji_id, is_anonymous, avatar_url")
             .in("id", threadAuthorIds)
-        : { data: [] as { id: string; username: string; is_anonymous: boolean; avatar_url?: string | null }[] };
+        : { data: [] as { id: string; username: string; display_name?: string | null; nickname_emoji_id?: string | null; is_anonymous: boolean; avatar_url?: string | null }[] };
 
       const feedThreads = dedupThreads.map((thread: Record<string, unknown>) => ({
         ...thread,
