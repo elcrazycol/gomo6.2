@@ -166,7 +166,8 @@ const response = await fetch('http://localhost:8080/rest/v1/posts', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+    // Auth is handled via HttpOnly cookies — the fetch inherits the session
+    // automatically, no token needs to be read from storage.
   },
   body: JSON.stringify({
     thread_id: threadId,
@@ -181,7 +182,7 @@ const response = await fetch('http://localhost:8080/rest/v1/posts', {
 });
 
 const data = await response.json();
-// IMPORTANT: Extract post from SupabaseResponse wrapper
+// IMPORTANT: Extract post from the API response wrapper
 const postData = data.data || data;
 ```
 
@@ -199,7 +200,7 @@ const postData = data.data || data;
 **Fixes Applied:**
 1. Created migration `017_add_posts_attachments.sql`
 2. Updated `CreatePost` handler to include attachments in all SQL operations
-3. Updated frontend to use backend API instead of direct Supabase insert
+3. Updated frontend to use backend API instead of direct database insert
 4. Fixed frontend response parsing (`data.data` not `data`)
 
 ### Issue: "Presign failed: 500" error
@@ -267,11 +268,13 @@ curl -X POST http://localhost:8080/storage/v1/upload \
   -H "Authorization: Bearer <token>" \
   -F "file=@test.jpg" \
   -F "bucket=uploads"
-```
+```## Historical: migration from direct DB access to Backend API
+> Historical context only. The project previously talked to a hosted PostgREST
+> backend (whose SDK was branded "Supabase"); it now runs its own backend and
+> the frontend uses `@/integrations/api/client` (PostgREST-compatible) with auth
+> via HttpOnly cookies. The snippet below is the OLD approach, kept for reference.
 
-## Migration from Direct Supabase to Backend API
-
-The frontend was changed from direct Supabase insertion to backend API:
+The frontend was changed from direct insertion to backend API:
 
 **Before (broken)**:
 ```typescript
@@ -301,7 +304,7 @@ await fetch('http://localhost:8080/rest/v1/posts', {
 This was necessary because:
 1. Backend API handles all database columns correctly
 2. Backend validates empty posts (no text + no attachments)
-3. Backend returns proper SupabaseResponse format
+3. Backend returns proper API response wrapper format
 4. Frontend can properly parse the response
 
 ## Date: April 4, 2026

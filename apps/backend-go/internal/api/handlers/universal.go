@@ -430,7 +430,7 @@ func (h *UniversalHandler) checkGomosubWritePermission(c *gin.Context, tableName
 			boardID = bf
 		}
 	}
-	// Strip eq. prefix if present (Supabase-style filter format)
+	// Strip eq. prefix if present (PostgREST-style filter format)
 	boardID = strings.TrimPrefix(boardID, "eq.")
 
 	// For POST, board_id is typically in the JSON body

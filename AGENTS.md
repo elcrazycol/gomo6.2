@@ -191,7 +191,7 @@ npx tsc --noEmit -p apps/docs/tsconfig.json
 
 ## Frontend conventions
 
-- API client: `@/integrations/api/client_simple` (Supabase-compatible layer)
+- API client: `@/integrations/api/client` (PostgREST-compatible REST layer: `api.from(...)` query builder + raw `apiClient` for custom routes; auth via HttpOnly cookies)
 - State: Zustand stores in `src/stores/`
 - Path alias: `@` → `src/` (configured in vite.config.ts and tsconfig)
 - UI: Radix UI primitives + Tailwind + class-variance-authority

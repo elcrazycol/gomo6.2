@@ -118,10 +118,11 @@ const handleSubmit = async () => {
   // 1. Устанавливаем timestamp ДО запроса
   onBeforeCreate?.();
   
-  // 2. Отправляем API запрос
-  const { data, error } = await supabase
+  // 2. Отправляем API запрос (собственный PostgREST-совместимый клиент,
+  //    auth — через HttpOnly cookies, токен в localStorage не хранится)
+  const { data, error } = await api
     .from("profile_wall_posts")
-    .insert([postData])
+    .insert(postData)
     .select()
     .single();
   

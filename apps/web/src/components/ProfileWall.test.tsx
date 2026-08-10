@@ -112,7 +112,7 @@ vi.mock("@/components/AudioAttachment", () => ({
 // ─── Query Builder Mocks ─────────────────────────────────────────────────────
 
 /**
- * Creates an infinitely chainable mock for Supabase-style query chains.
+ * Creates an infinitely chainable mock for PostgREST-style query chains.
  *
  * Supports:
  *   .select().eq().order().order().order().in().maybeSingle().single()
