@@ -24,13 +24,37 @@ interface WallCommentComposerProps {
 }
 
 // Keep slightly above the CSS transition duration (300ms) so the collapse
-// animation always completes before the pill is swapped back in.
+// animation always completes before the box is unmounted.
 const COLLAPSE_TIMEOUT_MS = 320;
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const Pill = ({
+  label,
+  onClick,
+  className = "",
+  hidden = false,
+}: {
+  label: string;
+  onClick: () => void;
+  className?: string;
+  hidden?: boolean;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label={label}
+    aria-hidden={hidden}
+    tabIndex={hidden ? -1 : 0}
+    className={`group flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border/70 bg-background/80 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+  >
+    <Sparkles className="h-4 w-4 text-primary/70 transition-transform group-hover:rotate-12" />
+    <span>{label}</span>
+  </button>
+);
 
 export const WallCommentComposer = ({
   placeholder,
@@ -102,81 +126,89 @@ export const WallCommentComposer = ({
   const editorPlaceholder = replyTo ? "Напишите ответ" : placeholder;
   const pillLabel = replyTo ? `Ответ для @${replyTo.name}…` : `${placeholder}…`;
 
-  if (focusToExpand && !expanded && !closing && !text.trim()) {
-    return (
-      <button
-        type="button"
-        className="group flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border/70 bg-background/80 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => setExpanded(true)}
-        aria-label={pillLabel}
-      >
-        <Sparkles className="h-4 w-4 text-primary/70 transition-transform group-hover:rotate-12" />
-        <span>{pillLabel}</span>
-      </button>
-    );
+  const showBox = !focusToExpand || expanded || closing || Boolean(text.trim());
+
+  // Collapsed: just the quiet one-line prompt.
+  if (focusToExpand && !showBox) {
+    return <Pill label={pillLabel} onClick={() => setExpanded(true)} />;
   }
 
+  // The pill stays mounted UNDER the editor at all times — while expanded it is
+  // hidden and covered by the opaque box, and during the collapse it is revealed
+  // as the box fades away. Nothing ever gets "swapped in", so there is no flash.
+  const underlayHidden = expanded && !closing;
+
   return (
-    <div
-      onBlur={handleBlur}
-      className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${closing ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
-    >
-      <div className="min-h-0 overflow-hidden">
-        <div className={`space-y-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`}>
-          {replyTo && (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/[0.06] px-2.5 py-1.5">
-              <span className="min-w-0 truncate text-xs text-foreground/80">
-                Ответ <span className="font-semibold text-primary">@{replyTo.name}</span>
-              </span>
-              {onCancel && (
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  aria-label="Отменить ответ"
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          )}
-          <GomoRichEditor
-            autoFocus={autoFocus}
-            resetKey={resetKey}
-            maxLength={maxLength}
-            contentJson={json}
-            legacyContent={text}
-            onChange={onChange}
-            onSubmit={onSubmit}
-            placeholder={editorPlaceholder}
-            minHeightClassName={compact ? "min-h-[60px]" : "min-h-[84px]"}
-            showToolbar={!compact || isExpanded}
-          />
-          <div className="flex items-center justify-end gap-2">
-            {onCancel && (
-              <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-                Отмена
-              </Button>
+    <div className={`relative ${focusToExpand ? "min-h-11" : ""}`}>
+      {focusToExpand && (
+        <Pill
+          label={pillLabel}
+          onClick={() => setExpanded(true)}
+          hidden={underlayHidden}
+          className={`absolute inset-x-0 bottom-0 transition-opacity ${underlayHidden ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        />
+      )}
+      <div
+        onBlur={handleBlur}
+        className={`relative z-10 grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none ${closing ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className={`space-y-2 rounded-2xl border border-border/70 bg-background p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`}>
+            {replyTo && (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/[0.06] px-2.5 py-1.5">
+                <span className="min-w-0 truncate text-xs text-foreground/80">
+                  Ответ <span className="font-semibold text-primary">@{replyTo.name}</span>
+                </span>
+                {onCancel && (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    aria-label="Отменить ответ"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             )}
-            <Button
-              type="button"
-              size="sm"
-              className="rounded-xl"
-              onClick={onSubmit}
-              disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim()) || text.trim() === "\u200b"}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  Отправляем
-                </>
-              ) : (
-                <>
-                  <Send className="mr-1 h-3 w-3" />
-                  Ответить
-                </>
+            <GomoRichEditor
+              autoFocus={autoFocus}
+              resetKey={resetKey}
+              maxLength={maxLength}
+              contentJson={json}
+              legacyContent={text}
+              onChange={onChange}
+              onSubmit={onSubmit}
+              placeholder={editorPlaceholder}
+              minHeightClassName={compact ? "min-h-[60px]" : "min-h-[84px]"}
+              showToolbar={!compact || isExpanded}
+            />
+            <div className="flex items-center justify-end gap-2">
+              {onCancel && (
+                <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+                  Отмена
+                </Button>
               )}
-            </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-xl"
+                onClick={onSubmit}
+                disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim()) || text.trim() === "\u200b"}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    Отправляем
+                  </>
+                ) : (
+                  <>
+                    <Send className="mr-1 h-3 w-3" />
+                    Ответить
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

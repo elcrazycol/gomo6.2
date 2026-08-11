@@ -143,7 +143,7 @@ export const WallCommentNode = ({
       )}
       <div
         data-wall-highlighted={isHighlighted ? "true" : undefined}
-        className={`group relative z-10 rounded-2xl py-2.5 transition-[background-color,box-shadow,color] duration-500 motion-reduce:transition-none hover:bg-muted/20 ${isHighlighted ? "bg-primary/5 ring-2 ring-primary/30" : ""}`}
+        className={`group relative z-10 rounded-2xl py-2.5 transition-[background-color,box-shadow,color] duration-500 motion-reduce:transition-none hover:bg-muted/20 ${isHighlighted ? "bg-primary/[0.03] ring-1 ring-primary/15" : ""}`}
       >
           <div className="relative flex items-start gap-3">
             {hasChildren && (

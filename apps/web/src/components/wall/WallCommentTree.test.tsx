@@ -332,7 +332,9 @@ describe("WallCommentTree", () => {
     await userEvent.click(replyAction!);
 
     expect(await screen.findByPlaceholderText("Напишите ответ")).toBeInTheDocument();
-    expect(screen.getByText(/@alice/)).toBeInTheDocument();
+    // The @name chip inside the composer box (the hidden underlay pill also
+    // mentions the name, so anchor on the exact chip text).
+    expect(screen.getByText(/^@alice$/)).toBeInTheDocument();
   });
 
   it("cancels reply mode back to a plain comment", async () => {
@@ -675,10 +677,11 @@ describe("WallCommentTree", () => {
     });
     expect(container.querySelector("[data-comment-id='fresh-1'] [data-wall-highlighted='true']"))
       .toBeInTheDocument();
-    // The pill folds back after a successful submit
+    // The editor box folds back into the quiet pill after a successful submit
     await waitFor(() => {
-      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Напишите комментарий")).not.toBeInTheDocument();
     });
+    expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
   });
 
   it("highlights a newly published reply and greets it with its own toast", async () => {
