@@ -34,6 +34,12 @@ import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 
+// Duration of the comments expand/collapse grid animation. The scroll nudge
+// waits for it to finish (plus a small buffer) so it measures the settled
+// height — keep the nudge delay in sync with this constant.
+const COMMENTS_EXPAND_MS = 300;
+const COMMENTS_NUDGE_DELAY_MS = COMMENTS_EXPAND_MS + 150;
+
 interface WallPostCardProps {
   post: WallPost;
   profileUserId: string;
@@ -95,6 +101,9 @@ export const WallPostCard = ({
       return;
     }
     if (initialMountRef.current) return;
+    // Wait for the expand animation + the comments fetch to settle: nudging
+    // during the animation measures the still-growing section (or the skeleton)
+    // and leaves the page in the wrong place once the real height lands.
     const timer = window.setTimeout(() => {
       const el = commentsRef.current;
       if (!el) return;
@@ -106,7 +115,7 @@ export const WallPostCard = ({
           duration: 650,
         });
       }
-    }, 60);
+    }, COMMENTS_NUDGE_DELAY_MS);
     return () => window.clearTimeout(timer);
   }, [commentsOpen]);
   const [isLiking, setIsLiking] = useState(false);
@@ -421,29 +430,40 @@ export const WallPostCard = ({
           <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={isSharing} onClick={handleSharePost} />
         </div>
 
-        <AnimatePresence initial={false}>
-          {commentsOpen && (
-            <motion.div
-              key="post-comments"
-              ref={commentsRef}
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              // overflow-clip (not hidden): clips during the height animation but
-              // does NOT create a scroll container, so the sticky composer works.
-              className="overflow-clip"
-            >
-              <WallCommentTree
-                postId={post.id}
-                postUserId={post.user_id}
-                currentUserId={currentUserId}
-                currentUsername={currentUsername}
-                onCommentCountChange={(delta) => setCommentsCount((prev) => Math.max(0, prev + delta))}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/*
+          Expand/collapse via CSS grid rows (0fr → 1fr) instead of animating
+          `height` in JS: the browser resolves the row height natively, which is
+          smooth, and — unlike a JS height tween — never reflows the sticky
+          composer inside, so the first open doesn't jitter or flash extra space.
+        */}
+        <div
+          className={`grid transition-[grid-template-rows,visibility] duration-300 ease-out motion-reduce:transition-none ${commentsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+        >
+          {/* `invisible` when collapsed: 0fr clips visually, but the always-mounted
+              tree (reply buttons, composer pill…) must not stay focusable/tabbable
+              while hidden. visibility is transitioned, so it flips only at the end. */}
+          <div ref={commentsRef} className={`min-h-0 overflow-clip ${commentsOpen ? "" : "invisible"}`}>
+            <AnimatePresence initial={false}>
+              {commentsOpen && (
+                <motion.div
+                  key="post-comments"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                >
+                  <WallCommentTree
+                    postId={post.id}
+                    postUserId={post.user_id}
+                    currentUserId={currentUserId}
+                    currentUsername={currentUsername}
+                    onCommentCountChange={(delta) => setCommentsCount((prev) => Math.max(0, prev + delta))}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
 
         {isEditing && currentUserId && (
           <CreateWallPost
