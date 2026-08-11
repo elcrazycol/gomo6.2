@@ -410,7 +410,9 @@ export const WallCommentTree = ({
         )}
 
         {currentUserId && (
-          <div className="sticky bottom-0 z-20 -mx-3 border-t border-border/60 bg-background/90 px-3 pb-1.5 pt-3 backdrop-blur-sm sm:-mx-4 sm:px-4">
+          // Floating, backgroundless composer: lifted off the bottom edge so
+          // the panel reads as a clean input, not a docked bar.
+          <div className="sticky bottom-4 z-20">
             <WallCommentComposer
               focusToExpand
               autoFocus

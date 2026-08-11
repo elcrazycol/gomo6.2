@@ -49,7 +49,7 @@ const Pill = ({
     aria-label={label}
     aria-hidden={hidden}
     tabIndex={hidden ? -1 : 0}
-    className={`group flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border/70 bg-background/80 px-3 text-left text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+    className={`group flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border/70 bg-background/60 px-3 text-left text-sm text-muted-foreground backdrop-blur-md transition-colors hover:border-primary/40 hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${className}`}
   >
     <Sparkles className="h-4 w-4 text-primary/70 transition-transform group-hover:rotate-12" />
     <span>{label}</span>
