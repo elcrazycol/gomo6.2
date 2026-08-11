@@ -5,6 +5,7 @@ import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
 import { EMPTY_EDITOR_STATE, prosemirrorToPlainText, stripTrailingEmptyParagraphs } from "@/utils/contentConverter";
+import { smoothScrollToElement } from "@/utils/smoothScroll";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { normalizeWallComment } from "@/utils/wallNormalizers";
 
@@ -76,16 +77,33 @@ export const WallCommentTree = ({
     loadComments();
   }, [loadComments]);
 
-  // After a successful submit, smoothly bring the fresh comment into view
-  // (the element exists once the reloaded list has rendered).
+  // After a successful submit, glide to the fresh comment. The list reloads
+  // asynchronously, so poll until the node exists, then hand over to the eased
+  // scroll helper (which runs after the entrance animation has kicked in).
   useEffect(() => {
     if (!pendingScrollId) return;
-    const timer = window.setTimeout(() => {
+    let attempts = 0;
+    let scrollTimer = 0;
+    const interval = window.setInterval(() => {
+      attempts += 1;
       const el = rootRef.current?.querySelector(`[data-comment-id="${pendingScrollId}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "center" });
-      setPendingScrollId(null);
-    }, 80);
-    return () => window.clearTimeout(timer);
+      if (el) {
+        window.clearInterval(interval);
+        scrollTimer = window.setTimeout(() => {
+          // Re-query: the captured node may have been detached by a re-render.
+          const current = rootRef.current?.querySelector(`[data-comment-id="${pendingScrollId}"]`);
+          if (current) smoothScrollToElement(current, { block: "center", duration: 700 });
+        }, 80);
+        setPendingScrollId(null);
+      } else if (attempts > 40) {
+        window.clearInterval(interval);
+        setPendingScrollId(null);
+      }
+    }, 50);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(scrollTimer);
+    };
   }, [pendingScrollId, comments]);
 
   // The soft highlight fades away on its own after a moment.

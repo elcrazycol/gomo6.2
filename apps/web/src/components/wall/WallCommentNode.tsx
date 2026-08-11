@@ -118,7 +118,11 @@ export const WallCommentNode = ({
 
   const replyAuthorName = depth > 0 ? (comment.author.display_name || comment.author.username) : null;
   const childrenId = `wall-comment-children-${comment.id}`;  return (
-    <div data-wall-comment-node="true" data-comment-id={comment.id} className="relative">
+    <div
+      data-wall-comment-node="true"
+      data-comment-id={comment.id}
+      className={`relative ${isHighlighted ? "animate-in slide-in-from-bottom-3 fade-in duration-500 ease-out motion-reduce:animate-none" : ""}`}
+    >
       {/* Elbow from the parent rail into this reply's avatar (avatar center sits
           at y=28 from the node top: 10px row padding + 2px link margin + 16px). */}
       {depth > 0 && (
@@ -139,7 +143,7 @@ export const WallCommentNode = ({
       )}
       <div
         data-wall-highlighted={isHighlighted ? "true" : undefined}
-        className={`group relative z-10 rounded-2xl py-2.5 transition-[background-color,box-shadow,color] duration-500 motion-reduce:transition-none hover:bg-muted/20 ${isHighlighted ? "bg-primary/5 ring-2 ring-primary/30 animate-in fade-in" : ""}`}
+        className={`group relative z-10 rounded-2xl py-2.5 transition-[background-color,box-shadow,color] duration-500 motion-reduce:transition-none hover:bg-muted/20 ${isHighlighted ? "bg-primary/5 ring-2 ring-primary/30" : ""}`}
       >
           <div className="relative flex items-start gap-3">
             {hasChildren && (
