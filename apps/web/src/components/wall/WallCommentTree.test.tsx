@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { toast } from "sonner";
 import { WallCommentTree } from "./WallCommentTree";
-import { buildThreadPath } from "./WallCommentNode";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -534,20 +533,30 @@ describe("WallCommentTree", () => {
     });
   });
 
-  it("builds a bounded avatar-to-avatar path that ends at the last child", () => {
-    const path = buildThreadPath(
-      { left: 0, centerX: 20, centerY: 20 },
-      [
-        { left: 36, centerX: 52, centerY: 80 },
-        { left: 36, centerX: 52, centerY: 140 },
-      ],
-      36,
-    );
+  it("uses CSS thread connectors for replies and no continuation after the last sibling", async () => {
+    const secondChild = makeComment({
+      id: "c3",
+      user_id: "user-3",
+      parent_id: "c1",
+      content: "Второй ответ",
+      author: { username: "carol", display_name: null, is_anonymous: false, avatar_url: null },
+    });
+    const { container } = renderTree({ comments: [rootComment, childComment, secondChild] });
 
-    expect(path).toContain("M 20 20");
-    expect(path).toContain("V 140");
-    expect(path).toContain("52 140");
-    expect(path).not.toContain("V 300");
+    await waitFor(() => {
+      expect(screen.getByText("Второй ответ")).toBeInTheDocument();
+    });
+
+    expect(container.querySelectorAll("[data-wall-thread-connection='true']")).toHaveLength(2);
+    expect(container.querySelectorAll("[data-wall-thread-continuation='true']")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-wall-thread-parent-stem='true']")).toHaveLength(1);
+    expect(container.querySelector("[data-wall-thread-lines='true']")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Свернуть"));
+    expect(screen.getByText("Показать 2 ответа").closest("button"))
+      .toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelector("#wall-comment-children-c1"))
+      .toHaveClass("grid-rows-[0fr]");
   });
 
   it("shows the reply context line for nested comments", async () => {

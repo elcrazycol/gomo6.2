@@ -337,7 +337,7 @@ export const WallCommentTree = ({
         ) : (
           <>
             <div className="space-y-0">
-              {rootComments.map((comment) => {
+              {rootComments.map((comment, index) => {
                 const children = tree.get(comment.id) || [];
                 return (
                   <WallCommentNode
@@ -346,6 +346,7 @@ export const WallCommentTree = ({
                     children={children}
                     tree={tree}
                     depth={0}
+                    isLast={index === rootComments.length - 1}
                   />
                 );
               })}
