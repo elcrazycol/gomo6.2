@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { toast } from "sonner";
 import { WallCommentTree } from "./WallCommentTree";
+import { buildThreadPath } from "./WallCommentNode";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ vi.mock("@/components/ProcessedContent", () => ({
 // Keep the avatar URL assertion deterministic: Radix AvatarImage waits for
 // the browser image-load event, which jsdom does not dispatch automatically.
 vi.mock("@/components/ui/avatar", () => ({
-  Avatar: ({ children, className }: any) => <div className={className}>{children}</div>,
+  Avatar: ({ children, className, ...props }: any) => <div className={className} {...props}>{children}</div>,
   AvatarImage: (props: any) => <img alt="" {...props} />,
   AvatarFallback: ({ children, className }: any) => <div className={className}>{children}</div>,
 }));
@@ -531,6 +532,22 @@ describe("WallCommentTree", () => {
     await waitFor(() => {
       expect(screen.getByText("(ред.)")).toBeInTheDocument();
     });
+  });
+
+  it("builds a bounded avatar-to-avatar path that ends at the last child", () => {
+    const path = buildThreadPath(
+      { left: 0, centerX: 20, centerY: 20 },
+      [
+        { left: 36, centerX: 52, centerY: 80 },
+        { left: 36, centerX: 52, centerY: 140 },
+      ],
+      36,
+    );
+
+    expect(path).toContain("M 20 20");
+    expect(path).toContain("V 140");
+    expect(path).toContain("52 140");
+    expect(path).not.toContain("V 300");
   });
 
   it("shows the reply context line for nested comments", async () => {

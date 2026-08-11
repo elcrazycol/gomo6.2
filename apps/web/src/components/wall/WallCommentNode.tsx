@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ChevronDown, Edit3, Ellipsis, Heart, Loader2, Reply, Trash2 } from "lucide-react";
@@ -19,6 +19,111 @@ import { api } from "@/integrations/api/compat";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { safeDate } from "@/utils/safeDate";
 import { storageUrl } from "@/utils/storage";
+
+export interface ThreadLinePoint {
+  left: number;
+  centerX: number;
+  centerY: number;
+}
+
+/** Build a bounded, avatar-to-avatar path for one comment branch. */
+export const buildThreadPath = (
+  current: ThreadLinePoint,
+  children: ThreadLinePoint[],
+  railX: number,
+): string => {
+  if (children.length === 0) return "";
+
+  const firstY = children[0].centerY;
+  const lastY = children[children.length - 1].centerY;
+  const commands = [`M ${current.centerX} ${current.centerY}`, `Q ${railX} ${current.centerY} ${railX} ${firstY}`];
+  if (lastY > firstY) commands.push(`M ${railX} ${firstY} V ${lastY}`);
+  for (const child of children) {
+    const shoulder = Math.min(8, Math.max(3, Math.abs(child.left - railX) / 2));
+    const direction = child.left >= railX ? 1 : -1;        commands.push(`M ${railX} ${child.centerY} Q ${railX + shoulder * direction} ${child.centerY} ${child.centerX} ${child.centerY}`);
+  }
+  return commands.join(" ");
+};
+
+interface ThreadLinesProps {
+  containerRef: RefObject<HTMLDivElement>;
+  branchRef: RefObject<HTMLDivElement>;
+  color: string;
+}
+
+const ThreadLines = ({ containerRef, branchRef, color }: ThreadLinesProps) => {
+  const [geometry, setGeometry] = useState<{ width: number; height: number; path: string } | null>(null);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const container = containerRef.current;
+      const branch = branchRef.current;
+      const currentAvatar = container?.querySelector<HTMLElement>("[data-wall-avatar='current']");
+      if (!container || !branch || !currentAvatar) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const branchRect = branch.getBoundingClientRect();
+      const childAvatars = Array.from(branch.children)
+        .filter((child): child is HTMLElement => child.getAttribute("data-wall-comment-node") === "true")
+        .map((child) => child.querySelector<HTMLElement>("[data-wall-avatar='current']"))
+        .filter((avatar): avatar is HTMLElement => Boolean(avatar));
+
+      if (childAvatars.length === 0 || containerRect.width === 0 || containerRect.height === 0) {
+        setGeometry(null);
+        return;
+      }
+
+      const relative = (rect: DOMRect) => ({
+        left: rect.left - containerRect.left,
+        centerX: rect.left - containerRect.left + rect.width / 2,
+        centerY: rect.top - containerRect.top + rect.height / 2,
+      });
+      const current = relative(currentAvatar.getBoundingClientRect());
+      const children = childAvatars.map((avatar) => relative(avatar.getBoundingClientRect()));
+      const railX = branchRect.left - containerRect.left;
+      // One shared rail joins the parent avatar to the first child and then
+      // stops exactly at the last child's avatar center. Each child gets only
+      // a short horizontal shoulder from that rail to its avatar.
+      const path = buildThreadPath(current, children, railX);
+
+      setGeometry({
+        width: Math.ceil(containerRect.width),
+        height: Math.ceil(containerRect.height),
+        path,
+      });
+    };
+
+    measure();    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => requestAnimationFrame(measure)) : null;
+    if (resizeObserver) {
+      if (containerRef.current) resizeObserver.observe(containerRef.current);
+      if (branchRef.current) resizeObserver.observe(branchRef.current);
+    }
+    const mutationObserver = typeof MutationObserver !== "undefined" ? new MutationObserver(() => requestAnimationFrame(measure)) : null;
+    if (mutationObserver && branchRef.current) mutationObserver.observe(branchRef.current, { subtree: true, childList: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [branchRef, containerRef]);
+
+  if (!geometry) return null;
+
+  return (
+    <svg
+      aria-hidden="true"
+      data-wall-thread-lines="true"
+      className="pointer-events-none absolute inset-0 z-0 overflow-visible"
+      width={geometry.width}
+      height={geometry.height}
+      viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+      preserveAspectRatio="none"
+    >
+      <path d={geometry.path} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
 
 interface WallCommentNodeProps {
   comment: WallComment;
@@ -73,9 +178,9 @@ export const WallCommentNode = ({
   const isMaxDepth = depth >= MAX_COMMENT_DEPTH;
   const threadColor = getThreadColor(depth);
   const branchOffset = depth === 0 ? "ml-[18px] pl-[18px] sm:ml-5 sm:pl-5" : "ml-4 pl-4";
-  const connectorOffset = "-left-4 w-4 sm:-left-5 sm:w-5";
-  const lineOffset = depth === 0 ? "left-[18px] top-7 sm:left-5 sm:top-8" : "left-4 top-7";
   const avatarUrl = storageUrl("post-images", comment.author.avatar_url);
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const branchRef = useRef<HTMLDivElement>(null);
   const authorLabel = comment.author.display_name || comment.author.username;
 
   // Comment like count + my like state come embedded in the comments GET
@@ -114,31 +219,23 @@ export const WallCommentNode = ({
   const childrenId = `wall-comment-children-${comment.id}`;
 
   return (
-    <div className="relative">
-      {depth > 0 && (
-        <div
-          aria-hidden="true"
-          className={`pointer-events-none absolute ${connectorOffset} top-2.5 h-4 rounded-bl-xl border-b-2 border-l-2`}
-          style={{ borderColor: threadColor }}
-        />
-      )}
-
+    <div ref={nodeRef} data-wall-comment-node="true" className="relative">
       {hasChildren && !isCollapsed && (
-        <div
-          aria-hidden="true"
-          className={`pointer-events-none absolute bottom-0 ${lineOffset} border-l-2`}
-          style={{ borderColor: threadColor }}
+        <ThreadLines
+          containerRef={nodeRef}
+          branchRef={branchRef}
+          color={threadColor}
         />
       )}
 
-      <div className="group rounded-2xl py-2.5 transition-colors hover:bg-muted/20">
+      <div className="group relative z-10 rounded-2xl py-2.5 transition-colors hover:bg-muted/20">
           <div className="flex items-start gap-3">
             <Link
               to={`/profile/${comment.user_id}`}
-              className="mt-0.5 shrink-0"
+              className="relative z-10 mt-0.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              <Avatar className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
+              <Avatar data-wall-avatar="current" className={`${depth === 0 ? "h-9 w-9 sm:h-10 sm:w-10" : "h-8 w-8"} border border-border/70 bg-muted shadow-sm`}>
                 <AvatarImage
                   src={avatarUrl || undefined}
                   alt={authorLabel}
@@ -338,7 +435,7 @@ export const WallCommentNode = ({
         >
           <div className="min-h-0 overflow-hidden">
             {hasChildren && (
-              <div className={`relative mt-1 space-y-0 ${branchOffset}`}>
+              <div ref={branchRef} className={`relative mt-1 space-y-0 ${branchOffset}`}>
                 {children.map((child) => {
                   const childChildren = tree.get(child.id) || [];
                   return (
