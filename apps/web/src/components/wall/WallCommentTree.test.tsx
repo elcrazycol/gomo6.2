@@ -559,6 +559,38 @@ describe("WallCommentTree", () => {
       .toHaveClass("grid-rows-[0fr]");
   });
 
+  it("connects nested levels without stray continuation lines", async () => {
+    const secondReply = makeComment({
+      id: "c3",
+      user_id: "user-3",
+      parent_id: "c1",
+      content: "Второй ответ",
+      author: { username: "carol", display_name: null, is_anonymous: false, avatar_url: null },
+    });
+    const grandchild = makeComment({
+      id: "c4",
+      user_id: "user-4",
+      parent_id: "c2",
+      content: "Глубокий ответ",
+      author: { username: "dave", display_name: null, is_anonymous: false, avatar_url: null },
+    });
+    const { container } = renderTree({
+      comments: [rootComment, childComment, secondReply, grandchild],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Глубокий ответ")).toBeInTheDocument();
+    });
+
+    // Root and the first reply both have children → two parent stems.
+    expect(container.querySelectorAll("[data-wall-thread-parent-stem='true']")).toHaveLength(2);
+    // Every reply (2 siblings + 1 grandchild) gets an elbow to its parent rail.
+    expect(container.querySelectorAll("[data-wall-thread-connection='true']")).toHaveLength(3);
+    // Only the non-last sibling of the root branch continues downwards;
+    // the last sibling and the grandchild must NOT draw a continuation.
+    expect(container.querySelectorAll("[data-wall-thread-continuation='true']")).toHaveLength(1);
+  });
+
   it("shows the reply context line for nested comments", async () => {
     renderTree({ comments: [rootComment, childComment] });
     await waitFor(() => {

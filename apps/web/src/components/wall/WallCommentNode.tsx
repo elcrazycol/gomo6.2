@@ -75,7 +75,9 @@ export const WallCommentNode = ({
   const isMaxDepth = depth >= MAX_COMMENT_DEPTH;
   // Keep each reply avatar on a predictable rail: the first level moves by
   // 36px from the root avatar, deeper levels by one reply-avatar (32px).
-  const branchOffset = depth === 0 ? "ml-9" : "ml-8";
+  // Reply avatars sit on a predictable rail: the first level indents by the
+  // full root avatar width (36/40px), deeper levels by one reply avatar (32px).
+  const branchOffset = depth === 0 ? "ml-9 sm:ml-10" : "ml-8";
   const threadAxis = depth === 0 ? "left-[18px] sm:left-5" : "left-4";
   const threadRail = depth === 1 ? "-left-[18px] sm:-left-5" : "-left-4";
   const threadRailWidth = depth === 1 ? "w-[18px] sm:w-5" : "w-4";
@@ -116,14 +118,24 @@ export const WallCommentNode = ({
   }, [currentUserId, comment.id, isLiked, likeCount, likeLoading]);
 
   const replyAuthorName = depth > 0 ? (comment.author.display_name || comment.author.username) : null;
-  const childrenId = `wall-comment-children-${comment.id}`;
-
-  return (
+  const childrenId = `wall-comment-children-${comment.id}`;  return (
     <div data-wall-comment-node="true" className="relative">
+      {/* Elbow from the parent rail into this reply's avatar (avatar center sits
+          at y=28 from the node top: 10px row padding + 2px link margin + 16px). */}
+      {depth > 0 && (
+        <div
+          aria-hidden="true"
+          data-wall-thread-connection="true"
+          className={`pointer-events-none absolute ${threadRail} top-0 ${threadRailWidth} h-7 rounded-bl-xl border-b-2 border-l-2 border-border/55`}
+        />
+      )}
+      {/* Continuation runs along the PARENT rail only, from this avatar center
+          down to the next sibling — never along this reply's own axis. */}
       {depth > 0 && !isLast && (
         <div
           aria-hidden="true"
-          data-wall-thread-continuation="true"                className="pointer-events-none absolute left-4 top-7 bottom-0 z-0 border-l-2 border-border/55"
+          data-wall-thread-continuation="true"
+          className={`pointer-events-none absolute ${threadRail} top-7 bottom-0 z-0 border-l-2 border-border/55`}
         />
       )}
       <div className="group relative z-10 rounded-2xl py-2.5 transition-colors hover:bg-muted/20">
@@ -132,14 +144,7 @@ export const WallCommentNode = ({
               <div
                 aria-hidden="true"
                 data-wall-thread-parent-stem="true"
-                className={`pointer-events-none absolute ${threadAxis} ${threadStemTop} bottom-[-4px] z-0 border-l-2 border-border/55`}
-              />
-            )}
-            {depth > 0 && (
-              <div
-                aria-hidden="true"
-                data-wall-thread-connection="true"
-                className={`pointer-events-none absolute ${threadRail} top-0 ${threadRailWidth} h-5 rounded-bl-xl border-b-2 border-l-2 border-border/55`}
+                className={`pointer-events-none absolute ${threadAxis} ${threadStemTop} bottom-[-14px] z-0 border-l-2 border-border/55`}
               />
             )}
             <Link
