@@ -184,6 +184,21 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 // Accepts multipart form: file, bucket, key.
 // This is the replacement for presign-upload — browser uploads through backend,
 // avoiding CORS and S3 signature issues with direct Garage access.
+// UploadFileWithKey godoc
+// @Summary      Upload file with key
+// @Description  Upload a file (multipart) to a bucket under an explicit key owned by the user. NOTE: the actual path is /storage/v1/upload, outside the /api/v1 base path shown here.
+// @Tags         Storage
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file formData file true "File to upload (max 10MB)"
+// @Param        bucket formData string true "Bucket: uploads, content, post-images, avatars, wall, emojis"
+// @Param        key formData string true "Object key — must start with <userID>/ (or <userID>/messenger/ for uploads)"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /storage/v1/upload [post]
+// @Security     BearerAuth
 func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 	bucket := strings.TrimSpace(c.PostForm("bucket"))
 	key := strings.TrimSpace(c.PostForm("key"))
@@ -337,6 +352,19 @@ func isImageKey(key string) bool {
 	}
 }
 
+// DeleteFile godoc
+// @Summary      Delete object
+// @Description  Delete an object the user owns (messenger uploads require an attachment row owned by the caller). NOTE: the actual path is /storage/v1/object/{bucket}/{key}, outside the /api/v1 base path shown here.
+// @Tags         Storage
+// @Produce      json
+// @Param        bucket path string true "Bucket"
+// @Param        key path string true "Object key"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /storage/v1/object/{bucket}/{key} [delete]
+// @Security     BearerAuth
 func (h *StorageHandler) DeleteFile(c *gin.Context) {
 	bucket := strings.TrimSpace(c.Param("bucket"))
 	key := strings.TrimPrefix(c.Param("key"), "/")
@@ -407,6 +435,18 @@ func (h *StorageHandler) DeleteFile(c *gin.Context) {
 }
 
 // ServeObject streams an object from Garage through the API (same origin as the web app).
+// ServeObject godoc
+// @Summary      Get object
+// @Description  Stream an object from storage (supports Range requests). The private 'uploads' bucket requires message membership. NOTE: the actual path is /storage/v1/object/{bucket}/{key}, outside the /api/v1 base path shown here.
+// @Tags         Storage
+// @Produce      application/octet-stream
+// @Param        bucket path string true "Bucket"
+// @Param        key path string true "Object key"
+// @Success      200 {file} binary
+// @Success      206 {file} binary
+// @Failure      400 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /storage/v1/object/{bucket}/{key} [get]
 func (h *StorageHandler) ServeObject(c *gin.Context) {
 	bucket := strings.TrimSpace(c.Param("bucket"))
 	key := c.Param("key")

@@ -13,6 +13,17 @@ import (
 // ─── Avatar History RPC handlers ────────────────────────────────────────────
 
 // GetAvatarHistory returns avatar history for a user.
+// GetAvatarHistory godoc
+// @Summary      Get avatar history
+// @Description  List a user's avatar history (respects private profile settings)
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "Body: {\"user_uuid\": string}"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /rpc/get_avatar_history [post]
+// @Security     BearerAuth
 func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 	var req struct {
 		UserUUID string `json:"user_uuid"`
@@ -103,6 +114,19 @@ func (h *RPCHandler) GetAvatarHistory(c *gin.Context) {
 }
 
 // DeleteAvatarFromHistory deletes an avatar from history.
+// DeleteAvatarFromHistory godoc
+// @Summary      Delete avatar from history
+// @Description  Delete an avatar from history (owner only)
+// @Tags         RPC
+// @Accept       json
+// @Produce      json
+// @Param        request body object true "Body: {\"avatar_id\": string, \"requesting_user_id\": string}"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /rpc/delete_avatar_from_history [post]
+// @Security     BearerAuth
 func (h *RPCHandler) DeleteAvatarFromHistory(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {

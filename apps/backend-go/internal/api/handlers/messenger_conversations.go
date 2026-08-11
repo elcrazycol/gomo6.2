@@ -354,6 +354,19 @@ func (h *MessengerHandler) LeaveConversation(c *gin.Context) {
 // ─── Create Group Conversation ──────────────────────────────────────────────
 // POST /api/v1/messenger/groups
 
+// CreateGroupConversation godoc
+// @Summary      Create group chat
+// @Description  Create a new group conversation (max 100 members, friends only)
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        request body CreateGroupRequest true "Group name and initial member IDs"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/groups [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -451,6 +464,20 @@ func (h *MessengerHandler) CreateGroupConversation(c *gin.Context) {
 // ─── Update Group ───────────────────────────────────────────────────────────
 // PUT /api/v1/messenger/groups/:id
 
+// UpdateGroup godoc
+// @Summary      Update group chat
+// @Description  Update group name or avatar (admins only)
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Group conversation ID"
+// @Param        request body UpdateGroupRequest true "Fields to update"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/groups/{id} [put]
+// @Security     BearerAuth
 func (h *MessengerHandler) UpdateGroup(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -498,6 +525,20 @@ func (h *MessengerHandler) UpdateGroup(c *gin.Context) {
 // ─── Add Members ────────────────────────────────────────────────────────────
 // POST /api/v1/messenger/groups/:id/members
 
+// AddGroupMembers godoc
+// @Summary      Add group members
+// @Description  Add users to a group conversation (admins only, friends only)
+// @Tags         Messenger
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Group conversation ID"
+// @Param        request body AddMembersRequest true "User IDs to add"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/groups/{id}/members [post]
+// @Security     BearerAuth
 func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -608,6 +649,19 @@ func (h *MessengerHandler) AddGroupMembers(c *gin.Context) {
 // ─── Remove Member ──────────────────────────────────────────────────────────
 // DELETE /api/v1/messenger/groups/:id/members/:userId
 
+// RemoveGroupMember godoc
+// @Summary      Remove group member
+// @Description  Remove a member from a group (self-service or admins; the last admin cannot be removed)
+// @Tags         Messenger
+// @Produce      json
+// @Param        id path string true "Group conversation ID"
+// @Param        userId path string true "User ID to remove"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/groups/{id}/members/{userId} [delete]
+// @Security     BearerAuth
 func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -657,6 +711,17 @@ func (h *MessengerHandler) RemoveGroupMember(c *gin.Context) {
 // ─── Get Group Members ──────────────────────────────────────────────────────
 // GET /api/v1/messenger/groups/:id/members
 
+// GetGroupMembers godoc
+// @Summary      Get group members
+// @Description  List members of a group conversation (members only)
+// @Tags         Messenger
+// @Produce      json
+// @Param        id path string true "Group conversation ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /messenger/groups/{id}/members [get]
+// @Security     BearerAuth
 func (h *MessengerHandler) GetGroupMembers(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {

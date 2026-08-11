@@ -39,6 +39,16 @@ const (
 )
 
 // ReportClientError accepts a client error report and stores it in the database.
+// ReportClientError godoc
+// @Summary      Report client error
+// @Description  Store a client-side JavaScript error report (public, rate-limited)
+// @Tags         Client Errors
+// @Accept       json
+// @Produce      json
+// @Param        request body ClientErrorRequest true "Error report"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /client-errors [post]
 func (h *ClientErrorsHandler) ReportClientError(c *gin.Context) {
 	var req ClientErrorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

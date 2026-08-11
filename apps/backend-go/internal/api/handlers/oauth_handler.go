@@ -27,7 +27,24 @@ func NewOAuthHandler(db *sql.DB, oauthSvc *oauth.OAuthService, authSvc *auth.Aut
 	}
 }
 
-// GET /oauth/authorize
+// Authorize godoc
+// @Summary      OAuth authorize
+// @Description  OAuth 2.0 authorization endpoint (authorization code + PKCE S256). Requires an authenticated session and consent=true. NOTE: the actual path is /oauth/authorize, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Produce      json
+// @Param        response_type query string true "Must be 'code'"
+// @Param        client_id query string true "OAuth application client ID"
+// @Param        redirect_uri query string true "Registered redirect URI"
+// @Param        scope query string false "Requested scopes (e.g. openid profile email)"
+// @Param        state query string false "CSRF state, echoed back"
+// @Param        code_challenge query string true "PKCE S256 challenge"
+// @Param        code_challenge_method query string true "Must be 'S256'"
+// @Param        nonce query string false "OpenID Connect nonce"
+// @Param        consent query string false "Must be 'true' when called from the consent page"
+// @Success      200 {object} object
+// @Success      302
+// @Failure      400 {object} object
+// @Router       /oauth/authorize [get]
 func (h *OAuthHandler) Authorize(c *gin.Context) {
 	var req oauth.AuthorizeRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -196,7 +213,24 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 	c.Redirect(http.StatusFound, redirectURL.String())
 }
 
-// POST /oauth/token
+// Token godoc
+// @Summary      OAuth token
+// @Description  OAuth 2.0 token endpoint — exchange an authorization code or refresh token. NOTE: the actual path is /oauth/token, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Accept       application/x-www-form-urlencoded
+// @Produce      json
+// @Param        grant_type formData string true "authorization_code | refresh_token"
+// @Param        code formData string false "Authorization code (authorization_code grant)"
+// @Param        redirect_uri formData string false "Must match the authorize request"
+// @Param        client_id formData string true "OAuth application client ID"
+// @Param        client_secret formData string false "Required for confidential clients"
+// @Param        code_verifier formData string false "PKCE verifier (authorization_code grant)"
+// @Param        refresh_token formData string false "Refresh token (refresh_token grant)"
+// @Param        scope formData string false "Requested scopes"
+// @Success      200 {object} object
+// @Failure      400 {object} object
+// @Failure      401 {object} object
+// @Router       /oauth/token [post]
 func (h *OAuthHandler) Token(c *gin.Context) {
 	var req oauth.TokenRequest
 	if err := c.ShouldBind(&req); err != nil {
@@ -251,7 +285,18 @@ func (h *OAuthHandler) Token(c *gin.Context) {
 	}
 }
 
-// POST /oauth/revoke
+// Revoke godoc
+// @Summary      Revoke OAuth token
+// @Description  Revoke an access or refresh token (RFC 7009). NOTE: the actual path is /oauth/revoke, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Accept       application/x-www-form-urlencoded
+// @Produce      json
+// @Param        token formData string true "Token to revoke"
+// @Param        token_type_hint formData string false "access_token | refresh_token"
+// @Param        client_id formData string false "Client ID"
+// @Success      200 {object} object
+// @Failure      400 {object} object
+// @Router       /oauth/revoke [post]
 func (h *OAuthHandler) Revoke(c *gin.Context) {
 	var req oauth.RevokeRequest
 	if err := c.ShouldBind(&req); err != nil {
@@ -285,7 +330,15 @@ func (h *OAuthHandler) Revoke(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{})
 }
 
-// GET /oauth/userinfo
+// UserInfo godoc
+// @Summary      OAuth userinfo
+// @Description  OpenID Connect userinfo — requires an OAuth Bearer access token. NOTE: the actual path is /oauth/userinfo, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} object
+// @Failure      401 {object} object
+// @Router       /oauth/userinfo [get]
 func (h *OAuthHandler) UserInfo(c *gin.Context) {
 	// Extract OAuth claims from context
 	claimsInterface, exists := c.Get("oauth_claims")
@@ -311,19 +364,44 @@ func (h *OAuthHandler) UserInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, info)
 }
 
-// GET /.well-known/openid-configuration
+// OpenIDConfiguration godoc
+// @Summary      OpenID Connect discovery
+// @Description  OIDC discovery document. NOTE: the actual path is /.well-known/openid-configuration, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Produce      json
+// @Success      200 {object} object
+// @Router       /.well-known/openid-configuration [get]
 func (h *OAuthHandler) OpenIDConfiguration(c *gin.Context) {
 	config := h.oauthSvc.GetOpenIDConfiguration()
 	c.JSON(http.StatusOK, config)
 }
 
-// GET /.well-known/jwks.json
+// JWKS godoc
+// @Summary      OAuth JWKS
+// @Description  Public JSON Web Key Set for verifying OAuth tokens. NOTE: the actual path is /.well-known/jwks.json, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Produce      json
+// @Success      200 {object} object
+// @Router       /.well-known/jwks.json [get]
 func (h *OAuthHandler) JWKS(c *gin.Context) {
 	jwks := h.oauthSvc.GetJWKS()
 	c.JSON(http.StatusOK, jwks)
 }
 
-// POST /oauth/introspect (RFC 7662)
+// Introspect godoc
+// @Summary      Introspect OAuth token
+// @Description  Token introspection (RFC 7662). NOTE: the actual path is /oauth/introspect, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Accept       application/x-www-form-urlencoded
+// @Produce      json
+// @Param        token formData string true "Token to introspect"
+// @Param        token_type_hint formData string false "access_token | refresh_token"
+// @Param        client_id formData string false "Client ID (client authentication)"
+// @Param        client_secret formData string false "Client secret (confidential clients)"
+// @Success      200 {object} object
+// @Failure      400 {object} object
+// @Failure      401 {object} object
+// @Router       /oauth/introspect [post]
 func (h *OAuthHandler) Introspect(c *gin.Context) {
 	var req oauth.IntrospectRequest
 	if err := c.ShouldBind(&req); err != nil {
@@ -400,7 +478,16 @@ func (h *OAuthHandler) Introspect(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// GET /oauth/app-info returns public app info for the consent page
+// AppInfo godoc
+// @Summary      Get OAuth app info
+// @Description  Public info about an OAuth application (used by the consent page). NOTE: the actual path is /oauth/app-info, outside the /api/v1 base path shown here.
+// @Tags         OAuth
+// @Produce      json
+// @Param        client_id query string true "OAuth application client ID"
+// @Success      200 {object} object
+// @Failure      400 {object} object
+// @Failure      404 {object} object
+// @Router       /oauth/app-info [get]
 func (h *OAuthHandler) AppInfo(c *gin.Context) {
 	clientID := c.Query("client_id")
 	if clientID == "" {

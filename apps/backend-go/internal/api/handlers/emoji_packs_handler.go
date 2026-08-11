@@ -69,6 +69,16 @@ func scanEmojiRow(scanner interface{ Scan(...any) error }) (EmojiData, error) {
 	return emoji, err
 }
 
+// GetPackBySlug godoc
+// @Summary      Get emoji pack by slug
+// @Description  Get a public emoji pack with its emojis by slug
+// @Tags         Emoji
+// @Produce      json
+// @Param        slug path string true "Emoji pack slug"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /emoji_packs/by-slug/{slug} [get]
 func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 	slug := c.Param("slug")
 	if slug == "" {
@@ -115,6 +125,15 @@ func (h *EmojiPacksHandler) GetPackBySlug(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(pack))
 }
 
+// GetMyPacks godoc
+// @Summary      Get my emoji packs
+// @Description  List emoji packs authored by the authenticated user
+// @Tags         Emoji
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /my-emoji-packs [get]
+// @Security     BearerAuth
 func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -163,6 +182,15 @@ func (h *EmojiPacksHandler) GetMyPacks(c *gin.Context) {
 	c.JSON(http.StatusOK, models.SuccessResponse(packs))
 }
 
+// GetMySubscriptions godoc
+// @Summary      Get my emoji subscriptions
+// @Description  List emoji packs subscribed to by the authenticated user
+// @Tags         Emoji
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /my-emoji-subscriptions [get]
+// @Security     BearerAuth
 func (h *EmojiPacksHandler) GetMySubscriptions(c *gin.Context) {
 	claims, ok := bearerClaims(c)
 	if !ok {
@@ -224,6 +252,16 @@ type ResolveRequest struct {
 	IDs []string `json:"ids"`
 }
 
+// ResolveEmojis godoc
+// @Summary      Resolve emojis
+// @Description  Resolve custom emoji IDs to emoji data (also exposed as POST /api/rpc/resolve_emojis)
+// @Tags         Emoji
+// @Accept       json
+// @Produce      json
+// @Param        request body ResolveRequest true "Emoji IDs to resolve (max 200)"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Router       /custom_emojis/resolve [post]
 func (h *EmojiPacksHandler) ResolveEmojis(c *gin.Context) {
 	var req ResolveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

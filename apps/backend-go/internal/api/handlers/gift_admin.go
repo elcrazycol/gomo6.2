@@ -356,6 +356,17 @@ func (h *GiftAdminHandler) DeleteGift(c *gin.Context) {
 // ---- Layer CRUD ----
 
 // ListLayers — GET /api/v1/admin/gifts/:id/layers (admin only)
+// ListLayers godoc
+// @Summary      List gift layers (admin)
+// @Description  List all layers of a gift with usage counts (admin only)
+// @Tags         Admin
+// @Produce      json
+// @Param        id path string true "Gift catalog ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Router       /admin/gifts/{id}/layers [get]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -409,6 +420,21 @@ func (h *GiftAdminHandler) ListLayers(c *gin.Context) {
 }
 
 // CreateLayer — POST /api/v1/admin/gifts/:id/layers (admin only)
+// CreateLayer godoc
+// @Summary      Create gift layer (admin)
+// @Description  Add a layer (gift/background/symbol) to a gift (admin only)
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "Gift catalog ID"
+// @Param        request body object true "Layer data: layer_type (gift|background|symbol), image_url, optional name/sort_order"
+// @Success      201 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /admin/gifts/{id}/layers [post]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -477,6 +503,20 @@ func (h *GiftAdminHandler) CreateLayer(c *gin.Context) {
 }
 
 // DeleteLayer — DELETE /api/v1/admin/gifts/:id/layers/:layerId (admin only)
+// DeleteLayer godoc
+// @Summary      Delete gift layer (admin)
+// @Description  Delete a layer if it is not used in any upgraded gift (admin only)
+// @Tags         Admin
+// @Produce      json
+// @Param        id path string true "Gift catalog ID"
+// @Param        layerId path string true "Layer ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /admin/gifts/{id}/layers/{layerId} [delete]
+// @Security     BearerAuth
 func (h *GiftAdminHandler) DeleteLayer(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {

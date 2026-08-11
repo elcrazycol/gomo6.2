@@ -29,6 +29,13 @@ func NewDevDashboardHandler(db *sql.DB, oauthSvc *oauth.OAuthService) *DevDashbo
 
 // GET /api/v1/dev-dashboard/config
 // Returns the OAuth configuration needed for the dev-dashboard to authenticate
+// GetConfig godoc
+// @Summary      Get dev dashboard OAuth config
+// @Description  OAuth endpoint configuration for the dev dashboard app
+// @Tags         Developer
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Router       /dev-dashboard/config [get]
 func (h *DevDashboardHandler) GetConfig(c *gin.Context) {
 	clientID := os.Getenv("DEV_DASHBOARD_CLIENT_ID")
 	if clientID == "" {

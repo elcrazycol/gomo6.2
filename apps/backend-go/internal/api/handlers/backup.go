@@ -56,8 +56,18 @@ type FileRef struct {
 
 // ── Export ────────────────────────────────────────────────────────────────
 
-// Export — GET /api/v1/boards/:id/backup/export
-// Streams a tar.gz archive of the gomosub's DB data + S3 files.
+// Export godoc
+// @Summary      Export board backup
+// @Description  Stream a tar.gz archive of the gomosub's DB data + S3 files (owner only)
+// @Tags         Boards
+// @Produce      application/gzip
+// @Param        id path string true "Board ID"
+// @Success      200 {file} binary
+// @Failure      401 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /boards/{id}/backup/export [get]
+// @Security     BearerAuth
 func (h *BackupHandler) Export(c *gin.Context) {
 	boardID := c.Param("id")
 
@@ -208,7 +218,18 @@ func (h *BackupHandler) Export(c *gin.Context) {
 
 // ── Import ────────────────────────────────────────────────────────────────
 
-// Import — POST /api/v1/boards/backup/import
+// Import godoc
+// @Summary      Import board backup
+// @Description  Restore a gomosub from a tar.gz backup archive (multipart upload, max 1GB)
+// @Tags         Boards
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file formData file true "Backup archive (.tar.gz)"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /boards/backup/import [post]
+// @Security     BearerAuth
 func (h *BackupHandler) Import(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {
@@ -593,7 +614,18 @@ func (h *BackupHandler) runImport(ctx context.Context, importerID string, archiv
 
 // ── ImportInfo ────────────────────────────────────────────────────────────
 
-// ImportInfo — POST /api/v1/boards/import/info
+// ImportInfo godoc
+// @Summary      Inspect backup archive
+// @Description  Preview a backup archive (board name, member/thread/post/channel counts) before importing
+// @Tags         Boards
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        file formData file true "Backup archive (.tar.gz)"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /boards/import/info [post]
+// @Security     BearerAuth
 func (h *BackupHandler) ImportInfo(c *gin.Context) {
 	claims, exists := c.Get("claims")
 	if !exists {

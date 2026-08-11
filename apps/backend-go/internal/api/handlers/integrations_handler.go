@@ -63,10 +63,10 @@ func generateState() (string, error) {
 
 // GetSpotifyAuthURL returns the Spotify OAuth authorization URL
 // @Summary Get Spotify authorization URL
-// @Tags integrations
+// @Tags Integrations
 // @Security BearerAuth
 // @Success 200 {object} integrations.AuthURLResponse
-// @Router /api/v1/integrations/spotify/auth-url [get]
+// @Router /integrations/spotify/auth-url [get]
 func (h *IntegrationsHandler) GetSpotifyAuthURL(c *gin.Context) {
 	if !h.spotify.IsConfigured() {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Spotify integration not configured"})
@@ -109,10 +109,10 @@ func (h *IntegrationsHandler) GetSpotifyAuthURL(c *gin.Context) {
 
 // SpotifyCallback handles the OAuth callback from Spotify
 // @Summary Handle Spotify OAuth callback
-// @Tags integrations
+// @Tags Integrations
 // @Param code query string true "Authorization code"
 // @Param state query string true "State parameter"
-// @Router /api/v1/integrations/spotify/callback [get]
+// @Router /integrations/spotify/callback [get]
 func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
@@ -220,10 +220,10 @@ func (h *IntegrationsHandler) SpotifyCallback(c *gin.Context) {
 
 // DisconnectSpotify removes the Spotify integration for the authenticated user
 // @Summary Disconnect Spotify
-// @Tags integrations
+// @Tags Integrations
 // @Security BearerAuth
 // @Success 200
-// @Router /api/v1/integrations/spotify/disconnect [delete]
+// @Router /integrations/spotify/disconnect [delete]
 func (h *IntegrationsHandler) DisconnectSpotify(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -246,10 +246,10 @@ func (h *IntegrationsHandler) DisconnectSpotify(c *gin.Context) {
 
 // GetSpotifyStatus returns the Spotify connection status for the authenticated user
 // @Summary Get Spotify connection status
-// @Tags integrations
+// @Tags Integrations
 // @Security BearerAuth
 // @Success 200 {object} integrations.IntegrationStatusResponse
-// @Router /api/v1/integrations/spotify/status [get]
+// @Router /integrations/spotify/status [get]
 func (h *IntegrationsHandler) GetSpotifyStatus(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
@@ -318,10 +318,10 @@ func (h *IntegrationsHandler) GetSpotifyStatus(c *gin.Context) {
 
 // GetSpotifyNowPlaying returns the currently playing track for a user (public endpoint)
 // @Summary Get user's currently playing Spotify track
-// @Tags integrations
+// @Tags Integrations
 // @Param user_id path string true "User ID"
 // @Success 200 {object} integrations.NowPlayingResponse
-// @Router /api/v1/integrations/spotify/now-playing/{user_id} [get]
+// @Router /integrations/spotify/now-playing/{user_id} [get]
 func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 	userID := c.Param("user_id")
 	if userID == "" {
@@ -366,10 +366,10 @@ func (h *IntegrationsHandler) GetSpotifyNowPlaying(c *gin.Context) {
 // and publishes to viewers only when the track state actually changes.
 // Called by the author's browser to drive real-time now-playing for profile visitors.
 // @Summary Get own Spotify player state (author-side polling endpoint)
-// @Tags integrations
+// @Tags Integrations
 // @Security BearerAuth
 // @Success 200 {object} integrations.NowPlayingResponse
-// @Router /api/v1/integrations/spotify/me/state [get]
+// @Router /integrations/spotify/me/state [get]
 func (h *IntegrationsHandler) GetSpotifyPlayerState(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {

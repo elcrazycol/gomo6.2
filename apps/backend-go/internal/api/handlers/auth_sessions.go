@@ -275,6 +275,15 @@ type sessionResponse struct {
 
 // ListSessions returns all sessions for the current user.
 // GET /api/v1/auth/sessions
+// ListSessions godoc
+// @Summary      List active sessions
+// @Description  List all devices/sessions for the authenticated user
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/sessions [get]
+// @Security     BearerAuth
 func (h *AuthHandler) ListSessions(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {
@@ -335,6 +344,17 @@ func (h *AuthHandler) ListSessions(c *gin.Context) {
 
 // DeleteSession removes a single session and instantly revokes it.
 // DELETE /api/v1/auth/sessions/:id
+// DeleteSession godoc
+// @Summary      Revoke a session
+// @Description  Revoke a single session — that device is logged out instantly
+// @Tags         Auth
+// @Produce      json
+// @Param        id path string true "Session ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /auth/sessions/{id} [delete]
+// @Security     BearerAuth
 func (h *AuthHandler) DeleteSession(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {
@@ -379,6 +399,15 @@ func (h *AuthHandler) DeleteSession(c *gin.Context) {
 
 // DeleteAllOtherSessions removes every session except the current one.
 // DELETE /api/v1/auth/sessions
+// DeleteAllOtherSessions godoc
+// @Summary      Revoke all other sessions
+// @Description  Revoke every session except the current one
+// @Tags         Auth
+// @Produce      json
+// @Success      200 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Router       /auth/sessions [delete]
+// @Security     BearerAuth
 func (h *AuthHandler) DeleteAllOtherSessions(c *gin.Context) {
 	claimsI, exists := c.Get("claims")
 	if !exists {

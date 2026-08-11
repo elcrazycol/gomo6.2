@@ -14,6 +14,18 @@ import (
 
 // UpgradeGift upgrades a static gift to a unique layered combination.
 // POST /api/v1/gifts/:giftRecordID/upgrade (protected)
+// UpgradeGift godoc
+// @Summary      Upgrade gift
+// @Description  Upgrade a static gift into a unique layered combination (costs drops)
+// @Tags         Gifts
+// @Produce      json
+// @Param        giftRecordID path string true "User gift record ID"
+// @Success      200 {object} models.APIResponse
+// @Failure      400 {object} models.APIResponse
+// @Failure      401 {object} models.APIResponse
+// @Failure      404 {object} models.APIResponse
+// @Router       /gifts/{giftRecordID}/upgrade [post]
+// @Security     BearerAuth
 func (h *GiftsHandler) UpgradeGift(c *gin.Context) {
 	claims := ensureAuth(c)
 	if claims == nil {
