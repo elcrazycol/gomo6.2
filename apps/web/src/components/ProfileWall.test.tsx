@@ -986,8 +986,11 @@ describe("ProfileWall", () => {
 
     await userEvent.click(screen.getByText("Комментировать"));
 
-    // Fetch is still in flight → the section must NOT show the empty state yet.
+    // Fetch is still in flight → the section must NOT show the empty state yet,
+    // and the "Комментировать" button shows a spinner instead of its icon.
     expect(screen.queryByText("Тут пока пусто, но это можно исправить.")).not.toBeInTheDocument();
+    const commentButton = screen.getByText("Комментировать").closest("button");
+    expect(commentButton?.querySelector(".animate-spin")).toBeTruthy();
 
     await act(async () => {
       resolveComments({ data: [], error: null });
@@ -996,6 +999,8 @@ describe("ProfileWall", () => {
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
+    // Once loaded, the spinner is gone.
+    expect(commentButton?.querySelector(".animate-spin")).toBeFalsy();
   });
 
   it("does not refetch comments when reopening the section (mount-once)", async () => {
@@ -1059,6 +1064,8 @@ describe("ProfileWall", () => {
 
     await userEvent.click(screen.getByText("Комментировать"));
 
+    // The nudge fires immediately once the fetch settles — no artificial delay
+    // (the mock fetch resolves in a microtask, so this runs right after click).
     await waitFor(() => {
       expect(smoothScrollToElement).toHaveBeenCalledWith(
         expect.any(HTMLElement),

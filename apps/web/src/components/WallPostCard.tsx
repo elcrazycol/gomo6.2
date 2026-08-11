@@ -34,12 +34,6 @@ import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
 import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 
-// Duration of the comments expand/collapse grid animation. The scroll nudge
-// waits for it to finish (plus a small buffer) so it measures the settled
-// height — keep the nudge delay in sync with this constant.
-const COMMENTS_EXPAND_MS = 300;
-const COMMENTS_NUDGE_DELAY_MS = COMMENTS_EXPAND_MS + 150;
-
 interface WallPostCardProps {
   post: WallPost;
   profileUserId: string;
@@ -116,24 +110,23 @@ export const WallPostCard = ({
     initialMountRef.current = false;
   }, [commentsOpen]);
 
+  // The nudge runs the moment the section starts to unfold (no delay): the
+  // grid row grows DOWNWARD, so the section's top edge — the only thing the
+  // nudge measures — is already in its final place. The scroll and the unfold
+  // therefore glide together as one motion.
   useEffect(() => {
     if (!commentsOpen || !commentsReady) return;
     if (initialMountRef.current) return;
-    // Wait for the expand animation to finish: nudging mid-animation measures
-    // the still-growing section and leaves the page in the wrong place.
-    const timer = window.setTimeout(() => {
-      const el = commentsRef.current;
-      if (!el) return;
-      const viewportHeight = window.innerHeight;
-      if (shouldScrollToComments(el, viewportHeight)) {
-        smoothScrollToElement(el, {
-          block: "start",
-          margin: viewportHeight * COMMENTS_TARGET_FRACTION,
-          duration: 650,
-        });
-      }
-    }, COMMENTS_NUDGE_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    const el = commentsRef.current;
+    if (!el) return;
+    const viewportHeight = window.innerHeight;
+    if (shouldScrollToComments(el, viewportHeight)) {
+      smoothScrollToElement(el, {
+        block: "start",
+        margin: viewportHeight * COMMENTS_TARGET_FRACTION,
+        duration: 650,
+      });
+    }
   }, [commentsOpen, commentsReady]);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
@@ -442,7 +435,7 @@ export const WallPostCard = ({
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-3">
           <ActionButton icon={<Heart className={`h-4 w-4 ${isLiked ? "fill-current" : ""}`} />} label="Нравится" count={likesCount} active={isLiked} disabled={!currentUserId} loading={isLiking} onClick={handleLikeToggle} />
-          <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} onClick={handleToggleComments} />
+          <ActionButton icon={<MessageCircle className="h-4 w-4" />} label="Комментировать" count={commentsCount} active={commentsOpen} loading={commentsOpen && !commentsReady} onClick={handleToggleComments} />
           <ActionButton icon={<Repeat2 className="h-4 w-4" />} label={isReposted ? "Убрать" : "Репост"} count={repostsCount} active={isReposted} disabled={!currentUserId} loading={isReposting} onClick={handleRepostToggle} />
           <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={isSharing} onClick={handleSharePost} />
         </div>
