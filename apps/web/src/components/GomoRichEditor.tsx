@@ -39,6 +39,8 @@ interface GomoRichEditorProps {
   maxLength?: number;
   /** Hide the formatting toolbar while a compact composer is idle. */
   showToolbar?: boolean;
+  /** Focus the editor as soon as it is ready. */
+  autoFocus?: boolean;
   onChange: (value: { json: unknown; text: string }) => void;
   onSubmit?: () => void;
 }
@@ -312,6 +314,7 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   resetKey,
   maxLength,
   showToolbar = true,
+  autoFocus = false,
   onChange,
   onSubmit,
 }, ref) => {
@@ -392,6 +395,12 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
       handleChange(e);
     },
   });
+
+  useEffect(() => {
+    if (editor && autoFocus) {
+      editor.commands.focus("end");
+    }
+  }, [editor, autoFocus]);
 
   // Reset the editor ONLY when the parent explicitly asks for it (resetKey changes).
   // The old code reset on every contentJson change — but parents echo the editor's own

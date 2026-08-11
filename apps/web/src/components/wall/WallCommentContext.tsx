@@ -24,6 +24,8 @@ export interface WallCommentTreeContextValue {
   isSubmitting: Record<string, boolean>;
   commentsLoading: boolean;
   tree: Map<string | null, WallComment[]>;
+  /** Comment that was just published — render it with a soft highlight. */
+  highlightedCommentId: string | null;
   startReply: (commentId: string) => void;
   cancelReply: () => void;
   startEdit: (comment: WallComment) => void;

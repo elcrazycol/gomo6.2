@@ -79,10 +79,19 @@ vi.mock("date-fns/locale", () => ({ ru: {} }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeWallChain<T>(value: T, opts: { count?: number } = {}): any {
+function makeWallChain<T>(
+  value: T,
+  opts: { count?: number; insertedId?: string; onInsert?: () => void } = {},
+): any {
+  const { count, insertedId, onInsert } = opts;
   const p = Promise.resolve(value) as any;
-  // Chainable branch used by count queries (select with { count: "exact" }):
-  // the returned value must still support .eq()/etc. downstream.
+  const insertResult = () => {
+    onInsert?.();
+    return insertedId ? { data: { id: insertedId }, error: null } : { data: null, error: null };
+  };
+  // Chainable branch used by count queries (select with { count: "exact" }) and
+  // by insert().select("id").maybeSingle(): the returned value must still
+  // support .select()/.eq()/.maybeSingle()/etc. downstream.
   const chainable = (v: any) => {
     const q = Promise.resolve(v) as any;
     q.select = () => q;
@@ -90,14 +99,14 @@ function makeWallChain<T>(value: T, opts: { count?: number } = {}): any {
     q.order = () => q;
     q.limit = () => q;
     q.maybeSingle = () => q;
-    q.insert = () => Promise.resolve({ data: null, error: null });
+    q.insert = () => chainable(insertResult());
     q.update = () => q;
     q.delete = () => q;
     return q;
   };
   p.select = (_sel?: string, selOpts?: any) => {
     if (selOpts?.count === "exact") {
-      return chainable({ count: opts.count ?? 0, data: null, error: null });
+      return chainable({ count: count ?? 0, data: null, error: null });
     }
     return p;
   };
@@ -105,7 +114,7 @@ function makeWallChain<T>(value: T, opts: { count?: number } = {}): any {
   p.order = () => p;
   p.limit = () => p;
   p.maybeSingle = () => p;
-  p.insert = () => Promise.resolve({ data: null, error: null });
+  p.insert = () => chainable(insertResult());
   p.update = () => p;
   p.delete = () => p;
   return p;
@@ -116,13 +125,31 @@ function setupMockFrom(config: {
   likesCount?: number;
   isLiked?: boolean;
   failLoad?: boolean;
+  insertedId?: string;
+  insertedParentId?: string | null;
 } = {}) {
-  const { comments = [], likesCount = 0, isLiked = false, failLoad = false } = config;
+  const { comments = [], likesCount = 0, isLiked = false, failLoad = false, insertedId, insertedParentId } = config;
+  // Stateful so a successful insert is visible to the reloaded comment list.
+  const currentComments = [...comments];
   mockFrom.mockImplementation((table: string) => {
     switch (table) {
       case "profile_wall_post_comments":
         return makeWallChain(
-          failLoad ? { data: null, error: { message: "boom" } } : { data: comments, error: null },
+          failLoad ? { data: null, error: { message: "boom" } } : { data: currentComments, error: null },
+          {
+            insertedId,
+            onInsert: () => {
+              if (!insertedId) return;
+              currentComments.push(
+                makeComment({
+                  id: insertedId,
+                  parent_id: insertedParentId ?? null,
+                  content: "Свежий комментарий",
+                  created_at: "2025-01-03T10:00:00Z",
+                }),
+              );
+            },
+          },
         );
       case "profile_wall_comment_likes":
         return makeWallChain(
@@ -240,10 +267,12 @@ describe("WallCommentTree", () => {
   });
 
   it("renders the top-level composer only for authenticated users", async () => {
+    // The composer starts as a one-line prompt (pill) that expands on click.
     const view = renderTree({ comments: [] });
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
     });
+    expect(screen.queryByPlaceholderText("Напишите комментарий")).not.toBeInTheDocument();
     view.unmount();
 
     render(
@@ -252,16 +281,17 @@ describe("WallCommentTree", () => {
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
-    expect(screen.queryByPlaceholderText("Напишите комментарий")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Напишите комментарий")).not.toBeInTheDocument();
   });
 
   it("rejects a blank top-level comment", async () => {
     const { onCommentCountChange } = renderTree({ comments: [] });
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
     });
 
-    // Submitting whitespace-only content must be rejected with a toast
+    // Expand the pill, then submit whitespace-only content → must be rejected
+    await userEvent.click(screen.getByLabelText("Напишите комментарий"));
     const textarea = screen.getByPlaceholderText("Напишите комментарий");
     await userEvent.type(textarea, "   {Enter}");
 
@@ -274,14 +304,14 @@ describe("WallCommentTree", () => {
   it("submits a top-level comment", async () => {
     const { onCommentCountChange } = renderTree({ comments: [] });
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
     });
 
+    await userEvent.click(screen.getByLabelText("Напишите комментарий"));
     const textarea = screen.getByPlaceholderText("Напишите комментарий");
     await userEvent.type(textarea, "Новый комментарий");
 
-    // The submit button of the top-level composer
-    // The submit button of the top-level composer
+    // The submit button of the expanded top-level composer
     const submitButtons = screen.getAllByText("Ответить");
     await userEvent.click(submitButtons[submitButtons.length - 1]);
 
@@ -597,6 +627,55 @@ describe("WallCommentTree", () => {
       expect(screen.getByText("Ответный комментарий")).toBeInTheDocument();
     });
     expect(screen.getByText(/ответ/)).toBeInTheDocument();
+  });
+
+  it("scrolls to and highlights the freshly published top-level comment", async () => {
+    const { container } = renderTree({ comments: [], insertedId: "fresh-1" });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByLabelText("Напишите комментарий"));
+    await userEvent.type(screen.getByPlaceholderText("Напишите комментарий"), "Свежий комментарий");
+    await userEvent.click(screen.getAllByText("Ответить")[0]);
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Комментарий опубликован");
+    });
+    await waitFor(() => {
+      expect(container.querySelector("[data-comment-id='fresh-1']")).toBeInTheDocument();
+    });
+    expect(container.querySelector("[data-comment-id='fresh-1'] [data-wall-highlighted='true']"))
+      .toBeInTheDocument();
+    // The pill folds back after a successful submit
+    await waitFor(() => {
+      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+    });
+  });
+
+  it("highlights a newly published reply and greets it with its own toast", async () => {
+    const { container } = renderTree({
+      comments: [rootComment, childComment],
+      insertedId: "reply-fresh",
+      insertedParentId: "c2",
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Ответный комментарий")).toBeInTheDocument();
+    });
+
+    const replyActions = container.querySelectorAll(".lucide-reply");
+    const replyAction = replyActions[replyActions.length - 1]?.closest("button");
+    await userEvent.click(replyAction!);
+    const replyTextarea = screen.getByPlaceholderText("Напишите ответ");
+    await userEvent.type(replyTextarea, "Глубокий ответ{Enter}");
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith("Ответ опубликован");
+    });
+    await waitFor(() => {
+      expect(container.querySelector("[data-comment-id='reply-fresh'] [data-wall-highlighted='true']"))
+        .toBeInTheDocument();
+    });
   });
 
   it("unmounts cleanly without warnings", async () => {

@@ -278,7 +278,9 @@ export const WallPostCard = ({
 
   return (
     <Card
-      className={`overflow-hidden border-border/70 shadow-none ${
+      // overflow-clip keeps the rounded-corner clipping but does NOT create a
+      // scroll container, so position:sticky works for the floating composer.
+      className={`overflow-clip border-border/70 shadow-none ${
         post.is_pinned ? "border-primary/30 bg-primary/[0.03]" : "bg-background"
       }`}
     >

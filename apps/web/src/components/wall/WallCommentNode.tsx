@@ -54,8 +54,10 @@ export const WallCommentNode = ({
     submitEdit,
     deleteComment,
     toggleCollapse,
+    highlightedCommentId,
   } = ctx;
 
+  const isHighlighted = highlightedCommentId === comment.id;
   const isEditing = activeEditId === comment.id;
   const isReplying = activeReplyId === comment.id;
   const isCollapsed = collapsedIds.has(comment.id);
@@ -119,7 +121,7 @@ export const WallCommentNode = ({
 
   const replyAuthorName = depth > 0 ? (comment.author.display_name || comment.author.username) : null;
   const childrenId = `wall-comment-children-${comment.id}`;  return (
-    <div data-wall-comment-node="true" className="relative">
+    <div data-wall-comment-node="true" data-comment-id={comment.id} className="relative">
       {/* Elbow from the parent rail into this reply's avatar (avatar center sits
           at y=28 from the node top: 10px row padding + 2px link margin + 16px). */}
       {depth > 0 && (
@@ -138,7 +140,10 @@ export const WallCommentNode = ({
           className={`pointer-events-none absolute ${threadRail} top-7 bottom-0 z-0 border-l-2 border-border/55`}
         />
       )}
-      <div className="group relative z-10 rounded-2xl py-2.5 transition-colors hover:bg-muted/20">
+      <div
+        data-wall-highlighted={isHighlighted ? "true" : undefined}
+        className={`group relative z-10 rounded-2xl py-2.5 transition-[background-color,box-shadow,color] duration-500 motion-reduce:transition-none hover:bg-muted/20 ${isHighlighted ? "bg-primary/5 ring-2 ring-primary/30 animate-in fade-in" : ""}`}
+      >
           <div className="relative flex items-start gap-3">
             {hasChildren && (
               <div

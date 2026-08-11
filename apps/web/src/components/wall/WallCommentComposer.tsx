@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type FocusEvent } from "react";
 import { Loader2, Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor } from "@/components/GomoRichEditor";
@@ -17,6 +17,8 @@ interface WallCommentComposerProps {
   compact?: boolean;
   /** Start as a calm one-line prompt and reveal the editor on focus. */
   focusToExpand?: boolean;
+  /** Focus the editor as soon as it expands. */
+  autoFocus?: boolean;
 }
 
 export const WallCommentComposer = ({
@@ -31,9 +33,26 @@ export const WallCommentComposer = ({
   maxLength = 4000,
   compact = false,
   focusToExpand = false,
+  autoFocus = false,
 }: WallCommentComposerProps) => {
   const [expanded, setExpanded] = useState(!focusToExpand);
   const isExpanded = !focusToExpand || expanded || Boolean(text.trim());
+
+  // After a successful submit the parent clears the draft and bumps resetKey —
+  // fold the composer back into its quiet one-line prompt.
+  useEffect(() => {
+    if (focusToExpand && !text.trim()) {
+      setExpanded(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+
+  // Collapse on blur only while the draft is empty — never swallow typed text.
+  const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
+    if (focusToExpand && !text.trim() && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setExpanded(false);
+    }
+  };
 
   if (focusToExpand && !isExpanded) {
     return (
@@ -50,8 +69,12 @@ export const WallCommentComposer = ({
   }
 
   return (
-    <div className={`space-y-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md ${compact ? "" : "p-3"}`}>
+    <div
+      onBlur={handleBlur}
+      className={`space-y-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`}
+    >
       <GomoRichEditor
+        autoFocus={autoFocus}
         resetKey={resetKey}
         maxLength={maxLength}
         contentJson={json}

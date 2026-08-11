@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { WallCommentTreeContext } from "./WallCommentContext";
@@ -36,6 +35,9 @@ export const WallCommentTree = ({
   const [topLevelJson, setTopLevelJson] = useState<unknown>(EMPTY_EDITOR_STATE);
   const [topLevelText, setTopLevelText] = useState("");
   const [topLevelResetKey, setTopLevelResetKey] = useState(0);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const loadComments = useCallback(async () => {
     try {
@@ -73,6 +75,25 @@ export const WallCommentTree = ({
   useEffect(() => {
     loadComments();
   }, [loadComments]);
+
+  // After a successful submit, smoothly bring the fresh comment into view
+  // (the element exists once the reloaded list has rendered).
+  useEffect(() => {
+    if (!pendingScrollId) return;
+    const timer = window.setTimeout(() => {
+      const el = rootRef.current?.querySelector(`[data-comment-id="${pendingScrollId}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setPendingScrollId(null);
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [pendingScrollId, comments]);
+
+  // The soft highlight fades away on its own after a moment.
+  useEffect(() => {
+    if (!highlightedCommentId) return;
+    const timer = window.setTimeout(() => setHighlightedCommentId(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [highlightedCommentId]);
 
   const tree = useMemo(() => {
     const byParent = new Map<string | null, WallComment[]>();
@@ -132,15 +153,18 @@ export const WallCommentTree = ({
     }
     setIsSubmitting((prev) => ({ ...prev, "top-level": true }));
     try {
-      const { error } = await api
+      const { data, error } = await api
         .from("profile_wall_post_comments")
         .insert({
           post_id: postId,
           user_id: currentUserId,
           content: normalizedText,
           content_json: stripTrailingEmptyParagraphs(normalizedJson.json),
-        });
+        })
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      const newCommentId = (data as { id?: string } | null)?.id ?? null;
       await loadComments();
       onCommentCountChange(1);
       setTopLevelText("");
@@ -151,6 +175,11 @@ export const WallCommentTree = ({
         delete next["top-level"];
         return next;
       });
+      if (newCommentId) {
+        setPendingScrollId(newCommentId);
+        setHighlightedCommentId(newCommentId);
+        toast.success("Комментарий опубликован");
+      }
     } catch (error) {
       console.error("Error creating wall comment:", error);
       toast.error("Не удалось отправить комментарий");
@@ -169,7 +198,7 @@ export const WallCommentTree = ({
     }
     setIsSubmitting((prev) => ({ ...prev, [stateKey]: true }));
     try {
-      const { error } = await api
+      const { data, error } = await api
         .from("profile_wall_post_comments")
         .insert({
           post_id: postId,
@@ -177,16 +206,31 @@ export const WallCommentTree = ({
           parent_id: parentId,
           content: state.text,
           content_json: stripTrailingEmptyParagraphs(state.json),
-        });
+        })
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      const newCommentId = (data as { id?: string } | null)?.id ?? null;
       await loadComments();
       onCommentCountChange(1);
       setActiveReplyId(null);
+      // The branch the reply landed in must be visible so the scroll target exists.
+      setCollapsedIds((prev) => {
+        if (!prev.has(parentId)) return prev;
+        const next = new Set(prev);
+        next.delete(parentId);
+        return next;
+      });
       setEditorStates((prev) => {
         const next = { ...prev };
         delete next[stateKey];
         return next;
       });
+      if (newCommentId) {
+        setPendingScrollId(newCommentId);
+        setHighlightedCommentId(newCommentId);
+        toast.success("Ответ опубликован");
+      }
     } catch (error) {
       console.error("Error creating reply:", error);
       toast.error("Не удалось отправить ответ");
@@ -273,6 +317,7 @@ export const WallCommentTree = ({
     isSubmitting,
     commentsLoading: loading,
     tree,
+    highlightedCommentId,
     startReply,
     cancelReply,
     startEdit,
@@ -286,7 +331,7 @@ export const WallCommentTree = ({
   }), [
     currentUserId, postUserId, currentUsername, postId,
     collapsedIds, activeReplyId, activeEditId, editorStates, isSubmitting,
-    loading, tree,
+    loading, tree, highlightedCommentId,
     startReply, cancelReply, startEdit, cancelEdit, updateEditorState,
     submitReply, submitEdit, deleteComment, toggleCollapse, onCommentCountChange,
   ]);
@@ -295,29 +340,7 @@ export const WallCommentTree = ({
 
   return (
     <WallCommentTreeContext.Provider value={contextValue}>
-      <div className="space-y-3 border-t border-border/60 pt-4">
-        {currentUserId && (
-          <div className="rounded-2xl border border-primary/15 bg-primary/[0.025] p-2.5 shadow-sm sm:p-3">
-            <div className="mb-2 flex items-center gap-2 px-1 text-xs text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-primary/70" />
-              <span>Поделитесь мыслью</span>
-            </div>
-            <WallCommentComposer
-              placeholder="Напишите комментарий"
-              onSubmit={submitTopLevel}
-              isSubmitting={isSubmitting["top-level"] || false}
-              json={topLevelState.json}
-              text={topLevelState.text}
-              resetKey={topLevelResetKey}
-              onChange={({ json, text }) => {
-                setTopLevelJson(json);
-                setTopLevelText(text);
-                setEditorStates((prev) => ({ ...prev, "top-level": { json, text } }));
-              }}
-            />
-          </div>
-        )}
-
+      <div ref={rootRef} className="space-y-3 border-t border-border/60 pt-4">
         {loading ? (
           <div className="space-y-3 py-2">
             {[1, 2, 3].map((i) => (
@@ -334,23 +357,41 @@ export const WallCommentTree = ({
         ) : rootComments.length === 0 ? (
           <div className="py-3 text-center text-sm text-muted-foreground">Тут пока пусто, но это можно исправить.</div>
         ) : (
-          <>
-            <div className="space-y-0">
-              {rootComments.map((comment, index) => {
-                const children = tree.get(comment.id) || [];
-                return (
-                  <WallCommentNode
-                    key={comment.id}
-                    comment={comment}
-                    children={children}
-                    tree={tree}
-                    depth={0}
-                    isLast={index === rootComments.length - 1}
-                  />
-                );
-              })}
-            </div>
-          </>
+          <div className="space-y-0" data-wall-roots="true">
+            {rootComments.map((comment, index) => {
+              const children = tree.get(comment.id) || [];
+              return (
+                <WallCommentNode
+                  key={comment.id}
+                  comment={comment}
+                  children={children}
+                  tree={tree}
+                  depth={0}
+                  isLast={index === rootComments.length - 1}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {currentUserId && (
+          <div className="sticky bottom-0 z-20 -mx-3 border-t border-border/60 bg-background/90 px-3 pb-1.5 pt-3 backdrop-blur-sm sm:-mx-4 sm:px-4">
+            <WallCommentComposer
+              focusToExpand
+              autoFocus
+              placeholder="Напишите комментарий"
+              onSubmit={submitTopLevel}
+              isSubmitting={isSubmitting["top-level"] || false}
+              json={topLevelState.json}
+              text={topLevelState.text}
+              resetKey={topLevelResetKey}
+              onChange={({ json, text }) => {
+                setTopLevelJson(json);
+                setTopLevelText(text);
+                setEditorStates((prev) => ({ ...prev, "top-level": { json, text } }));
+              }}
+            />
+          </div>
         )}
       </div>
     </WallCommentTreeContext.Provider>
