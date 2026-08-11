@@ -13,10 +13,17 @@
 --
 -- Privacy is enforced INSIDE the function:
 --   * threads only from boards the caller may access (public, own private,
---     or gsubs the caller is a member of);
---   * threads of private profiles are hidden from non-friends;
+--     or gsubs the caller is a member of). A private PROFILE does not hide
+--     threads/posts — they are public content the author writes on boards;
+--     private_profile only gates the profile WALL (see below). This matches
+--     GetThreads/GetThread, which never filter threads by private_profile.
 --   * wall posts only from walls the caller may view (own, public+not
 --     hidden, or a mutual friend's), mirroring profile_wall.go.
+--
+-- The caller's OWN content (threads, wall posts) is INCLUDED in the feed:
+-- with little content on the platform the feed would otherwise look empty,
+-- and the privacy clauses below already let owners see their own rows. This
+-- matters especially for gsub threads the caller authored themselves.
 --
 -- Anonymous callers (user_uuid IS NULL) get the global popularity+recency
 -- stream with all personal signals zeroed out.
@@ -176,22 +183,15 @@ BEGIN
     FROM threads t
     JOIN boards b ON b.id = t.board_id
     LEFT JOIN users u ON u.id = t.user_id
-    LEFT JOIN privacy_settings ps ON ps.user_id = t.user_id
     WHERE t.channel_id IS NULL
       AND NOT COALESCE(b.is_rules_board, FALSE)
-      -- exclude the caller's own threads
-      AND NOT (user_uuid IS NOT NULL AND t.user_id = user_uuid)
-      -- board visibility: public, own private board, or member of the gsub
+      -- board visibility: public, own private board, or member of the gsub.
+      -- NOTE: private_profile is deliberately NOT consulted here — a private
+      -- profile only hides the WALL, never threads/posts the author writes
+      -- on boards (matches GetThreads/GetThread).
       AND (COALESCE(b.visibility, 'public') <> 'private'
            OR b.owner_id = user_uuid
            OR (user_uuid IS NOT NULL AND EXISTS (SELECT 1 FROM gomosub_memberships gm WHERE gm.board_id = t.board_id AND gm.user_id = user_uuid)))
-      -- private profiles: only friends (or the author themself) see their threads
-      AND (t.user_id IS NULL
-           OR t.user_id = user_uuid
-           OR NOT COALESCE(ps.private_profile, FALSE)
-           OR EXISTS (SELECT 1 FROM friendships f
-                      WHERE (f.user1_id = t.user_id AND f.user2_id = user_uuid)
-                         OR (f.user1_id = user_uuid AND f.user2_id = t.user_id)))
 
     UNION ALL
 
@@ -236,9 +236,8 @@ BEGIN
     FROM profile_wall_posts p
     LEFT JOIN users u ON u.id = p.author_id
     LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
-    WHERE NOT (user_uuid IS NOT NULL AND p.author_id = user_uuid)
-      -- wall visibility (same rule as profile_wall.go): own, public+not hidden, or mutual friend
-      AND (p.user_id = user_uuid
+    WHERE -- wall visibility (same rule as profile_wall.go): own, public+not hidden, or mutual friend
+      (p.user_id = user_uuid
            OR (NOT COALESCE(ps.private_profile, FALSE) AND NOT COALESCE(ps.private_hide_wall, FALSE))
            OR EXISTS (SELECT 1 FROM friendships f
                       WHERE (f.user1_id = p.user_id AND f.user2_id = user_uuid)
