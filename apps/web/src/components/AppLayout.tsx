@@ -960,6 +960,7 @@ export const AppLayout = ({ children }: AppLayoutProps) => {
               <Button
                 variant="ghost"
                 size="sm"
+                aria-label="Открыть поиск"
                 className="h-8 w-8 p-0 rounded-full"
                 onClick={() => setDesktopSearchExpanded((prev) => !prev)}
               >

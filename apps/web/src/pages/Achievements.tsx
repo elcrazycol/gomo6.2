@@ -277,6 +277,7 @@ export default function Achievements() {
           {search && (
             <button
               onClick={() => setSearch("")}
+              aria-label="Очистить поиск"
               className="absolute right-3 top-1/2 -translate-y-1/2"
             >
               <X className="w-4 h-4 text-muted-foreground hover:text-foreground" />
