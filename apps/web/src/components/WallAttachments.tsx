@@ -32,7 +32,7 @@ const ProgressiveWallImage = ({
   /** Reserve the real photo's aspect ratio so the layout does not jump. */
   aspectRatio?: number | null;
   alt: string;
-  /** Button sizing classes (e.g. "h-40" for grid tiles, "max-h-[32rem]" for singles). */
+  /** Button sizing classes (e.g. "h-40" for grid tiles, "max-h-[70vh]" for singles). */
   className?: string;
   /** When true the image fills an absolutely sized button (grid tile / ratio box). */
   fill?: boolean;
@@ -61,7 +61,7 @@ const ProgressiveWallImage = ({
           src={lqip}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover blur-xl scale-105 transition-opacity duration-500"
+          className="absolute inset-0 h-full w-full object-contain blur-xl scale-105 transition-opacity duration-500"
           style={{ opacity: previewLoaded ? 0 : 1 }}
         />
       )}
@@ -70,7 +70,7 @@ const ProgressiveWallImage = ({
         alt={alt}
         loading="lazy"
         decoding="async"
-        className={`${fill ? "absolute inset-0 h-full w-full" : "relative w-full max-h-[32rem]"} object-cover transition-[filter,opacity,transform] duration-500`}
+        className={`${fill ? "absolute inset-0 h-full w-full" : "relative w-full max-h-[70vh]"} object-contain transition-[filter,opacity,transform] duration-500`}
         style={
           progressive
             ? {
@@ -147,7 +147,7 @@ export const WallAttachments = ({
             <figure key={`${galleryKey}-${index}`} className="w-full">
               <ProgressiveWallImage
                 {...imageProps(attachment, attachment.name || "attachment")}
-                className="max-h-[32rem]"
+                className="max-h-[70vh]"
                 fill={Boolean(
                   attachment.meta?.width && attachment.meta?.height
                 )}
