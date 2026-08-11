@@ -37,6 +37,7 @@ dist-ssr
 
 # Local IDE/extension workspace state
 .mimocode/
+.claude/skills/
 
 # Test coverage
 *.out
