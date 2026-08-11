@@ -15,7 +15,9 @@ interface WallCommentTreeProps {
   currentUserId: string | null;
   currentUsername: string;
   onCommentCountChange: (delta: number) => void;
-  forceOpen?: boolean;
+  /** Fired once after the first successful load — lets the parent unfold the
+      section only when real content is ready (no skeleton flash on first open). */
+  onFirstLoad?: () => void;
 }
 
 export const WallCommentTree = ({
@@ -24,7 +26,7 @@ export const WallCommentTree = ({
   currentUserId,
   currentUsername,
   onCommentCountChange,
-  forceOpen = false,
+  onFirstLoad,
 }: WallCommentTreeProps) => {
   const [comments, setComments] = useState<WallComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,12 @@ export const WallCommentTree = ({
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const hasLoadedRef = useRef(false);
+  const firstLoadFiredRef = useRef(false);
+  // Keep onFirstLoad in a ref so loadComments stays identity-stable — if the
+  // parent passed an inline function, the [loadComments] effect below would
+  // refetch (and flash the skeleton) on every parent re-render.
+  const onFirstLoadRef = useRef(onFirstLoad);
+  onFirstLoadRef.current = onFirstLoad;
 
   const loadComments = useCallback(async () => {
     try {
@@ -74,6 +82,12 @@ export const WallCommentTree = ({
       toast.error("Не удалось загрузить комментарии");
     } finally {
       setLoading(false);
+      // Tell the parent the first fetch settled (success or failure) so it can
+      // unfold the section with real content instead of a skeleton flash.
+      if (!firstLoadFiredRef.current) {
+        firstLoadFiredRef.current = true;
+        onFirstLoadRef.current?.();
+      }
     }
   }, [postId]);
 

@@ -1,5 +1,5 @@
-import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
@@ -88,22 +88,39 @@ export const WallPostCard = ({
   const [repostRecordId, setRepostRecordId] = useState<string | null>(post.my_repost_record_id ?? null);
   const [repostedWallPostId, setRepostedWallPostId] = useState<string | null>(post.my_reposted_wall_post_id ?? null);
   const [commentsOpen, setCommentsOpen] = useState(forceCommentsOpen);
+  // The comment tree mounts on the FIRST open and then stays mounted forever
+  // (hidden via grid-rows). Remounting it on every toggle would refetch the
+  // comments and flash the loading skeleton — the "ghost" under the feed.
+  const [commentsMounted, setCommentsMounted] = useState(forceCommentsOpen);
+  // Unfolds the section only once the first fetch has settled, so the very
+  // first open shows real content (or the empty state), never a skeleton flash.
+  // Always starts false (even for forceCommentsOpen) so deep links behave the
+  // same way: the section unfolds the moment the fetch resolves.
+  const [commentsReady, setCommentsReady] = useState(false);
   const commentsRef = useRef<HTMLDivElement>(null);
   // Skip the auto-scroll on the very first open (e.g. forceCommentsOpen on load).
   const initialMountRef = useRef(true);
+
+  const handleCommentsReady = useCallback(() => {
+    setCommentsReady(true);
+  }, []);
 
   // When the user opens comments, gently nudge the page down so the comments
   // take a good chunk of the screen — but only if they start below the target
   // line. Already-low users are never moved, and we never scroll up.
   useEffect(() => {
-    if (!commentsOpen) {
-      initialMountRef.current = false;
+    if (commentsOpen) {
+      setCommentsMounted(true);
       return;
     }
+    initialMountRef.current = false;
+  }, [commentsOpen]);
+
+  useEffect(() => {
+    if (!commentsOpen || !commentsReady) return;
     if (initialMountRef.current) return;
-    // Wait for the expand animation + the comments fetch to settle: nudging
-    // during the animation measures the still-growing section (or the skeleton)
-    // and leaves the page in the wrong place once the real height lands.
+    // Wait for the expand animation to finish: nudging mid-animation measures
+    // the still-growing section and leaves the page in the wrong place.
     const timer = window.setTimeout(() => {
       const el = commentsRef.current;
       if (!el) return;
@@ -117,7 +134,7 @@ export const WallPostCard = ({
       }
     }, COMMENTS_NUDGE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [commentsOpen]);
+  }, [commentsOpen, commentsReady]);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -433,37 +450,34 @@ export const WallPostCard = ({
         {/*
           Expand/collapse via CSS grid rows (0fr → 1fr) instead of animating
           `height` in JS: the browser resolves the row height natively, which is
-          smooth, and — unlike a JS height tween — never reflows the sticky
-          composer inside, so the first open doesn't jitter or flash extra space.
+          smooth and never reflows the sticky composer inside.
+
+          The tree mounts once (on the first open) and is then hidden with 0fr
+          + invisible instead of being unmounted — so reopening never refetches
+          or flashes the loading skeleton under the comments.
         */}
-        <div
-          className={`grid transition-[grid-template-rows,visibility] duration-300 ease-out motion-reduce:transition-none ${commentsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
-        >
-          {/* `invisible` when collapsed: 0fr clips visually, but the always-mounted
-              tree (reply buttons, composer pill…) must not stay focusable/tabbable
-              while hidden. visibility is transitioned, so it flips only at the end. */}
-          <div ref={commentsRef} className={`min-h-0 overflow-clip ${commentsOpen ? "" : "invisible"}`}>
-            <AnimatePresence initial={false}>
-              {commentsOpen && (
-                <motion.div
-                  key="post-comments"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                >
-                  <WallCommentTree
-                    postId={post.id}
-                    postUserId={post.user_id}
-                    currentUserId={currentUserId}
-                    currentUsername={currentUsername}
-                    onCommentCountChange={(delta) => setCommentsCount((prev) => Math.max(0, prev + delta))}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+        {(commentsMounted || commentsOpen) && (
+          <div
+            className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${commentsOpen && commentsReady ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+          >
+            {/* `invisible` when collapsed: 0fr clips visually, but the mounted
+                tree (reply buttons, composer pill…) must not stay focusable
+                while hidden. visibility transitions, flipping only at the end. */}
+            <div
+              ref={commentsRef}
+              className={`min-h-0 overflow-clip transition-[opacity,visibility] duration-300 ease-out motion-reduce:transition-none ${commentsOpen && commentsReady ? "opacity-100" : "invisible opacity-0"}`}
+            >
+              <WallCommentTree
+                postId={post.id}
+                postUserId={post.user_id}
+                currentUserId={currentUserId}
+                currentUsername={currentUsername}
+                onCommentCountChange={(delta) => setCommentsCount((prev) => Math.max(0, prev + delta))}
+                onFirstLoad={handleCommentsReady}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {isEditing && currentUserId && (
           <CreateWallPost

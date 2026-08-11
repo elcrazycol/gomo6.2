@@ -946,6 +946,96 @@ describe("ProfileWall", () => {
     });
   });
 
+  it("keeps comments collapsed until the first fetch settles (no skeleton flash)", async () => {
+    // A comments fetch that we resolve manually — the section must stay folded
+    // (no "Тут пока пусто" and no skeleton visible) until it settles.
+    let resolveComments!: (v: unknown) => void;
+    const pendingComments = new Promise<unknown>((res) => { resolveComments = res; });
+    const pendingChain = pendingComments as any;
+    pendingChain.select = () => pendingChain;
+    pendingChain.eq = () => pendingChain;
+    pendingChain.order = () => pendingChain;
+    pendingChain.in = () => pendingChain;
+    pendingChain.limit = () => pendingChain;
+    pendingChain.or = () => pendingChain;
+    pendingChain.single = () => pendingChain;
+    pendingChain.maybeSingle = () => pendingChain;
+    pendingChain.insert = () => pendingChain;
+    pendingChain.update = () => pendingChain;
+    pendingChain.delete = () => pendingChain;
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "profile_wall_post_comments") return pendingChain;
+      if (table === "profile_wall_posts") return makeChain({ data: [createMockPost()], error: null });
+      return makeChain({ data: [], error: null });
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Комментировать"));
+
+    // Fetch is still in flight → the section must NOT show the empty state yet.
+    expect(screen.queryByText("Тут пока пусто, но это можно исправить.")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveComments({ data: [], error: null });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
+    });
+  });
+
+  it("does not refetch comments when reopening the section (mount-once)", async () => {
+    setupApiMocks({
+      posts: [createMockPost()],
+      comments: [],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Комментировать"));
+    await waitFor(() => {
+      expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
+    });
+
+    const fetchesAfterFirstOpen = mockFrom.mock.calls.filter(([t]) => t === "profile_wall_post_comments").length;
+
+    // Close and reopen — the tree stays mounted, so no second fetch.
+    await userEvent.click(screen.getByText("Комментировать"));
+    await userEvent.click(screen.getByText("Комментировать"));
+    await waitFor(() => {
+      expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
+    });
+
+    const fetchesAfterReopen = mockFrom.mock.calls.filter(([t]) => t === "profile_wall_post_comments").length;
+    expect(fetchesAfterReopen).toBe(fetchesAfterFirstOpen);
+  });
+
   it("nudges the page down when opening comments that start below the target line", async () => {
     vi.mocked(shouldScrollToComments).mockReturnValue(true);
     setupApiMocks({
