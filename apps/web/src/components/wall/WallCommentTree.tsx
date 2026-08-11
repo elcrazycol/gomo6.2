@@ -5,8 +5,7 @@ import { api } from "@/integrations/api/compat";
 import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
-import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
-import { prosemirrorToPlainText } from "@/utils/contentConverter";
+import { EMPTY_EDITOR_STATE, prosemirrorToPlainText, stripTrailingEmptyParagraphs } from "@/utils/contentConverter";
 import type { WallComment } from "@/utils/wallNormalizers";
 import { normalizeWallComment } from "@/utils/wallNormalizers";
 
@@ -139,7 +138,7 @@ export const WallCommentTree = ({
           post_id: postId,
           user_id: currentUserId,
           content: normalizedText,
-          content_json: normalizedJson.json,
+          content_json: stripTrailingEmptyParagraphs(normalizedJson.json),
         });
       if (error) throw error;
       await loadComments();
@@ -177,7 +176,7 @@ export const WallCommentTree = ({
           user_id: currentUserId,
           parent_id: parentId,
           content: state.text,
-          content_json: state.json,
+          content_json: stripTrailingEmptyParagraphs(state.json),
         });
       if (error) throw error;
       await loadComments();
@@ -208,7 +207,7 @@ export const WallCommentTree = ({
     try {
       const { error } = await api
         .from("profile_wall_post_comments")
-        .update({ content: state.text, content_json: state.json })
+        .update({ content: state.text, content_json: stripTrailingEmptyParagraphs(state.json) })
         .eq("id", commentId)
         .eq("user_id", currentUserId);
       if (error) throw error;

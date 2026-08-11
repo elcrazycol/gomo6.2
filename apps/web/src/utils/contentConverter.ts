@@ -277,6 +277,22 @@ export const normalizeContent = (contentJson: unknown, legacyContent?: string | 
   return null;
 };
 
+/**
+ * Remove trailing empty blocks from a ProseMirror document. Submitting a
+ * comment with Enter can leave a stray empty paragraph at the end of the
+ * doc (ProseMirror creates it before the submit handler runs); keeping it
+ * renders as an extra blank line at the end of the comment.
+ */
+export const stripTrailingEmptyParagraphs = (json: unknown): unknown => {
+  if (!isProsemirrorJson(json)) return json;
+  const doc = json as { content?: Record<string, unknown>[] };
+  const content = doc.content || [];
+  let end = content.length;
+  while (end > 0 && isEmptyProsemirrorNode(content[end - 1])) end--;
+  if (end === content.length) return json;
+  return { ...doc, content: content.slice(0, end) };
+};
+
 export const prosemirrorToPlainText = (json: unknown, fallback = ""): string => {
   if (!json || typeof json !== "object") return fallback;
 

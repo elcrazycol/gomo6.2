@@ -4,6 +4,7 @@ import {
   isProsemirrorJson,
   normalizeContent,
   isEmptyProsemirror,
+  stripTrailingEmptyParagraphs,
 } from "./contentConverter";
 
 describe("isProsemirrorJson", () => {
@@ -86,6 +87,48 @@ describe("prosemirrorToPlainText", () => {
       ],
     };
     expect(prosemirrorToPlainText(json)).toBe("Привет, @vasya!");
+  });
+});
+
+describe("stripTrailingEmptyParagraphs", () => {
+  it("returns non-prosemirror input as-is", () => {
+    expect(stripTrailingEmptyParagraphs(null)).toBeNull();
+    expect(stripTrailingEmptyParagraphs("plain")).toBe("plain");
+  });
+
+  it("keeps a clean doc unchanged", () => {
+    const json = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "ку" }] }],
+    };
+    expect(stripTrailingEmptyParagraphs(json)).toBe(json);
+  });
+
+  it("drops trailing empty paragraphs left by Enter-to-submit", () => {
+    const json = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "ку" }] },
+        { type: "paragraph" },
+        { type: "paragraph", content: [{ type: "text", text: "\u200b" }] },
+      ],
+    };
+    expect(stripTrailingEmptyParagraphs(json)).toEqual({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "ку" }] }],
+    });
+  });
+
+  it("keeps intentional empty paragraphs in the middle", () => {
+    const json = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "первая" }] },
+        { type: "paragraph" },
+        { type: "paragraph", content: [{ type: "text", text: "третья" }] },
+      ],
+    };
+    expect(stripTrailingEmptyParagraphs(json)).toBe(json);
   });
 });
 

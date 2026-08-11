@@ -65,6 +65,22 @@ const renderInline = (node: ProsemirrorNode, key: string): React.ReactNode => {
   return <React.Fragment key={key}>{element}</React.Fragment>;
 };
 
+const isEmptyParagraph = (node: ProsemirrorNode): boolean => {
+  if (node.type !== "paragraph") return false;
+  const content = node.content || [];
+  if (content.length === 0) return true;
+  // Mirrors isEmptyProsemirrorNode: whitespace text and hard breaks count as
+  // empty, so trailing paragraph leftovers are dropped consistently. Note:
+  // String#trim does NOT remove \u200b (zero-width space is a Cf format char),
+  // hence the explicit equality check.
+  return content.every(
+    (child) =>
+      child.type === "hardBreak" ||
+      (child.type === "text" &&
+        (!child.text || child.text.trim().length === 0 || child.text === "\u200b")),
+  );
+};
+
 const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
   if (node.type === "text") {
     return renderInline(node, key);
@@ -88,8 +104,14 @@ const renderNode = (node: ProsemirrorNode, key: string): React.ReactNode => {
     .filter(Boolean);
 
   switch (node.type) {
-    case "doc":
-      return <>{children}</>;
+    case "doc": {
+      // Drop trailing empty paragraphs (e.g. created by pressing Enter to
+      // submit) so replies never show a stray blank line at the end.
+      const nodes = node.content || [];
+      let end = nodes.length;
+      while (end > 0 && isEmptyParagraph(nodes[end - 1])) end--;
+      return <>{nodes.slice(0, end).map((child, index) => renderNode(child, `${key}-${index}`))}</>;
+    }
     case "paragraph":
       return (
         <div key={key} className="mb-2">

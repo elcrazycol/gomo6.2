@@ -140,11 +140,11 @@ export const WallCommentNode = ({
       )}
       <div className="group relative z-10 rounded-2xl py-2.5 transition-colors hover:bg-muted/20">
           <div className="relative flex items-start gap-3">
-            {hasChildren && !isCollapsed && (
+            {hasChildren && (
               <div
                 aria-hidden="true"
                 data-wall-thread-parent-stem="true"
-                className={`pointer-events-none absolute ${threadAxis} ${threadStemTop} bottom-[-14px] z-0 border-l-2 border-border/55`}
+                className={`pointer-events-none absolute ${threadAxis} ${threadStemTop} bottom-[-14px] z-0 origin-top border-l-2 border-border/55 transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${isCollapsed ? "scale-y-0 opacity-0" : "scale-y-100 opacity-100"}`}
               />
             )}
             <Link
