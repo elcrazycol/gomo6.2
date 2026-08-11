@@ -46,8 +46,8 @@ vi.mock("@/components/ThreadFeed", () => ({
   ThreadFeed: () => <div data-testid="thread-feed">ThreadFeed</div>,
 }));
 
-vi.mock("@/components/ThreadCard", () => ({
-  ThreadCard: ({ thread }: { thread: { id: string; title: string } }) => (
+vi.mock("@/components/FeedThreadCard", () => ({
+  FeedThreadCard: ({ thread }: { thread: { id: string; title: string } }) => (
     <div data-testid="thread-card">{thread.title}</div>
   ),
 }));

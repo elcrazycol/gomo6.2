@@ -18,7 +18,8 @@ import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { ThreadFeed } from "@/components/ThreadFeed";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
-import { ThreadCard } from "@/components/ThreadCard";
+import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -38,32 +39,6 @@ interface GomoSub {
   slug: string;
   name: string;
   description: string | null;
-}
-
-interface FeedThread {
-  id: string;
-  title: string;
-  content: string;
-  image_url: string | null;
-  image_urls?: string[] | null;
-  created_at: string;
-  updated_at: string;
-  user_id: string | null;
-  board_id: string;
-  post_count: number;
-  tags?: Record<string, string>;
-  profiles: {
-    username: string;
-    display_name?: string | null;
-    nickname_emoji_id?: string | null;
-    is_anonymous: boolean;
-    avatar_url?: string | null;
-  } | null;
-  boards: {
-    slug: string;
-    name: string;
-    is_gomosub?: boolean | null;
-  };
 }
 
 interface SubscribedPostUpdate {
@@ -90,6 +65,8 @@ const Index = () => {
   const [feedLikesMap, setFeedLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
   const [subscribedPostUpdates, setSubscribedPostUpdates] = useState<SubscribedPostUpdate[]>([]);
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const [activeFeed, setActiveFeed] = useState<"recommended" | "subscriptions">("recommended");
   const [user, setUser] = useState<{ id: string } | null>(null);
   const [isModerator, setIsModerator] = useState(false);
@@ -230,8 +207,10 @@ const Index = () => {
           id,
           title,
           content,
+          content_json,
           image_url,
           image_urls,
+          attachments,
           created_at,
           updated_at,
           user_id,
@@ -486,15 +465,18 @@ const Index = () => {
                   subscriptionsFeed.map((thread) => {
                     const likes = feedLikesMap.get(thread.id);
                     return (
-                      <ThreadCard
+                      <FeedThreadCard
                         key={thread.id}
                         thread={thread}
                         currentUserId={user?.id ?? null}
                         currentUsername={currentUserUsername}
                         currentUserColor={currentUserColor}
-                        hideTimestampOnCompactMobile={true}
                         initialLikesCount={likes?.count ?? 0}
                         initialUserLiked={likes?.isLiked ?? false}
+                        onImageClick={(items, idx) => {
+                          setGalleryItems(items);
+                          setGalleryIndex(idx);
+                        }}
                       />
                     );
                   })
@@ -606,6 +588,14 @@ const Index = () => {
         onDecline={handleDeclineTerms}
         canDecline={true}
       />
+
+      {!!galleryItems && (
+        <Lightbox
+          items={galleryItems}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryItems(null)}
+        />
+      )}
     </div>
   );
 };

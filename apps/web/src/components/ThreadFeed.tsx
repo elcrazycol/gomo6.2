@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
-import { ThreadCard } from "@/components/ThreadCard";
+import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
@@ -41,34 +41,6 @@ interface FeedItem {
   comments_count: number;
   reposts_count: number;
   liked_by_viewer: boolean;
-}
-
-/** Thread shape the ThreadCard expects, derived from a feed item. */
-interface FeedThread {
-  id: string;
-  title: string;
-  content: string;
-  content_json?: unknown;
-  image_url: string | null;
-  image_urls?: string[] | null;
-  created_at: string;
-  updated_at: string;
-  user_id: string | null;
-  board_id: string;
-  post_count: number;
-  tags?: Record<string, string>;
-  profiles: {
-    username: string;
-    display_name?: string | null;
-    nickname_emoji_id?: string | null;
-    is_anonymous: boolean;
-    avatar_url?: string | null;
-  } | null;
-  boards: {
-    slug: string;
-    name: string;
-    is_gomosub?: boolean | null;
-  };
 }
 
 interface ThreadFeedProps {
@@ -114,6 +86,7 @@ export const ThreadFeed = ({
     content_json: item.content_json,
     image_url: item.image_url ?? null,
     image_urls: item.image_urls ?? null,
+    attachments: item.attachments,
     created_at: item.created_at,
     updated_at: item.updated_at || item.created_at,
     user_id: item.author_id ?? null,
@@ -248,15 +221,18 @@ export const ThreadFeed = ({
             if (item.item_type === "thread") {
               const thread = feedToThread(item);
               return (
-                <ThreadCard
+                <FeedThreadCard
                   key={`thread-${thread.id}`}
                   thread={thread}
                   currentUserId={currentUserId}
                   currentUsername={currentUsername}
                   currentUserColor={currentUserColor}
-                  showPreview={true}
                   initialLikesCount={item.likes_count}
                   initialUserLiked={item.liked_by_viewer}
+                  onImageClick={(items, idx) => {
+                    setGalleryItems(items);
+                    setGalleryIndex(idx);
+                  }}
                 />
               );
             }

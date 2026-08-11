@@ -6,8 +6,8 @@ import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-vi.mock("@/components/ThreadCard", () => ({
-  ThreadCard: ({ thread, currentUserId }: any) => (
+vi.mock("@/components/FeedThreadCard", () => ({
+  FeedThreadCard: ({ thread, currentUserId }: any) => (
     <div data-testid="thread-card" data-thread-id={thread.id} data-user-id={currentUserId}>
       {thread.title}
     </div>
