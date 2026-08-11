@@ -23,6 +23,15 @@ interface WallCommentComposerProps {
   replyTo?: { id: string; name: string } | null;
 }
 
+// Keep slightly above the CSS transition duration (300ms) so the collapse
+// animation always completes before the pill is swapped back in.
+const COLLAPSE_TIMEOUT_MS = 320;
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export const WallCommentComposer = ({
   placeholder,
   onSubmit,
@@ -39,34 +48,61 @@ export const WallCommentComposer = ({
   replyTo = null,
 }: WallCommentComposerProps) => {
   const [expanded, setExpanded] = useState(!focusToExpand);
+  const [closing, setClosing] = useState(false);
   const isExpanded = !focusToExpand || expanded || Boolean(text.trim());
 
-  // Choosing a reply target wakes the composer up in reply mode.
+  const finishCollapse = () => {
+    setExpanded(false);
+    setClosing(false);
+  };
+
+  const requestCollapse = () => {
+    if (!focusToExpand || !expanded || closing) return;
+    setClosing(true);
+  };
+
+  // Choosing a reply target wakes the composer up in reply mode — and cancels
+  // an in-flight collapse so the freshly chosen target isn't swallowed.
   useEffect(() => {
-    if (replyTo) setExpanded(true);
+    if (replyTo) {
+      setExpanded(true);
+      setClosing(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyTo?.id]);
 
   // After a successful submit the parent clears the draft and bumps resetKey —
-  // fold the composer back into its quiet one-line prompt.
+  // fold the composer back into its quiet one-line prompt (animated).
   useEffect(() => {
     if (focusToExpand && !text.trim()) {
-      setExpanded(false);
+      requestCollapse();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey]);
 
+  // Finish the collapse once the grid-rows transition has had time to run;
+  // under reduced motion it snaps instantly.
+  useEffect(() => {
+    if (!closing) return;
+    if (prefersReducedMotion()) {
+      finishCollapse();
+      return;
+    }
+    const timer = window.setTimeout(finishCollapse, COLLAPSE_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+
   // Collapse on blur only while the draft is empty — never swallow typed text.
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     if (focusToExpand && !text.trim() && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setExpanded(false);
+      requestCollapse();
     }
   };
 
   const editorPlaceholder = replyTo ? "Напишите ответ" : placeholder;
   const pillLabel = replyTo ? `Ответ для @${replyTo.name}…` : `${placeholder}…`;
 
-  if (focusToExpand && !isExpanded) {
+  if (focusToExpand && !expanded && !closing && !text.trim()) {
     return (
       <button
         type="button"
@@ -83,62 +119,66 @@ export const WallCommentComposer = ({
   return (
     <div
       onBlur={handleBlur}
-      className={`space-y-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`}
+      className={`grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none ${closing ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
     >
-      {replyTo && (
-        <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/[0.06] px-2.5 py-1.5">
-          <span className="min-w-0 truncate text-xs text-foreground/80">
-            Ответ <span className="font-semibold text-primary">@{replyTo.name}</span>
-          </span>
-          {onCancel && (
-            <button
+      <div className="min-h-0 overflow-hidden">
+        <div className={`space-y-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-sm transition-shadow focus-within:border-primary/40 focus-within:shadow-md animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none ${compact ? "" : "p-3"}`}>
+          {replyTo && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/20 bg-primary/[0.06] px-2.5 py-1.5">
+              <span className="min-w-0 truncate text-xs text-foreground/80">
+                Ответ <span className="font-semibold text-primary">@{replyTo.name}</span>
+              </span>
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  aria-label="Отменить ответ"
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+          <GomoRichEditor
+            autoFocus={autoFocus}
+            resetKey={resetKey}
+            maxLength={maxLength}
+            contentJson={json}
+            legacyContent={text}
+            onChange={onChange}
+            onSubmit={onSubmit}
+            placeholder={editorPlaceholder}
+            minHeightClassName={compact ? "min-h-[60px]" : "min-h-[84px]"}
+            showToolbar={!compact || isExpanded}
+          />
+          <div className="flex items-center justify-end gap-2">
+            {onCancel && (
+              <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+                Отмена
+              </Button>
+            )}
+            <Button
               type="button"
-              onClick={onCancel}
-              aria-label="Отменить ответ"
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
+              size="sm"
+              className="rounded-xl"
+              onClick={onSubmit}
+              disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim()) || text.trim() === "\u200b"}
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  Отправляем
+                </>
+              ) : (
+                <>
+                  <Send className="mr-1 h-3 w-3" />
+                  Ответить
+                </>
+              )}
+            </Button>
+          </div>
         </div>
-      )}
-      <GomoRichEditor
-        autoFocus={autoFocus}
-        resetKey={resetKey}
-        maxLength={maxLength}
-        contentJson={json}
-        legacyContent={text}
-        onChange={onChange}
-        onSubmit={onSubmit}
-        placeholder={editorPlaceholder}
-        minHeightClassName={compact ? "min-h-[60px]" : "min-h-[84px]"}
-        showToolbar={!compact || isExpanded}
-      />
-      <div className="flex items-center justify-end gap-2">
-        {onCancel && (
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
-            Отмена
-          </Button>
-        )}
-        <Button
-          type="button"
-          size="sm"
-          className="rounded-xl"
-          onClick={onSubmit}
-          disabled={isSubmitting || !text.trim() || /^\u200b+$/.test(text.trim()) || text.trim() === "\u200b"}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-              Отправляем
-            </>
-          ) : (
-            <>
-              <Send className="mr-1 h-3 w-3" />
-              Ответить
-            </>
-          )}
-        </Button>
       </div>
     </div>
   );

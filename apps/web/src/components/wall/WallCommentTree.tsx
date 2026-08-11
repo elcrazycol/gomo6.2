@@ -39,10 +39,13 @@ export const WallCommentTree = ({
   const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const hasLoadedRef = useRef(false);
 
   const loadComments = useCallback(async () => {
     try {
-      setLoading(true);
+      // Keep the current list visible during refresh — flashing the skeleton
+      // after every submit made the freshly added comment blink in and out.
+      if (!hasLoadedRef.current) setLoading(true);
       const { data, error } = await api
         .from("profile_wall_post_comments")
         .select(`
@@ -65,6 +68,7 @@ export const WallCommentTree = ({
 
       if (error) throw error;
       setComments(((data || []) as Record<string, unknown>[]).map(normalizeWallComment));
+      hasLoadedRef.current = true;
     } catch (err) {
       console.error("Error loading wall comments:", err);
       toast.error("Не удалось загрузить комментарии");
@@ -74,36 +78,29 @@ export const WallCommentTree = ({
   }, [postId]);
 
   useEffect(() => {
+    // Fresh post → treat the next fetch as the initial one (with skeleton).
+    hasLoadedRef.current = false;
     loadComments();
   }, [loadComments]);
 
   // After a successful submit, glide to the fresh comment. The list reloads
-  // asynchronously, so poll until the node exists, then hand over to the eased
-  // scroll helper (which runs after the entrance animation has kicked in).
+  // asynchronously, so poll until the node exists, then start the eased scroll.
   useEffect(() => {
     if (!pendingScrollId) return;
     let attempts = 0;
-    let scrollTimer = 0;
     const interval = window.setInterval(() => {
       attempts += 1;
       const el = rootRef.current?.querySelector(`[data-comment-id="${pendingScrollId}"]`);
       if (el) {
         window.clearInterval(interval);
-        scrollTimer = window.setTimeout(() => {
-          // Re-query: the captured node may have been detached by a re-render.
-          const current = rootRef.current?.querySelector(`[data-comment-id="${pendingScrollId}"]`);
-          if (current) smoothScrollToElement(current, { block: "center", duration: 700 });
-        }, 80);
+        smoothScrollToElement(el, { block: "center", duration: 700 });
         setPendingScrollId(null);
       } else if (attempts > 40) {
         window.clearInterval(interval);
         setPendingScrollId(null);
       }
     }, 50);
-    return () => {
-      window.clearInterval(interval);
-      window.clearTimeout(scrollTimer);
-    };
+    return () => window.clearInterval(interval);
   }, [pendingScrollId, comments]);
 
   // The soft highlight fades away on its own after a moment.
