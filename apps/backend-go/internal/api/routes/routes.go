@@ -114,6 +114,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 	universalHandler.SetRedis(redis)
 	universalHandler.SetAchievementChecker(achChecker)
 	searchHandler := handlers.NewSearchHandler(db)
+	feedHandler := handlers.NewFeedHandler(db)
 	messengerHandler := handlers.NewMessengerHandler(db, wsHub)
 	messengerHandler.SetRedis(redis)
 	audioHandler := handlers.NewAudioHandler()
@@ -249,6 +250,11 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 
 		// Search endpoint (full-text, public)
 		rest.GET("/search", searchHandler.Search)
+
+		// Unified personalized feed (threads + wall posts, scored per viewer).
+		// Rides the optional-auth + data-cache middleware above, so personalized
+		// responses are cached per viewer identity (see data_cache.go).
+		rest.GET("/feed", feedHandler.GetUserFeed)
 
 		// Public endpoints (no auth required)
 		rest.GET("/profiles", profilesHandler.GetProfiles)

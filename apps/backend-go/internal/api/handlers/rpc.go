@@ -340,6 +340,8 @@ func (h *RPCHandler) CreatePostRPC(c *gin.Context) {
 		if postBoardID != "" {
 			middleware.InvalidateCacheForBoard(h.redis, postBoardID)
 		}
+		// New replies bump the thread in the unified feed (updated_at changes).
+		middleware.InvalidateCacheForFeed(h.redis)
 	}
 
 	if h.wsHub != nil {
@@ -534,6 +536,8 @@ func (h *RPCHandler) CreateThreadRPC(c *gin.Context) {
 
 	if h.redis != nil {
 		middleware.InvalidateCacheForBoard(h.redis, req.BoardID)
+		// A brand-new thread is a candidate for the unified feed.
+		middleware.InvalidateCacheForFeed(h.redis)
 	}
 
 	if h.wsHub != nil {

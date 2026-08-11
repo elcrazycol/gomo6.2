@@ -78,12 +78,16 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 		// board_id and embeds post_count — the post-scoped patterns only match
 		// the standalone thread page, so the list would go stale for the TTL.
 		h.invalidateThreadBoardCache(c, values["thread_id"])
+		// New posts bump threads in the unified feed.
+		middleware.InvalidateCacheForFeed(h.redis)
 	case "threads":
 		if boardID, ok := result["board_id"].(string); ok && boardID != "" {
 			values["board_id"] = boardID
 		}
 		fmt.Printf("[CacheInvalidator] Invalidating thread cache: id=%s, board_id=%s\n", values["id"], values["board_id"])
 		cache.InvalidateForThread(h.redis, values["id"], values["board_id"])
+		// A new/updated thread is a candidate for the unified feed.
+		middleware.InvalidateCacheForFeed(h.redis)
 	case "profile_wall_posts":
 		if wallOwnerID, ok := result["user_id"].(string); ok && wallOwnerID != "" {
 			values["user_id"] = wallOwnerID
@@ -924,6 +928,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 				middleware.InvalidateCacheForWallPost(h.redis, postID)
 				cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_post_likes*post_id=eq.%s*", postID))
 				cache.InvalidateByPattern(h.redis, "data:/api/v1/profile_wall_post_likes*")
+				// Likes affect feed popularity scores.
+				middleware.InvalidateCacheForFeed(h.redis)
 			}
 		}
 
@@ -1007,6 +1013,8 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		// Invalidate cache for this user's wall (author_id is the wall owner)
 		if wallOwnerID, ok := result["user_id"].(string); ok && h.redis != nil {
 			middleware.InvalidateCacheForProfileWall(h.redis, wallOwnerID)
+			// A new wall post is a candidate for the unified feed.
+			middleware.InvalidateCacheForFeed(h.redis)
 		}
 
 		// Also invalidate via the new cache system

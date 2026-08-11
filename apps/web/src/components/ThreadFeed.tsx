@@ -1,14 +1,54 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { api } from "@/integrations/api/compat";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { ThreadCard } from "@/components/ThreadCard";
+import { FeedWallPostCard } from "@/components/FeedWallPostCard";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { ThreadFeedSkeleton } from "@/components/skeletons/ContentSkeletons";
+import { Lightbox, type LightboxItem } from "@/components/Lightbox";
+import { normalizeWallPostRecord, type WallPost } from "@/utils/wallNormalizers";
 
-interface Thread {
+/** One unified feed item as returned by GET /api/v1/feed. */
+interface FeedItem {
+  item_type: "thread" | "wall_post";
+  item_id: string;
+  score: number;
+  created_at: string;
+  updated_at?: string | null;
+  title?: string | null;
+  content?: string | null;
+  content_json?: unknown;
+  image_url?: string | null;
+  image_urls?: string[] | null;
+  attachments?: unknown;
+  tags?: Record<string, string> | null;
+  post_count?: number | null;
+  author_id?: string | null;
+  author?: {
+    username: string;
+    display_name?: string | null;
+    nickname_emoji_id?: string | null;
+    is_anonymous: boolean;
+    avatar_url?: string | null;
+  } | null;
+  board_id?: string | null;
+  boards?: {
+    slug: string;
+    name: string;
+    is_gomosub: boolean;
+  } | null;
+  wall_user_id?: string | null;
+  likes_count: number;
+  comments_count: number;
+  reposts_count: number;
+  liked_by_viewer: boolean;
+}
+
+/** Thread shape the ThreadCard expects, derived from a feed item. */
+interface FeedThread {
   id: string;
   title: string;
   content: string;
+  content_json?: unknown;
   image_url: string | null;
   image_urls?: string[] | null;
   created_at: string;
@@ -16,6 +56,7 @@ interface Thread {
   user_id: string | null;
   board_id: string;
   post_count: number;
+  tags?: Record<string, string>;
   profiles: {
     username: string;
     display_name?: string | null;
@@ -37,51 +78,72 @@ interface ThreadFeedProps {
   limit?: number;
 }
 
+/**
+ * Unified personalized feed (threads + wall posts).
+ *
+ * GET /api/v1/feed returns a scored, per-viewer mix produced by the
+ * get_user_feed() SQL function. Unlike the old implementation it needs no
+ * separate recommendations RPC (that endpoint never existed — the client
+ * silently fell back to "latest threads" for everyone) and no per-card like
+ * fetches: like counts and viewer state are embedded in each item.
+ */
 export const ThreadFeed = ({
   currentUserId,
   currentUsername,
   currentUserColor,
   limit = 20
 }: ThreadFeedProps) => {
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [likesMap, setLikesMap] = useState<Map<string, { count: number; isLiked: boolean }>>(new Map());
+  const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [galleryItems, setGalleryItems] = useState<LightboxItem[] | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const observerRef = useRef<IntersectionObserver>();
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  const initialLoadDone = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
-  // Backoff for the infinite-scroll sentinel: when a load fails (e.g. the API
-  // answers 429 rate-limit or 5xx), the sentinel stays visible and the observer
-  // would otherwise hammer the endpoint in a tight loop. Suppress observer-
-  // triggered loads for 15s after any error; the feed recovers on its own once
-  // the endpoint clears.
+  // Backoff for the infinite-scroll sentinel: on API errors the observer must
+  // not hammer the endpoint (same behavior as the old feed).
   const nextLoadMoreAtRef = useRef(0);
 
-  const fetchLikesBatch = useCallback(async (threadIds: string[]) => {
-    if (!threadIds.length) return;
-    const idsParam = threadIds.join(",");
-    const userParam = currentUserId ? `&user_uuid=${currentUserId}` : "";
-    try {
-      const resp = await fetch(`/api/rpc/get_thread_likes_batch?thread_ids=${idsParam}${userParam}`);
-      const result = await resp.json();
-      if (result.data && Array.isArray(result.data)) {
-        setLikesMap(prev => {
-          const next = new Map(prev);
-          for (const item of result.data) {
-            next.set(item.thread_id, { count: item.count, isLiked: item.is_liked });
-          }
-          return next;
-        });
-      }
-    } catch {
-      // silently ignore — UI shows 0 likes
-    }
-  }, [currentUserId]);
+  const feedToThread = (item: FeedItem): FeedThread => ({
+    id: item.item_id,
+    title: item.title || "",
+    content: item.content || "",
+    content_json: item.content_json,
+    image_url: item.image_url ?? null,
+    image_urls: item.image_urls ?? null,
+    created_at: item.created_at,
+    updated_at: item.updated_at || item.created_at,
+    user_id: item.author_id ?? null,
+    board_id: item.board_id ?? "",
+    post_count: item.post_count ?? 0,
+    tags: item.tags ?? undefined,
+    profiles: item.author ?? null,
+    boards: item.boards ?? { slug: "b", name: "Доска" },
+  });
 
-  const loadThreads = useCallback(async (isLoadMore = false) => {
+  const feedToWallPost = (item: FeedItem): WallPost =>
+    normalizeWallPostRecord({
+      id: item.item_id,
+      user_id: item.wall_user_id,
+      author_id: item.author_id,
+      title: item.title,
+      content: item.content,
+      content_json: item.content_json,
+      image_url: item.image_url,
+      attachments: item.attachments,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+      likes_count: item.likes_count,
+      comments_count: item.comments_count,
+      reposts_count: item.reposts_count,
+      liked_by_viewer: item.liked_by_viewer,
+      author: item.author,
+    } as unknown as Record<string, unknown>);
+
+  const loadFeed = useCallback(async (isLoadMore = false) => {
     try {
       if (isLoadMore) {
         setLoadingMore(true);
@@ -93,113 +155,48 @@ export const ThreadFeed = ({
       const controller = new AbortController();
       abortRef.current = controller;
 
-      let url = `/api/v1/threads?order=updated_at.desc&limit=${limit + 1}`;
-      if (isLoadMore && cursor) {
-        url += `&cursor=${encodeURIComponent(cursor)}`;
-      }
+      // Offset pagination over a score that decays with age: the exact order
+      // can drift slightly between refreshes (rare dupes/skips on fast reload).
+      // Accepted MVP trade-off; a keyset cursor over a frozen score snapshot
+      // would remove it later.
+      const nextOffset = isLoadMore ? offset : 0;
+      const url = `/api/v1/feed?limit=${limit + 1}&offset=${nextOffset}`;
 
       const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();
-      let threadsData = (result.data || []) as Record<string, unknown>[];
-      const nextCursor = result.next_cursor || null;
+      let feedItems = (result.data || []) as FeedItem[];
 
-      const hasMoreData = threadsData.length > limit;
+      const hasMoreData = feedItems.length > limit;
       if (hasMoreData) {
-        threadsData = threadsData.slice(0, limit);
+        feedItems = feedItems.slice(0, limit);
       }
-
-      if (currentUserId && !isLoadMore && !initialLoadDone.current) {
-        initialLoadDone.current = true;
-        const { data: recommended, error: recError } = await api.rpc(
-          "get_recommended_threads",
-          {
-            user_uuid: currentUserId,
-            limit_count: limit,
-            offset_count: 0
-          }
-        );
-
-        if (!recError && recommended && (recommended as Array<{ thread_id: string; score: number }>).length > 0) {
-          const recommendedIds = (recommended as Array<{ thread_id: string; score: number }>).map((r) => r.thread_id);
-          const recResponse = await fetch(`/api/v1/threads?id=in.(${recommendedIds.join(',')})&limit=${limit}`);
-          const recResult = await recResponse.json();
-          const recThreadsData = (recResult.data || []) as Record<string, unknown>[];
-
-          if (recThreadsData.length > 0) {
-            const sortedRecThreads = recThreadsData.map(thread => ({
-              ...thread,
-              profiles: {
-                username: (thread.username as string) || "Аноним",
-                display_name: thread.display_name as string | null,
-                nickname_emoji_id: thread.nickname_emoji_id as string | null,
-                is_anonymous: Boolean(thread.is_anonymous),
-                avatar_url: thread.avatar_url as string | null,
-              },
-            })) as unknown as Thread[];
-
-            sortedRecThreads.sort((a, b) => {
-              const aScore = (recommended as Array<{ thread_id: string; score: number }>).find((r) => r.thread_id === a.id)?.score || 0;
-              const bScore = (recommended as Array<{ thread_id: string; score: number }>).find((r) => r.thread_id === b.id)?.score || 0;
-              return bScore - aScore;
-            });
-
-            setThreads(sortedRecThreads);
-            setLoading(false);
-            fetchLikesBatch(sortedRecThreads.map(t => t.id));
-            return;
-          }
-        }
-      }
-
-      if (!threadsData.length) {
-        if (!isLoadMore) setThreads([]);
-        setHasMore(false);
-        setLoading(false);
-        setLoadingMore(false);
-        return;
-      }
-
-      const threadsWithProfiles = threadsData.map(thread => ({
-        ...thread,
-        profiles: {
-          username: (thread.username as string) || "Аноним",
-          display_name: thread.display_name as string | null,
-          nickname_emoji_id: thread.nickname_emoji_id as string | null,
-          is_anonymous: Boolean(thread.is_anonymous),
-          avatar_url: thread.avatar_url as string | null,
-        },
-      })) as unknown as Thread[];
 
       if (isLoadMore) {
-        setThreads(prev => [...prev, ...threadsWithProfiles]);
-        fetchLikesBatch(threadsWithProfiles.map(t => t.id));
+        setItems(prev => [...prev, ...feedItems]);
       } else {
-        setThreads(threadsWithProfiles);
-        fetchLikesBatch(threadsWithProfiles.map(t => t.id));
+        setItems(feedItems);
       }
-
-      setCursor(nextCursor);
-      setHasMore(hasMoreData && nextCursor !== null);
+      setOffset(nextOffset + feedItems.length);
+      setHasMore(hasMoreData);
     } catch (error) {
       if ((error as Error).name === 'AbortError') return;
       nextLoadMoreAtRef.current = Date.now() + 15 * 1000;
-      console.error("Error in loadThreads:", error);
+      console.error("Error in loadFeed:", error);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [currentUserId, cursor, limit, fetchLikesBatch]);
+  }, [offset, limit]);
 
   useEffect(() => {
-    loadThreads();
+    loadFeed();
     return () => { abortRef.current?.abort(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload when the current user edits their profile: the nickname emoji is
-  // embedded in the thread payload, and without this the feed would show the
-  // old emoji until the next manual reload.
-  useProfileInvalidation(() => { loadThreads(); });
+  // embedded in the feed payload and would otherwise stay stale.
+  useProfileInvalidation(() => { loadFeed(); });
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -211,7 +208,7 @@ export const ThreadFeed = ({
           !loading &&
           Date.now() >= nextLoadMoreAtRef.current
         ) {
-          loadThreads(true);
+          loadFeed(true);
         }
       },
       { threshold: 0.1 }
@@ -228,42 +225,79 @@ export const ThreadFeed = ({
         observerRef.current.disconnect();
       }
     };
-  }, [hasMore, loadingMore, loading, loadThreads]);
+  }, [hasMore, loadingMore, loading, loadFeed]);
 
   if (loading) {
     return <ThreadFeedSkeleton count={limit > 5 ? 5 : limit} />;
   }
 
   return (
-    <div className="space-y-4">
-      {threads.map((thread) => {
-        const likes = likesMap.get(thread.id);
-        return (
-          <ThreadCard
-            key={thread.id}
-            thread={thread}
-            currentUserId={currentUserId}
-            currentUsername={currentUsername}
-            currentUserColor={currentUserColor}
-            showPreview={true}
-            initialLikesCount={likes?.count ?? 0}
-            initialUserLiked={likes?.isLiked ?? false}
-          />
-        );
-      })}
+    <>
+      <div className="space-y-4">
+        {items.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 py-12 text-center">
+            <p className="text-lg font-medium">В ленте пока пусто</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {currentUserId
+                ? "Лайкай треды и заходи в g-сабы — рекомендации подстроятся под тебя"
+                : "Здесь появятся свежие треды и записи со стен"}
+            </p>
+          </div>
+        ) : (
+          items.map((item) => {
+            if (item.item_type === "thread") {
+              const thread = feedToThread(item);
+              return (
+                <ThreadCard
+                  key={`thread-${thread.id}`}
+                  thread={thread}
+                  currentUserId={currentUserId}
+                  currentUsername={currentUsername}
+                  currentUserColor={currentUserColor}
+                  showPreview={true}
+                  initialLikesCount={item.likes_count}
+                  initialUserLiked={item.liked_by_viewer}
+                />
+              );
+            }
+            const wallPost = feedToWallPost(item);
+            return (
+              <FeedWallPostCard
+                key={`wall-${wallPost.id}`}
+                post={wallPost}
+                currentUserId={currentUserId}
+                currentUsername={currentUsername}
+                currentUserColor={currentUserColor}
+                onImageClick={(items, idx) => {
+                  setGalleryItems(items);
+                  setGalleryIndex(idx);
+                }}
+              />
+            );
+          })
+        )}
 
-      <div ref={loadMoreRef} className="py-4">
-        {loadingMore && (
-          <div className="flex justify-center">
-            <PentagramLoader size="md" />
-          </div>
-        )}
-        {!hasMore && threads.length > 0 && (
-          <div className="text-center text-muted-foreground py-4">
-            Больше тредов нет
-          </div>
-        )}
+        <div ref={loadMoreRef} className="py-4">
+          {loadingMore && (
+            <div className="flex justify-center">
+              <PentagramLoader size="md" />
+            </div>
+          )}
+          {!hasMore && items.length > 0 && (
+            <div className="text-center text-muted-foreground py-4">
+              Больше контента нет
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+
+      {!!galleryItems && (
+        <Lightbox
+          items={galleryItems}
+          initialIndex={galleryIndex}
+          onClose={() => setGalleryItems(null)}
+        />
+      )}
+    </>
   );
 };

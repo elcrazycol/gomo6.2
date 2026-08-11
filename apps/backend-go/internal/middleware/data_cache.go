@@ -26,6 +26,11 @@ func cacheTTLByPath(path string, defaultTTL time.Duration) time.Duration {
 	if strings.Contains(path, "/threads") || strings.Contains(path, "/posts") {
 		return 30 * time.Second
 	}
+	// Unified feed: same short TTL — mixes fresh threads and wall posts, so a
+	// stale feed would hide brand-new content for minutes.
+	if strings.Contains(path, "/feed") {
+		return 30 * time.Second
+	}
 	// Profile walls embed interaction counts (likes/comments/reposts) that
 	// change on every interaction — short TTL as a safety net on top of the
 	// write-path invalidation in universal_crud.go.
@@ -219,6 +224,20 @@ func InvalidateCacheForProfileWall(redisClient *redis.Client, userID string) {
 // InvalidateCacheForWallPost invalidates cache for a specific wall post and its comments, likes, reposts
 func InvalidateCacheForWallPost(redisClient *redis.Client, postID string) {
 	cache.InvalidateForWallPost(redisClient, postID, "")
+}
+
+// InvalidateCacheForFeed clears the unified feed cache (all viewers). Called on
+// write paths that create new feed content (threads, wall posts); the TTL is
+// already short (30s), this just makes new content appear immediately.
+//
+// NOTE: this is a global pattern invalidation over per-viewer keys. At MVP
+// scale it is cheap; if the site grows, scope it to affected viewers or drop
+// the high-frequency call sites (e.g. likes) and rely on the 30s TTL.
+func InvalidateCacheForFeed(redisClient *redis.Client) {
+	if redisClient == nil {
+		return
+	}
+	cache.InvalidateByPattern(redisClient, "data:/api/v1/feed*")
 }
 
 // InvalidateCacheForWallPostPin invalidates cache when a wall post is pinned/unpinned

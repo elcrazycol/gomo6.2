@@ -6,19 +6,18 @@ import { describe, it, expect, beforeEach, vi, afterEach, beforeAll, afterAll } 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-const mockRpc = vi.fn();
-
-vi.mock("@/integrations/api/compat", () => ({
-  api: {
-    from: vi.fn(),
-    rpc: (...args: any[]) => mockRpc(...args),
-  },
-}));
-
 vi.mock("@/components/ThreadCard", () => ({
   ThreadCard: ({ thread, currentUserId }: any) => (
     <div data-testid="thread-card" data-thread-id={thread.id} data-user-id={currentUserId}>
       {thread.title}
+    </div>
+  ),
+}));
+
+vi.mock("@/components/FeedWallPostCard", () => ({
+  FeedWallPostCard: ({ post, currentUserId }: any) => (
+    <div data-testid="wall-post-card" data-post-id={post.id} data-user-id={currentUserId}>
+      {post.content || "Wall content"}
     </div>
   ),
 }));
@@ -30,6 +29,31 @@ vi.mock("@/components/PentagramLoader", () => ({
     </div>
   ),
 }));
+
+vi.mock("@/components/Lightbox", () => ({
+  Lightbox: () => <div data-testid="lightbox">Lightbox</div>,
+}));
+
+vi.mock("@/utils/wallNormalizers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/utils/wallNormalizers")>();
+  return {
+    ...actual,
+    normalizeWallPostRecord: (post: Record<string, unknown>) => ({
+      id: post.id as string,
+      user_id: post.user_id as string,
+      author_id: post.author_id as string,
+      content: post.content as string,
+      created_at: post.created_at as string,
+      updated_at: post.updated_at as string,
+      author: post.author || { username: "walluser", is_anonymous: false },
+      likes_count: (post.likes_count as number) ?? 0,
+      comments_count: (post.comments_count as number) ?? 0,
+      reposts_count: (post.reposts_count as number) ?? 0,
+      liked_by_viewer: Boolean(post.liked_by_viewer),
+      ...post,
+    }),
+  };
+});
 
 // Mock IntersectionObserver
 const mockIntersectionObserve = vi.fn();
@@ -55,57 +79,68 @@ afterAll(() => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function createMockThread(overrides: any = {}) {
+function createMockThreadItem(overrides: any = {}) {
   return {
-    id: overrides.id || "thread-1",
+    item_type: "thread",
+    item_id: overrides.id || "thread-1",
+    score: 10,
+    created_at: "2025-01-18T10:00:00Z",
+    updated_at: "2025-01-18T10:00:00Z",
     title: overrides.title || "Test Thread",
     content: "Content here",
     image_url: null,
     image_urls: null,
-    created_at: "2025-01-18T10:00:00Z",
-    updated_at: "2025-01-18T10:00:00Z",
-    user_id: "author-1",
-    board_id: "board-1",
     post_count: 3,
     tags: null,
-    ephemeral_type: null,
-    ephemeral_value: null,
-    auto_delete_at: null,
-    profiles: { username: "testuser", is_anonymous: false, avatar_url: null },
+    author_id: "author-1",
+    author: { username: "testuser", is_anonymous: false, avatar_url: null },
+    board_id: "board-1",
     boards: { slug: "test-board", name: "Test Board", is_gomosub: false },
+    likes_count: 5,
+    comments_count: 3,
+    reposts_count: 0,
+    liked_by_viewer: false,
     ...overrides,
   };
 }
 
-function makeThreadsResponse(threads: any[], nextCursor: string | null = null) {
+function createMockWallPostItem(overrides: any = {}) {
   return {
-    data: threads,
-    next_cursor: nextCursor,
-    success: true,
-    count: threads.length,
+    item_type: "wall_post",
+    item_id: overrides.id || "wall-1",
+    score: 8,
+    created_at: "2025-01-18T10:00:00Z",
+    updated_at: "2025-01-18T10:00:00Z",
+    title: null,
+    content: "Wall content here",
+    image_url: null,
+    author_id: "wall-author-1",
+    author: { username: "walluser", is_anonymous: false, avatar_url: null },
+    wall_user_id: "wall-owner-1",
+    likes_count: 2,
+    comments_count: 1,
+    reposts_count: 0,
+    liked_by_viewer: false,
+    ...overrides,
   };
 }
 
-function makeProfilesResponse(profiles: any[]) {
-  return { data: profiles, success: true };
+function makeFeedResponse(items: any[]) {
+  return {
+    data: items,
+    success: true,
+    count: items.length,
+  };
 }
 
 function defaultFetchMocks() {
   mockFetch.mockImplementation((url: string) => {
-    if (typeof url === "string" && url.includes("/api/v1/threads")) {
+    if (typeof url === "string" && url.includes("/api/v1/feed")) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeThreadsResponse([
-          createMockThread({ id: "thread-1", title: "First Thread" }),
-          createMockThread({ id: "thread-2", title: "Second Thread" }),
-        ])),
-      });
-    }
-    if (typeof url === "string" && url.includes("/api/v1/profiles")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(makeProfilesResponse([
-          { id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null },
+        json: () => Promise.resolve(makeFeedResponse([
+          createMockThreadItem({ id: "thread-1", title: "First Thread" }),
+          createMockThreadItem({ id: "thread-2", title: "Second Thread" }),
         ])),
       });
     }
@@ -130,11 +165,6 @@ describe("ThreadFeed", () => {
     vi.clearAllMocks();
     defaultFetchMocks();
     intersectionCallback = null;
-    mockRpc.mockImplementation((fn: string) => {
-      if (fn === "get_recommended_threads")
-        return Promise.resolve({ data: null, error: { message: "No recommendations" } });
-      return Promise.resolve({ data: null, error: null });
-    });
   });
 
   afterEach(() => {
@@ -158,7 +188,7 @@ describe("ThreadFeed", () => {
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
   });
 
-  // ─── Threads rendering ──────────────────────────────────────────────────────
+  // ─── Feed rendering ─────────────────────────────────────────────────────────
 
   it("renders threads when data loads", async () => {
     render(
@@ -202,32 +232,80 @@ describe("ThreadFeed", () => {
     });
   });
 
+  it("renders wall post cards alongside thread cards", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/v1/feed")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeFeedResponse([
+            createMockThreadItem({ id: "thread-1", title: "First Thread" }),
+            createMockWallPostItem({ id: "wall-1" }),
+          ])),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [], success: true }),
+      });
+    });
+
+    render(
+      <ThreadFeedComponent
+        currentUserId="current-user"
+        currentUsername="currentuser"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("wall-post-card")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("thread-card")).toBeInTheDocument();
+  });
+
   // ─── Empty state ────────────────────────────────────────────────────────────
 
-  it("shows 'Больше тредов нет' after loading threads when no more data", async () => {
+  it("shows empty state when feed has no content", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/v1/feed")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(makeFeedResponse([])),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ data: [], success: true }),
+      });
+    });
+
+    render(
+      <ThreadFeedComponent
+        currentUserId="current-user"
+        currentUsername="currentuser"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("В ленте пока пусто")).toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Больше контента нет' when no more data", async () => {
     let callCount = 0;
     mockFetch.mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/v1/threads")) {
+      if (typeof url === "string" && url.includes("/api/v1/feed")) {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve(makeThreadsResponse([
-              createMockThread({ id: "thread-1", title: "First Thread" }),
+            json: () => Promise.resolve(makeFeedResponse([
+              createMockThreadItem({ id: "thread-1", title: "First Thread" }),
             ])),
           });
         }
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeThreadsResponse([])),
-        });
-      }
-      if (typeof url === "string" && url.includes("/api/v1/profiles")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(makeProfilesResponse([
-            { id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null },
-          ])),
+          json: () => Promise.resolve(makeFeedResponse([])),
         });
       }
       return Promise.resolve({
@@ -253,7 +331,7 @@ describe("ThreadFeed", () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByText("Больше тредов нет")).toBeInTheDocument();
+      expect(screen.getByText("Больше контента нет")).toBeInTheDocument();
     });
   });
 
@@ -279,7 +357,7 @@ describe("ThreadFeed", () => {
 
   // ─── API calls ──────────────────────────────────────────────────────────────
 
-  it("calls fetch for threads endpoint", async () => {
+  it("calls fetch for the unified feed endpoint", async () => {
     render(
       <ThreadFeedComponent
         currentUserId="current-user"
@@ -289,104 +367,9 @@ describe("ThreadFeed", () => {
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining("/api/v1/threads"),
+        expect.stringContaining("/api/v1/feed"),
         expect.any(Object),
       );
     });
-  });
-
-  it("calls get_recommended_threads rpc for logged-in user", async () => {
-    render(
-      <ThreadFeedComponent
-        currentUserId="current-user"
-        currentUsername="currentuser"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(mockRpc).toHaveBeenCalledWith("get_recommended_threads", {
-        user_uuid: "current-user",
-        limit_count: 20,
-        offset_count: 0,
-      });
-    });
-  });
-
-  // ─── Recommendations flow ───────────────────────────────────────────────────
-
-  it("uses recommended threads when api returns them", async () => {
-    mockRpc.mockImplementation((fn: string) => {
-      if (fn === "get_recommended_threads") {
-        return Promise.resolve({
-          data: [{ thread_id: "rec-1", score: 10 }],
-          error: null,
-        });
-      }
-      return Promise.resolve({ data: null, error: null });
-    });
-
-    let threadsCallCount = 0;
-    mockFetch.mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/v1/threads")) {
-        threadsCallCount++;
-        if (threadsCallCount === 2) {
-          // Second call is for recommended thread IDs
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve(makeThreadsResponse([
-              createMockThread({ id: "rec-1", title: "Recommended Thread" }),
-            ])),
-          });
-        }
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(makeThreadsResponse([])),
-        });
-      }
-      if (typeof url === "string" && url.includes("/api/v1/profiles")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(makeProfilesResponse([
-            { id: "author-1", username: "testuser", is_anonymous: false, avatar_url: null },
-          ])),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ data: [], success: true }),
-      });
-    });
-
-    render(
-      <ThreadFeedComponent
-        currentUserId="current-user"
-        currentUsername="currentuser"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Recommended Thread")).toBeInTheDocument();
-    });
-  });
-
-  it("falls back to chronological feed when recommendations fail", async () => {
-    mockRpc.mockImplementation((fn: string) => {
-      if (fn === "get_recommended_threads") {
-        return Promise.resolve({ data: [], error: null });
-      }
-      return Promise.resolve({ data: null, error: null });
-    });
-
-    render(
-      <ThreadFeedComponent
-        currentUserId="current-user"
-        currentUsername="currentuser"
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("First Thread")).toBeInTheDocument();
-    });
-    expect(screen.getByText("Second Thread")).toBeInTheDocument();
   });
 });
