@@ -74,11 +74,15 @@ function setupFetch() {
   global.fetch = vi.fn().mockImplementation((url: RequestInfo | URL) => {
     const urlStr = typeof url === "string" ? url : url.toString();
     if (urlStr.includes("/api/v1/auth/me")) {
+      // The backend wraps the profile in the unified { success, data } envelope.
       return Promise.resolve(
-        new Response(JSON.stringify({ id: "user-1", username: "testuser" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ success: true, data: { id: "user-1", username: "testuser" } }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
       );
     }
     if (urlStr.includes("/oauth/app-info")) {
@@ -158,10 +162,13 @@ describe("OAuthConsent", () => {
       const urlStr = typeof url === "string" ? url : url.toString();
       if (urlStr.includes("/api/v1/auth/me")) {
         return Promise.resolve(
-          new Response(JSON.stringify({ id: "user-1", username: "testuser" }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({ success: true, data: { id: "user-1", username: "testuser" } }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
         );
       }
       // App info fails
@@ -261,6 +268,44 @@ describe("OAuthConsent", () => {
       expect(screen.getByText("testuser")).toBeInTheDocument();
     });
     expect(screen.getByText("Вы вошли как этот пользователь")).toBeInTheDocument();
+  });
+
+  it("falls back to the session username when /me lacks a username", async () => {
+    global.fetch = vi.fn().mockImplementation((url: RequestInfo | URL) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/api/v1/auth/me")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ success: true, data: { id: "user-1" } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      if (urlStr.includes("/oauth/app-info")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(mockAppInfo), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
+    // Session user carries the real nickname; /me returns no username.
+    mockGetSession.mockResolvedValue({
+      data: {
+        session: {
+          user: { id: "user-1", username: "lesha", email: "" },
+          access_token: "token-123",
+        },
+      },
+    });
+
+    renderComponent("?client_id=app-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("lesha")).toBeInTheDocument();
+    });
   });
 
   it("calls /oauth/authorize on Allow and redirects", async () => {

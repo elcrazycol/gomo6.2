@@ -117,10 +117,13 @@ const OAuthConsent = () => {
         });
         if (meRes.ok) {
           const meData = await meRes.json();
+          // /api/v1/auth/me responds with the unified { success, data } wrapper,
+          // so the profile lives at meData.data — not at the top level.
+          const me = meData?.data ?? meData ?? {};
           setUserInfo({
-            id: meData.id || session.user.id,
-            username: meData.username || session.user.email?.split("@")[0] || "User",
-            avatar_url: meData.avatar_url,
+            id: me.id || session.user.id,
+            username: me.username || session.user.username || session.user.email?.split("@")[0] || "User",
+            avatar_url: me.avatar_url,
           });
         } else {
           // Fallback to session user
@@ -128,7 +131,9 @@ const OAuthConsent = () => {
           setUserInfo({
             id: session.user.id,
             username:
-              (userData?.user as { user_metadata?: { username?: string } })?.user_metadata?.username ||
+              (userData?.user as { user_metadata?: { username?: string } } | null)?.user_metadata?.username ||
+              userData?.user?.username ||
+              session.user.username ||
               session.user.email?.split("@")[0] ||
               "User",
           });
@@ -136,7 +141,7 @@ const OAuthConsent = () => {
       } catch {
         setUserInfo({
           id: session.user.id,
-          username: session.user.email?.split("@")[0] || "User",
+          username: session.user.username || session.user.email?.split("@")[0] || "User",
         });
       }
       setSessionChecked(true);

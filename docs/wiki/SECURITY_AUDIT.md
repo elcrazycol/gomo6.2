@@ -1,7 +1,7 @@
 # Аудит безопасности Gomo6 — итоговый отчёт
 
 > **Статус:** живой документ. Обновляется по мере закрытия пунктов плана.
-> Последнее обновление: 04.08.2026.
+> Последнее обновление: 12.08.2026.
 
 ## Оценка
 
@@ -61,6 +61,7 @@
 | `e4355af` | `fix(security): enforce ownership on wall CRUD (K1) and remove SVG icon customization (K2)` (17 файлов, 6 новых IDOR-тестов) |
 | *(не закоммичен)* | `fix(security): serverError вместо err.Error + per-IP лимитеры на auth endpoints` (21 файл) |
 | *(не закоммичен)* | `fix(security): remove dead presign/download code — DownloadFile, GetPresignedURL, GetPresignedPutURL, presigner infra (L1)` |
+| *(не закоммичен)* | `fix(dev-dashboard auth): CSP-исключение connect-src для dev.* (Caddyfile, матчер @devCsp) + consent-страница читает username из обёртки {success, data} (/api/v1/auth/me)` |
 
 ---
 
@@ -70,3 +71,4 @@
 2. **Оценка мессенджера 8.5/10** — не 9-10, потому что: шифрование — server-side (оператор может читать), лимитеры fail-open, per-account lockout привязан к логину (не к 2FA-попыткам).
 3. **Pre-existing падения тестов** (не связаны с фиксами): `useAuth.test.tsx`, `auth.test.ts` — 3 теста падают и на чистой ветке.
 4. **Прочее хорошее, подтверждённое аудитом:** обязательный OAuth PKCE S256, 2FA TOTP + recovery-коды + WebAuthn, honeypot-поля на login/register, ValidateObjectKey режет path traversal, userID = UUID (prefix-ownership безопасен), membership-проверка на скачивание вложений мессенджера, WS origin-allowlist, WS pre-auth лимитер fail-closed.
+5. **CSP и вход в dev-панель (12.08.2026):** строгий `connect-src 'self' wss: ...` (добавлен вместе с Turnstile-хардненингом) блокировал кросс-доменный OAuth-обмен dev-панели — `dev.*` → `https://{$DOMAIN}/oauth/token` и `/oauth/userinfo`. Вход падал с `NetworkError when attempting to fetch resource` (в консоли — CSP violation). Куки-миграция (M5) ни при чём: dev-панель держит OAuth-токены in-memory и куки не использует. Фикс: для dev.* добавлен отдельный CSP (матчер `@devCsp` в Caddyfile) с `http/https://{$DOMAIN}` в `connect-src`; основной сайт и docs не ослаблены. Попутно исправлена consent-страница: `/api/v1/auth/me` отдаёт профиль в обёртке `{success, data}`, а код читал `username` на верхнем уровне и показывал фолбэк «User» вместо реального ника.
