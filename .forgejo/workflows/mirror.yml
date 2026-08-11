@@ -1,0 +1,90 @@
+# =============================================================================
+# .forgejo/workflows/mirror.yml — Codeberg → GitHub + GitLab (простое зеркало)
+# =============================================================================
+# При каждом push в Codeberg (любая ветка или тег) репозиторий целиком
+# зеркалируется в:
+#   - https://github.com/elcrazycol/gomo6.2
+#   - https://gitlab.com/crazycol/gomo6.2
+#
+# Механика — одна команда git: `git clone --mirror` + `git push --mirror`.
+# Копируется ПОЛНАЯ история со всеми ветками и тегами; ветки, удалённые
+# в Codeberg, автоматически удаляются и на зеркалах.
+#
+# Подготовка (один раз):
+#   1. Создать ПУСТЫЕ репозитории-зеркала на GitHub и GitLab (без README /
+#      license / .gitignore — иначе первый push перезапишет их force-push'ом).
+#   2. Секреты в Codeberg: repo → Settings → Actions → Secrets:
+#      GH_PAT — GitHub PAT (Settings → Developer settings → Tokens → classic:
+#               scope `repo`; или fine-grained: Contents RW).
+#      GL_PAT — GitLab PAT (Settings → Access Tokens → роль Maintainer,
+#               scope: write_repository).
+#      ВАЖНО: секрет нельзя называть GITHUB_TOKEN — это имя зарезервировано
+#      Forgejo под автоматический токен (scope: только codeberg.org), свой
+#      секрет с таким именем создать не даст.
+#
+# Замечания:
+#   - Зеркалирование ОДНОСТОРОННЕЕ: правки, сделанные напрямую на
+#     GitHub/GitLab, будут перезаписаны при следующем push в Codeberg.
+#   - На зеркала уходит вся история — gitleaks там не запускается.
+#     Убедитесь, что история чистая от секретов, прежде чем включать.
+#   - push --mirror не меняет default branch на зеркалах: после первого
+#     запуска задайте его вручную в настройках GitHub/GitLab.
+#   - Branch protection на зеркалах сломает зеркалирование (force-push
+#     отклоняется) — не включайте его.
+#   - URL зеркал ниже; поправьте, если переименовали репозитории.
+#   - Раннер: встроенный hosted ubuntu-latest (Codeberg даёт его публичным
+#     репозиториям). Если хотите свой раннер — поменяйте runs-on.
+# =============================================================================
+
+name: Mirror to GitHub & GitLab
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  workflow_dispatch:
+
+# Полное зеркало пушит все refs с --prune — параллельные запуски могли бы
+# затирать друг друга. Сериализуем.
+concurrency:
+  group: mirror-all
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Push full mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      # Полный клон по публичному URL — токены не нужны (репозиторий публичный).
+      - name: Clone full mirror
+        run: |
+          git clone --mirror "https://codeberg.org/${{ github.repository }}.git" mirror.git
+
+      # Шаги зеркалирования независимы (if: always()) — сбой на одном сервисе
+      # не должен блокировать другое зеркало.
+      - name: Push to GitHub
+        if: always()
+        env:
+          TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Секрет GH_PAT не задан — добавь GitHub PAT в Actions secrets"
+            exit 1
+          fi
+          git -C mirror.git push --mirror \
+            "https://x-access-token:${TOKEN}@github.com/elcrazycol/gomo6.2.git"
+
+      - name: Push to GitLab
+        if: always()
+        env:
+          TOKEN: ${{ secrets.GL_PAT }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Секрет GL_PAT не задан — добавь GitLab PAT в Actions secrets"
+            exit 1
+          fi
+          git -C mirror.git push --mirror \
+            "https://oauth2:${TOKEN}@gitlab.com/crazycol/gomo6.2.git"
