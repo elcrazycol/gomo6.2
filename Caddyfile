@@ -29,7 +29,12 @@
 	# HSTS is production-only; localhost must remain usable over HTTP.
 	@production not host localhost docs.localhost dev.localhost
 	header @production Strict-Transport-Security "max-age=31536000; includeSubDomains"
-	header {
+	# Generic strict policy for the main site and docs. It must EXCLUDE dev.*:
+	# Caddy sorts header handlers by matcher specificity (matched routes run
+	# before unconditional ones), so an unconditional block would run AFTER the
+	# dev-specific override below and clobber its relaxed connect-src.
+	@notdev not host dev.{$DOMAIN:localhost}
+	header @notdev {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
@@ -39,11 +44,19 @@
 	# The Dev Dashboard (dev.*) runs its OAuth login as a client of the main
 	# site: after the consent step its callback exchanges the code at
 	# https://{$DOMAIN}/oauth/token and fetches /oauth/userinfo cross-origin.
-	# Allow the main domain in connect-src for dev.* ONLY; docs and the main
-	# app keep the strict policy above. NOTE: keep this policy in sync with the
-	# generic block — the only difference is the added {$DOMAIN} connect-src.
+	# Allow the main domain in connect-src for dev.* ONLY. This block fully
+	# replaces the generic one for dev requests (Caddy would otherwise sort the
+	# matched route here BEFORE the unconditional generic block, so the relaxed
+	# CSP must not rely on file order — the generic block excludes dev.*).
+	# NOTE: keep this policy in sync with the generic block — the only
+	# difference is the added {$DOMAIN} connect-src.
 	@devCsp host dev.{$DOMAIN:localhost}
-	header @devCsp Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://challenges.cloudflare.com; script-src 'self' blob: https://integrate.depay.com https://challenges.cloudflare.com; worker-src 'self' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' wss: http://{$DOMAIN:localhost} https://{$DOMAIN:localhost} https://integrate.depay.com https://api.depay.com https://challenges.cloudflare.com; font-src 'self'; media-src 'self' blob:;"
+	header @devCsp {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self' https://challenges.cloudflare.com; script-src 'self' blob: https://integrate.depay.com https://challenges.cloudflare.com; worker-src 'self' blob: https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' wss: http://{$DOMAIN:localhost} https://{$DOMAIN:localhost} https://integrate.depay.com https://api.depay.com https://challenges.cloudflare.com; font-src 'self'; media-src 'self' blob:;"
+	}
 
 	# ── Logging ────────────────────────────────────────────────────────────
 	log {
