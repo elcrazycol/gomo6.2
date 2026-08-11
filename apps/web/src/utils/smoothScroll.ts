@@ -33,6 +33,39 @@ const isScrollable = (el: Element): boolean => {
   return el.scrollHeight > el.clientHeight + 1;
 };
 
+/**
+ * Where the comments section should start inside the viewport — a fraction of
+ * the viewport height. Shared by the decision helper AND the scroll margin in
+ * WallPostCard, so the nudge always lands the section exactly on this line.
+ */
+export const COMMENTS_TARGET_FRACTION = 0.35;
+
+/** Tolerance in px — skip the nudge when the section already starts close to the target line. */
+const COMMENTS_DEAD_ZONE = 64;
+
+export interface CommentsScrollOptions {
+  /** Where the comments section should start inside the viewport (fraction of height). */
+  targetFraction?: number;
+  /** Tolerance in px — skip the nudge when already close to the target line. */
+  deadZone?: number;
+}
+
+/**
+ * Decide whether opening the comments section should nudge the page down.
+ * Only ever scrolls DOWN: if the section already starts at or above the target
+ * line (the user is already low enough), the page is left exactly where it is.
+ */
+export const shouldScrollToComments = (
+  el: Element,
+  viewportHeight: number,
+  options: CommentsScrollOptions = {},
+): boolean => {
+  const targetFraction = options.targetFraction ?? COMMENTS_TARGET_FRACTION;
+  const deadZone = options.deadZone ?? COMMENTS_DEAD_ZONE;
+  const rect = el.getBoundingClientRect();
+  return rect.top > viewportHeight * targetFraction + deadZone;
+};
+
 export const smoothScrollToElement = (target: Element, options: SmoothScrollOptions = {}): void => {
   const { block = "center", duration = 700, margin = 0 } = options;
   const safeDuration = Math.max(1, duration);

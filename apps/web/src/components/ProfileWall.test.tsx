@@ -2,6 +2,7 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach, beforeAll } from "vitest";
 import { toast } from "sonner";
+import { shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,12 @@ vi.mock("@/components/MediaPlayer", () => ({
 
 vi.mock("@/components/AudioAttachment", () => ({
   AudioAttachment: ({ attachment }: any) => <div data-testid="audio-attachment">Audio: {attachment.name}</div>,
+}));
+
+vi.mock("@/utils/smoothScroll", () => ({
+  smoothScrollToElement: vi.fn(),
+  shouldScrollToComments: vi.fn(() => false),
+  COMMENTS_TARGET_FRACTION: 0.35,
 }));
 
 // ─── Query Builder Mocks ─────────────────────────────────────────────────────
@@ -356,6 +363,9 @@ describe("ProfileWall", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockWsService.on.mockReturnValue(vi.fn());
+    // Default: comments already positioned fine → no nudge. Individual tests
+    // override this to exercise the scroll branch.
+    vi.mocked(shouldScrollToComments).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -934,6 +944,90 @@ describe("ProfileWall", () => {
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
+  });
+
+  it("nudges the page down when opening comments that start below the target line", async () => {
+    vi.mocked(shouldScrollToComments).mockReturnValue(true);
+    setupApiMocks({
+      posts: [createMockPost()],
+      comments: [],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Комментировать"));
+
+    await waitFor(() => {
+      expect(smoothScrollToElement).toHaveBeenCalledWith(
+        expect.any(HTMLElement),
+        expect.objectContaining({ block: "start", duration: 650 }),
+      );
+    });
+  });
+
+  it("leaves the page alone when the comments already start high enough", async () => {
+    setupApiMocks({
+      posts: [createMockPost()],
+      comments: [],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={true}
+        showWall={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello wall!")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Комментировать"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
+    });
+    expect(smoothScrollToElement).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-scroll when comments are force-opened on mount", async () => {
+    vi.mocked(shouldScrollToComments).mockReturnValue(true);
+    setupApiMocks({
+      posts: [createMockPost({ id: "focused-post", content: "Focused" })],
+      comments: [],
+    });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={false}
+        showWall={true}
+        focusedPostId="focused-post"
+        standalone={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
+    });
+    expect(smoothScrollToElement).not.toHaveBeenCalled();
   });
 
   // ─── WallPostCard: comments with list ───────────────────────────────────────

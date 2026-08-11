@@ -1,4 +1,5 @@
-import { type MouseEvent as ReactMouseEvent, useMemo, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +32,7 @@ import {
 } from "@/utils/wallNormalizers";
 import { EMPTY_EDITOR_STATE } from "@/utils/contentConverter";
 import { safeDate } from "@/utils/safeDate";
+import { COMMENTS_TARGET_FRACTION, shouldScrollToComments, smoothScrollToElement } from "@/utils/smoothScroll";
 
 interface WallPostCardProps {
   post: WallPost;
@@ -80,6 +82,33 @@ export const WallPostCard = ({
   const [repostRecordId, setRepostRecordId] = useState<string | null>(post.my_repost_record_id ?? null);
   const [repostedWallPostId, setRepostedWallPostId] = useState<string | null>(post.my_reposted_wall_post_id ?? null);
   const [commentsOpen, setCommentsOpen] = useState(forceCommentsOpen);
+  const commentsRef = useRef<HTMLDivElement>(null);
+  // Skip the auto-scroll on the very first open (e.g. forceCommentsOpen on load).
+  const initialMountRef = useRef(true);
+
+  // When the user opens comments, gently nudge the page down so the comments
+  // take a good chunk of the screen — but only if they start below the target
+  // line. Already-low users are never moved, and we never scroll up.
+  useEffect(() => {
+    if (!commentsOpen) {
+      initialMountRef.current = false;
+      return;
+    }
+    if (initialMountRef.current) return;
+    const timer = window.setTimeout(() => {
+      const el = commentsRef.current;
+      if (!el) return;
+      const viewportHeight = window.innerHeight;
+      if (shouldScrollToComments(el, viewportHeight)) {
+        smoothScrollToElement(el, {
+          block: "start",
+          margin: viewportHeight * COMMENTS_TARGET_FRACTION,
+          duration: 650,
+        });
+      }
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [commentsOpen]);
   const [isLiking, setIsLiking] = useState(false);
   const [isReposting, setIsReposting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -392,15 +421,29 @@ export const WallPostCard = ({
           <ActionButton icon={<Share2 className="h-4 w-4" />} label="Поделиться" showLabel={false} active={false} disabled={false} loading={isSharing} onClick={handleSharePost} />
         </div>
 
-        {commentsOpen && (
-          <WallCommentTree
-            postId={post.id}
-            postUserId={post.user_id}
-            currentUserId={currentUserId}
-            currentUsername={currentUsername}
-            onCommentCountChange={(delta) => setCommentsCount((prev) => Math.max(0, prev + delta))}
-          />
-        )}
+        <AnimatePresence initial={false}>
+          {commentsOpen && (
+            <motion.div
+              key="post-comments"
+              ref={commentsRef}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              // overflow-clip (not hidden): clips during the height animation but
+              // does NOT create a scroll container, so the sticky composer works.
+              className="overflow-clip"
+            >
+              <WallCommentTree
+                postId={post.id}
+                postUserId={post.user_id}
+                currentUserId={currentUserId}
+                currentUsername={currentUsername}
+                onCommentCountChange={(delta) => setCommentsCount((prev) => Math.max(0, prev + delta))}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {isEditing && currentUserId && (
           <CreateWallPost
