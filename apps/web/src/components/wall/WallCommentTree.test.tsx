@@ -270,7 +270,7 @@ describe("WallCommentTree", () => {
     // The composer starts as a one-line prompt (pill) that expands on click.
     const view = renderTree({ comments: [] });
     await waitFor(() => {
-      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
     });
     expect(screen.queryByPlaceholderText("Напишите комментарий")).not.toBeInTheDocument();
     view.unmount();
@@ -281,17 +281,17 @@ describe("WallCommentTree", () => {
     await waitFor(() => {
       expect(screen.getByText("Тут пока пусто, но это можно исправить.")).toBeInTheDocument();
     });
-    expect(screen.queryByLabelText("Напишите комментарий")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Напишите комментарий/)).not.toBeInTheDocument();
   });
 
   it("rejects a blank top-level comment", async () => {
     const { onCommentCountChange } = renderTree({ comments: [] });
     await waitFor(() => {
-      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
     });
 
     // Expand the pill, then submit whitespace-only content → must be rejected
-    await userEvent.click(screen.getByLabelText("Напишите комментарий"));
+    await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
     const textarea = screen.getByPlaceholderText("Напишите комментарий");
     await userEvent.type(textarea, "   {Enter}");
 
@@ -304,10 +304,10 @@ describe("WallCommentTree", () => {
   it("submits a top-level comment", async () => {
     const { onCommentCountChange } = renderTree({ comments: [] });
     await waitFor(() => {
-      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByLabelText("Напишите комментарий"));
+    await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
     const textarea = screen.getByPlaceholderText("Напишите комментарий");
     await userEvent.type(textarea, "Новый комментарий");
 
@@ -321,21 +321,49 @@ describe("WallCommentTree", () => {
     expect(mockFrom).toHaveBeenCalledWith("profile_wall_post_comments");
   });
 
+  it("switches the floating composer into reply mode with an @name chip", async () => {
+    const view = renderTree({ comments: [rootComment] });
+    await waitFor(() => {
+      expect(screen.getByText("Первый комментарий")).toBeInTheDocument();
+    });
+
+    // Click "Ответить" → the floating composer wakes up in reply mode
+    const replyAction = view.container.querySelector(".lucide-reply")?.closest("button");
+    await userEvent.click(replyAction!);
+
+    expect(await screen.findByPlaceholderText("Напишите ответ")).toBeInTheDocument();
+    expect(screen.getByText(/@alice/)).toBeInTheDocument();
+  });
+
+  it("cancels reply mode back to a plain comment", async () => {
+    const view = renderTree({ comments: [rootComment] });
+    await waitFor(() => {
+      expect(screen.getByText("Первый комментарий")).toBeInTheDocument();
+    });
+
+    const replyAction = view.container.querySelector(".lucide-reply")?.closest("button");
+    await userEvent.click(replyAction!);
+    await screen.findByPlaceholderText("Напишите ответ");
+
+    await userEvent.click(screen.getByLabelText("Отменить ответ"));
+    await waitFor(() => {
+      expect(screen.queryByText(/@alice/)).not.toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText("Напишите комментарий")).toBeInTheDocument();
+  });
+
   it("shows an error toast for a blank reply", async () => {
     const view = renderTree({ comments: [rootComment] });
     await waitFor(() => {
       expect(screen.getByText("Первый комментарий")).toBeInTheDocument();
     });
 
-    // Open the reply composer for the root comment
+    // Click "Ответить" → the floating composer switches to reply mode
     const replyAction = view.container.querySelector(".lucide-reply")?.closest("button");
     await userEvent.click(replyAction!);
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText("Напишите ответ")).toBeInTheDocument();
-    });
+    const replyTextarea = await screen.findByPlaceholderText("Напишите ответ");
 
     // Type only whitespace, then submit via Enter → must be rejected
-    const replyTextarea = screen.getByPlaceholderText("Напишите ответ");
     await userEvent.type(replyTextarea, "   {Enter}");
 
     await waitFor(() => {
@@ -355,7 +383,7 @@ describe("WallCommentTree", () => {
     expect(replyAction).toBeTruthy();
     await userEvent.click(replyAction!);
 
-    const replyTextarea = screen.getByPlaceholderText("Напишите ответ");
+    const replyTextarea = await screen.findByPlaceholderText("Напишите ответ");
     await userEvent.type(replyTextarea, "Мой ответ{Enter}");
 
     await waitFor(() => {
@@ -632,10 +660,10 @@ describe("WallCommentTree", () => {
   it("scrolls to and highlights the freshly published top-level comment", async () => {
     const { container } = renderTree({ comments: [], insertedId: "fresh-1" });
     await waitFor(() => {
-      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
     });
 
-    await userEvent.click(screen.getByLabelText("Напишите комментарий"));
+    await userEvent.click(screen.getByLabelText(/Напишите комментарий/));
     await userEvent.type(screen.getByPlaceholderText("Напишите комментарий"), "Свежий комментарий");
     await userEvent.click(screen.getAllByText("Ответить")[0]);
 
@@ -649,7 +677,7 @@ describe("WallCommentTree", () => {
       .toBeInTheDocument();
     // The pill folds back after a successful submit
     await waitFor(() => {
-      expect(screen.getByLabelText("Напишите комментарий")).toBeInTheDocument();
+      expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
     });
   });
 
@@ -666,7 +694,7 @@ describe("WallCommentTree", () => {
     const replyActions = container.querySelectorAll(".lucide-reply");
     const replyAction = replyActions[replyActions.length - 1]?.closest("button");
     await userEvent.click(replyAction!);
-    const replyTextarea = screen.getByPlaceholderText("Напишите ответ");
+    const replyTextarea = await screen.findByPlaceholderText("Напишите ответ");
     await userEvent.type(replyTextarea, "Глубокий ответ{Enter}");
 
     await waitFor(() => {

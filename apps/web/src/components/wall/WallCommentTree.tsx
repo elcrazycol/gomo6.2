@@ -109,6 +109,15 @@ export const WallCommentTree = ({
     setActiveReplyId((prev) => (prev === commentId ? null : commentId));
   }, []);
 
+  // The reply target the floating composer answers (or null → plain comment).
+  const replyTarget = activeReplyId ? comments.find((c) => c.id === activeReplyId) ?? null : null;
+  const replyTargetName = replyTarget ? (replyTarget.author.display_name || replyTarget.author.username) : null;
+
+  // If the targeted comment disappears (deleted elsewhere), drop reply mode.
+  useEffect(() => {
+    if (activeReplyId && !replyTarget) setActiveReplyId(null);
+  }, [activeReplyId, replyTarget]);
+
   const cancelReply = useCallback(() => {
     setActiveReplyId(null);
   }, []);
@@ -189,10 +198,18 @@ export const WallCommentTree = ({
   }, [currentUserId, postId, loadComments, onCommentCountChange, editorStates, topLevelJson, topLevelText, isSubmitting]);
 
   const submitReply = useCallback(async (parentId: string) => {
-    if (!currentUserId) return;
+    if (!currentUserId || isSubmitting[`reply:${parentId}`]) return;
     const stateKey = `reply:${parentId}`;
-    const state = editorStates[stateKey];
-    if (!state || isBlank(state.text)) {
+    // The reply shares the floating composer's draft with top-level comments.
+    const state = editorStates["top-level"] || { json: topLevelJson, text: topLevelText };
+    const rawText = String(state?.text ?? "");
+    if (isBlank(rawText)) {
+      toast.error("Напишите ответ");
+      return;
+    }
+    // Same normalization as top-level comments so both land in the DB identically.
+    const normalizedText = prosemirrorToPlainText(state?.json, "") || rawText;
+    if (isBlank(normalizedText)) {
       toast.error("Напишите ответ");
       return;
     }
@@ -204,8 +221,8 @@ export const WallCommentTree = ({
           post_id: postId,
           user_id: currentUserId,
           parent_id: parentId,
-          content: state.text,
-          content_json: stripTrailingEmptyParagraphs(state.json),
+          content: normalizedText,
+          content_json: stripTrailingEmptyParagraphs(state?.json),
         })
         .select("id")
         .maybeSingle();
@@ -221,9 +238,12 @@ export const WallCommentTree = ({
         next.delete(parentId);
         return next;
       });
+      setTopLevelText("");
+      setTopLevelJson(EMPTY_EDITOR_STATE);
+      setTopLevelResetKey((prev) => prev + 1);
       setEditorStates((prev) => {
         const next = { ...prev };
-        delete next[stateKey];
+        delete next["top-level"];
         return next;
       });
       if (newCommentId) {
@@ -237,7 +257,7 @@ export const WallCommentTree = ({
     } finally {
       setIsSubmitting((prev) => ({ ...prev, [stateKey]: false }));
     }
-  }, [currentUserId, postId, loadComments, onCommentCountChange, editorStates]);
+  }, [currentUserId, postId, loadComments, onCommentCountChange, editorStates, topLevelJson, topLevelText, isSubmitting]);
 
   const submitEdit = useCallback(async (commentId: string) => {
     if (!currentUserId) return;
@@ -380,8 +400,10 @@ export const WallCommentTree = ({
               focusToExpand
               autoFocus
               placeholder="Напишите комментарий"
-              onSubmit={submitTopLevel}
-              isSubmitting={isSubmitting["top-level"] || false}
+              replyTo={replyTarget && replyTargetName ? { id: replyTarget.id, name: replyTargetName } : null}
+              onSubmit={activeReplyId ? () => submitReply(activeReplyId) : submitTopLevel}
+              onCancel={activeReplyId ? cancelReply : undefined}
+              isSubmitting={isSubmitting["top-level"] || (activeReplyId ? isSubmitting[`reply:${activeReplyId}`] || false : false)}
               json={topLevelState.json}
               text={topLevelState.text}
               resetKey={topLevelResetKey}

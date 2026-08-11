@@ -50,7 +50,6 @@ export const WallCommentNode = ({
     startEdit,
     cancelEdit,
     updateEditorState,
-    submitReply,
     submitEdit,
     deleteComment,
     toggleCollapse,
@@ -66,12 +65,10 @@ export const WallCommentNode = ({
   const canEdit = currentUserId === comment.user_id;
   const canDelete = currentUserId === comment.user_id || currentUserId === postUserId;
 
-  const replyState = editorStates[`reply:${comment.id}`] || { json: undefined, text: "" };
   const editState = editorStates[`edit:${comment.id}`] || {
     json: comment.content_json ?? undefined,
     text: comment.content || "",
   };
-  const replySubmitting = isSubmitting[`reply:${comment.id}`] || false;
   const editSubmitting = isSubmitting[`edit:${comment.id}`] || false;
 
   const isMaxDepth = depth >= MAX_COMMENT_DEPTH;
@@ -239,11 +236,12 @@ export const WallCommentNode = ({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-7 gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                      className={`h-7 gap-1 px-1.5 text-xs ${isReplying ? "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
                       onClick={() => (isReplying ? cancelReply() : startReply(comment.id))}
+                      aria-pressed={isReplying}
                     >
-                      <Reply className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">Ответить</span>
+                      <Reply className={`h-3.5 w-3.5 ${isReplying ? "fill-current" : ""}`} />
+                      <span className="hidden sm:inline">{isReplying ? "Отменить" : "Ответить"}</span>
                     </Button>
                   )}
 
@@ -330,23 +328,6 @@ export const WallCommentNode = ({
                 </div>
               )}
 
-              {isReplying && currentUserId && (
-                <div className="mt-3 rounded-2xl border border-primary/20 bg-primary/[0.035] p-3 shadow-sm">
-                  <div className="mb-2 text-[11px] text-muted-foreground">
-                    Ответ <span className="font-medium text-foreground/70">{comment.author.display_name || comment.author.username}</span>
-                  </div>
-                  <WallCommentComposer
-                    placeholder="Напишите ответ"
-                    onSubmit={() => submitReply(comment.id)}
-                    onCancel={cancelReply}
-                    isSubmitting={replySubmitting}
-                    json={replyState.json}
-                    text={replyState.text}
-                    onChange={(v) => updateEditorState(`reply:${comment.id}`, v)}
-                    compact
-                  />
-                </div>
-              )}
             </div>
           </div>
         </div>
