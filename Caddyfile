@@ -315,7 +315,12 @@
 			reverse_proxy backend:8080
 		}
 		@bot {
-			header User-Agent ~(?i)(TelegramBot|Twitterbot|facebookexternalhit|Facebot|Discordbot|Slackbot|Slack-ImgProxy|VKShare|vk[.]com|LinkedInBot|WhatsApp|Viber|Pinterest|redditbot|SkypeUriPreview|Snapchat|Applebot|Instagram|embed[.]ly|microsoftteams|Linbot|YoozBot|MJ12bot|DotBot|DuckDuckBot|Bytespider|PetalBot)
+			# NOTE: `header User-Agent ~regex` is NOT a regex matcher in Caddy v2
+			# (the ~-prefixed form only existed in Caddy v1) — Caddy treats the
+			# value as a literal exact match, so crawlers were silently served the
+			# SPA. header_regexp is the supported regex form (RE2, case-insensitive
+			# via the (?i) inline flag, substring match by default).
+			header_regexp User-Agent (?i)(TelegramBot|Twitterbot|facebookexternalhit|Facebot|Discordbot|Slackbot|Slack-ImgProxy|VKShare|vk[.]com|LinkedInBot|WhatsApp|Viber|Pinterest|redditbot|SkypeUriPreview|Snapchat|Applebot|Instagram|embed[.]ly|microsoftteams|Linbot|YoozBot|MJ12bot|DotBot|DuckDuckBot|Bytespider|PetalBot)
 			not path /api/*
 			not path /rest/*
 			not path /rpc/*
