@@ -167,6 +167,11 @@ func (h *UniversalHandler) invalidateCacheForTableResult(c *gin.Context, tableNa
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profiles*id=eq.%s*", userID))
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/profile_wall_posts*user_id=eq.%s*", userID))
 			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/friends*user_id=%s*", userID))
+			// The public visibility-flags endpoint (GET /api/v1/users/:id/privacy)
+			// caches per viewer under data:/api/v1/users/<id>/privacy?|viewer=… —
+			// without this, a settings change would keep serving stale hide flags
+			// (tabs that were just unhidden stay missing for the cache TTL).
+			cache.InvalidateByPattern(h.redis, fmt.Sprintf("data:/api/v1/users/%s/privacy*", userID))
 		}
 	case "user_emoji_subscriptions":
 		if userID, ok := result["user_id"].(string); ok && userID != "" {

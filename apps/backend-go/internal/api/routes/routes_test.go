@@ -89,6 +89,7 @@ var expectedRoutes = []string{
 	"GET /api/v1/users/online",
 	"GET /api/v1/users/:id/status",
 	"POST /api/v1/users/status/bulk",
+	"GET /api/v1/users/:id/privacy",
 	"GET /api/v1/gift_catalog",
 	"GET /api/v1/user_gifts",
 	"POST /api/v1/client-errors",
@@ -474,6 +475,7 @@ func TestSetupRoutes_SmokeRequests(t *testing.T) {
 		{name: "public profiles dispatches", method: http.MethodGet, path: "/api/v1/profiles", notAllowed: true},
 		{name: "public boards dispatches", method: http.MethodGet, path: "/api/v1/boards", notAllowed: true},
 		{name: "public posts dispatches", method: http.MethodGet, path: "/api/v1/posts", notAllowed: true},
+		{name: "user privacy flags dispatches", method: http.MethodGet, path: "/api/v1/users/11111111-1111-1111-1111-111111111111/privacy", notAllowed: true},
 		{name: "messenger routes dispatches", method: http.MethodGet, path: "/api/v1/messenger/conversations", notAllowed: true},
 	}
 

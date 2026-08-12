@@ -28,6 +28,10 @@ func TestRegister_TurnstileRejected(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 	_ = mock
 
+	// Isolate from an ambient TURNSTILE_DISABLED=1 (e.g. exported in the dev
+	// shell): verifyTurnstileForRequest must call the swapped stub and reject.
+	t.Setenv("TURNSTILE_DISABLED", "")
+
 	old := turnstileVerify
 	turnstileVerify = func(_ *gin.Context, _ string, _ string) bool { return false }
 	defer func() { turnstileVerify = old }()
@@ -48,6 +52,10 @@ func TestRegister_TurnstileRejected(t *testing.T) {
 func TestLogin_TurnstileRejected(t *testing.T) {
 	h, mock := setupAuthHandler(t)
 	_ = mock
+
+	// Isolate from an ambient TURNSTILE_DISABLED=1 (e.g. exported in the dev
+	// shell): verifyTurnstileForRequest must call the swapped stub and reject.
+	t.Setenv("TURNSTILE_DISABLED", "")
 
 	old := turnstileVerify
 	turnstileVerify = func(_ *gin.Context, _ string, _ string) bool { return false }

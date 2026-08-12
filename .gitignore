@@ -29,6 +29,7 @@ dist-ssr
 .env
 .env.local
 .env.production
+docker-compose.override.yml
 
 # Keys / secrets
 *.key

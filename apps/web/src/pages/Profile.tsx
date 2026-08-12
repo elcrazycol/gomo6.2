@@ -324,10 +324,16 @@ const Profile = () => {
       setLastSeen(data.last_seen_at);
       setIsOnline(data.is_online || false);
 
-      // Load privacy settings for online status, wall and stats
-      const privacyRes = await fetch(`/api/v1/privacy_settings?user_id=eq.${userId}`);
-      const privacyResult = await privacyRes.json();
-      const privacyData = privacyResult.data?.[0];
+      // Load privacy settings for online status, wall and stats. The generic
+      // /privacy_settings endpoint is viewer-scoped (returns only the caller's
+      // own row), so for a foreign profile it would come back empty and the
+      // profile would look public. The public /users/:id/privacy endpoint
+      // returns the owner's visibility flags (private_profile + private_hide_*)
+      // — the same rules the server enforces on content.
+      const localSessionUser = sessionAuth.data.session?.user;
+      const privacyData = localSessionUser?.id === userId
+        ? (await (await fetch(`/api/v1/privacy_settings?user_id=eq.${userId}`)).json()).data?.[0]
+        : (await (await fetch(`/api/v1/users/${userId}/privacy`)).json()).data;
 
       if (privacyData) {
         setShowLastSeen(privacyData.show_last_seen ?? true);
@@ -358,10 +364,9 @@ const Profile = () => {
       }
 
       // Check friendship status for private profile
-      // Use session user (localCurrentUser) instead of React state currentUser
+      // Use session user (localSessionUser) instead of React state currentUser
       // to avoid race condition where currentUser is not yet set.
-      const localCurrentUser = sessionAuth.data.session?.user;
-      if (localCurrentUser?.id && localCurrentUser.id !== userId) {
+      if (localSessionUser?.id && localSessionUser.id !== userId) {
         try {
           const friendRes = await fetch(`/api/v1/friends/status/${userId}`, { headers });
           const friendResult = await friendRes.json();
@@ -370,7 +375,7 @@ const Profile = () => {
           setIsMutualFriend(false);
         }
       } else {
-        setIsMutualFriend(localCurrentUser?.id === userId ? true : false);
+        setIsMutualFriend(localSessionUser?.id === userId ? true : false);
       }
       setPrivacyChecked(true);
 
@@ -383,16 +388,35 @@ const Profile = () => {
     }
   }, [userId]);
 
-  // Set default tab based on wall visibility
+  // ── Profile privacy helpers ────────────────────────────────────────────────
+  // Mirror the server-side rules (profileWallFinishSelectQuery and the per-
+  // section CanViewUser* checks) so the client hides exactly what the backend
+  // refuses to serve.
+  const isOwnProfile = currentUser?.id === userId;
+  const isPrivate = privateProfile && privacyChecked;
+  const isNonFriendOnPrivate = isPrivate && !isOwnProfile && isMutualFriend === false;
+  const friendshipLoaded = isMutualFriend !== null;
+  // A wall is hidden from the viewer when they are neither the owner nor a
+  // mutual friend AND (the profile is private OR the owner hid the wall).
+  const wallHiddenFromViewer = !isOwnProfile && isMutualFriend === false && (privateProfile || privateHideWall);
+
+  const canViewSection = (hidden: boolean) => {
+    if (!isNonFriendOnPrivate) return true;
+    return !hidden;
+  };
+
+  // The wall tab is available to every viewer while the wall is enabled: for
+  // non-friends on a private profile it renders the "wall is hidden" notice
+  // instead of content.
+  const wallTabVisible = showProfileWall && (isNonFriendOnPrivate || canViewSection(privateHideWall));
+
+  // Set default tab based on wall visibility. The wall tab is available to
+  // every viewer while showProfileWall is on (for non-friends on a private
+  // profile it shows the "wall is hidden" notice instead of content), so it
+  // is the natural landing tab.
   useEffect(() => {
-    const isNonFriendOnPriv = privateProfile && privacyChecked && currentUser?.id !== userId && isMutualFriend === false;
-    const wallVisible = showProfileWall && (!isNonFriendOnPriv || !privateHideWall);
-    if (wallVisible) {
-      setActiveTab('wall');
-    } else {
-      setActiveTab('achievements');
-    }
-  }, [showProfileWall, privateProfile, privacyChecked, currentUser?.id, userId, isMutualFriend, privateHideWall]);
+    setActiveTab(showProfileWall ? 'wall' : 'achievements');
+  }, [showProfileWall]);
 
   const loadAvatarHistory = async () => {
     if (!userId) return [];
@@ -886,17 +910,6 @@ const Profile = () => {
     }
   };
 
-  const isOwnProfile = currentUser?.id === userId;
-  const isPrivate = privateProfile && privacyChecked;
-  const friendshipLoaded = isMutualFriend !== null;
-  const isNonFriendOnPrivate = isPrivate && !isOwnProfile && isMutualFriend === false;
-  const showPrivateBanner = isNonFriendOnPrivate;
-
-  const canViewSection = (hidden: boolean) => {
-    if (!isNonFriendOnPrivate) return true;
-    return !hidden;
-  };
-
   const showSkeleton = !profile || pageLoading;
 
   return (
@@ -904,21 +917,6 @@ const Profile = () => {
         {showSkeleton && <ProfileSkeleton />}
         {!showSkeleton && (
           <div className="space-y-6 animate-in fade-in duration-300">
-          {/* Private profile banner */}
-          {showPrivateBanner && (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-primary">
-                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-                </svg>
-                <span>Приватный профиль — контент скрыт от не-друзей</span>
-              </div>
-              {!isOwnProfile && currentUser && (
-                <FriendButton userId={userId!} isOwnProfile={false} />
-              )}
-            </div>
-          )}
-
           {/* Loading state while friendship check is in progress */}
           {privacyChecked && !friendshipLoaded && (
             <div className="flex items-center justify-center py-8">
@@ -1182,11 +1180,13 @@ const Profile = () => {
                 <SpotifyNowPlaying userId={userId!} />
               )}
 
-              {/* Profile Tabs — hidden entirely for non-friends on private profiles */}
-              {!showPrivateBanner && (
+              {/* Profile Tabs — visibility follows the owner's privacy settings.
+                  For non-friends on a private profile the wall tab always stays
+                  (it explains that the wall is hidden) while the rest follow the
+                  per-section hide toggles. */}
               <div className="border-b border-border overflow-x-auto">
                 <div className="flex gap-0 min-w-max">
-                  {showProfileWall && canViewSection(privateHideWall) && (
+                  {wallTabVisible && (
                     <button
                       onClick={() => setActiveTab('wall')}
                       className={`px-4 sm:px-6 py-2.5 sm:py-3 text-xs sm:text-sm font-medium transition-colors relative ${
@@ -1246,14 +1246,15 @@ const Profile = () => {
                   )}
                 </div>
               </div>
-              )}
 
             </div>
           )}
 
-          {/* Tab Content — hidden entirely for non-friends on private profiles */}
-          {!showPrivateBanner && (<>
-          {activeTab === 'wall' && (
+          {/* Tab Content — the wall renders a "private profile" notice when it
+              is hidden server-side; other tabs render only when their section
+              is visible to this viewer. */}
+          <>
+          {activeTab === 'wall' && wallTabVisible && (
           <div>
               <ProfileWall
                 profileUserId={userId!}
@@ -1262,11 +1263,13 @@ const Profile = () => {
                 canPost={currentUser?.id === userId || allowWallPostsFromOthers}
                 showWall={showProfileWall}
                 refreshKey={wallRefreshKey}
+                wallHidden={wallHiddenFromViewer}
+                privateProfile={privateProfile}
               />
             </div>
           )}
 
-          {activeTab === 'achievements' && (
+          {activeTab === 'achievements' && canViewSection(privateHideAchievements) && (
             <div>
             {achievements.length === 0 ? (
               <p className="text-muted-foreground">Достижений пока нет</p>
@@ -1332,7 +1335,7 @@ const Profile = () => {
           </div>
           )}
 
-          {activeTab === 'threads' && (
+          {activeTab === 'threads' && showThreadsTab && canViewSection(privateHideThreads) && (
             <div>
               <h2 className="text-xl font-bold mb-4">Треды ({userThreads.length})</h2>
               {threadsLoading ? (
@@ -1363,7 +1366,7 @@ const Profile = () => {
             </div>
           )}
 
-          {activeTab === 'gifts' && (
+          {activeTab === 'gifts' && canViewSection(privateHideGifts) && (
             <div>
               <GiftsTab
                 userId={userId!}
@@ -1378,13 +1381,13 @@ const Profile = () => {
             </div>
           )}
 
-          {activeTab === 'friends' && (
+          {activeTab === 'friends' && canViewSection(privateHideFriends) && (
             <div>
               {isOwnProfile && <FriendRequestsList />}
               <FriendsList userId={userId} />
             </div>
           )}
-          </>)}
+          </>
           </>)}
         </div>
         )}

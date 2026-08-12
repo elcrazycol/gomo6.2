@@ -274,6 +274,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		rest.GET("/users/:id/status", userStatusHandler.GetUserStatus)
 		rest.POST("/users/status/bulk", userStatusHandler.GetBulkUserStatus)
 
+		// Profile visibility flags (public — the profile page needs to know whether
+		// a foreign profile is private and which sections are hidden to render the
+		// right tabs and the "private profile" wall notice). The generic
+		// privacy_settings CRUD surface is viewer-scoped, so it cannot serve this.
+		// The flags are the same rules the server enforces on content, so exposing
+		// them leaks nothing that was hidden.
+		privacyHandler := handlers.NewPrivacyHandler(db)
+		rest.GET("/users/:id/privacy", privacyHandler.GetUserPrivacy)
+
 		// Gift catalog (public)
 		rest.GET("/gift_catalog", giftsHandler.GetGiftCatalog)
 		// User gifts (public)

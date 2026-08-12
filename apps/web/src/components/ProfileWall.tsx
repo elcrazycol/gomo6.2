@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { api } from "@/integrations/api/compat";
 import { Button } from "@/components/ui/button";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
-import { Plus } from "lucide-react";
+import { Plus, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { wsService } from "@/services/websocket";
@@ -26,6 +26,15 @@ interface ProfileWallProps {
   standalone?: boolean;
   /** Increment to force a refetch (e.g. after the profile owner's nickname emoji changes). */
   refreshKey?: number;
+  /**
+   * The wall is hidden from this viewer on the server (e.g. a non-friend on a
+   * private profile, or a public profile whose owner hid the wall). Renders a
+   * "private profile" notice instead of fetching posts and showing the
+   * misleading "empty wall" state.
+   */
+  wallHidden?: boolean;
+  /** True when the wall owner's profile is private (used to word the notice). */
+  privateProfile?: boolean;
 }
 
 export const ProfileWall = ({
@@ -37,6 +46,8 @@ export const ProfileWall = ({
   focusedPostId = null,
   standalone = false,
   refreshKey = 0,
+  wallHidden = false,
+  privateProfile = false,
 }: ProfileWallProps) => {
   const [posts, setPosts] = useState<WallPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -144,14 +155,14 @@ export const ProfileWall = ({
   }, [profileUserId, focusedPostId]);
 
   useEffect(() => {
-    if (showWall) {
+    if (showWall && !wallHidden) {
       loadPosts();
     }
-  }, [profileUserId, showWall, refreshKey, loadPosts]);
+  }, [profileUserId, showWall, refreshKey, loadPosts, wallHidden]);
 
   // WebSocket realtime subscription for wall posts
   useEffect(() => {
-    if (!profileUserId || !currentUserId) return;
+    if (!profileUserId || !currentUserId || wallHidden) return;
 
     const wallRoom = `profile_wall_${profileUserId}`;
     wsService.subscribe(wallRoom);
@@ -247,7 +258,7 @@ export const ProfileWall = ({
       unsubscribeUpdatePost();
       unsubscribeDeletePost();
     };
-  }, [profileUserId, currentUserId]);
+  }, [profileUserId, currentUserId, wallHidden]);
 
   const handleDeletePost = async (postId: string) => {
     if (!currentUserId) return;
@@ -338,6 +349,24 @@ export const ProfileWall = ({
 
   if (!showWall) {
     return null;
+  }
+
+  // The wall is hidden from this viewer server-side — show an explanatory
+  // notice instead of the "empty wall" state (which would be misleading).
+  if (wallHidden) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-6 py-12 text-center">
+        <Lock className="mx-auto mb-3 h-8 w-8 text-muted-foreground/70" />
+        <p className="text-lg font-medium">
+          {privateProfile ? "Приватный профиль" : "Стена скрыта"}
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {privateProfile
+            ? "Это приватный профиль — стена скрыта от не-друзей."
+            : "Владелец скрыл стену — она доступна только друзьям."}
+        </p>
+      </div>
+    );
   }
 
   if (loading) {

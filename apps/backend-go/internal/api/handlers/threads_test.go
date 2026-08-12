@@ -102,6 +102,144 @@ func TestGetThreads_DBError(t *testing.T) {
 	}
 }
 
+// ──────────────────── GetThreads: private-profile privacy ────────────────────
+
+// threadRowColumns lists the SELECT columns of the GetThreads query in order.
+var threadRowColumns = []string{
+	"id", "board_id", "channel_id", "user_id", "title", "content", "content_json",
+	"image_url", "image_urls", "attachments", "tags", "post_count", "server_domain",
+	"created_at", "updated_at", "is_remote", "username", "avatar_url", "is_anonymous",
+	"display_name", "nickname_emoji_id",
+	"board_slug", "board_name", "board_is_gomosub", "board_is_rules_board",
+}
+
+func privacySettingsRow(privateProfile bool) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"private_profile", "private_hide_avatar", "private_hide_wall",
+		"private_hide_threads", "private_hide_stats", "private_hide_friends",
+		"private_hide_gifts", "private_hide_achievements",
+	}).AddRow(privateProfile, false, false, true, false, true, true, true)
+}
+
+// TestGetThreads_PrivateProfile_NonFriend_GetsEmpty guards the privacy gate in
+// GetThreads: a stranger asking for the threads of a private-profile user must
+// receive an empty list (200, no rows) — not their thread content.
+func TestGetThreads_PrivateProfile_NonFriend_GetsEmpty(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/threads?user_id=eq.privateUser", nil, &auth.Claims{UserID: "stranger"})
+
+	// GetPrivacySettings: private_profile = true.
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("privateUser").
+		WillReturnRows(privacySettingsRow(true))
+
+	// Not a mutual friend → CanViewUserContent=false → empty response.
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs("stranger", "privateUser").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	threads, ok := resp.Data.([]interface{})
+	if !ok || len(threads) != 0 {
+		t.Fatalf("expected an empty thread list, got %#v", resp.Data)
+	}
+	if resp.Count == nil || *resp.Count != 0 {
+		t.Fatalf("expected count 0, got %v", resp.Count)
+	}
+}
+
+// TestGetThreads_PrivateProfile_MutualFriend_SeesThreads guards against
+// over-blocking: a mutual friend of the private-profile user still gets the
+// thread list.
+func TestGetThreads_PrivateProfile_MutualFriend_SeesThreads(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/threads?user_id=eq.privateUser", nil, &auth.Claims{UserID: "friend"})
+
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("privateUser").
+		WillReturnRows(privacySettingsRow(true))
+
+	// Mutual friend → CanViewUserContent=true → the thread query runs.
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs("friend", "privateUser").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	rows := sqlmock.NewRows(threadRowColumns).AddRow(
+		"t1", "b1", nil, "privateUser", "Thread Title", "Thread content", nil,
+		nil, "[]", "[]", "[]", 5, "localhost:8080",
+		time.Now(), time.Now(), false, "privateuser", nil, false, nil, nil,
+		"general", "General", false, false,
+	)
+
+	// user_id filter ($1) + private-board filter ($2, $3) + LIMIT/OFFSET ($4, $5).
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$4 OFFSET \$5`).
+		WithArgs("privateUser", "friend", "friend", 50, 0).
+		WillReturnRows(rows)
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	threads, ok := resp.Data.([]interface{})
+	if !ok || len(threads) != 1 {
+		t.Fatalf("expected 1 thread, got %#v", resp.Data)
+	}
+}
+
+// TestGetThreads_PublicProfile_AnyViewerSeesThreads guards that a public
+// profile's threads remain readable by everyone (the privacy gate must only
+// block private profiles).
+func TestGetThreads_PublicProfile_AnyViewerSeesThreads(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newGETContextWithClaims("/api/v1/threads?user_id=eq.publicUser", nil, &auth.Claims{UserID: "viewer"})
+
+	// GetPrivacySettings: private_profile = false → no friendship check needed.
+	mock.ExpectQuery(`SELECT COALESCE\(private_profile, false\).*FROM privacy_settings WHERE user_id = \$1`).
+		WithArgs("publicUser").
+		WillReturnRows(privacySettingsRow(false))
+
+	rows := sqlmock.NewRows(threadRowColumns).AddRow(
+		"t1", "b1", nil, "publicUser", "Thread Title", "Thread content", nil,
+		nil, "[]", "[]", "[]", 5, "localhost:8080",
+		time.Now(), time.Now(), false, "publicuser", nil, false, nil, nil,
+		"general", "General", false, false,
+	)
+
+	mock.ExpectQuery(`SELECT t\.id.*FROM threads t.*WHERE t\.user_id = \$1.*ORDER BY t\.updated_at DESC.*LIMIT \$4 OFFSET \$5`).
+		WithArgs("publicUser", "viewer", "viewer", 50, 0).
+		WillReturnRows(rows)
+
+	handler.GetThreads(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	threads, ok := resp.Data.([]interface{})
+	if !ok || len(threads) != 1 {
+		t.Fatalf("expected 1 thread, got %#v", resp.Data)
+	}
+}
+
 // ──────────────────────────── GetThread ────────────────────────────
 
 func TestGetThread_Success(t *testing.T) {

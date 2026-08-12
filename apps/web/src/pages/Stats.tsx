@@ -29,9 +29,9 @@ interface ProfileSummary {
   likes_received_count: number;
 }
 interface Privacy {
-  show_profile_stats: boolean;
   show_detailed_stats: boolean;
   stats_visibility: Record<string, boolean>;
+  private_profile: boolean;
 }
 
 interface TimeStats {
@@ -128,6 +128,7 @@ export default function Stats() {
   const [viewedUserId, setViewedUserId] = useState<string | null>(null);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [timeStats, setTimeStats] = useState<TimeStats | null>(null);
+  const [isFriendOfTarget, setIsFriendOfTarget] = useState(false);
   const [postsTs, setPostsTs] = useState<string[]>([]);
   const [threadsTs, setThreadsTs] = useState<string[]>([]);
   const [wallPostsTs, setWallPostsTs] = useState<string[]>([]);
@@ -156,7 +157,7 @@ export default function Stats() {
 
       const rpcHeaders: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      const [profileRes, postsRes, threadsRes, wallPostsRes, wallCommentsRes, postLikesRes, threadLikesRes, repliesRes, timeRes, privacyRes] = await Promise.all([
+      const [profileRes, postsRes, threadsRes, wallPostsRes, wallCommentsRes, postLikesRes, threadLikesRes, repliesRes, timeRes] = await Promise.all([
         fetch(`/api/v1/profiles?id=eq.${targetUserId}`).then(r => r.json()),
         fetch(`/api/v1/posts?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
         fetch(`/api/v1/threads?user_id=eq.${targetUserId}&order=created_at.asc`).then(r => r.json()),
@@ -167,22 +168,43 @@ export default function Stats() {
         fetch(`/api/rpc/get_user_thread_likes_received_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
         fetch(`/api/rpc/get_user_thread_reply_timestamps?user_uuid=${targetUserId}`, { headers: rpcHeaders }).then(r => r.json()),
         fetch(`/api/v1/user_session_time?user_id=eq.${targetUserId}`).then(r => r.json()),
-        fetch(`/api/v1/privacy_settings?user_id=eq.${targetUserId}`).then(r => r.json()),
       ]);
 
       // Go backend wraps in {data: [...], success: true} — always array
       const profileData = profileRes.data?.[0] as ProfileSummary | undefined;
       if (profileData) setProfile(profileData);
 
-      const privacyData = privacyRes.data?.[0] as { show_profile_stats?: boolean; show_detailed_stats?: boolean; stats_visibility?: Record<string, boolean> } | undefined;
+      // Privacy visibility: the generic /privacy_settings endpoint is
+      // viewer-scoped (returns only the caller's own row), so for a foreign
+      // profile it would come back empty and the stats page could not tell a
+      // hidden profile from an open one. The public /users/:id/privacy
+      // endpoint returns the owner's visibility flags (private_profile +
+      // show_profile_stats / show_detailed_stats / stats_visibility) — the
+      // same rules the server enforces on the underlying data.
+      const isOwnView = targetUserId === self;
+      const privacyRes = await fetch(
+        isOwnView ? `/api/v1/privacy_settings?user_id=eq.${targetUserId}` : `/api/v1/users/${targetUserId}/privacy`
+      ).then(r => r.json());
+      const privacyData = (isOwnView ? privacyRes.data?.[0] : privacyRes.data) as
+        { show_detailed_stats?: boolean; stats_visibility?: Record<string, boolean>; private_profile?: boolean } | undefined;
       if (privacyData) {
         setPrivacy({
-          show_profile_stats: privacyData.show_profile_stats ?? false,
           show_detailed_stats: privacyData.show_detailed_stats ?? false,
           stats_visibility: privacyData.stats_visibility || {},
+          private_profile: privacyData.private_profile ?? false,
         });
       } else {
-        setPrivacy({ show_profile_stats: false, show_detailed_stats: false, stats_visibility: {} });
+        setPrivacy({ show_detailed_stats: false, stats_visibility: {}, private_profile: false });
+      }
+
+      // A private profile is only readable by the owner and mutual friends —
+      // the stats of a private profile must stay hidden from non-friends even
+      // when the owner enabled the stats toggles for friends.
+      if (!isOwnView) {
+        const friendRes = await fetch(`/api/v1/friends/status/${targetUserId}`, { headers: rpcHeaders }).then(r => r.json());
+        setIsFriendOfTarget(friendRes.data?.status === 'friends');
+      } else {
+        setIsFriendOfTarget(true);
       }
 
       const timeData = timeRes.data?.[0] as TimeStats | undefined;
@@ -420,7 +442,11 @@ export default function Stats() {
   }
 
   const isOwn = viewedUserId && selfId ? viewedUserId === selfId : false;
-  const canViewDetailed = isOwn || (privacy?.show_detailed_stats ?? false);
+  // A private profile hides its stats from non-friends regardless of the
+  // owner's stats toggles (the server refuses to serve the data). Friends of
+  // a private profile and visitors of a public profile follow the toggles.
+  const privacyBlocked = !isOwn && privacy?.private_profile && !isFriendOfTarget;
+  const canViewDetailed = isOwn || (!privacyBlocked && (privacy?.show_detailed_stats ?? false));
   const metricAllowed = (m: string) => {
     if (isOwn) return true;
     if (!canViewDetailed) return false;
@@ -430,7 +456,6 @@ export default function Stats() {
     const key = m === "comments" ? "posts" : m === "likes" ? "postLikes" : m;
     return vis[key] ?? false;
   };
-  const summaryAllowed = isOwn || (privacy?.show_profile_stats ?? false);
 
   if (!isOwn && !canViewDetailed) {
     return (

@@ -451,6 +451,54 @@ describe("ProfileWall", () => {
     });
   });
 
+  // ─── ProfileWall: hidden wall (private profile) ────────────────────────────
+
+  it("shows a private-profile notice when wallHidden is true and skips fetching", async () => {
+    setupApiMocks({ posts: [] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={false}
+        showWall={true}
+        wallHidden
+        privateProfile
+      />
+    );
+
+    // The private notice explains why the wall is hidden.
+    expect(screen.getByText("Приватный профиль")).toBeInTheDocument();
+    expect(screen.getByText("Это приватный профиль — стена скрыта от не-друзей.")).toBeInTheDocument();
+    // The misleading empty state must not appear.
+    expect(screen.queryByText("На стене пока тихо")).not.toBeInTheDocument();
+    expect(screen.queryByText("Нажмите `+`, чтобы оставить первую запись.")).not.toBeInTheDocument();
+    // No fetch happened and no WebSocket subscription was made.
+    expect(mockFrom).not.toHaveBeenCalledWith("profile_wall_posts");
+    expect(mockWsService.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("words the notice differently for a public profile whose wall is hidden", async () => {
+    setupApiMocks({ posts: [] });
+
+    render(
+      <ProfileWallComponent
+        profileUserId="profile-user-1"
+        currentUserId="current-user"
+        currentUsername="currentuser"
+        canPost={false}
+        showWall={true}
+        wallHidden
+        privateProfile={false}
+      />
+    );
+
+    expect(screen.getByText("Стена скрыта")).toBeInTheDocument();
+    expect(screen.getByText("Владелец скрыл стену — она доступна только друзьям.")).toBeInTheDocument();
+    expect(screen.queryByText("На стене пока тихо")).not.toBeInTheDocument();
+  });
+
   // ─── ProfileWall: renders posts ─────────────────────────────────────────────
 
   it("renders posts list from API", async () => {

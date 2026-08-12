@@ -38,8 +38,12 @@ vi.mock("@/components/ThreadCard", () => ({
   ),
 }));
 vi.mock("@/components/GomoRichEditor", () => ({ GomoRichEditor: () => null }));
+const mockProfileWallProps: any[] = [];
 vi.mock("@/components/ProfileWall", () => ({
-  ProfileWall: () => <div data-testid="profile-wall">ProfileWall</div>,
+  ProfileWall: (props: any) => {
+    mockProfileWallProps.push(props);
+    return <div data-testid="profile-wall">ProfileWall</div>;
+  },
 }));
 vi.mock("@/components/AvatarCropper", () => ({ AvatarCropper: () => null }));
 vi.mock("@/components/AvatarGallery", () => ({ AvatarGallery: () => null }));
@@ -83,6 +87,7 @@ describe("Profile", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockProfileWallProps.length = 0;
   });
 
   afterEach(() => {
@@ -194,5 +199,140 @@ describe("Profile", () => {
       const contents = screen.getAllByTestId("processed-content");
       expect(contents.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  // ─── Private profile viewed by a non-friend ─────────────────────────────────
+
+  function setupForeignPrivateProfile(privacyOverrides: Record<string, unknown> = {}) {
+    const user = { id: "viewer-user" };
+    const session = { user, access_token: "token-abc" };
+    mockAuth.getSession.mockResolvedValue({ data: { session }, error: null });
+    mockAuth.getUser.mockResolvedValue({ data: { user }, error: null });
+    mockAuth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } }, error: null });
+
+    const privacyData = {
+      show_last_seen: true, show_online_status: true, show_profile_wall: true,
+      allow_wall_posts_from_others: true, show_threads_tab: true,
+      show_profile_stats: false,
+      private_profile: true,
+      private_hide_avatar: false,
+      private_hide_wall: false,
+      private_hide_threads: true,
+      private_hide_stats: false,
+      private_hide_friends: true,
+      private_hide_gifts: true,
+      private_hide_achievements: true,
+      ...privacyOverrides,
+    };
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/v1/user_roles") || url.includes("/api/v1/user_achievements")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+      }
+      if (url.includes("/api/rpc/get_avatar_history")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+      }
+      if (url.includes("/api/v1/profiles")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            data: [{
+              id: "profile-user-1", username: "privateuser", bio: "Secret bio",
+              is_anonymous: false, thread_count: 0, post_count: 0,
+              wall_post_count: 0, comment_count: 0, likes_received_count: 0,
+              garma: 0, created_at: "2025-01-01T00:00:00Z",
+              avatar_url: null, is_online: false, last_seen_at: null,
+            }],
+          }),
+        });
+      }
+      if (url.includes("/api/v1/users/") && url.includes("/privacy")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: privacyData }) });
+      }
+      if (url.includes("/api/v1/friends/status/")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { status: "none" } }) });
+      }
+      if (url.includes("/api/v1/user_gifts")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ count: 0 }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+    });
+
+    mockFrom.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          order: () => ({
+            maybeSingle: () => Promise.resolve({ data: {}, error: null }),
+          }),
+        }),
+      }),
+    });
+    mockRpc.mockResolvedValue({ data: 0, error: null });
+  }
+
+  it("fetches the owner's visibility flags from the public privacy endpoint for a foreign profile", async () => {
+    setupForeignPrivateProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    // The wall tab renders once the friendship/privacy check resolves.
+    await waitFor(() => {
+      expect(screen.getByText("Стена")).toBeInTheDocument();
+    });
+
+    const privacyCalls = mockFetch.mock.calls.filter(([url]: [string]) =>
+      url.includes("/api/v1/users/") && url.includes("/privacy")
+    );
+    expect(privacyCalls.length).toBeGreaterThan(0);
+    // The old viewer-scoped endpoint must NOT be used for a foreign profile.
+    const scopedCalls = mockFetch.mock.calls.filter(([url]: [string]) =>
+      url.includes("/api/v1/privacy_settings")
+    );
+    expect(scopedCalls.length).toBe(0);
+  });
+
+  it("keeps the wall tab (with a private notice) and hides sections per privacy settings for a non-friend on a private profile", async () => {
+    setupForeignPrivateProfile();
+    renderWithProviders(<ProfileComponent />);
+
+    // The wall tab appears once the friendship/privacy check resolves; the
+    // wall notice below explains why the wall is hidden for non-friends.
+    await waitFor(() => {
+      expect(screen.getByText("Стена")).toBeInTheDocument();
+    });
+
+    // The wall tab stays and is the default landing tab; ProfileWall gets told
+    // the wall is hidden (server-side) so it renders the private notice.
+    expect(screen.getByText("Стена")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockProfileWallProps.length).toBeGreaterThan(0);
+      const props = mockProfileWallProps[mockProfileWallProps.length - 1];
+      expect(props.wallHidden).toBe(true);
+      expect(props.privateProfile).toBe(true);
+    });
+
+    // Everything hidden by the owner's settings disappears entirely: no
+    // achievements, threads, gifts or friends tabs for this viewer.
+    expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Треды")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Друзья/)).not.toBeInTheDocument();
+  });
+
+  it("shows the friends tab when the owner keeps friends visible on a private profile", async () => {
+    // Override privacy: friends NOT hidden → the tab must appear.
+    setupForeignPrivateProfile({ private_hide_friends: false });
+
+    renderWithProviders(<ProfileComponent />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Стена")).toBeInTheDocument();
+    });
+
+    // Friends not hidden → the friends tab shows (wall + friends only).
+    expect(screen.getByText("Стена")).toBeInTheDocument();
+    expect(screen.getByText(/^Друзья/)).toBeInTheDocument();
+    // Hidden sections stay hidden.
+    expect(screen.queryByText(/Достижения/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Подарки/)).not.toBeInTheDocument();
   });
 });

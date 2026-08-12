@@ -280,6 +280,40 @@ func TestHandleProfileWallPostsGet_EmptyResult(t *testing.T) {
 	}
 }
 
+// TestHandleProfileWallPostsGet_StrangerOnPrivateWall_GetsEmpty guards the read
+// path of the wall privacy gate: the wall GET must join privacy_settings and
+// keep the (private_profile OR private_hide_wall) predicate in its WHERE clause
+// so a stranger asking for a private user's wall receives an empty array — not
+// the wall rows, not an error. The predicate logic itself is unit-tested in the
+// media gate (canViewUserWall) and the write gate (wallOwnerVisibleToViewer);
+// this test pins the SQL so the read path cannot silently drop the filter.
+func TestHandleProfileWallPostsGet_StrangerOnPrivateWall_GetsEmpty(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*SELECT p\.id.*FROM profile_wall_posts p LEFT JOIN users u.*LEFT JOIN privacy_settings ps.*COALESCE\(ps\.private_profile, false\) = false AND COALESCE\(ps\.private_hide_wall, false\) = false.*EXISTS \(SELECT 1 FROM friendships f`).
+		WithArgs("privateUser", "stranger").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "author_id", "title", "content", "created_at", "updated_at", "is_pinned", "pinned_order", "author"}))
+
+	c, w := newUniversalRequestContext("GET", "/api/v1/profile_wall_posts?user_id=eq.privateUser", nil, &auth.Claims{UserID: "stranger"})
+	h.HandleTableRequest(c)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp models.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+	if resp.Data == nil {
+		t.Fatal("expected empty array, not nil")
+	}
+	arr, ok := resp.Data.([]interface{})
+	if !ok || len(arr) != 0 {
+		t.Fatalf("expected an empty wall, got %#v", resp.Data)
+	}
+}
+
 func TestHandleProfileWallPostsGet_WithFilterAndLimit(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
