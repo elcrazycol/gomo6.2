@@ -769,7 +769,9 @@ func (h *UniversalHandler) enforcePostOwnership(c *gin.Context, tableName string
 		}
 	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_comment_likes",
 		"user_daily_visits", "thread_custom_message_visits", "gomosub_rules_acceptance", "profile_customization",
-		"privacy_settings", "user_session_time", "user_terms_acceptance":
+		"privacy_settings", "user_session_time", "user_terms_acceptance",
+		"thread_subscriptions", "user_placeholders", "user_settings_changes",
+		"user_emoji_subscriptions", "poll_votes":
 		// Single-owner tables: the owner is always the authenticated user.
 		userID := authenticatedUserID(c)
 		if userID == "" {
@@ -813,7 +815,10 @@ func enforceWallWriteScope(c *gin.Context, tableName string, clauses []string, a
 		args = append(args, userID)
 		argIndex++
 	case "profile_wall_post_comments", "profile_wall_post_likes", "profile_wall_post_reposts", "profile_wall_comment_likes",
-		"privacy_settings", "user_session_time", "user_daily_visits":
+		"privacy_settings", "user_session_time", "user_daily_visits",
+		"thread_subscriptions", "user_placeholders", "user_settings_changes",
+		"thread_custom_message_visits", "gomosub_rules_acceptance",
+		"user_emoji_subscriptions", "poll_votes":
 		userID := authenticatedUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
@@ -891,6 +896,10 @@ func (h *UniversalHandler) handlePost(c *gin.Context, tableName string) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
+	// H2 (security audit): strip server-managed columns (counters, ownership
+	// foreign keys) that must never be client-controlled. Runs after the C1
+	// identifier gate and before ownership forcing re-adds user_id/author_id.
+	filterWritableColumns(tableName, data)
 	if tableName == "custom_emojis" {
 		if err := validateCustomEmojiTriggers(data); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -1180,6 +1189,10 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
 		return
 	}
+	// H2 (security audit): strip server-managed columns (counters, ownership
+	// foreign keys) that must never be client-controlled. Runs after the C1
+	// identifier gate and before the ownership scope is applied.
+	filterWritableColumns(tableName, data)
 	if tableName == "custom_emojis" {
 		if err := validateCustomEmojiTriggers(data); err != nil {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse(err.Error()))
@@ -1234,6 +1247,15 @@ func (h *UniversalHandler) handlePut(c *gin.Context, tableName string) {
 	// only consumed by the permission check and the board scope, never stored.
 	if tableName == "channel_permissions" {
 		delete(data, "board_id")
+	}
+
+	// H2: after allow-list stripping, a PUT may carry no writable columns at
+	// all (e.g. emoji_packs with only the server-managed updated_at). An empty
+	// SET clause would produce `UPDATE t SET WHERE …` — a syntax error and a
+	// 500. Reject the request instead.
+	if len(data) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("No writable columns provided"))
+		return
 	}
 
 	// Build UPDATE query

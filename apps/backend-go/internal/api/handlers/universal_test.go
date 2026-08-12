@@ -41,7 +41,7 @@ func TestHandleTableRequest_EmptyTable(t *testing.T) {
 func TestHandleTableRequest_MethodNotAllowed(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PATCH", "/api/v1/user_roles", nil, nil)
+	c, w := newUniversalRequestContext("PATCH", "/api/v1/privacy_settings", nil, nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -100,17 +100,18 @@ func TestUniversalGet_DBError(t *testing.T) {
 func TestUniversalPost_Success(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	// The INSERT column order depends on map iteration (random in Go).
-	// Use (?s).* to match against any order.
-	mock.ExpectQuery(`(?s).*INSERT INTO polls \(.*\).*VALUES \(.*\).*RETURNING \*`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "question", "created_by"}).
-			AddRow("poll1", "Test question?", "u1"))
+	// INSERT columns are sorted alphabetically (thread_id, user_id); user_id
+	// is forced to the caller by ownership enforcement, so the client-supplied
+	// value is irrelevant.
+	mock.ExpectQuery(`INSERT INTO thread_subscriptions \(thread_id, user_id\) VALUES \(\$1, \$2\) RETURNING \*`).
+		WithArgs("t1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id", "user_id"}).
+			AddRow("s1", "t1", "u1"))
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/polls", map[string]string{
-		"question":   "Test question?",
-		"created_by": "u1",
-	}, nil)
+	c, w := newUniversalRequestContext("POST", "/api/v1/thread_subscriptions", map[string]string{
+		"thread_id": "t1",
+		"user_id":   "u1",
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -139,14 +140,16 @@ func TestUniversalPost_UpsertDailyVisits(t *testing.T) {
 func TestUniversalPut_Success(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`UPDATE user_roles SET role = \$1 WHERE user_id = \$2 RETURNING \*`).
-		WithArgs("moderator", "u1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}).
-			AddRow("1", "u1", "moderator"))
+	// The ownership scope (user_id = caller) is appended before the query
+	// filter, so the WHERE carries two user_id predicates.
+	mock.ExpectQuery(`UPDATE privacy_settings SET show_online_status = \$1 WHERE user_id = \$2 AND user_id = \$3 RETURNING \*`).
+		WithArgs("true", "u1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "show_online_status"}).
+			AddRow("1", "u1", true))
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
-		"role": "moderator",
-	}, nil)
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
+		"show_online_status": "true",
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -157,14 +160,16 @@ func TestUniversalPut_Success(t *testing.T) {
 func TestUniversalPut_MissingFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles", map[string]string{
-		"role": "moderator",
-	}, nil)
+	// user_terms_acceptance has no ownership scope and no query filter, so the
+	// PUT must be rejected before any SQL is built.
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_terms_acceptance", map[string]string{
+		"terms_version": "1.1",
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 	_ = mock
 
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -236,12 +241,13 @@ func TestUniversalPut_PrivacySettings_CannotTouchForeignRow(t *testing.T) {
 func TestUniversalDelete_Success(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`DELETE FROM poll_votes WHERE id = \$1 RETURNING \*`).
-		WithArgs("vote1").
+	// The ownership scope (user_id = caller) is appended before the id filter.
+	mock.ExpectQuery(`DELETE FROM poll_votes WHERE user_id = \$1 AND id = \$2 RETURNING \*`).
+		WithArgs("u1", "vote1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "poll_id", "user_id"}).
 			AddRow("vote1", "poll1", "u1"))
 
-	c, w := newUniversalRequestContext("DELETE", "/api/v1/poll_votes?id=eq.vote1", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/poll_votes?id=eq.vote1", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
@@ -252,27 +258,29 @@ func TestUniversalDelete_Success(t *testing.T) {
 func TestUniversalDelete_MissingFilter(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("DELETE", "/api/v1/poll_votes", nil, nil)
+	// user_terms_acceptance has no ownership scope — without a filter the
+	// DELETE must be rejected before any SQL is built.
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/user_terms_acceptance", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 	_ = mock
 
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestUniversalDelete_NotFound(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`DELETE FROM thread_subscriptions WHERE id = \$1 RETURNING \*`).
-		WithArgs("nonexistent").
+	mock.ExpectQuery(`DELETE FROM thread_subscriptions WHERE user_id = \$1 AND id = \$2 RETURNING \*`).
+		WithArgs("u1", "nonexistent").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id", "user_id"}))
 
-	c, w := newUniversalRequestContext("DELETE", "/api/v1/thread_subscriptions?id=eq.nonexistent", nil, nil)
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/thread_subscriptions?id=eq.nonexistent", nil, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -386,7 +394,7 @@ func TestUniversalPost_UpsertWallPostLikes(t *testing.T) {
 func TestUniversalPost_InvalidBody(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/polls", "invalid json", nil)
+	c, w := newUniversalRequestContext("POST", "/api/v1/thread_subscriptions", "invalid json", nil)
 	h.HandleTableRequest(c)
 	_ = mock
 
@@ -460,13 +468,13 @@ func TestUniversalGet_ProfileWallPostComments(t *testing.T) {
 func TestUniversalPut_DBError(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
-	mock.ExpectQuery(`UPDATE user_roles SET role = \$1 WHERE user_id = \$2 RETURNING \*`).
-		WithArgs("moderator", "u1").
+	mock.ExpectQuery(`UPDATE privacy_settings SET show_online_status = \$1 WHERE user_id = \$2 AND user_id = \$3 RETURNING \*`).
+		WithArgs("false", "u1", "u1").
 		WillReturnError(sqlmock.ErrCancelled)
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
-		"role": "moderator",
-	}, nil)
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
+		"show_online_status": "false",
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusInternalServerError {
@@ -909,8 +917,8 @@ func TestUniversalDelete_WallComments_OwnershipScope(t *testing.T) {
 func TestUniversalPut_RejectsInjectedColumnName(t *testing.T) {
 	h, _ := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
-		"role = (SELECT password_hash FROM users WHERE username='victim'), updated_at": "x",
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
+		"show_online_status = (SELECT password_hash FROM users WHERE username='victim'), updated_at": "x",
 	}, nil)
 	h.HandleTableRequest(c)
 
@@ -924,8 +932,8 @@ func TestUniversalPut_RejectsInjectedColumnName(t *testing.T) {
 func TestUniversalPut_RejectsCommentInjection(t *testing.T) {
 	h, _ := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
-		"role = 'moderator' -- ": "x",
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
+		"show_online_status = 'true' -- ": "x",
 	}, nil)
 	h.HandleTableRequest(c)
 
@@ -939,8 +947,8 @@ func TestUniversalPut_RejectsCommentInjection(t *testing.T) {
 func TestUniversalPut_RejectsParenthesizedColumn(t *testing.T) {
 	h, _ := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
-		"role, updated_at = now())": "x",
+	c, w := newUniversalRequestContext("PUT", "/api/v1/privacy_settings?user_id=eq.u1", map[string]string{
+		"show_online_status, updated_at = now())": "x",
 	}, nil)
 	h.HandleTableRequest(c)
 
@@ -954,8 +962,8 @@ func TestUniversalPut_RejectsParenthesizedColumn(t *testing.T) {
 func TestUniversalPost_RejectsInjectedColumnName(t *testing.T) {
 	h, _ := setupUniversalHandler(t)
 
-	c, w := newUniversalRequestContext("POST", "/api/v1/polls", map[string]string{
-		"question) VALUES (1)--": "x",
+	c, w := newUniversalRequestContext("POST", "/api/v1/thread_subscriptions", map[string]string{
+		"thread_id) VALUES (1)--": "x",
 	}, nil)
 	h.HandleTableRequest(c)
 
@@ -989,21 +997,43 @@ func TestUniversalPut_ValidUnusualColumnPassesGate(t *testing.T) {
 	h, mock := setupUniversalHandler(t)
 
 	// handlePut does NOT sort SET columns (map iteration order is random), so
-	// the regex must not assume an order. No ownership scope applies to
-	// user_roles — only the query filter is in the WHERE clause.
-	mock.ExpectQuery(`(?s).*UPDATE user_roles SET has_custom_message = \$[0-9]+, role = \$[0-9]+ WHERE user_id = \$[0-9]+ RETURNING \*`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "u1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "role"}).
-			AddRow("1", "u1", "moderator"))
+	// the regex accepts either order. The ownership scope (user_id = caller) is
+	// appended before the query filter, so the WHERE carries two user_id
+	// predicates.
+	mock.ExpectQuery(`(?s).*UPDATE thread_custom_message_visits SET (has_custom_message = \$[0-9]+, thread_id = \$[0-9]+|thread_id = \$[0-9]+, has_custom_message = \$[0-9]+) WHERE user_id = \$[0-9]+ AND user_id = \$[0-9]+ RETURNING \*`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "u1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "thread_id", "has_custom_message"}).
+			AddRow("1", "u1", "t1", true))
 
-	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
-		"role":               "moderator",
+	c, w := newUniversalRequestContext("PUT", "/api/v1/thread_custom_message_visits?user_id=eq.u1", map[string]string{
 		"has_custom_message": "true",
-	}, nil)
+		"thread_id":          "t1",
+	}, &auth.Claims{UserID: "u1"})
 	h.HandleTableRequest(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPut_ThreadCustomMessage_ForeignRow proves the ownership scope on
+// thread_custom_message_visits (added for its registered PUT route): a PUT
+// targeting a victim's row via user_id=eq.<victim> can never match because the
+// scope forces user_id = caller → 404, nothing updated.
+func TestUniversalPut_ThreadCustomMessage_ForeignRow(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`(?s).*UPDATE thread_custom_message_visits SET .* WHERE user_id = \$[0-9]+ AND user_id = \$[0-9]+ RETURNING \*`).
+		WithArgs(sqlmock.AnyArg(), "u1", "victim").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "user_id", "thread_id", "has_custom_message"}))
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/thread_custom_message_visits?user_id=eq.victim", map[string]string{
+		"has_custom_message": "true",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1042,6 +1072,143 @@ func TestValidateBodyColumnNames(t *testing.T) {
 		if err := validateBodyColumnNames(map[string]interface{}{key: "x"}); err == nil {
 			t.Errorf("malicious key %q was accepted", key)
 		}
+	}
+}
+
+// ─── H2: server-managed tables are write-denied (mass-assignment fix) ────────
+
+// TestUniversalPost_WriteDeniedTables proves the privilege-escalation vector is
+// closed: any POST to a server-managed table (user_roles, achievements,
+// user_achievements, polls) is rejected with 403 before any SQL is built, so a
+// client can never INSERT a row that grants themselves the admin role or forges
+// achievements/polls. sqlmock has no expectations, so any DB access would fail
+// the test via ExpectationsWereMet in cleanup.
+func TestUniversalPost_WriteDeniedTables(t *testing.T) {
+	for _, table := range []string{"user_roles", "achievements", "user_achievements", "polls"} {
+		t.Run(table, func(t *testing.T) {
+			h, mock := setupUniversalHandler(t)
+			_ = mock
+
+			c, w := newUniversalRequestContext("POST", "/api/v1/"+table, map[string]string{
+				"role":  "admin",
+				"value": "x",
+			}, &auth.Claims{UserID: "u1"})
+			h.HandleTableRequest(c)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), "Writes to this table are not allowed") {
+				t.Fatalf("unexpected error message: %s", w.Body.String())
+			}
+		})
+	}
+}
+
+// TestUniversalPut_WriteDeniedTable covers the same vector via PUT: the exact
+// privilege-escalation payload (role=admin on user_roles) must 403.
+func TestUniversalPut_WriteDeniedTable(t *testing.T) {
+	h, _ := setupUniversalHandler(t)
+
+	c, w := newUniversalRequestContext("PUT", "/api/v1/user_roles?user_id=eq.u1", map[string]string{
+		"role": "admin",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPost_EmojiPacks_StripsCounters proves the counter columns
+// (emoji_count, subscriber_count) — maintained by triggers and the
+// subscription flow — are stripped from a client INSERT. If they reached the
+// statement, the mock query shape would not match and the test would fail.
+func TestUniversalPost_EmojiPacks_StripsCounters(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// INSERT columns are sorted alphabetically: author_id, description,
+	// icon_url, is_public, name, slug. The forged counters must be absent and
+	// author_id must be forced to the caller.
+	mock.ExpectQuery(`INSERT INTO emoji_packs \(author_id, description, icon_url, is_public, name, slug\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6\) RETURNING \*`).
+		WithArgs("u1", "desc", "icon.png", "true", "My Pack", "my-pack").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_id", "name"}).
+			AddRow("p1", "u1", "My Pack"))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/emoji_packs", map[string]string{
+		"name":             "My Pack",
+		"slug":             "my-pack",
+		"description":      "desc",
+		"icon_url":         "icon.png",
+		"is_public":        "true",
+		"emoji_count":      "999",
+		"subscriber_count": "999",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalPost_PollVotes_ForcesOwner proves a forged user_id on a
+// user-owned table is overwritten with the caller's ID (column allowlist +
+// ownership forcing), so a client can never cast votes as another user.
+func TestUniversalPost_PollVotes_ForcesOwner(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	// user_id must end up bound to the caller, not the forged "victim".
+	mock.ExpectQuery(`INSERT INTO poll_votes \(option_index, poll_id, user_id\) VALUES \(\$1, \$2, \$3\) RETURNING \*`).
+		WithArgs(sqlmock.AnyArg(), "poll1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "poll_id", "user_id"}).
+			AddRow("v1", "poll1", "u1"))
+
+	c, w := newUniversalRequestContext("POST", "/api/v1/poll_votes", map[string]string{
+		"poll_id":      "poll1",
+		"option_index": "1",
+		"user_id":      "victim",
+	}, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalDelete_PollVotes_ScopedToSelf proves an unfiltered DELETE on a
+// user-owned table is still bounded to the caller's own rows by the ownership
+// scope — a mass-delete can never touch other users' records.
+func TestUniversalDelete_PollVotes_ScopedToSelf(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`DELETE FROM poll_votes WHERE user_id = \$1 RETURNING \*`).
+		WithArgs("u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "poll_id", "user_id"}).
+			AddRow("v1", "poll1", "u1"))
+
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/poll_votes", nil, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestUniversalDelete_ThreadSubscriptions_ForeignRow proves a subscription of
+// another user cannot be deleted: the ownership scope (user_id = caller) AND
+// the id filter can never match a foreign row → 404, nothing deleted.
+func TestUniversalDelete_ThreadSubscriptions_ForeignRow(t *testing.T) {
+	h, mock := setupUniversalHandler(t)
+
+	mock.ExpectQuery(`DELETE FROM thread_subscriptions WHERE user_id = \$1 AND id = \$2 RETURNING \*`).
+		WithArgs("u1", "victim-sub").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "thread_id", "user_id"}))
+
+	c, w := newUniversalRequestContext("DELETE", "/api/v1/thread_subscriptions?id=eq.victim-sub", nil, &auth.Claims{UserID: "u1"})
+	h.HandleTableRequest(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

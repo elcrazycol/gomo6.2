@@ -117,6 +117,15 @@ func (h *UniversalHandler) HandleTableRequest(c *gin.Context) {
 		return
 	}
 
+	// H2 (security audit): server-managed tables must never be written through
+	// the generic CRUD surface. Without this guard, any authenticated user could
+	// INSERT/PUT into user_roles and grant themselves the admin/moderator role
+	// (privilege escalation) or forge achievements/polls. Reads stay allowed.
+	if c.Request.Method != http.MethodGet && genericWriteDeniedTable(tableName) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("Writes to this table are not allowed"))
+		return
+	}
+
 	switch c.Request.Method {
 	case "GET":
 		h.handleGet(c, tableName)
@@ -140,6 +149,71 @@ func genericReadDeniedTable(table string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// genericWriteDeniedTable lists tables that must never be written through the
+// compatibility CRUD surface. Their rows are created and maintained exclusively
+// by the server (RPC handlers, achievement checker, migrations) or by explicit
+// business-authorized handlers. Allowing generic writes here would let any
+// authenticated user escalate privileges (e.g. INSERT/PUT into user_roles to
+// grant themselves the admin role) or forge server-managed records.
+func genericWriteDeniedTable(table string) bool {
+	switch table {
+	case "user_roles", "achievements", "user_achievements", "polls", "gomosub_invites":
+		return true
+	default:
+		return false
+	}
+}
+
+// writableColumnsForTable returns the columns a client may write for tables
+// whose remaining columns are server-managed (counters, ownership foreign
+// keys). An empty result means the table is only restricted by ownership
+// forcing, not by column allow-listing.
+func writableColumnsForTable(tableName string) map[string]bool {
+	switch tableName {
+	case "emoji_packs":
+		// emoji_count / subscriber_count are maintained by triggers and the
+		// subscription flow — a client must never be able to inflate them.
+		return map[string]bool{
+			"name": true, "slug": true, "description": true, "icon_url": true, "is_public": true,
+		}
+	case "custom_emojis":
+		// image_url is additionally validated by validateCustomEmojiAsset;
+		// unicode_triggers by validateCustomEmojiTriggers (migration 087).
+		return map[string]bool{
+			"pack_id": true, "name": true, "image_url": true, "is_animated": true, "sort_order": true,
+			"unicode_triggers": true,
+		}
+	case "user_emoji_subscriptions":
+		// user_id is forced to the caller by enforcePostOwnership.
+		return map[string]bool{"pack_id": true}
+	case "thread_subscriptions":
+		// user_id is forced to the caller by enforcePostOwnership.
+		return map[string]bool{"thread_id": true}
+	case "poll_votes":
+		// user_id is forced to the caller by enforcePostOwnership.
+		return map[string]bool{"poll_id": true, "option_ids": true, "option_index": true}
+	}
+	return nil
+}
+
+// filterWritableColumns strips client-supplied columns that are not in the
+// table's writable allowlist. This is the mass-assignment guard (CWE-915): the
+// generic write handlers interpolate body keys into INSERT/SET clauses, so any
+// column that exists in the table but is server-managed must be unreachable
+// from the client. Columns forced by ownership handling (user_id, author_id)
+// are re-added server-side after this filter runs.
+func filterWritableColumns(tableName string, data map[string]interface{}) {
+	allowed := writableColumnsForTable(tableName)
+	if allowed == nil {
+		return
+	}
+	for key := range data {
+		if !allowed[key] {
+			delete(data, key)
+		}
 	}
 }
 
