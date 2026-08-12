@@ -102,6 +102,14 @@ export const WallCommentTree = ({
 
     const onFocusIn = (e: FocusEvent) => {
       if (!anchor.contains(e.target as Node)) return;
+      // Only the EDITOR pins the bar. The collapsed one-line pill is a plain
+      // <button>, and tapping it fires focus BEFORE click: pinning on that
+      // focus yanks the anchor out of the flow (position:fixed + the scroll
+      // pad appearing under the finger), so the click that should expand the
+      // composer lands on a different element and the pill never opens on the
+      // first tap. The editor (an editable) only mounts while the box is
+      // expanding, so focusing it pins at exactly the right moment.
+      if (!isEditableElement(e.target as HTMLElement | null)) return;
       setComposerFocused(true);
       applyPin();
     };
@@ -136,8 +144,9 @@ export const WallCommentTree = ({
 
     // autoFocus fires during commit, before this effect's listeners attach —
     // re-check the live focus and pin right away so the composer never starts
-    // out sticky (which iOS focus-scrolls off-screen).
-    if (isTouchRef.current && anchor.contains(document.activeElement)) {
+    // out sticky (which iOS focus-scrolls off-screen). Only an editable
+    // (the editor) pins — never the collapsed pill button.
+    if (isTouchRef.current && anchor.contains(document.activeElement) && isEditableElement(document.activeElement)) {
       setComposerFocused(true);
       applyPin();
     }

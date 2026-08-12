@@ -995,7 +995,11 @@ html.kb-open body {
   position: fixed !important;
   top: auto !important;
   right: auto !important;
-  bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px)) !important;
+  /* Exact same bottom as the sticky rest position (kb-bottom-8 = 2rem +
+     --kb-inset, no safe-area, identical on every screen size), so pinning
+     never shifts the bar vertically: a jump mid-tap moves the pill away from
+     the finger and swallows the click that expands the composer. */
+  bottom: calc(2rem + var(--kb-inset, 0px)) !important;
   z-index: 40 !important;
   /* NOTE: no `left` here on purpose — WallCommentTree mirrors the comment
      column via inline style.left/width, and an !important `left` here would

@@ -775,6 +775,62 @@ describe("WallCommentTree", () => {
     }
   });
 
+  it("does not pin the collapsed pill button — only the editor pins, so the first tap expands", async () => {
+    // Coarse pointer: keyboard handling (and the pin) is active.
+    const matchMediaMock = vi.fn((query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.stubGlobal("matchMedia", matchMediaMock);
+    const { initMobileKeyboard } = await import("@/lib/mobileKeyboard");
+    const dispose = initMobileKeyboard();
+
+    try {
+      const view = renderTree({ comments: [] });
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Напишите комментарий/)).toBeInTheDocument();
+      });
+
+      const anchor = view.container.querySelector(".sticky");
+      expect(anchor).toBeTruthy();
+
+      // Tapping the collapsed pill focuses the BUTTON before the click that
+      // expands the composer. That focus must NOT pin the bar — pinning yanks
+      // it out of the flow (position:fixed + the scroll pad under the finger),
+      // so the click that should call setExpanded(true) misses the pill and
+      // the composer never opens on the first tap.
+      const pill = screen.getByLabelText(/Напишите комментарий/);
+      act(() => {
+        pill.focus();
+      });
+      expect(anchor!.classList.contains("wall-composer-pinned")).toBe(false);
+      expect(anchor!.getAttribute("data-kb-locked")).toBeNull();
+      expect(view.container.querySelector(".wall-comments-pad")).toBeNull();
+
+      // The click then expands the composer and the editor takes focus — only
+      // now must the bar pin (exactly the pre-existing behavior).
+      await userEvent.click(pill);
+      const textarea = screen.getByPlaceholderText("Напишите комментарий");
+      act(() => {
+        textarea.focus();
+      });
+      await waitFor(() => {
+        expect(anchor!.classList.contains("wall-composer-pinned")).toBe(true);
+        expect(anchor!.getAttribute("data-kb-locked")).toBe("true");
+      });
+      expect(view.container.querySelector(".wall-comments-pad")).toBeTruthy();
+    } finally {
+      dispose();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps the composer docked while the keyboard is up even after focus leaves", async () => {
     const matchMediaMock = vi.fn((query: string) => ({
       matches: query === "(pointer: coarse)",
