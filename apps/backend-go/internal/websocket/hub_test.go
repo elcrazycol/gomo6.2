@@ -1146,14 +1146,19 @@ func TestHandleRedisEvent_NewChatMessage(t *testing.T) {
 	}
 }
 
-func TestHandleRedisEvent_UserStatus_BroadcastAll(t *testing.T) {
+// M2: presence events are room-scoped. Only subscribers of the target's
+// presence room receive them — there is no global presence feed anymore.
+func TestHandleRedisEvent_UserOnline_RoomTargeted(t *testing.T) {
 	hub := NewHub(nil, nil)
-	client := newTestClient(hub, "user-1", "Alice")
+	subscribed := newTestClient(hub, "user-1", "Alice")
+	unrelated := newTestClient(hub, "user-2", "Bob")
+	hub.SubscribeToRoom(subscribed, "presence_user-42")
 
 	go hub.Run()
 	defer hub.Stop()
 
-	hub.register <- client
+	hub.register <- subscribed
+	hub.register <- unrelated
 	waitForBuffer()
 
 	event := RealtimeEvent{
@@ -1168,23 +1173,33 @@ func TestHandleRedisEvent_UserStatus_BroadcastAll(t *testing.T) {
 	waitForBuffer()
 
 	select {
-	case msg := <-client.Send:
+	case msg := <-subscribed.Send:
 		if !containsStr(string(msg), "user_online") {
 			t.Errorf("expected 'user_online', got: %s", string(msg))
 		}
 	default:
-		t.Error("registered client should receive UserOnline event via broadcast")
+		t.Error("presence room subscriber should receive UserOnline event")
+	}
+
+	select {
+	case <-unrelated.Send:
+		t.Error("client not subscribed to the presence room must NOT receive the event")
+	default:
+		// expected — presence delivery is subscription-only
 	}
 }
 
-func TestHandleRedisEvent_UserOffline_BroadcastAll(t *testing.T) {
+func TestHandleRedisEvent_UserOffline_RoomTargeted(t *testing.T) {
 	hub := NewHub(nil, nil)
-	client := newTestClient(hub, "user-1", "Alice")
+	subscribed := newTestClient(hub, "user-1", "Alice")
+	unrelated := newTestClient(hub, "user-2", "Bob")
+	hub.SubscribeToRoom(subscribed, "presence_user-42")
 
 	go hub.Run()
 	defer hub.Stop()
 
-	hub.register <- client
+	hub.register <- subscribed
+	hub.register <- unrelated
 	waitForBuffer()
 
 	event := RealtimeEvent{
@@ -1199,12 +1214,19 @@ func TestHandleRedisEvent_UserOffline_BroadcastAll(t *testing.T) {
 	waitForBuffer()
 
 	select {
-	case msg := <-client.Send:
+	case msg := <-subscribed.Send:
 		if !containsStr(string(msg), "user_offline") {
 			t.Errorf("expected 'user_offline', got: %s", string(msg))
 		}
 	default:
-		t.Error("registered client should receive UserOffline event via broadcast")
+		t.Error("presence room subscriber should receive UserOffline event")
+	}
+
+	select {
+	case <-unrelated.Send:
+		t.Error("client not subscribed to the presence room must NOT receive the event")
+	default:
+		// expected — presence delivery is subscription-only
 	}
 }
 

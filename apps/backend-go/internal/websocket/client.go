@@ -173,6 +173,14 @@ func (c *Client) readPump() {
 				}
 				c.Hub.SubscribeToRoom(c, room)
 				c.sendConfirmation(MessageTypeSubscribe, room)
+				// Presence subscriptions receive an immediate snapshot of the
+				// target's current online state — the viewer sees the status
+				// instantly, before the first delta arrives.
+				if strings.HasPrefix(room, "presence_") {
+					if targetID := strings.TrimPrefix(room, "presence_"); targetID != "" {
+						c.Hub.SendPresenceSnapshot(c, targetID)
+					}
+				}
 			}
 
 		case MessageTypeUnsubscribe:
@@ -245,9 +253,11 @@ func (c *Client) readPump() {
 				c.trySend(msgBytes)
 			}
 
-			// App-level pings double as a heartbeat: keep the per-session
-			// online marker alive so a crash never leaves a ghost "online"
-			// device (the marker expires within 5 minutes without this).
+			// App-level pings double as a heartbeat: refresh the global presence
+			// marker and keep the per-session online marker alive so a crash
+			// never leaves a ghost "online" device (the marker expires within 5
+			// minutes without this).
+			go c.Hub.TouchPresence(c.UserID)
 			if c.SessionID != "" {
 				go c.Hub.touchSessionOnline(c.UserID, c.SessionID)
 			}
@@ -293,6 +303,7 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 			c.Hub.presence[c.UserID] = c
 			c.Hub.mu.Unlock()
 
+			go c.Hub.TouchPresence(c.UserID)
 			go c.Hub.updateUserOnlineStatus(c.UserID, true)
 			go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
 
@@ -326,7 +337,8 @@ func (c *Client) handleAuth(data json.RawMessage) error {
 	c.Hub.presence[c.UserID] = c
 	c.Hub.mu.Unlock()
 
-	// Broadcast online status and update DB
+	// Broadcast online status, refresh the Redis presence marker and update DB
+	go c.Hub.TouchPresence(c.UserID)
 	go c.Hub.updateUserOnlineStatus(c.UserID, true)
 	go c.Hub.broadcastUserStatus(c.UserID, c.Username, true)
 

@@ -239,6 +239,13 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		// served to anonymous visitors on cache hits. It also runs BEFORE the rate
 		// limiter so authenticated requests are keyed by user ID, not IP.
 		rest.Use(middleware.OptionalAuthMiddlewareWithDB(authService, db))
+		// Authenticated activity refreshes the user's presence marker so
+		// last_seen tracks real usage, not just the WebSocket connection
+		// (throttled to one touch per 5 minutes per user). Runs BEFORE the data
+		// cache so cache hits still count as activity.
+		if wsHub != nil {
+			rest.Use(middleware.PresenceActivity(wsHub.TouchPresence, websocket.PresenceTouchEvery))
+		}
 		// Apply data caching middleware for GET requests (2 minute TTL). Cache hits
 		// abort before the rate limiter below, so repeated reads within the TTL are
 		// free: no rate-limit budget burned and no DB hit. Only cache misses and

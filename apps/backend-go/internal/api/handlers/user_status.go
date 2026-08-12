@@ -92,6 +92,23 @@ func (h *UserStatusHandler) GetUserStatus(c *gin.Context) {
 		return
 	}
 
+	// Redis is the source of truth for online state; the DB is only a fallback
+	// for users the presence store has never seen or when Redis is unavailable.
+	if h.hub != nil {
+		if online, lastSeen := h.hub.GetPresenceStatus(userID); online || !lastSeen.IsZero() {
+			if !h.showOnlineStatus(userID) {
+				c.JSON(http.StatusOK, UserStatusResponse{UserID: userID, IsOnline: false})
+				return
+			}
+			resp := UserStatusResponse{UserID: userID, IsOnline: online}
+			if !lastSeen.IsZero() {
+				resp.LastSeen = &lastSeen
+			}
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+	}
+
 	// Query user status and privacy settings
 	query := `
 		SELECT u.id, u.is_online, u.last_seen_at,
@@ -174,6 +191,15 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 		}
 	}
 
+	// Redis-first: when every requested user is known to the presence store,
+	// serve from Redis (one pipeline + one privacy query) and skip SQL.
+	if h.hub != nil {
+		if statuses := h.bulkStatusFromRedis(c, request.UserIDs); statuses != nil {
+			c.JSON(http.StatusOK, models.SuccessResponse(statuses))
+			return
+		}
+	}
+
 	// Build query with placeholders
 	query := `
 		SELECT u.id, u.is_online, u.last_seen_at,
@@ -226,4 +252,66 @@ func (h *UserStatusHandler) GetBulkUserStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(statuses))
+}
+
+// showOnlineStatus reports whether userID allows others to see their online
+// status and last_seen (privacy_settings.show_online_status). Defaults to true
+// when the row is missing or the DB is unavailable (fail open matches the
+// existing SQL LEFT JOIN default).
+func (h *UserStatusHandler) showOnlineStatus(userID string) bool {
+	if h.db == nil || userID == "" {
+		return true
+	}
+	var show bool
+	if err := h.db.QueryRow(
+		"SELECT COALESCE(show_online_status, true) FROM privacy_settings WHERE user_id = $1", userID,
+	).Scan(&show); err != nil {
+		return true
+	}
+	return show
+}
+
+// bulkStatusFromRedis resolves statuses for many users from the hub's Redis
+// presence store. Returns nil when the store cannot cover every requested user
+// (caller falls back to SQL) — in that case nothing has been written to the
+// response yet.
+func (h *UserStatusHandler) bulkStatusFromRedis(c *gin.Context, userIDs []string) []UserStatusResponse {
+	viewerID := ""
+	if claims, exists := c.Get("claims"); exists {
+		if uc, ok := claims.(*auth.Claims); ok && uc != nil {
+			viewerID = uc.UserID
+		}
+	}
+
+	// M1: private profiles stay visible in the response but with the online
+	// state and last_seen stripped (identical to the SQL path).
+	result := make([]UserStatusResponse, 0, len(userIDs))
+	fetch := make([]string, 0, len(userIDs))
+	for _, id := range userIDs {
+		if shouldFilter, _, err := ShouldFilterPrivateProfile(h.db, viewerID, id); err == nil && shouldFilter {
+			result = append(result, UserStatusResponse{UserID: id, IsOnline: false})
+		} else {
+			fetch = append(fetch, id)
+		}
+	}
+	if len(fetch) == 0 {
+		return result
+	}
+
+	presences := h.hub.GetPresenceStatuses(fetch)
+	if len(presences) != len(fetch) {
+		// A never-seen user or a Redis hiccup — fall back to SQL for the batch.
+		return nil
+	}
+
+	for _, id := range fetch {
+		st := presences[id]
+		resp := UserStatusResponse{UserID: id, IsOnline: st.Online}
+		if h.showOnlineStatus(id) && !st.LastSeen.IsZero() {
+			lastSeen := st.LastSeen
+			resp.LastSeen = &lastSeen
+		}
+		result = append(result, resp)
+	}
+	return result
 }

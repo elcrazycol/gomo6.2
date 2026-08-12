@@ -14,6 +14,7 @@ import (
 	"github.com/gomo6/backend/internal/crypto"
 	"github.com/gomo6/backend/internal/metrics"
 	"github.com/redis/go-redis/v9"
+	"strconv"
 )
 
 const (
@@ -36,6 +37,10 @@ const (
 	MessageTypeUserOffline     = "user_offline"
 	MessageTypeNewNotification = "new_notification"
 	MessageTypeNowPlaying      = "now_playing"
+	// Presence: snapshot of a user's online state, sent right after
+	// subscribing to their presence_<userID> room so the viewer sees the
+	// status immediately (before the first delta arrives).
+	MessageTypePresenceSnapshot = "presence_snapshot"
 	// Messenger-specific events
 	MessageTypeMessageEdited  = "message_edited"
 	MessageTypeMessageDeleted = "message_deleted"
@@ -53,6 +58,18 @@ const (
 	RedisChannelNotifications = "realtime:notifications"
 	RedisChannelSpotify       = "realtime:spotify"
 	RedisChannelUserRevoke    = "user:revoke"
+
+	// Presence lifecycle timings
+	PresenceTTL        = 60 * time.Second // how long a user stays "online" without any heartbeat
+	PresenceSweepEvery = 15 * time.Second // how often the sweeper expires stale presence markers
+	PresenceTouchEvery = 5 * time.Minute  // how often REST activity may touch the presence marker per user
+)
+
+// Redis keys of the presence store
+const (
+	redisPresenceKey         = "presence:online"       // ZSET: userID → last-heartbeat unix seconds
+	redisPresenceLastSeenKey = "presence:last_seen:%s" // RFC3339 last-activity cache
+	redisPresenceLastSeenTTL = 24 * time.Hour
 )
 
 // Message represents a WebSocket message
@@ -69,6 +86,13 @@ type Message struct {
 type RealtimeEvent struct {
 	Type    string      `json:"type"`
 	Payload interface{} `json:"payload"`
+}
+
+// PresenceStatus carries the online state of one user as read from the Redis
+// presence store (no DB involved).
+type PresenceStatus struct {
+	Online   bool
+	LastSeen time.Time
 }
 
 // Hub maintains the set of active clients and broadcasts messages
@@ -148,6 +172,12 @@ func (h *Hub) Run() {
 	// Start Redis subscriber in a separate goroutine
 	go h.subscribeToRedis()
 
+	// The presence sweeper expires stale online markers (users whose network
+	// died without a clean WS close) and flips the DB flag in batches.
+	if h.redis != nil {
+		go h.runPresenceSweeper(h.ctx)
+	}
+
 	for {
 		select {
 		case client := <-h.register:
@@ -170,6 +200,7 @@ func (h *Hub) Run() {
 
 			// Only update status if the client has authenticated
 			if client.UserID != "" {
+				h.TouchPresence(client.UserID)
 				go h.updateUserOnlineStatus(client.UserID, true)
 				go h.broadcastUserStatus(client.UserID, client.Username, true)
 				log.Printf("[WebSocket] Client connected: %s (%s)", client.Username, client.UserID)
@@ -183,8 +214,12 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 			if removed {
 				log.Printf("[WebSocket] Client disconnected: %s (%s)", client.Username, client.UserID)
-				go h.updateUserOnlineStatus(client.UserID, false)
-				go h.broadcastUserStatus(client.UserID, client.Username, false)
+				// Multi-connection fix: leave the "online" state only when this was
+				// the user's LAST live connection — another tab or device of the
+				// same user may legitimately still be connected.
+				if !h.hasLiveConnections(client.UserID) {
+					go h.markUserOffline(client.UserID, client.Username, true)
+				}
 			}
 
 		case message := <-h.broadcast:
@@ -480,8 +515,13 @@ func (h *Hub) handleRedisEvent(event RealtimeEvent) {
 		}
 
 	case MessageTypeUserOnline, MessageTypeUserOffline:
-		// Broadcast user status to all connected clients
-		h.broadcast <- messageBytes
+		// Presence events are scoped to the target user's presence room — there
+		// is NO global presence feed. The previous behavior broadcast every
+		// user's online/offline transition to all connected clients (M2); now a
+		// client only receives events for users it actually follows/views.
+		if userID := extractRoomID(event.Payload, "user_id"); userID != "" {
+			h.BroadcastToRoom(fmt.Sprintf("presence_%s", userID), messageBytes)
+		}
 
 	case "now_playing":
 		// Broadcast to the user's profile room so visitors see live updates
@@ -633,6 +673,9 @@ func (h *Hub) canAccessRoom(userID, room string) bool {
 	case strings.HasPrefix(room, "profile_now_playing_"):
 		targetID := strings.TrimPrefix(room, "profile_now_playing_")
 		return targetID != "" && h.canViewNowPlayingRoom(userID, targetID)
+	case strings.HasPrefix(room, "presence_"):
+		targetID := strings.TrimPrefix(room, "presence_")
+		return targetID != "" && h.canViewPresenceRoom(userID, targetID)
 	default:
 		// Thread/board rooms are public realtime content, but arbitrary room
 		// names must not become an implicit broadcast subscription primitive.
@@ -669,6 +712,15 @@ func (h *Hub) canViewWallRoom(userID, targetID string) bool {
 		return true
 	}
 	return h.areFriends(userID, targetID)
+}
+
+// canViewPresenceRoom reports whether userID may subscribe to the realtime
+// presence of targetID: the owner always; any authenticated user for a public
+// profile; mutual friends only for a private profile. The rule is identical to
+// now-playing visibility, so presence events never leak private profiles to
+// strangers (M2/M3).
+func (h *Hub) canViewPresenceRoom(userID, targetID string) bool {
+	return h.canViewNowPlayingRoom(userID, targetID)
 }
 
 // canViewNowPlayingRoom reports whether userID may receive realtime Spotify
@@ -845,12 +897,16 @@ func (h *Hub) RevokeProfileRoomSubscriptionsFromNonFriends(targetID string, revo
 	if targetID == "" || (!revokeWall && !revokeNowPlaying) {
 		return
 	}
-	rooms := make([]string, 0, 2)
+	rooms := make([]string, 0, 3)
 	if revokeWall {
 		rooms = append(rooms, fmt.Sprintf("profile_wall_%s", targetID))
 	}
 	if revokeNowPlaying {
 		rooms = append(rooms, fmt.Sprintf("profile_now_playing_%s", targetID))
+		// Presence visibility mirrors now-playing (public or mutual friends),
+		// so a profile becoming private must also cut non-friends off the
+		// target's live presence stream without reconnecting.
+		rooms = append(rooms, fmt.Sprintf("presence_%s", targetID))
 	}
 
 	// Phase 1: snapshot candidate viewers (excluding the owner) under a short
@@ -1067,6 +1123,238 @@ func (h *Hub) GetClientByUserID(userID string) *Client {
 	return h.presence[userID]
 }
 
+// ─── Presence store (Redis-backed) ───────────────────────────────────────────
+
+// TouchPresence refreshes the user's presence marker: their score in the
+// presence:online ZSET (last activity time) and the last_seen cache. Called on
+// WS connect, app-level pings and authenticated REST activity (throttled by
+// the PresenceActivity middleware). A nil Redis client makes it a no-op.
+func (h *Hub) TouchPresence(userID string) {
+	if h.redis == nil || userID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	now := time.Now().UTC()
+	pipe := h.redis.Pipeline()
+	pipe.ZAdd(ctx, redisPresenceKey, redis.Z{Score: float64(now.Unix()), Member: userID})
+	pipe.Set(ctx, fmt.Sprintf(redisPresenceLastSeenKey, userID), now.Format(time.RFC3339), redisPresenceLastSeenTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("[Presence] touch failed for %s: %v", userID, err)
+	}
+}
+
+// GetPresenceStatus returns the online state of userID straight from Redis
+// (no DB involved): online when the presence score is fresher than
+// PresenceTTL; otherwise the cached last activity time (zero when the user was
+// never seen). Redis errors fail closed to "offline".
+func (h *Hub) GetPresenceStatus(userID string) (online bool, lastSeen time.Time) {
+	if h.redis == nil || userID == "" {
+		return false, time.Time{}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	score, err := h.redis.ZScore(ctx, redisPresenceKey, userID).Result()
+	if err == nil {
+		lastSeen = time.Unix(int64(score), 0).UTC()
+		return time.Since(lastSeen) <= PresenceTTL, lastSeen
+	}
+	if err != redis.Nil {
+		return false, time.Time{}
+	}
+	// Member absent — fall back to the cached last activity time.
+	if v, gerr := h.redis.Get(ctx, fmt.Sprintf(redisPresenceLastSeenKey, userID)).Result(); gerr == nil {
+		if t, perr := time.Parse(time.RFC3339, v); perr == nil {
+			return false, t
+		}
+	}
+	return false, time.Time{}
+}
+
+// GetPresenceStatuses resolves presence for many users in a single pipeline.
+// Users absent from both the set and the last-seen cache are omitted from the
+// result (callers treat that as "not covered" and fall back to SQL).
+func (h *Hub) GetPresenceStatuses(userIDs []string) map[string]PresenceStatus {
+	out := make(map[string]PresenceStatus, len(userIDs))
+	if h.redis == nil || len(userIDs) == 0 {
+		return out
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	pipe := h.redis.Pipeline()
+	scores := make([]*redis.FloatCmd, len(userIDs))
+	cached := make([]*redis.StringCmd, len(userIDs))
+	for i, id := range userIDs {
+		scores[i] = pipe.ZScore(ctx, redisPresenceKey, id)
+		cached[i] = pipe.Get(ctx, fmt.Sprintf(redisPresenceLastSeenKey, id))
+	}
+	// Per-command errors (redis.Nil for missing members/keys) surface in the
+	// command results, not in Exec, so the pipeline error alone is not a reason
+	// to bail out.
+	_, _ = pipe.Exec(ctx)
+
+	for i, id := range userIDs {
+		var st PresenceStatus
+		if score, err := scores[i].Result(); err == nil {
+			st.LastSeen = time.Unix(int64(score), 0).UTC()
+			st.Online = time.Since(st.LastSeen) <= PresenceTTL
+		} else if v, err := cached[i].Result(); err == nil {
+			if t, perr := time.Parse(time.RFC3339, v); perr == nil {
+				st.LastSeen = t
+			}
+		}
+		if !st.LastSeen.IsZero() {
+			out[id] = st
+		}
+	}
+	return out
+}
+
+// markUserOffline removes userID from the presence set, caches its last
+// activity, flips the DB flag and (optionally) broadcasts user_offline to the
+// presence room. Idempotent — safe when the user is already offline.
+func (h *Hub) markUserOffline(userID, username string, broadcast bool) {
+	if userID == "" {
+		return
+	}
+	// The unregister path races a reconnect: between the hasLiveConnections
+	// check in Run and this goroutine actually running, a fresh connection of
+	// the same user may have registered. Skipping here prevents ZRem from
+	// deleting the just-added marker and the user_offline event from leaving
+	// the UI stuck offline until the next reconnect.
+	if h.hasLiveConnections(userID) {
+		return
+	}
+	lastSeen := time.Now().UTC()
+	if h.redis != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		defer cancel()
+		if score, err := h.redis.ZScore(ctx, redisPresenceKey, userID).Result(); err == nil {
+			lastSeen = time.Unix(int64(score), 0).UTC()
+		}
+		// Keep the last activity visible to REST readers after the member is gone.
+		h.redis.Set(ctx, fmt.Sprintf(redisPresenceLastSeenKey, userID), lastSeen.Format(time.RFC3339), redisPresenceLastSeenTTL)
+		h.redis.ZRem(ctx, redisPresenceKey, userID)
+	}
+	h.flushOfflineToDB(userID, lastSeen)
+	if broadcast {
+		go h.broadcastUserStatus(userID, username, false)
+	}
+}
+
+// flushOfflineToDB writes is_online=false with the real last activity time.
+// Guarded by the presence store (skip when the user already came back online)
+// and by the current DB value (skip when already offline).
+func (h *Hub) flushOfflineToDB(userID string, lastSeen time.Time) {
+	if h.db == nil || userID == "" {
+		return
+	}
+	if online, _ := h.GetPresenceStatus(userID); online {
+		return
+	}
+	if _, err := h.db.Exec(
+		`UPDATE users SET is_online = false, last_seen_at = $1 WHERE id = $2 AND is_online = true`,
+		lastSeen, userID,
+	); err != nil {
+		log.Printf("[Presence] failed to flush offline status for %s: %v", userID, err)
+	}
+}
+
+// hasLiveConnections reports whether ANY registered client of the same user
+// remains (any session/device). The caller must have already removed the
+// closing client, so a true result means another connection is still alive.
+func (h *Hub) hasLiveConnections(userID string) bool {
+	if userID == "" {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.clients {
+		if c.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// ─── Presence sweeper ────────────────────────────────────────────────────────
+
+// runPresenceSweeper periodically expires stale presence markers: a user whose
+// network died without a clean WS close is marked offline after PresenceTTL,
+// independently of the WebSocket pong timeout. Stops when ctx is cancelled
+// (hub shutdown); on restart the fresh instance heals any leftover markers.
+func (h *Hub) runPresenceSweeper(ctx context.Context) {
+	ticker := time.NewTicker(PresenceSweepEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.sweepExpiredPresence(time.Now())
+		}
+	}
+}
+
+// sweepExpiredPresence marks every user whose presence score is older than
+// PresenceTTL as offline: Redis removal, last-seen cache, DB flag, room event.
+func (h *Hub) sweepExpiredPresence(now time.Time) {
+	for _, userID := range h.expirePresenceUsers(now, PresenceTTL) {
+		h.markUserOffline(userID, "", true)
+	}
+}
+
+// expirePresenceUsers returns the user IDs whose presence score is older than
+// ttl — i.e. their heartbeat stopped (network drop, crashed client).
+func (h *Hub) expirePresenceUsers(now time.Time, ttl time.Duration) []string {
+	if h.redis == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	cutoff := strconv.FormatFloat(float64(now.Add(-ttl).Unix()), 'f', 0, 64)
+	members, err := h.redis.ZRangeByScore(ctx, redisPresenceKey, &redis.ZRangeBy{Min: "-inf", Max: cutoff}).Result()
+	if err != nil {
+		log.Printf("[Presence] sweep query failed: %v", err)
+		return nil
+	}
+	return members
+}
+
+// SendPresenceSnapshot pushes the current online state of userID to one
+// client. Called right after a successful presence_<userID> subscription so
+// the viewer sees the status immediately, before any delta arrives. The
+// show_online_status privacy flag hides both the online state and last_seen.
+func (h *Hub) SendPresenceSnapshot(client *Client, userID string) {
+	if client == nil || userID == "" {
+		return
+	}
+	online, lastSeen := h.GetPresenceStatus(userID)
+	if h.db != nil {
+		var show bool
+		if err := h.db.QueryRow("SELECT COALESCE(show_online_status, true) FROM privacy_settings WHERE user_id = $1", userID).Scan(&show); err == nil && !show {
+			online = false
+			lastSeen = time.Time{}
+		}
+	}
+	data := map[string]interface{}{
+		"user_id":   userID,
+		"is_online": online,
+	}
+	if !lastSeen.IsZero() {
+		data["last_seen"] = lastSeen.Format(time.RFC3339)
+	}
+	msg := Message{
+		Type:      MessageTypePresenceSnapshot,
+		Data:      mustMarshalJSON(data),
+		Timestamp: time.Now().Unix(),
+	}
+	if msgBytes, err := json.Marshal(msg); err == nil {
+		client.trySend(msgBytes)
+	}
+}
+
 // markSessionOnline flags this exact session as online in Redis and refreshes
 // its last_active_at. The marker carries a 5-minute TTL which is refreshed by
 // app-level pings, so a server crash never leaves a ghost "online" device.
@@ -1147,26 +1435,27 @@ func (h *Hub) updateUserOnlineStatus(userID string, isOnline bool) {
 	h.statusUpdateMu.Unlock()
 }
 
-// broadcastUserStatus broadcasts user online/offline status to all clients
+// broadcastUserStatus publishes a user_online / user_offline event for the
+// target user. Delivery is scoped to subscribers of the target's presence room
+// (presence_<userID>); the private-profile ACL on that room replaces the old
+// global broadcast suppression, so friends of a private-profile user now see
+// their status while strangers cannot even subscribe. Users who hid their
+// online status (show_online_status=false) produce no events at all — their
+// REST status reports offline as well.
 func (h *Hub) broadcastUserStatus(userID, username string, isOnline bool) {
-	// M3: private profiles must not leak online state to everyone on the
-	// platform. The status events carry user_id + username and are broadcast
-	// to every connected client, so for a private profile the safest behavior
-	// is to not publish the event at all — friends still learn the status via
-	// the authenticated /users/:id/status and /users/status/bulk endpoints
-	// (which now apply the same privacy rule).
+	if userID == "" {
+		return
+	}
 	if h.db != nil {
-		var private bool
-		if err := h.db.QueryRow("SELECT COALESCE(private_profile, false) FROM privacy_settings WHERE user_id = $1", userID).Scan(&private); err == nil && private {
+		var show bool
+		if err := h.db.QueryRow("SELECT COALESCE(show_online_status, true) FROM privacy_settings WHERE user_id = $1", userID).Scan(&show); err == nil && !show {
 			return
 		}
 	}
 
-	var messageType string
+	messageType := MessageTypeUserOffline
 	if isOnline {
 		messageType = MessageTypeUserOnline
-	} else {
-		messageType = MessageTypeUserOffline
 	}
 
 	event := RealtimeEvent{
