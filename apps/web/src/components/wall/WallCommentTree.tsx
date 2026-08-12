@@ -44,6 +44,7 @@ export const WallCommentTree = ({
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
+  const touchEndTimerRef = useRef<number | null>(null);
   const hasLoadedRef = useRef(false);
   const firstLoadFiredRef = useRef(false);
 
@@ -78,6 +79,12 @@ export const WallCommentTree = ({
   // directly on the DOM node in the focus handler closes that race. React's
   // static className never rewrites these (the value doesn't change), so the
   // manual classes are the single source of truth.
+  // A tap-and-immediately-drag on the composer (user presses to open it and
+  // keeps dragging) starts the gesture before focus ever lands, so the
+  // focusin-based pin is too late — the still-sticky bar rides off the top
+  // edge. Pinning on touchstart (synchronously, in the same touch dispatch)
+  // closes that window: the composer is fixed + locked the instant the finger
+  // touches it, before the first touchmove can scroll anything.
   const applyPin = useCallback(() => {
     const anchor = composerAnchorRef.current;
     const root = rootRef.current;
@@ -100,6 +107,12 @@ export const WallCommentTree = ({
     if (!anchor) return;
     const onFocusIn = (e: FocusEvent) => {
       if (!anchor.contains(e.target as Node)) return;
+      // Focus landed — the touchend timer (if any) must not clear the pin in
+      // case focus arrived slower than its 120ms window (slow keyboard open).
+      if (touchEndTimerRef.current) {
+        clearTimeout(touchEndTimerRef.current);
+        touchEndTimerRef.current = null;
+      }
       setComposerActive(true);
       applyPin();
     };
@@ -123,8 +136,33 @@ export const WallCommentTree = ({
         clearPin();
       }
     };
+    // Pin the moment the finger touches the composer (see applyPin comment).
+    const onTouchStart = () => {
+      if (!isTouchRef.current) return;
+      setComposerActive(true);
+      applyPin();
+    };
+    // A pure scroll gesture that began on the composer never delivers focus
+    // (the drag is also cancelled by the [data-kb-locked] handler, so nothing
+    // moved). Release the optimistic touchstart pin after a beat so the bar
+    // returns to the document flow — unless focus actually landed (real tap).
+    const onTouchEnd = () => {
+      if (!isTouchRef.current) return;
+      if (touchEndTimerRef.current) clearTimeout(touchEndTimerRef.current);
+      touchEndTimerRef.current = window.setTimeout(() => {
+        touchEndTimerRef.current = null;
+        const still = composerAnchorRef.current;
+        if (still && !still.contains(document.activeElement)) {
+          setComposerActive(false);
+          clearPin();
+        }
+      }, 120);
+    };
     anchor.addEventListener("focusin", onFocusIn);
     anchor.addEventListener("focusout", onFocusOut);
+    anchor.addEventListener("touchstart", onTouchStart, { passive: true });
+    anchor.addEventListener("touchend", onTouchEnd, { passive: true });
+    anchor.addEventListener("touchcancel", onTouchEnd, { passive: true });
     // autoFocus fires during commit, before this effect's listeners attach —
     // re-check the live focus and pin right away so the composer never starts
     // out sticky (which iOS focus-scrolls off-screen).
@@ -133,8 +171,15 @@ export const WallCommentTree = ({
       applyPin();
     }
     return () => {
+      if (touchEndTimerRef.current) {
+        clearTimeout(touchEndTimerRef.current);
+        touchEndTimerRef.current = null;
+      }
       anchor.removeEventListener("focusin", onFocusIn);
       anchor.removeEventListener("focusout", onFocusOut);
+      anchor.removeEventListener("touchstart", onTouchStart);
+      anchor.removeEventListener("touchend", onTouchEnd);
+      anchor.removeEventListener("touchcancel", onTouchEnd);
     };
   }, [applyPin, clearPin]);
 

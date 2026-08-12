@@ -135,12 +135,13 @@ export function initMobileKeyboard(): () => void {
   document.addEventListener("focusin", handleFocusIn);
   document.addEventListener("focusout", handleFocusOut);
   // iOS scroll-to-dismiss detection (see handleGestureScroll).
+  // Pinned composer bars ([data-kb-locked]) are not draggable: this passive:
+  // false handler cancels scrolls that begin on them. Registered BEFORE the
+  // dismiss handler so the preventDefault is in place before the dismiss
+  // logic runs on the same touchmove.
+  document.addEventListener("touchmove", handleLockedTouchMove, { passive: false, capture: true });
   document.addEventListener("touchmove", handleGestureScroll, { passive: true, capture: true });
   document.addEventListener("wheel", handleGestureScroll, { passive: true, capture: true });
-  // Pinned composer bars ([data-kb-locked]) are not draggable: this passive:
-  // false handler cancels scrolls that begin on them. Registered first so the
-  // preventDefault is in place before the dismiss logic runs.
-  document.addEventListener("touchmove", handleLockedTouchMove, { passive: false, capture: true });
   // Track the finger's origin so sub-slop jitter is never treated as a scroll.
   document.addEventListener("touchstart", handleTouchStart, { passive: true, capture: true });
   document.addEventListener("touchend", handleTouchEnd, { passive: true, capture: true });
@@ -161,9 +162,9 @@ export function initMobileKeyboard(): () => void {
     window.removeEventListener("pageshow", handleMetricsChanged);
     document.removeEventListener("focusin", handleFocusIn);
     document.removeEventListener("focusout", handleFocusOut);
+    document.removeEventListener("touchmove", handleLockedTouchMove, { capture: true });
     document.removeEventListener("touchmove", handleGestureScroll, { capture: true });
     document.removeEventListener("wheel", handleGestureScroll, { capture: true });
-    document.removeEventListener("touchmove", handleLockedTouchMove, { capture: true });
     document.removeEventListener("touchstart", handleTouchStart, { capture: true });
     document.removeEventListener("touchend", handleTouchEnd, { capture: true });
     document.removeEventListener("touchcancel", handleTouchEnd, { capture: true });
@@ -561,10 +562,20 @@ function handleTouchEnd() {
  * Without this, iOS scroll-to-dismiss would slide the keyboard away (and our
  * dismiss handler would unpin the composer) the moment the user drags from
  * the composer, leaving the bar floating mid-list.
+ *
+ * The lock flag is lazily re-checked against the live target: the pin can
+ * land between the document-level touchstart (where lockedGestureActive is
+ * computed) and the first touchmove — e.g. a tap-and-drag that pins the
+ * composer synchronously in its own (bubble-phase) touchstart handler. The
+ * document-level touchstart runs first (capture), before the composer's
+ * handler, so on the very first touchmove the flag may still be false even
+ * though the bar is now locked — checking the target here catches that.
  */
 function handleLockedTouchMove(e: TouchEvent) {
-  if (!lockedGestureActive) return;
-  e.preventDefault();
+  if (!lockedGestureActive) {
+    lockedGestureActive = state.isTouch && isLockedGestureTarget(e.target);
+  }
+  if (lockedGestureActive) e.preventDefault();
 }
 
 /**
