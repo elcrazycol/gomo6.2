@@ -398,12 +398,19 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   useEffect(() => {
     if (editor && autoFocus) {
-      // Use native focus with preventScroll to avoid browser auto-scroll
       const el = editorContainerRef.current;
       if (el) {
         const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
         if (editable) {
+          // Capture scroll position and restore if browser forces a scroll
+          const scrollY = window.scrollY;
+          const scrollX = window.scrollX;
           editable.focus({ preventScroll: true });
+          requestAnimationFrame(() => {
+            if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
+              window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
+            }
+          });
           return;
         }
       }
@@ -424,18 +431,29 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   useImperativeHandle(ref, () => ({
     focus: () => {
-      // Use native DOM focus with preventScroll to avoid browser's
-      // auto-scroll behavior which causes the composer to jump on mobile.
-      // TipTap's commands.focus() doesn't support preventScroll.
       const el = editorContainerRef.current;
-      if (el) {
-        const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
-        if (editable) {
-          editable.focus({ preventScroll: true });
-          return;
-        }
+      if (!el) {
+        editor?.commands.focus();
+        return;
       }
-      editor?.commands.focus();
+      const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
+      if (!editable) {
+        editor?.commands.focus();
+        return;
+      }
+      // Capture scroll position BEFORE focus. Mobile browsers often ignore
+      // preventScroll:true and force-scroll to the focused element. We restore
+      // the position immediately in the next frame if it changed.
+      const scrollY = window.scrollY;
+      const scrollX = window.scrollX;
+      editable.focus({ preventScroll: true });
+      // If the browser still scrolled (it ignores preventScroll on mobile),
+      // snap back instantly in the next frame.
+      requestAnimationFrame(() => {
+        if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
+          window.scrollTo({ top: scrollY, left: scrollX, behavior: 'instant' });
+        }
+      });
     },
     insertText: (text: string) => {
       editor?.chain().focus().insertContent(text).run();
