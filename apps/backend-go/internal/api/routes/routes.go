@@ -662,11 +662,15 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 						return
 					}
 					if bucket == "wall" {
-						// Wall media keys are <wallOwnerID>/<random>.<ext>. Serve the
-						// object only when the caller may view that user's wall:
-						// owner, non-private profile, or mutual friend. This is the
-						// same predicate as the wall read path, so private photos
-						// cannot be fetched by URL guessing.
+						// Wall media keys are <uploaderID>/<random>.<ext> — the prefix is
+						// the UPLOADER's id, not necessarily the wall owner's (a user can
+						// post with an image on another user's wall). Serve the object
+						// only when the caller may view the wall the attachment was
+						// actually published on: owner, non-private profile, or mutual
+						// friend — the same predicate as the wall read path. The wall
+						// owner is resolved from the posts that reference the attachment
+						// (image_url / attachments JSONB); the uploader gate is only the
+						// fallback for orphaned or guessed keys.
 						key := strings.TrimPrefix(c.Param("key"), "/")
 						ownerID := key
 						if idx := strings.Index(ownerID, "/"); idx > 0 {
@@ -678,7 +682,17 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 								viewerID = claims.UserID
 							}
 						}
-						if ownerID == "" || viewerID == "" || !canViewUserWall(db, viewerID, ownerID) {
+						if ownerID == "" || viewerID == "" {
+							c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+							return
+						}
+						// found is load-bearing: once an uploader-authored post references
+						// the key, only that post's wall visibility matters — the uploader
+						// gate must NOT be consulted (it would re-leak files a public
+						// uploader placed on a private wall). The uploader gate applies
+						// only to keys no legitimate post references (orphans/guessing).
+						found, allowed := wallAttachmentAccess(db, viewerID, ownerID, key)
+						if (found && !allowed) || (!found && !canViewUserWall(db, viewerID, ownerID)) {
 							c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 							return
 						}
@@ -862,6 +876,84 @@ func adminOnlyMiddleware(db *sql.DB) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// escapeLikePattern escapes LIKE wildcards so a storage key (which legitimately
+// contains '_' in the timestamp segment) is matched literally.
+func escapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+// wallAttachmentAccess reports whether viewerID may fetch a wall media object
+// identified by key and uploaded by uploaderID. Returns (found, allowed):
+// found=true when at least one post AUTHORED BY THE UPLOADER references the key
+// (image_url or attachments JSONB); allowed=true when any referencing post sits
+// on a wall the viewer may see (owner, public profile with a visible wall, or
+// mutual friend).
+//
+// Wall object keys are namespaced by the UPLOADER's user id, but the uploader
+// is not necessarily the wall owner — a private user posting with an image on a
+// public user's wall publishes that image to the public. Gating on the uploader
+// alone wrongly 403s such files. The visibility predicate is the same one
+// profileWallFinishSelectQuery applies to every wall row, so private photos
+// cannot be fetched by URL guessing and published photos are served.
+//
+// The lookup is scoped to posts authored by the uploader (author_id = key
+// prefix — guaranteed at creation by the upload key-prefix check and
+// enforcePostOwnership). This is a security boundary: the write path accepts
+// client-supplied image_url/attachments without validating ownership, so an
+// unrestricted scan would let any authenticated user reference a private
+// user's key from a post on their own public wall and thereby unlock the file.
+// Scoping to the uploader's posts closes that bypass and uses the
+// idx_profile_wall_posts_author_id index.
+//
+// When found=false (deleted post, orphaned upload, or guessed key) the caller
+// falls back to the uploader-scoped check so orphaned files of private users
+// stay unreadable. DB errors fail closed (found=false, allowed=false).
+func wallAttachmentAccess(db *sql.DB, viewerID, uploaderID, key string) (found, allowed bool) {
+	pattern := "%" + escapeLikePattern(key) + "%"
+
+	// Single query mirroring the wall read predicate against each referencing
+	// post's wall owner (p.user_id). EXISTS short-circuits on the first
+	// visible wall, so a file published across several walls is served as soon
+	// as any of them is visible to the viewer.
+	var visible bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+  SELECT 1
+  FROM profile_wall_posts p
+  LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
+  WHERE p.author_id = $3
+    AND (p.image_url LIKE $1 ESCAPE '\' OR p.attachments::text LIKE $1 ESCAPE '\')
+    AND (p.user_id = $2
+         OR (COALESCE(ps.private_profile, false) = false AND COALESCE(ps.private_hide_wall, false) = false)
+         OR EXISTS (SELECT 1 FROM friendships f
+                    WHERE (f.user1_id = p.user_id AND f.user2_id = $2)
+                       OR (f.user1_id = $2 AND f.user2_id = p.user_id)))
+  LIMIT 1
+)`, pattern, viewerID, uploaderID).Scan(&visible); err != nil {
+		return false, false
+	}
+	if visible {
+		return true, true
+	}
+
+	// Not visible to this viewer — distinguish "published on a wall I cannot
+	// see" (deny) from "published nowhere" (caller falls back to the
+	// uploader gate).
+	var referenced bool
+	if err := db.QueryRow(`
+SELECT EXISTS(
+  SELECT 1 FROM profile_wall_posts p
+  WHERE p.author_id = $2
+    AND (p.image_url LIKE $1 ESCAPE '\' OR p.attachments::text LIKE $1 ESCAPE '\')
+)`, pattern, uploaderID).Scan(&referenced); err != nil {
+		return false, false
+	}
+	return referenced, false
 }
 
 // canViewUserWall reports whether viewerID may view the wall of ownerID
