@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FocusEvent } from "react";
+import { useEffect, useState, type FocusEvent, type Ref } from "react";
 import { Loader2, Send, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
@@ -21,6 +21,10 @@ interface WallCommentComposerProps {
   autoFocus?: boolean;
   /** When set, the composer answers this comment instead of posting top-level. */
   replyTo?: { id: string; name: string } | null;
+  /** Imperative handle so the parent can focus the editor synchronously inside
+      a tap (iOS only opens the keyboard for focus calls made within a user
+      gesture, so the reply button must flush + focus, not wait for effects). */
+  editorRef?: Ref<GomoRichEditorHandle>;
 }
 
 // Keep slightly above the CSS transition duration (300ms) so the collapse
@@ -70,11 +74,11 @@ export const WallCommentComposer = ({
   focusToExpand = false,
   autoFocus = false,
   replyTo = null,
+  editorRef,
 }: WallCommentComposerProps) => {
   const [expanded, setExpanded] = useState(!focusToExpand);
   const [closing, setClosing] = useState(false);
-  const editorRef = useRef<GomoRichEditorHandle>(null);
-  const isExpanded = !focusToExpand || expanded || Boolean(text.trim());
+  const isExpanded = !focusToExpand || expanded || Boolean(text.trim()) || Boolean(replyTo);
 
   const finishCollapse = () => {
     setExpanded(false);
@@ -95,17 +99,6 @@ export const WallCommentComposer = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyTo?.id]);
-
-  // Tapping "Reply" on a comment must drop the user straight into typing:
-  // autoFocus only fires on mount, but the composer stays mounted, so wake it
-  // up by moving focus explicitly once the editor box has expanded. This is
-  // what opens the keyboard on mobile.
-  useEffect(() => {
-    if (replyTo && expanded) {
-      editorRef.current?.focus();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replyTo?.id, expanded]);
 
   // After a successful submit the parent clears the draft and bumps resetKey —
   // fold the composer back into its quiet one-line prompt (animated).
@@ -138,7 +131,10 @@ export const WallCommentComposer = ({
   const editorPlaceholder = replyTo ? "Напишите ответ" : placeholder;
   const pillLabel = replyTo ? `Ответ для @${replyTo.name}…` : `${placeholder}…`;
 
-  const showBox = !focusToExpand || expanded || closing || Boolean(text.trim());
+  // replyTo forces the box open synchronously (before the setExpanded effect
+  // above runs) so the editor is mounted the instant the reply target is set —
+  // the parent flushes that state change and focuses in the same tap stack.
+  const showBox = !focusToExpand || expanded || closing || Boolean(text.trim()) || Boolean(replyTo);
 
   // Collapsed: just the quiet one-line prompt.
   if (focusToExpand && !showBox) {

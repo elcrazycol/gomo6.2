@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import { isEditableElement } from "@/lib/mobileKeyboard";
+import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
 import { WallCommentComposer } from "./WallCommentComposer";
@@ -44,6 +46,7 @@ export const WallCommentTree = ({
   const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
+  const composerEditorRef = useRef<GomoRichEditorHandle>(null);
   const touchEndTimerRef = useRef<number | null>(null);
   const hasLoadedRef = useRef(false);
   const firstLoadFiredRef = useRef(false);
@@ -321,7 +324,22 @@ export const WallCommentTree = ({
   }, [comments]);
 
   const startReply = useCallback((commentId: string) => {
-    setActiveReplyId((prev) => (prev === commentId ? null : commentId));
+    // iOS only opens the keyboard for a focus() call that runs synchronously
+    // inside the tap's call stack. React state updates are deferred, so flush
+    // the reply-target change NOW (mounting the editor box — showBox forces it
+    // open for replyTo) and focus immediately, all within the tap handler.
+    // Otherwise the composer expands with no keyboard, and iOS's own
+    // focus-scroll yanks the page around instead.
+    let nextId: string | null = null;
+    flushSync(() => {
+      setActiveReplyId((prev) => {
+        nextId = prev === commentId ? null : commentId;
+        return nextId;
+      });
+    });
+    // Only focus when actually starting a reply — a toggle-off (cancel) must
+    // not pop the keyboard back open.
+    if (nextId) composerEditorRef.current?.focus();
   }, []);
 
   // The reply target the floating composer answers (or null → plain comment).
@@ -632,6 +650,7 @@ export const WallCommentTree = ({
             <WallCommentComposer
               focusToExpand
               autoFocus
+              editorRef={composerEditorRef}
               placeholder="Напишите комментарий"
               replyTo={replyTarget && replyTargetName ? { id: replyTarget.id, name: replyTargetName } : null}
               onSubmit={activeReplyId ? () => submitReply(activeReplyId) : submitTopLevel}
