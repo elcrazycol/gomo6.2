@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -879,6 +880,56 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 		router.GET("/ws/stats", middleware.AuthCacheMiddleware(authService, redis), adminOnlyMiddleware(db), wsHandler.GetOnlineUsers)
 	}
 
+	// ── Social previews (Open Graph) ────────────────────────────────────────
+	// The SPA cannot provide OG tags for deep links (Telegram, WhatsApp, X,
+	// Reddit, Discord, Slack, VK, … fetch them without executing JS). Caddy
+	// routes social-crawler requests to this backend; the NoRoute fallback
+	// renders a full HTML page with per-content OG/Twitter meta tags.
+	ogHandler := handlers.NewSocialPreviewHandler(db)
+	// Crawler requests are anonymous by nature, so both surfaces are guarded
+	// by per-IP budgets (fail open without Redis): the page renderer and the
+	// wall image proxy each run 1–2 indexed DB queries per request and would
+	// otherwise be a cheap way to load the database (guessed keys, repeated
+	// fetches). Every crawler request that reaches content resolution — even
+	// ones that 404 after the DB lookup — consumes the renderer's budget (the
+	// limiter runs inside Render, before resolve). Budgets are env-tunable:
+	//   OG_RATE_LIMIT_PER_MIN       (default 120) — OG page renders / min / IP
+	//   OG_IMAGE_RATE_LIMIT_PER_MIN (default 240) — wall preview images / min / IP
+	ogPageLimiter := middleware.NewAuthRateLimiterWithPrefix("og", redis, ogEnvLimit("OG_RATE_LIMIT_PER_MIN", 120), time.Minute)
+	ogImageLimiter := middleware.NewAuthRateLimiterWithPrefix("ogimg", redis, ogEnvLimit("OG_IMAGE_RATE_LIMIT_PER_MIN", 240), time.Minute)
+	ogHandler.SetRateLimiter(ogPageLimiter)
+	router.NoRoute(ogHandler.Render)
+
+	// Public proxy for the private `wall` bucket, used as the og:image source
+	// for shared wall posts. Crawlers have no session, so the image cannot go
+	// through the authenticated /storage/v1/object/wall path. Access is gated
+	// by the same predicate as the wall read path, evaluated anonymously: only
+	// images referenced by wall posts on publicly visible walls are served —
+	// private walls stay unreadable even when the key is known.
+	router.GET("/og/wall/*key", middleware.IPRateLimitMiddleware(ogImageLimiter), func(c *gin.Context) {
+		key := strings.TrimPrefix(c.Param("key"), "/")
+		if key == "" || storageHandler == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		uploaderID := key
+		if idx := strings.Index(uploaderID, "/"); idx > 0 {
+			uploaderID = uploaderID[:idx]
+		}
+		found, allowed := wallAttachmentAccess(db, "", uploaderID, key)
+		if !found || !allowed {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		// Rewrite the params so the existing ServeObject streams the object
+		// (Range support, safe Content-Type headers, caching) unchanged.
+		c.Params = gin.Params{
+			{Key: "bucket", Value: "wall"},
+			{Key: "key", Value: key},
+		}
+		storageHandler.ServeObject(c)
+	})
+
 }
 
 // adminOnlyMiddleware rejects the request unless the authenticated user holds
@@ -901,6 +952,17 @@ func adminOnlyMiddleware(db *sql.DB) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// ogEnvLimit reads an integer env var for the OG preview rate budgets,
+// falling back to def when unset or invalid.
+func ogEnvLimit(name string, def int) int {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }
 
 // escapeLikePattern escapes LIKE wildcards so a storage key (which legitimately

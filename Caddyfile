@@ -298,6 +298,53 @@
 		handle /health {
 			reverse_proxy backend:8080
 		}
+
+		# ── Social previews (Open Graph) ──────────────────────────────────
+		# The web app is a JS SPA, so deep links (wall posts, threads,
+		# profiles, boards) can't provide OG meta tags client-side. Link
+		# preview crawlers (Telegram, WhatsApp, X/Twitter, Reddit, Discord,
+		# Slack, VK, LinkedIn, Facebook, iMessage…) don't execute JS — they
+		# only read the server response. Route them to the Go backend, which
+		# renders a full HTML page with per-content OG/Twitter meta tags.
+		# SEO crawlers (Googlebot, Bingbot, YandexBot…) are intentionally NOT
+		# matched: they render JS and should keep indexing the real SPA.
+		#
+		# Public OG image proxy for private wall attachments (/og/wall/<key>)
+		# must come first — it is matched by both matchers otherwise.
+		handle /og/* {
+			reverse_proxy backend:8080
+		}
+		@bot {
+			header User-Agent *TelegramBot* *Twitterbot* *facebookexternalhit* *Facebot* *Discordbot* *Slackbot* *Slack-ImgProxy* *VKShare* *vk.com* *LinkedInBot* *WhatsApp* *Viber* *Pinterest* *redditbot* *SkypeUriPreview* *Snapchat* *Applebot* *Instagram* *embed.ly* *microsoftteams* *Linbot* *YoozBot* *MJ12bot* *DotBot* *DuckDuckBot* *Bytespider* *PetalBot*
+			not path /api/*
+			not path /rest/*
+			not path /rpc/*
+			not path /storage/*
+			not path /oauth/*
+			not path /federation/*
+			not path /.well-known/*
+			not path /docs/*
+			not path /og/*
+			not path /ws*
+			not path /health
+			not path /ready
+			not path /metrics
+			# Static assets served by nginx — crawlers fetch og:image and
+			# favicon/etc. with their bot UA; these must keep going to the web
+			# container, not to the OG renderer.
+			not path /photoes/*
+			not path /assets/*
+			not path /favicon*
+			not path /apple-touch-icon*
+			not path /pwa-*
+			not path /placeholder.svg
+			not path /default-audio-cover.jpg
+			not path /robots.txt
+			not path /sitemap.xml
+		}
+		handle @bot {
+			reverse_proxy backend:8080
+		}
 		handle {
 			reverse_proxy web:80
 		}

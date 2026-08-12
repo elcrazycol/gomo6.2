@@ -6,15 +6,23 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/gomo6/backend/internal/auth"
 	"github.com/gomo6/backend/internal/websocket"
+	"github.com/redis/go-redis/v9"
 )
 
 // newTestRouter builds the full route table the way main does, but with a
 // sqlmock-backed DB, nil Redis (all rate limiters fail open) and optionally
 // the WebSocket hub. SetupRoutes must never panic in this configuration.
 func newTestRouter(t *testing.T, withHub bool) *gin.Engine {
+	return newTestRouterWithRedis(t, withHub, nil)
+}
+
+// newTestRouterWithRedis is newTestRouter but with a real (miniredis-backed)
+// Redis client so rate-limit paths can be exercised end to end.
+func newTestRouterWithRedis(t *testing.T, withHub bool, rdb *redis.Client) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	t.Setenv("ENVIRONMENT", "development")
@@ -37,7 +45,7 @@ func newTestRouter(t *testing.T, withHub bool) *gin.Engine {
 	}
 
 	router := gin.New()
-	SetupRoutes(router, db, nil, hub)
+	SetupRoutes(router, db, rdb, hub)
 	return router
 }
 
@@ -330,6 +338,9 @@ var expectedRoutes = []string{
 	"POST /storage/v1/upload",
 	"DELETE /storage/v1/object/:bucket/*key",
 
+	// Social previews (Open Graph)
+	"GET /og/wall/*key",
+
 	// OAuth 2.0 / OIDC
 	"GET /oauth/authorize",
 	"POST /oauth/token",
@@ -411,6 +422,36 @@ func joinKeys(keys []string) string {
 		out += k
 	}
 	return out
+}
+
+// The /og/wall/*key image proxy must carry the per-IP limiter: the first
+// request passes, the second from the same IP gets 429 once the (env-tuned)
+// budget is exhausted. Locking this in guards against someone accidentally
+// dropping the middleware from the route.
+func TestSetupRoutes_OGWallImageRateLimited(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+	t.Setenv("OG_IMAGE_RATE_LIMIT_PER_MIN", "1")
+
+	router := newTestRouterWithRedis(t, false, rdb)
+
+	// First request passes the limiter (storageHandler is nil in tests, so the
+	// handler itself 404s — but crucially not with 429).
+	req1 := httptest.NewRequest(http.MethodGet, "/og/wall/u1/img.webp", nil)
+	rec1 := httptest.NewRecorder()
+	router.ServeHTTP(rec1, req1)
+	if rec1.Code == http.StatusTooManyRequests {
+		t.Fatal("first request must pass the limiter")
+	}
+
+	// Second request from the same IP exhausts the budget → 429.
+	req2 := httptest.NewRequest(http.MethodGet, "/og/wall/u1/img.webp", nil)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after the budget is exhausted, got %d", rec2.Code)
+	}
 }
 
 func TestSetupRoutes_NoWebSocketWithoutHub(t *testing.T) {
