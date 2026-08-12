@@ -56,7 +56,7 @@ export const ScrollToBottomButton = ({
   return (
     <Button
       onClick={scrollToBottom}
-      className={`fixed bottom-20 right-6 z-[60] h-12 w-12 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 shadow-lg hover:bg-background/90 transition-all duration-200 ${className}`}
+      className={`fixed kb-bottom-20 right-6 z-[60] h-12 w-12 rounded-full bg-background/80 backdrop-blur-sm border border-border/50 shadow-lg hover:bg-background/90 transition-all duration-200 ${className}`}
       size="icon"
       title="Перейти к последним сообщениям"
     >

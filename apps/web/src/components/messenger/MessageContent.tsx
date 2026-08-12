@@ -18,6 +18,7 @@ import { MessageMediaMosaic } from "./MessageMediaMosaic";
 import { chunkAttachments } from "./attachmentAlbum";
 import { GiftDetailPanel } from "@/components/GiftDetailPanel";
 import { EmojiInline } from "@/components/EmojiInline";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { Attachment } from "./types";
 
 // ─── Invite preview ──────────────────────────────────────────────────────────
@@ -352,7 +353,10 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
     : true;
   const url = useAuthenticatedAttachmentUrl(attachment, previewKey, previewEnabled);
   const [aspectRatio, setAspectRatio] = useState(() => getAttachmentAspectRatio(attachment));
-  const [viewportHeight, setViewportHeight] = useState(() => typeof window === "undefined" ? 800 : window.innerHeight);
+  // Visual-viewport height (keyboard/URL-bar aware via lib/mobileKeyboard) —
+  // window.innerHeight is the full screen even when the keyboard covers the
+  // lower half, which would size images too tall while typing.
+  const viewportHeight = useMobileKeyboard().viewportHeight;
   const isVisual = attachment.type === "image" || attachment.type === "video";
 
   useEffect(() => {
@@ -360,15 +364,8 @@ function AttachmentView({ attachment, fitToViewport = false }: { attachment: Att
       ? new IntersectionObserver(([entry]) => setIsNearViewport(entry.isIntersecting), { rootMargin: "320px" })
       : null;
     if (imageRef.current && observer) observer.observe(imageRef.current);
-
-    if (!fitToViewport) return () => observer?.disconnect();
-    const handleViewportResize = () => setViewportHeight(window.innerHeight);
-    window.addEventListener("resize", handleViewportResize, { passive: true });
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", handleViewportResize);
-    };
-  }, [fitToViewport, meta.preview_key]);
+    return () => observer?.disconnect();
+  }, [meta.preview_key]);
 
   const rememberMeasuredRatio = (ratio: number) => {
     if (ratio <= 0 || !Number.isFinite(ratio)) return;

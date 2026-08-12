@@ -2,7 +2,11 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual" />
+    <!-- interactive-widget=resizes-content (Chrome Android 108+, Firefox Android 132+):
+     shrink the layout viewport when the software keyboard opens so flex/grid
+     layouts keep fixed bars above the keyboard natively. iOS ignores it — the
+     JS keyboard layer (lib/mobileKeyboard.ts) handles iOS via visualViewport. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>gomo6</title>
     <meta name="description" content="gomo6 — социальная сеть с мессенджером, досками и обсуждениями." />
     <meta name="author" content="gomo6" />

@@ -19,6 +19,7 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useDrag } from "@use-gesture/react";
 import { ArrowLeft, ChevronDown } from "lucide-react";
 import { useMessengerStore } from "@/stores/messengerStore";
+import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
 import type { MessageView } from "./types";
 import { isConsecutive, getDateSeparator } from "./messageListUtils";
 import { getMaxScrollTop, isNearScrollBottom } from "./scrollUtils";
@@ -431,6 +432,9 @@ export const MessageList = memo(
     }, [messages, scheduleBottomSettle]);
 
     // ── Reset auto-scroll when the mobile keyboard opens/closes ────────
+    // Any visual-viewport change (URL bar collapse, keyboard) shrinks the
+    // list; if the user is at the bottom, keep them pinned there.
+    const keyboardOpen = useMobileKeyboard().isOpen;
     useEffect(() => {
       const vv = window.visualViewport;
       if (!vv) return;
@@ -448,6 +452,19 @@ export const MessageList = memo(
         clearTimeout(keyboardTimer);
       };
     }, []);
+
+    // The keyboard opening shrinks the visible area (the messenger is sized
+    // to --app-vh): re-settle to the true bottom so the newest messages stay
+    // above the keyboard. Never yank a user who scrolled up.
+    useEffect(() => {
+      if (!keyboardOpen) return;
+      const timer = window.setTimeout(() => {
+        if (isScrolledUpRef.current) return;
+        shouldAutoScrollRef.current = true;
+        scheduleBottomSettle({ force: false, initialBehavior: "auto" });
+      }, 180);
+      return () => window.clearTimeout(timer);
+    }, [keyboardOpen, scheduleBottomSettle]);
 
     // ── Swipe-back gesture (mobile only) ───────────────────────────────
     const swipeBackBind = useDrag(

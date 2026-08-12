@@ -1321,7 +1321,7 @@ const Thread = () => {
         </Dialog>
 
         {canPost ? (
-          <div className={`fixed bottom-2 sm:bottom-6 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed kb-bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto">
@@ -1556,7 +1556,7 @@ const Thread = () => {
 
               {showImagePreview && (
                 <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
-                  <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[80vh] overflow-hidden">
+                  <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[80vh] overflow-hidden" style={{ bottom: "var(--kb-inset, 0px)" }}>
                     <div className="p-4">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold">
@@ -1620,7 +1620,7 @@ const Thread = () => {
 
               {showAttachmentsPreview && (
                 <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
-                  <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[70vh] overflow-hidden">
+                  <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border rounded-t-2xl max-h-[70vh] overflow-hidden" style={{ bottom: "var(--kb-inset, 0px)" }}>
                     <div className="p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <h3 className="text-lg font-semibold">Приложения ({attachments.length})</h3>
@@ -1649,7 +1649,7 @@ const Thread = () => {
             </div>
           </div>
         ) : user ? (
-          <div className={`fixed bottom-2 sm:bottom-6 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed kb-bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center text-muted-foreground">
@@ -1657,7 +1657,7 @@ const Thread = () => {
             </div>
           </div>
         ) : (
-          <div className={`fixed bottom-2 sm:bottom-6 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
+          <div className={`fixed kb-bottom-2 left-0 right-0 z-50 px-4 max-w-full overflow-hidden transition-transform duration-300 ease-in-out ${
             isInputPanelVisible ? 'translate-y-0' : 'translate-y-full'
           }`}>
             <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md border border-border/40 rounded-2xl shadow-xl p-4 text-center">

@@ -11,8 +11,12 @@
    state — and the page itself never scrolls. */
 main.is-messenger-page {
   flex: 0 0 auto;
-  height: 100dvh;
-  max-height: 100dvh;
+  /* --app-vh (set by lib/mobileKeyboard.ts) follows the *visual* viewport,
+     so the whole messenger shrinks when the mobile keyboard opens (iOS never
+     resizes the layout viewport — without this the composer would sit under
+     the keyboard and Safari would pan the document, causing the jitter). */
+  height: var(--app-vh, 100dvh);
+  max-height: var(--app-vh, 100dvh);
   overflow: hidden;
 }
 
@@ -1678,7 +1682,10 @@ main.is-messenger-page {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 42px;
   gap: 8px;
-  padding: 10px 14px;
+  /* Safe-area bottom: on iPhone with a home indicator the composer must clear
+     the indicator; when the keyboard is open env() reports 0 and the composer
+     already sits exactly on top of it (the shell shrank via --app-vh). */
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   box-shadow: 0 -4px 16px -4px rgba(0, 0, 0, 0.04);
@@ -2437,7 +2444,7 @@ main.is-messenger-page {
   top: 0;
   right: 0;
   width: 320px;
-  height: 100dvh;
+  height: var(--app-vh, 100dvh);
   background: hsl(var(--background));
   border-left: 1px solid hsl(var(--border));
   z-index: 41;
@@ -2704,7 +2711,9 @@ main.is-messenger-page {
   .messenger-app {
     position: fixed;
     inset: 0;
-    height: 100svh;
+    /* Visual-viewport height: the whole messenger shrinks when the keyboard
+       opens so the composer (grid row auto) stays above it on iOS. */
+    height: var(--app-vh, 100svh);
     min-height: 0;
     border: 0;
     border-radius: 0;
@@ -2730,6 +2739,10 @@ main.is-messenger-page {
   .chat-panel {
     position: fixed;
     inset: 0;
+    /* Bottom edge sits exactly on top of the keyboard when it opens (iOS).
+       On Android with interactive-widget=resizes-content --kb-inset is 0 and
+       the shrunk layout viewport already handles it. */
+    bottom: var(--kb-inset, 0px);
     z-index: 30;
     background: hsl(var(--background));
     grid-template-rows: auto 1fr auto;

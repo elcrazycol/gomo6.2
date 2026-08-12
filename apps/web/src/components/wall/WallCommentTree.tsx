@@ -425,8 +425,11 @@ export const WallCommentTree = ({
 
         {currentUserId && (
           // Floating, backgroundless composer: lifted off the bottom edge so
-          // the panel reads as a clean input, not a docked bar.
-          <div className="sticky bottom-8 z-20">
+          // the panel reads as a clean input, not a docked bar. kb-bottom-8
+          // adds the keyboard inset to the sticky offset, so on iOS the bar
+          // floats above the keyboard instead of under it (the layout
+          // viewport never shrinks there).
+          <div className="sticky kb-bottom-8 z-20">
             <WallCommentComposer
               focusToExpand
               autoFocus

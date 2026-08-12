@@ -926,3 +926,49 @@ html, body {
     pointer-events: none;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mobile virtual keyboard (see lib/mobileKeyboard.ts)
+   ═══════════════════════════════════════════════════════════════════════════
+
+   lib/mobileKeyboard.ts publishes two CSS variables on <html>:
+     --app-vh   — visual viewport height in px (keyboard + URL bar aware)
+     --kb-inset — software keyboard height in px (0 when closed / desktop)
+   plus a `kb-open` class on <html> while the keyboard is up.
+
+   These unlayered rules win over Tailwind utilities, so `kb-bottom-*` can
+   replace `bottom-*` on fixed/sticky bars that must float above the keyboard
+   on iOS (which never resizes the layout viewport). */
+html {
+  --app-vh: 100dvh;
+  --kb-inset: 0px;
+}
+
+/* No rubber-banding under the keyboard while it is open. */
+html.kb-open body {
+  overscroll-behavior-y: none;
+}
+
+/* Keyboard-aware bottom anchors: base offset + keyboard inset. */
+.kb-bottom-2 {
+  bottom: calc(0.5rem + var(--kb-inset, 0px));
+}
+.kb-bottom-4 {
+  bottom: calc(1rem + var(--kb-inset, 0px));
+}
+.kb-bottom-8 {
+  bottom: calc(2rem + var(--kb-inset, 0px));
+}
+.kb-bottom-20 {
+  bottom: calc(5rem + var(--kb-inset, 0px));
+}
+
+@media (min-width: 640px) {
+  /* Match Tailwind's sm:bottom-6 (1.5rem) for the thread composer. */
+  .kb-bottom-2 {
+    bottom: calc(1.5rem + var(--kb-inset, 0px));
+  }
+  .kb-bottom-4 {
+    bottom: calc(1.5rem + var(--kb-inset, 0px));
+  }
+}

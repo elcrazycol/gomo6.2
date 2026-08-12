@@ -232,7 +232,7 @@ export const MessengerView = () => {
   // ── Initial loading state ─────────────────────────────────────────────
   if (isInitialLoading) {
     return (
-      <div className="messenger-app">
+      <div className="messenger-app" data-kb-app>
         <div className="messenger-shell">
           <div className="panel-loader-overlay" style={{ gridColumn: "1 / -1" }}>
             <PentagramLoader size="lg" />
@@ -245,7 +245,9 @@ export const MessengerView = () => {
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <MessengerErrorBoundary>
-      <div className="messenger-app">
+      {/* data-kb-app marks the full-screen messenger shell: lib/mobileKeyboard
+          resets Safari's document pan for inputs inside it. */}
+      <div className="messenger-app" data-kb-app>
         <div
           className={`messenger-shell ${showMobileChat ? "mobile-chat-open" : ""}`}
           style={!isMobile ? { gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)` } : undefined}

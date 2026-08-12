@@ -4,8 +4,13 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import { toast } from "@/components/ui/sonner";
 import { setupGlobalErrorHandlers } from "@/lib/logging";
+import { initMobileKeyboard } from "@/lib/mobileKeyboard";
 import "./index.css";
 import "@/components/Lightbox.css";
+
+// Mobile virtual keyboard: tracks the visual viewport, publishes --app-vh /
+// --kb-inset CSS variables and keeps the focused input above the keyboard.
+const disposeMobileKeyboard = initMobileKeyboard();
 
 // Capture uncaught errors and unhandled promise rejections.
 const disposeGlobalErrorHandlers = setupGlobalErrorHandlers();
@@ -52,5 +57,6 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disposeGlobalErrorHandlers();
     disposeServiceWorkerReload();
+    disposeMobileKeyboard();
   });
 }

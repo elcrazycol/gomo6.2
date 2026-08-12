@@ -150,7 +150,7 @@ export function AchievementUnlockToast({
     <div
       className={cn(
         "fixed inset-x-0 z-[100] flex justify-center pointer-events-none",
-        "bottom-4 sm:bottom-6 px-3 sm:px-0",
+        "kb-bottom-4 px-3 sm:px-0",
         "transition-all duration-500 ease-out",
         isVisible && !isLeaving
           ? "translate-y-0 opacity-100"
