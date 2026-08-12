@@ -398,6 +398,15 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
 
   useEffect(() => {
     if (editor && autoFocus) {
+      // Use native focus with preventScroll to avoid browser auto-scroll
+      const el = editorContainerRef.current;
+      if (el) {
+        const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
+        if (editable) {
+          editable.focus({ preventScroll: true });
+          return;
+        }
+      }
       editor.commands.focus("end");
     }
   }, [editor, autoFocus]);
@@ -414,7 +423,20 @@ export const GomoRichEditor = forwardRef<GomoRichEditorHandle, GomoRichEditorPro
   }, [editor, composerKey, contentJson, legacyContent]);
 
   useImperativeHandle(ref, () => ({
-    focus: () => editor?.commands.focus(),
+    focus: () => {
+      // Use native DOM focus with preventScroll to avoid browser's
+      // auto-scroll behavior which causes the composer to jump on mobile.
+      // TipTap's commands.focus() doesn't support preventScroll.
+      const el = editorContainerRef.current;
+      if (el) {
+        const editable = el.querySelector('[contenteditable]') as HTMLElement | null;
+        if (editable) {
+          editable.focus({ preventScroll: true });
+          return;
+        }
+      }
+      editor?.commands.focus();
+    },
     insertText: (text: string) => {
       editor?.chain().focus().insertContent(text).run();
     },
