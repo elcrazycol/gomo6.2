@@ -97,6 +97,10 @@ let dismissalActive = false;
 let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
 let gestureStart: { x: number; y: number } | null = null;
 let dismissAnimFrame: number | null = null;
+// True while the current touch began on a `[data-kb-locked]` element (a
+// pinned composer bar). Such gestures must never scroll the page or dismiss
+// the keyboard — the bar is position:fixed and cannot be dragged.
+let lockedGestureActive = false;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -133,6 +137,10 @@ export function initMobileKeyboard(): () => void {
   // iOS scroll-to-dismiss detection (see handleGestureScroll).
   document.addEventListener("touchmove", handleGestureScroll, { passive: true, capture: true });
   document.addEventListener("wheel", handleGestureScroll, { passive: true, capture: true });
+  // Pinned composer bars ([data-kb-locked]) are not draggable: this passive:
+  // false handler cancels scrolls that begin on them. Registered first so the
+  // preventDefault is in place before the dismiss logic runs.
+  document.addEventListener("touchmove", handleLockedTouchMove, { passive: false, capture: true });
   // Track the finger's origin so sub-slop jitter is never treated as a scroll.
   document.addEventListener("touchstart", handleTouchStart, { passive: true, capture: true });
   document.addEventListener("touchend", handleTouchEnd, { passive: true, capture: true });
@@ -155,6 +163,7 @@ export function initMobileKeyboard(): () => void {
     document.removeEventListener("focusout", handleFocusOut);
     document.removeEventListener("touchmove", handleGestureScroll, { capture: true });
     document.removeEventListener("wheel", handleGestureScroll, { capture: true });
+    document.removeEventListener("touchmove", handleLockedTouchMove, { capture: true });
     document.removeEventListener("touchstart", handleTouchStart, { capture: true });
     document.removeEventListener("touchend", handleTouchEnd, { capture: true });
     document.removeEventListener("touchcancel", handleTouchEnd, { capture: true });
@@ -166,6 +175,7 @@ export function initMobileKeyboard(): () => void {
     if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
     dismissAnimFrame = null;
     gestureStart = null;
+    lockedGestureActive = false;
     dismissUntil = 0;
     dismissalActive = false;
     focusedEditable = null;
@@ -298,6 +308,19 @@ export function isEditableElement(el: Element | null): boolean {
   const contentEditable = el.getAttribute("contenteditable");
   if (contentEditable !== null && contentEditable !== "false") return true;
   return el.matches("input, textarea, select");
+}
+
+/**
+ * Whether a touch that started on this target must not scroll the page or
+ * dismiss the keyboard: the target (or an ancestor) carries [data-kb-locked],
+ * which pinned composer bars set while they are fixed above the keyboard.
+ */
+export function isLockedGestureTarget(target: EventTarget | null): boolean {
+  return !!(
+    target instanceof Element &&
+    typeof target.closest === "function" &&
+    target.closest("[data-kb-locked]")
+  );
 }
 
 export type ScrollContext =
@@ -476,6 +499,10 @@ function handleFocusOut() {
  */
 function handleGestureScroll(e: Event) {
   if (!state.isOpen || !state.isTouch || !currentIsIOS()) return;
+  // A gesture that started on a locked composer bar must neither dismiss the
+  // keyboard nor scroll the page — the bar is pinned above the keyboard and
+  // cannot be dragged.
+  if (lockedGestureActive) return;
   // One dismissal per gesture — later touchmoves during the same scroll must
   // not restart the descent animation or re-blur (would jitter).
   if (dismissalActive) return;
@@ -519,10 +546,25 @@ function handleTouchStart(e: TouchEvent) {
   const touch = e.touches?.[0];
   if (!touch) return;
   gestureStart = { x: touch.clientX, y: touch.clientY };
+  // Pinned composer bars carry [data-kb-locked]; a scroll that begins on one
+  // must not move the page (the bar is fixed and can't be dragged along).
+  lockedGestureActive = state.isTouch && isLockedGestureTarget(e.target);
 }
 
 function handleTouchEnd() {
   gestureStart = null;
+  lockedGestureActive = false;
+}
+
+/**
+ * Cancels scrolls that begin on a pinned composer bar ([data-kb-locked]).
+ * Without this, iOS scroll-to-dismiss would slide the keyboard away (and our
+ * dismiss handler would unpin the composer) the moment the user drags from
+ * the composer, leaving the bar floating mid-list.
+ */
+function handleLockedTouchMove(e: TouchEvent) {
+  if (!lockedGestureActive) return;
+  e.preventDefault();
 }
 
 /**

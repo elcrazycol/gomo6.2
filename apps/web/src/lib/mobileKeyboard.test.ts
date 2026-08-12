@@ -8,6 +8,7 @@ import {
   isBeyondTouchSlop,
   isEditableElement,
   isIOSDevice,
+  isLockedGestureTarget,
 } from "./mobileKeyboard";
 
 describe("isIOSDevice", () => {
@@ -109,6 +110,39 @@ describe("isBeyondTouchSlop", () => {
     expect(
       isBeyondTouchSlop({ startX: null, startY: null, currentX: 500, currentY: 900, slopPx: 10 }),
     ).toBe(false);
+  });
+});
+
+describe("isLockedGestureTarget", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("returns false for null / non-element targets", () => {
+    expect(isLockedGestureTarget(null)).toBe(false);
+    expect(isLockedGestureTarget(undefined)).toBe(false);
+  });
+
+  it("returns false for ordinary elements", () => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    expect(isLockedGestureTarget(el)).toBe(false);
+  });
+
+  it("returns true for an element carrying data-kb-locked", () => {
+    const locked = document.createElement("div");
+    locked.setAttribute("data-kb-locked", "true");
+    document.body.appendChild(locked);
+    expect(isLockedGestureTarget(locked)).toBe(true);
+  });
+
+  it("returns true for descendants of a locked bar (the editor inside the composer)", () => {
+    const locked = document.createElement("div");
+    locked.setAttribute("data-kb-locked", "true");
+    const editor = document.createElement("div");
+    locked.appendChild(editor);
+    document.body.appendChild(locked);
+    expect(isLockedGestureTarget(editor)).toBe(true);
   });
 });
 

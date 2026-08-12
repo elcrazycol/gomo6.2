@@ -60,12 +60,48 @@ export const WallCommentTree = ({
   // even while typing. The focusout handler needs the live value, hence the ref.
   const keyboardOpenRef = useRef(keyboardOpen);
   keyboardOpenRef.current = keyboardOpen;
+  const isTouchRef = useRef(isTouch);
+  isTouchRef.current = isTouch;
+  // Track open→closed transitions. The [keyboardOpen] effect must NOT clear
+  // the pin on its mount run: autoFocus pins synchronously in the listeners
+  // effect, and at that moment keyboardOpen is still false (the keyboard opens
+  // a beat later via the visual-viewport resize). Clearing on mount would
+  // immediately undo the pin — the "1 in 10 opens off the top" bug. Only a
+  // real open→closed transition (keyboard fully dismissed) releases the pin.
+  const prevOpenRef = useRef(keyboardOpen);
+
+  // The pin must be applied SYNCHRONOUSLY in the focus event: React state
+  // renders a frame later, and in that window iOS performs its focus-scroll
+  // (and the autoFocus case fires before this component's listeners exist),
+  // dragging the still-sticky composer off the top edge — the "1 in 10 opens
+  // above the screen" bug. Adding the fixed class + width + data-kb-locked
+  // directly on the DOM node in the focus handler closes that race. React's
+  // static className never rewrites these (the value doesn't change), so the
+  // manual classes are the single source of truth.
+  const applyPin = useCallback(() => {
+    const anchor = composerAnchorRef.current;
+    const root = rootRef.current;
+    if (!anchor || !root || !isTouchRef.current) return;
+    anchor.classList.add("wall-composer-fixed");
+    anchor.setAttribute("data-kb-locked", "true");
+    anchor.style.width = `${root.clientWidth}px`;
+  }, []);
+
+  const clearPin = useCallback(() => {
+    const anchor = composerAnchorRef.current;
+    if (!anchor) return;
+    anchor.classList.remove("wall-composer-fixed");
+    anchor.removeAttribute("data-kb-locked");
+    anchor.style.width = "";
+  }, []);
 
   useEffect(() => {
     const anchor = composerAnchorRef.current;
     if (!anchor) return;
     const onFocusIn = (e: FocusEvent) => {
-      if (anchor.contains(e.target as Node)) setComposerActive(true);
+      if (!anchor.contains(e.target as Node)) return;
+      setComposerActive(true);
+      applyPin();
     };
     const onFocusOut = (e: FocusEvent) => {
       const related = e.relatedTarget;
@@ -73,6 +109,7 @@ export const WallCommentTree = ({
       // pin; that editor owns the keyboard now.
       if (related instanceof HTMLElement && !anchor.contains(related) && isEditableElement(related)) {
         setComposerActive(false);
+        clearPin();
         return;
       }
       // Focus moving INSIDE the composer (toolbar buttons, cancel…) keeps it
@@ -83,22 +120,37 @@ export const WallCommentTree = ({
       // the keyboard is fully gone.
       if (!keyboardOpenRef.current) {
         setComposerActive(false);
+        clearPin();
       }
     };
     anchor.addEventListener("focusin", onFocusIn);
     anchor.addEventListener("focusout", onFocusOut);
+    // autoFocus fires during commit, before this effect's listeners attach —
+    // re-check the live focus and pin right away so the composer never starts
+    // out sticky (which iOS focus-scrolls off-screen).
+    if (isTouchRef.current && anchor.contains(document.activeElement)) {
+      setComposerActive(true);
+      applyPin();
+    }
     return () => {
       anchor.removeEventListener("focusin", onFocusIn);
       anchor.removeEventListener("focusout", onFocusOut);
     };
-  }, []);
+  }, [applyPin, clearPin]);
 
-  // Release the pin once the keyboard has fully closed (after the dismissal
-  // slide, or the user dismissed it via the keyboard itself) so the composer
-  // returns to the document flow at the end of the comment list.
+  // Release the pin only on a real open→closed transition (keyboard fully
+  // dismissed — after the dismissal slide, or the user dismissed it via the
+  // keyboard itself) so the composer returns to the document flow at the end
+  // of the comment list. The mount run (false→false) never clears: see the
+  // prevOpenRef comment above.
   useEffect(() => {
-    if (!keyboardOpen) setComposerActive(false);
-  }, [keyboardOpen]);
+    const wasOpen = prevOpenRef.current;
+    prevOpenRef.current = keyboardOpen;
+    if (wasOpen && !keyboardOpen) {
+      setComposerActive(false);
+      clearPin();
+    }
+  }, [keyboardOpen, clearPin]);
 
   const pinned = composerActive && isTouch;
   const padActive = pinned;
@@ -107,15 +159,14 @@ export const WallCommentTree = ({
   // composer is pinned we measure the comment tree's content width and mirror
   // it (re-measuring on rotation / window resize). This keeps the pinned
   // composer pixel-aligned with the post column in every layout (profile
-  // column, standalone post page, embedded cards).
+  // column, standalone post page, embedded cards). Only re-measures while the
+  // pin is actually applied (pinned); the pin itself is added/removed
+  // synchronously in the focus handlers.
   useEffect(() => {
     const anchor = composerAnchorRef.current;
     const root = rootRef.current;
     if (!anchor || !root) return;
-    if (!pinned) {
-      anchor.style.width = "";
-      return;
-    }
+    if (!pinned) return;
     const applyWidth = () => {
       anchor.style.width = `${root.clientWidth}px`;
     };
@@ -131,7 +182,6 @@ export const WallCommentTree = ({
       observer?.disconnect();
       window.removeEventListener("resize", applyWidth);
       window.removeEventListener("orientationchange", applyWidth);
-      anchor.style.width = "";
     };
   }, [pinned]);
   // Keep onFirstLoad in a ref so loadComments stays identity-stable — if the
@@ -532,7 +582,7 @@ export const WallCommentTree = ({
           // bug. The width is measured and applied inline (see above).
           <div
             ref={composerAnchorRef}
-            className={`${pinned ? "wall-composer-fixed" : "sticky"} kb-bottom-8 z-20`}
+            className="sticky kb-bottom-8 z-20"
           >
             <WallCommentComposer
               focusToExpand
