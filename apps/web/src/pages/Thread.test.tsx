@@ -33,7 +33,6 @@ vi.mock("@/hooks/queries", () => ({
 }));
 vi.mock("@/hooks/useWebSocketSync", () => ({ useWebSocketSync: vi.fn() }));
 vi.mock("@/services/websocket", () => ({ wsService: { subscribe: vi.fn(), subscribeToThread: vi.fn(), unsubscribe: vi.fn(), on: vi.fn().mockReturnValue(vi.fn()) } }));
-vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
 vi.mock("@/lib/imageProcessing", () => ({ getUserPrivacySettings: () => Promise.resolve({ remove_image_metadata: false }) }));
 vi.mock("@/utils/storage", () => ({ storageUrl: () => null }));
 vi.mock("@/utils/bbcodePlugins", () => ({ renderBbCode: () => null }));

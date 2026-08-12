@@ -27,7 +27,6 @@ vi.mock("@/integrations/api/client", () => ({ apiClient: mockApiClient }));
 vi.mock("@/integrations/api/queryCache", () => ({ invalidateByPrefix: vi.fn() }));
 vi.mock("@/utils/currentUserMeta", () => ({ getCurrentUserMeta: (...args: unknown[]) => mockGetCurrentUserMeta(...args) }));
 vi.mock("@/hooks/useSessionTime", () => ({ useSessionTime: vi.fn() }));
-vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
 vi.mock("@/hooks/useProfileInvalidation", () => ({ useProfileInvalidation: vi.fn() }));
 vi.mock("@/services/websocket", () => ({
   wsService: { subscribe: vi.fn(), unsubscribe: vi.fn(), on: vi.fn().mockReturnValue(vi.fn()) },

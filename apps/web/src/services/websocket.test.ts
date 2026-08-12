@@ -387,6 +387,71 @@ describe("WebSocketService", () => {
 
       expect(wsService.rooms).toEqual([]);
     });
+
+    it("subscribeShared refcounts the room and defers unsubscribe to the last consumer", () => {
+      apiClient.setToken("test-token");
+      wsService.connect();
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateOpen();
+
+      // Two independent consumers hold the same room.
+      wsService.subscribeShared("room-1");
+      wsService.subscribeShared("room-1");
+
+      // Only ONE subscribe message is sent — the second reference must not
+      // trigger a duplicate subscription / duplicate server snapshot.
+      const subMessages = ws.sentMessages
+        .map((m) => JSON.parse(m))
+        .filter((m: { type: string; data?: string }) => m.type === "subscribe" && m.data === "room-1");
+      expect(subMessages).toHaveLength(1);
+
+      // Releasing the first reference keeps the room live.
+      wsService.unsubscribeShared("room-1");
+      expect(wsService.rooms).toContain("room-1");
+
+      // Releasing the last reference sends exactly one unsubscribe.
+      wsService.unsubscribeShared("room-1");
+      expect(wsService.rooms).not.toContain("room-1");
+      const messages = ws.sentMessages.map((m) => JSON.parse(m));
+      const unsubMsgs = messages.filter((m: { type: string }) => m.type === "unsubscribe");
+      expect(unsubMsgs).toHaveLength(1);
+      expect(unsubMsgs[0].data).toBe("room-1");
+    });
+
+    it("subscribeShared of an unheld room unsubscribes immediately", () => {
+      apiClient.setToken("test-token");
+      wsService.connect();
+      const ws = MockWebSocket.instances[0]!;
+      ws.simulateOpen();
+
+      wsService.subscribeShared("room-1");
+      wsService.unsubscribeShared("room-1");
+
+      expect(wsService.rooms).not.toContain("room-1");
+    });
+
+    it("shared rooms are re-subscribed after reconnect", () => {
+      apiClient.setToken("test-token");
+      wsService.connect();
+      const ws1 = MockWebSocket.instances[0]!;
+      ws1.simulateOpen();
+      ws1.simulateMessage({ type: "connected", data: "ok", timestamp: Date.now() });
+
+      wsService.subscribeShared("presence_u1");
+
+      ws1.simulateClose(1006);
+      vi.advanceTimersByTime(2000);
+
+      const ws2 = MockWebSocket.instances[1]!;
+      ws2.simulateOpen();
+      ws2.simulateMessage({ type: "connected", data: "ok", timestamp: Date.now() });
+
+      const messages = ws2.sentMessages.map((m) => JSON.parse(m));
+      const subRooms = messages
+        .filter((m: { type: string }) => m.type === "subscribe")
+        .map((m: { data: string }) => m.data);
+      expect(subRooms).toContain("presence_u1");
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

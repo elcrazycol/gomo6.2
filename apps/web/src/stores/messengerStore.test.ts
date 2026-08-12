@@ -541,11 +541,38 @@ describe("messengerStore", () => {
       expect(useMessengerStore.getState().typingUsers["u2"]).toBeUndefined();
     });
 
-    it("setUserOnline tracks online status", () => {
-      useMessengerStore.getState().setUserOnline("u2", true);
-      expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(true);
+    it("setUserPresence patches the matching 1:1 conversation and onlineUsers", () => {
+      useMessengerStore.setState({
+        conversations: [
+          mockConv({ id: "conv-1", other_user_id: "u2", other_is_online: null, other_last_seen_at: null }),
+          mockConv({ id: "conv-group", is_group: true, other_user_id: null }),
+          mockConv({ id: "notes", is_notes: true, other_user_id: null }),
+        ],
+      });
 
-      useMessengerStore.getState().setUserOnline("u2", false);
+      useMessengerStore.getState().setUserPresence("u2", true, "2025-06-01T12:00:00Z");
+
+      expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(true);
+      const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
+      expect(conv.other_is_online).toBe(true);
+      expect(conv.other_last_seen_at).toBe("2025-06-01T12:00:00Z");
+      // Groups and notes conversations are never touched.
+      expect(useMessengerStore.getState().conversations.find((c) => c.id === "conv-group")!.other_is_online).toBeNull();
+      expect(useMessengerStore.getState().conversations.find((c) => c.id === "notes")!.other_is_online).toBeNull();
+    });
+
+    it("setUserPresence offline keeps the last known last_seen when the delta has none", () => {
+      useMessengerStore.setState({
+        conversations: [
+          mockConv({ id: "conv-1", other_user_id: "u2", other_is_online: true, other_last_seen_at: "2025-06-01T12:00:00Z" }),
+        ],
+      });
+
+      useMessengerStore.getState().setUserPresence("u2", false);
+
+      const conv = useMessengerStore.getState().conversations.find((c) => c.id === "conv-1")!;
+      expect(conv.other_is_online).toBe(false);
+      expect(conv.other_last_seen_at).toBe("2025-06-01T12:00:00Z");
       expect(useMessengerStore.getState().onlineUsers.has("u2")).toBe(false);
     });
 

@@ -37,6 +37,7 @@ export type WebSocketMessageType =
   | 'delete_wall_post'
   | 'user_online'
   | 'user_offline'
+  | 'presence_snapshot'
   | 'new_notification'
   | 'new_chat_message'
   | 'message_edited'
@@ -70,6 +71,13 @@ class WebSocketService {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private messageHandlers: Map<WebSocketMessageType, Set<MessageHandler>> = new Map();
   private subscribedRooms: Set<string> = new Set();
+  // Reference counts for rooms subscribed via subscribeShared. The room is
+  // removed (and the unsubscribe message sent) only when the LAST consumer
+  // releases it — presence rooms are subscribed by many components at once
+  // (profile page, hover cards, status widgets) and a naive subscribe/
+  // unsubscribe pair would tear the room down while another consumer still
+  // needs it.
+  private roomRefCounts: Map<string, number> = new Map();
   private currentUserId: string | null = null;
   private isConnected = false;
   private isConnecting = false;
@@ -307,6 +315,40 @@ class WebSocketService {
   }
 
   /**
+   * Subscribe to a room with reference counting. Repeated subscribeShared
+   * calls for the same room increment a counter; the room is released only
+   * when unsubscribeShared has been called the same number of times. This is
+   * the right primitive for presence rooms, which several independent
+   * components may hold open for the same user simultaneously.
+   */
+  subscribeShared(room: string): void {
+    if (!room) return;
+    const count = (this.roomRefCounts.get(room) ?? 0) + 1;
+    this.roomRefCounts.set(room, count);
+    // Send the subscribe (and get the server's presence snapshot) only on the
+    // first reference — repeated consumers of the same room (profile page +
+    // its status widget + hover cards) must not cause duplicate subscribe
+    // messages and duplicate server snapshots.
+    if (count === 1) this.subscribe(room);
+  }
+
+  /**
+   * Release one reference to a shared room. The room stays subscribed while
+   * other consumers still hold it; the unsubscribe message is sent only when
+   * the last reference is released.
+   */
+  unsubscribeShared(room: string): void {
+    if (!room) return;
+    const count = (this.roomRefCounts.get(room) ?? 0) - 1;
+    if (count > 0) {
+      this.roomRefCounts.set(room, count);
+      return;
+    }
+    this.roomRefCounts.delete(room);
+    this.unsubscribe(room);
+  }
+
+  /**
    * Send an arbitrary message (used by messengerWs for typing indicators etc.)
    */
   sendRaw(message: Partial<WebSocketMessage>): boolean {
@@ -433,6 +475,7 @@ class WebSocketService {
     }
     
     this.subscribedRooms.clear();
+    this.roomRefCounts.clear();
     
     if (this.ws) {
       // Remove listeners before closing to prevent reconnection

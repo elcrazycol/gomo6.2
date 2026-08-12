@@ -44,7 +44,6 @@ const { storeMocks, queueMarkDeliveredMock, queueMarkReadMock } = vi.hoisted(() 
     updateMessage: vi.fn(),
     removeMessage: vi.fn(),
     setTyping: vi.fn(),
-    setUserOnline: vi.fn(),
     updateConversationFromWs: vi.fn(),
     loadReceipts: vi.fn(),
   };
@@ -89,14 +88,16 @@ describe("messengerWebSocket", () => {
       expect(mockWsService.on).toHaveBeenCalledWith("message_deleted", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("read_receipt", expect.any(Function));
       expect(mockWsService.on).toHaveBeenCalledWith("chat_typing", expect.any(Function));
-      expect(mockWsService.on).toHaveBeenCalledWith("user_online", expect.any(Function));
-      expect(mockWsService.on).toHaveBeenCalledWith("user_offline", expect.any(Function));
+      // Presence (user_online/user_offline) is handled by the presence rooms
+      // via useMessengerPresence, not by this legacy global-feed handler.
+      expect(mockWsService.on).not.toHaveBeenCalledWith("user_online", expect.any(Function));
+      expect(mockWsService.on).not.toHaveBeenCalledWith("user_offline", expect.any(Function));
     });
 
     it("does not double-register handlers", () => {
       messengerWs.connect();
       messengerWs.connect();
-      expect(mockWsService.on).toHaveBeenCalledTimes(9);
+      expect(mockWsService.on).toHaveBeenCalledTimes(7);
     });
   });
 
@@ -160,16 +161,6 @@ describe("messengerWebSocket", () => {
     it("handles chat_typing", () => {
       emitToHandlers("chat_typing", { user_id: "u2", username: "alice", is_typing: true });
       expect(storeMocks.setTyping).toHaveBeenCalled();
-    });
-
-    it("handles user_online", () => {
-      emitToHandlers("user_online", { user_id: "u2" });
-      expect(storeMocks.setUserOnline).toHaveBeenCalledWith("u2", true);
-    });
-
-    it("handles user_offline", () => {
-      emitToHandlers("user_offline", { user_id: "u2" });
-      expect(storeMocks.setUserOnline).toHaveBeenCalledWith("u2", false);
     });
 
     it("queues markDelivered and markRead for incoming messages", () => {

@@ -13,7 +13,6 @@ import { UserBadge } from "@/components/UserBadge";
 import { HeaderUsername } from "@/components/HeaderUsername";
 import { TermsOfService } from "@/components/TermsOfService";
 import { useSessionTime } from "@/hooks/useSessionTime";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
 import { CookieBanner } from "@/components/CookieBanner";
@@ -55,7 +54,6 @@ const Index = () => {
   const navigate = useNavigate();
   
   useSessionTime(user?.id);
-  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {

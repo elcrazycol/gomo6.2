@@ -18,7 +18,6 @@ import { UserBadge } from "@/components/UserBadge";
 import { AgeVerification } from "@/components/AgeVerification";
 import { Filter, X, MessageCircle, ArrowUpRight, BookOpenText, UserPlus, UserCheck, Plus, Share2, ChevronLeft, ChevronRight, Hash, Lock, Settings } from "lucide-react";
 import { useSessionTime } from "@/hooks/useSessionTime";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { PentagramLoader } from "@/components/PentagramLoader";
@@ -127,7 +126,6 @@ const Board = () => {
   const [isBoardOwner, setIsBoardOwner] = useState(false);
   
   useSessionTime(user?.id);
-  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {

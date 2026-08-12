@@ -85,8 +85,6 @@ class MessengerWebSocket {
       wsService.on("message_deleted", (msg) => this.handleMessageDeleted(msg)),
       wsService.on("read_receipt", (msg) => this.handleReadReceipt(msg)),
       wsService.on("chat_typing", (msg) => this.handleTyping(msg)),
-      wsService.on("user_online", (msg) => this.handleUserOnline(msg)),
-      wsService.on("user_offline", (msg) => this.handleUserOffline(msg)),
       wsService.on("group_updated", (msg) => this.handleGroupUpdated(msg)),
     );
   }
@@ -195,18 +193,6 @@ class MessengerWebSocket {
       (d.username as string) ?? "",
       (d.is_typing as boolean) ?? true,
     );
-  }
-
-  private handleUserOnline(msg: WebSocketMessage): void {
-    const data = this.getMessageData(msg);
-    if (!data) return;
-    useMessengerStore.getState().setUserOnline(data.user_id as string, true);
-  }
-
-  private handleUserOffline(msg: WebSocketMessage): void {
-    const data = this.getMessageData(msg);
-    if (!data) return;
-    useMessengerStore.getState().setUserOnline(data.user_id as string, false);
   }
 
   private handleGroupUpdated(_msg: WebSocketMessage): void {

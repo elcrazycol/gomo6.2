@@ -103,7 +103,6 @@ vi.mock("@/stores/messengerStore", () => ({
   selectSelectedConversation: () => null,
 }));
 vi.mock("@/hooks/useSessionTime", () => ({ useSessionTime: vi.fn() }));
-vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
 vi.mock("@/hooks/useUserColor", () => ({ useUserColor: () => ({ data: "" }) }));
 vi.mock("@/contexts/ProfileCacheContext", () => ({
   ProfileCacheProvider: ({ children }: { children: React.ReactNode }) => children,

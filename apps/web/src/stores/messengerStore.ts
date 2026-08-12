@@ -300,7 +300,10 @@ type MessengerStore = {
   updateMessage: (id: string, updates: Partial<MessageView>) => void;
   removeMessage: (id: string) => void;
   setTyping: (userId: string, username: string, isTyping: boolean) => void;
-  setUserOnline: (userId: string, online: boolean) => void;
+  /** Live presence for a 1:1 conversation partner: updates onlineUsers and
+   * patches the matching conversation's other_is_online / other_last_seen_at
+   * so the sidebar dot and the chat header react instantly. */
+  setUserPresence: (userId: string, online: boolean, lastSeen?: string | null) => void;
   updateConversationFromWs: (convId: string, updates: Partial<ConversationView>, incrementUnread?: boolean) => void;
 };
 
@@ -983,12 +986,23 @@ export const useMessengerStore = create<MessengerStore>((set, get) => ({
     }
   },
 
-  setUserOnline: (userId, online) => {
+  setUserPresence: (userId, online, lastSeen) => {
     set((s) => {
-      const next = new Set(s.onlineUsers);
-      if (online) next.add(userId);
-      else next.delete(userId);
-      return { onlineUsers: next };
+      const onlineUsers = new Set(s.onlineUsers);
+      if (online) onlineUsers.add(userId);
+      else onlineUsers.delete(userId);
+      // Patch only the 1:1 conversation(s) with this peer. When a delta
+      // carries no last_seen, keep the last known value (from the snapshot or
+      // the REST-loaded conversation) instead of stamping the arrival time.
+      const conversations = s.conversations.map((c) => {
+        if (c.is_group || c.is_notes || c.other_user_id !== userId) return c;
+        return {
+          ...c,
+          other_is_online: online,
+          other_last_seen_at: lastSeen ?? c.other_last_seen_at,
+        };
+      });
+      return { onlineUsers, conversations };
     });
   },
 

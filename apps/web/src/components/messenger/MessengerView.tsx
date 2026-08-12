@@ -4,6 +4,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { useMessengerStore, selectSelectedConversation } from "@/stores/messengerStore";
 import { messengerWs } from "@/services/messengerWebSocket";
 import { eventManager } from "@/services/eventManager";
+import { useMessengerPresence } from "@/hooks/useMessengerPresence";
 import { MessengerErrorBoundary } from "./ErrorBoundary";
 import { ConversationList } from "./ConversationList";
 import { ChatView } from "./ChatView";
@@ -71,6 +72,11 @@ export const MessengerView = () => {
     messengerWs.connect(); // registers handlers on shared wsService
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live presence for 1:1 conversation partners (sidebar dots + chat header).
+  // Subscribes to their presence rooms and feeds snapshots/deltas into the
+  // messenger store.
+  useMessengerPresence();
 
   // ── URL sync ──────────────────────────────────────────────────────────
   useEffect(() => {

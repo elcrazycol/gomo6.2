@@ -21,7 +21,6 @@ import { Settings } from "lucide-react";
 import { LinkButton } from "@/components/LinkButton";
 import { useSessionTime } from "@/hooks/useSessionTime";
 import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { Footer } from "@/components/Footer";
@@ -118,8 +117,6 @@ const Board = () => {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const loadBoard = async () => {

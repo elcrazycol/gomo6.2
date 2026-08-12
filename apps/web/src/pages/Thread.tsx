@@ -39,7 +39,6 @@ import { renderBbCode } from "@/utils/bbcodePlugins";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { LikeButton } from "@/components/LikeButton";
 import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { getCurrentUserMeta } from "@/utils/currentUserMeta";
 import { GomoRichEditor, type GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { getUserPrivacySettings } from "@/lib/imageProcessing";
@@ -306,8 +305,6 @@ const Thread = () => {
       window.removeEventListener('scroll', handleScroll);
     };
   }, [lastScrollY, showImagePreview, content, attachments]);
-
-  useOnlineStatus(user?.id);
 
   // Keep legacy imageUrls state in sync with attachments
   useEffect(() => {

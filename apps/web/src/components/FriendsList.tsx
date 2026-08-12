@@ -5,12 +5,16 @@ import { storageUrl } from "@/utils/storage";
 import { User } from "lucide-react";
 import { OnlineStatus } from "@/components/OnlineStatus";
 import { NicknameEmoji } from "@/components/NicknameEmoji";
+import { useRealtimeOnlineStatus, type UserStatus } from "@/hooks/useRealtimeStatus";
 
 interface FriendsListProps {
   userId?: string;
 }
 
-const FriendItem = ({ friend }: { friend: Friend }) => {
+const FriendItem = ({ friend, liveStatus }: { friend: Friend; liveStatus?: UserStatus }) => {
+  // Live status from the presence room when available, otherwise the
+  // REST-loaded value from the friends store.
+  const isOnline = liveStatus?.is_online ?? friend.is_online;
   return (
     <Link
       to={`/profile/${friend.user_id}`}
@@ -30,7 +34,7 @@ const FriendItem = ({ friend }: { friend: Friend }) => {
           )}
         </div>
         {/* Online indicator */}
-        {friend.is_online && (
+        {isOnline && (
           <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
         )}
       </div>
@@ -46,11 +50,13 @@ const FriendItem = ({ friend }: { friend: Friend }) => {
         </p>
       </div>
 
-      {/* Online status */}
+      {/* Online status — realtime handled by the bulk hook above; the row
+          itself must not open a second subscription per friend. */}
       <OnlineStatus
         userId={friend.user_id}
-        isOnline={friend.is_online}
+        isOnline={isOnline}
         showText={false}
+        realtime={false}
       />
     </Link>
   );
@@ -58,6 +64,10 @@ const FriendItem = ({ friend }: { friend: Friend }) => {
 
 export const FriendsList = ({ userId }: FriendsListProps) => {
   const { profileFriends, fetchProfileFriends, isLoading } = useFriendsStore();
+
+  // Bulk presence: one subscription per visible friend (capped inside the
+  // hook); snapshots arrive instantly, then deltas keep the dots live.
+  const liveStatuses = useRealtimeOnlineStatus(profileFriends.map((f) => f.user_id));
 
   useEffect(() => {
     if (userId) {
@@ -84,7 +94,11 @@ export const FriendsList = ({ userId }: FriendsListProps) => {
   return (
     <div className="space-y-1">
       {profileFriends.map((friend) => (
-        <FriendItem key={friend.user_id} friend={friend} />
+        <FriendItem
+          key={friend.user_id}
+          friend={friend}
+          liveStatus={liveStatuses.get(friend.user_id)}
+        />
       ))}
     </div>
   );

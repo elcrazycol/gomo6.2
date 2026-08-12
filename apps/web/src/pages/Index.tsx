@@ -21,7 +21,6 @@ import { useProfileInvalidation } from "@/hooks/useProfileInvalidation";
 import { FeedThreadCard, type FeedThread } from "@/components/FeedThreadCard";
 import { Lightbox, type LightboxItem } from "@/components/Lightbox";
 import { useSessionTime } from "@/hooks/useSessionTime";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { PentagramLoader } from "@/components/PentagramLoader";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -81,7 +80,6 @@ const Index = () => {
   const loadSubscriptionsRef = useRef<() => void>(() => {});
   
   useSessionTime(user?.id);
-  useOnlineStatus(user?.id);
 
   useEffect(() => {
     const checkAuth = async () => {

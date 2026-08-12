@@ -9,6 +9,10 @@ interface OnlineStatusProps {
   lastSeen?: string | null;
   showText?: boolean;
   className?: string;
+  /** Disable the internal presence-room subscription (default true). Lists
+   * that already track live status via a bulk hook pass their values through
+   * props and set this to false to avoid one subscription per row. */
+  realtime?: boolean;
 }
 
 export function OnlineStatus({
@@ -16,10 +20,11 @@ export function OnlineStatus({
   isOnline: initialIsOnline,
   lastSeen: initialLastSeen,
   showText = true,
-  className = ""
+  className = "",
+  realtime = true
 }: OnlineStatusProps) {
   // Subscribe to real-time status updates if userId is provided
-  const realtimeStatus = useUserRealtimeStatus(userId);
+  const realtimeStatus = useUserRealtimeStatus(userId, realtime);
 
   // Use real-time status if available, otherwise fall back to props
   const isOnline = realtimeStatus?.is_online ?? initialIsOnline;

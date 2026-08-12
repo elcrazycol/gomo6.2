@@ -18,7 +18,6 @@ vi.mock("@/integrations/api/compat", () => ({
   api: { from: (...args: any[]) => mockFrom(...args), rpc: (...args: any[]) => mockRpc(...args), auth: mockAuth },
 }));
 
-vi.mock("@/hooks/useOnlineStatus", () => ({ useOnlineStatus: vi.fn() }));
 vi.mock("@/utils/profileCustomization", () => ({ getProfileCustomization: () => Promise.resolve(null), parseCssToStyle: () => ({}) }));
 vi.mock("@/utils/storage", () => ({ storageUrl: () => null, uploadFile: vi.fn() }));
 

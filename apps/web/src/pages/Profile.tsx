@@ -21,7 +21,6 @@ import { Camera, Edit2, LogOut, User, Settings, Hammer, Trash2, Pin, Trophy, Gif
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 import { getProfileCustomization, parseCssToStyle, dispatchProfileCacheInvalidate, type ProfileCustomization } from "@/utils/profileCustomization";
@@ -292,9 +291,6 @@ const Profile = () => {
     setIsOnline(realtimeStatus.is_online);
     if (realtimeStatus.last_seen) setLastSeen(realtimeStatus.last_seen);
   }, [realtimeStatus]);
-
-  // Update online status for current user
-  useOnlineStatus(currentUser?.id);
 
   const loadProfile = useCallback(async () => {
     const sessionAuth = await api.auth.getSession();
