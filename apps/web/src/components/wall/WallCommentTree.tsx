@@ -452,7 +452,7 @@ export const WallCommentTree = ({
           height), so it would sit hidden behind the keyboard/composer. */}
       <div
         ref={rootRef}
-        className={`space-y-3 border-t border-border/60 pt-4 ${isTouch ? "wall-comments-pad" : ""}`}
+        className={`space-y-3 border-t border-border/60 pt-4 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}
       >
         {loading ? (
           <div className="space-y-3 py-2">
@@ -488,12 +488,10 @@ export const WallCommentTree = ({
         )}
 
         {currentUserId && (
-          // Fixed composer at bottom on mobile (ALWAYS, not just when focused).
-          // This prevents scroll jumps when switching between reply targets.
-          // Desktop uses sticky.
+          // Sticky composer at bottom, switches to fixed when focused on mobile.
           <div
             ref={composerAnchorRef}
-            className={`${isTouch ? 'wall-composer-fixed' : 'sticky kb-bottom-8'} z-20`}
+            className="sticky kb-bottom-8 z-20"
           >
             <WallCommentComposer
               focusToExpand

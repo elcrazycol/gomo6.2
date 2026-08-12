@@ -396,10 +396,22 @@ function applyState(next: MobileKeyboardState) {
   if (next.isOpen) {
     // The keyboard slides in over ~250ms; re-align the focused input a few
     // times so it lands exactly above the keyboard when the animation ends.
-    scheduleScrollIntoView(0);
-    scheduleScrollIntoView(120);
-    scheduleScrollIntoView(300);
-    scheduleScrollIntoView(600);
+    // But only if the element isn't already fully visible — skipping the
+    // scroll prevents the composer from jumping when it's already at the
+    // bottom and the user focuses it (e.g. replying to a comment).
+    const el = focusedEditable;
+    if (el && el.isConnected) {
+      const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+      const visibleHeight = vv ? vv.height : window.innerHeight;
+      const rect = el.getBoundingClientRect();
+      const isFullyVisible = rect.top >= 0 && rect.bottom <= visibleHeight - SCROLL_GAP_PX;
+      if (!isFullyVisible) {
+        scheduleScrollIntoView(0);
+        scheduleScrollIntoView(120);
+        scheduleScrollIntoView(300);
+        scheduleScrollIntoView(600);
+      }
+    }
   }
 }
 
@@ -467,10 +479,13 @@ function handleFocusIn(e: FocusEvent) {
   }
   dismissUntil = 0;
   if (!state.isTouch) return;
-  // Skip scroll-into-view for elements inside a wall-composer-fixed container.
-  // Those composers are position:fixed at the bottom and should never be
-  // scrolled — doing so causes them to jump on repeated reply taps.
-  if (el.closest('.wall-composer-fixed')) return;
+  // Skip scroll-into-view for elements that are already fully visible.
+  // This prevents jumping when focusing an already-expanded composer
+  // (e.g. when clicking reply on a comment while the composer is open).
+  const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+  const visibleHeight = vv ? vv.height : window.innerHeight;
+  const rect = el.getBoundingClientRect();
+  if (rect.top >= 0 && rect.bottom <= visibleHeight - SCROLL_GAP_PX) return;
   scheduleScrollIntoView(0);
   if (state.isOpen) {
     scheduleScrollIntoView(80);
@@ -713,10 +728,6 @@ export function scrollEditableIntoView() {
   // already left (e.g. they tapped a Reply button on a comment).
   const active = document.activeElement;
   if (active !== el && !(active instanceof Node && el.contains(active))) return;
-
-  // Skip scroll for wall-composer-fixed elements — they are position:fixed
-  // at the bottom and should never be scrolled.
-  if (el.closest('.wall-composer-fixed')) return;
 
   const vv = typeof window !== "undefined" ? window.visualViewport : null;
   const visibleHeight = vv ? vv.height : window.innerHeight;
