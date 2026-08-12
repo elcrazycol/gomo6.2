@@ -1007,6 +1007,11 @@ func wallAttachmentAccess(db *sql.DB, viewerID, uploaderID, key string) (found, 
 	// post's wall owner (p.user_id). EXISTS short-circuits on the first
 	// visible wall, so a file published across several walls is served as soon
 	// as any of them is visible to the viewer.
+	// viewerID is the empty string for anonymous crawlers (the /og/wall
+	// proxy). The uuid columns must be compared via ::text: passing ""
+	// straight into a uuid parameter makes Postgres raise
+	// "invalid input syntax for type uuid", the query errors and every
+	// anonymous wall-image request 404s even for public walls.
 	var visible bool
 	if err := db.QueryRow(`
 SELECT EXISTS(
@@ -1015,11 +1020,11 @@ SELECT EXISTS(
   LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
   WHERE p.author_id = $3
     AND (p.image_url LIKE $1 ESCAPE '\' OR p.attachments::text LIKE $1 ESCAPE '\')
-    AND (p.user_id = $2
+    AND (p.user_id::text = $2
          OR (COALESCE(ps.private_profile, false) = false AND COALESCE(ps.private_hide_wall, false) = false)
          OR EXISTS (SELECT 1 FROM friendships f
-                    WHERE (f.user1_id = p.user_id AND f.user2_id = $2)
-                       OR (f.user1_id = $2 AND f.user2_id = p.user_id)))
+                    WHERE (f.user1_id::text = p.user_id::text AND f.user2_id::text = $2)
+                       OR (f.user1_id::text = $2 AND f.user2_id::text = p.user_id::text)))
   LIMIT 1
 )`, pattern, viewerID, uploaderID).Scan(&visible); err != nil {
 		return false, false
@@ -1059,10 +1064,12 @@ func canViewUserWall(db *sql.DB, viewerID, ownerID string) bool {
 	if !private && !hideWall {
 		return true
 	}
+	// Same ::text cast as in wallAttachmentAccess: viewerID may be empty for
+	// anonymous callers, and uuid-typed columns reject "" outright.
 	var friend bool
 	if err := db.QueryRow(`SELECT EXISTS(
 		SELECT 1 FROM friendships
-		WHERE (user1_id = $1 AND user2_id = $2) OR (user1_id = $2 AND user2_id = $1)
+		WHERE (user1_id::text = $1 AND user2_id::text = $2) OR (user1_id::text = $2 AND user2_id::text = $1)
 	)`, viewerID, ownerID).Scan(&friend); err != nil {
 		return false
 	}

@@ -801,6 +801,34 @@ func TestWallAttachmentAccess_PublishedOnPrivateWallStrangerDenied(t *testing.T)
 	}
 }
 
+// Anonymous viewers (the /og/wall crawler proxy passes viewerID = "") must
+// still be able to fetch images from PUBLIC walls. Regression: the uuid
+// columns were compared to the empty string directly, Postgres raised
+// "invalid input syntax for type uuid" and every anonymous wall-image
+// request 404ed even for public walls.
+func TestWallAttachmentAccess_AnonymousViewerPublicWallAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	key := "uPublic/1786303495874_1exs5dwr0qc.jpeg"
+	pattern := "%" + escapeLikePattern(key) + "%"
+	// The public-wall branch of the EXISTS query short-circuits to allow — the
+	// empty viewer must not make the query fail or the uuid cast break.
+	mock.ExpectQuery(`(?s).*profile_wall_posts.*privacy_settings.*`).
+		WithArgs(pattern, "", "uPublic").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	found, allowed := wallAttachmentAccess(db, "", "uPublic", key)
+	if !found || !allowed {
+		t.Fatalf("expected an anonymous viewer to fetch a public-wall image, got found=%v allowed=%v", found, allowed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWallAttachmentAccess_MutualFriendOnPrivateWallAllowed(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
