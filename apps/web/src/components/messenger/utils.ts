@@ -3,19 +3,6 @@ export const formatTime = (dateStr: string | null): string => {
   return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(new Date(dateStr));
 };
 
-export const formatDate = (dateStr: string | null): string => {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (d.toDateString() === today.toDateString()) return "Сегодня";
-  if (d.toDateString() === yesterday.toDateString()) return "Вчера";
-
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long" }).format(d);
-};
-
 export const formatConversationDate = (dateStr: string | null): string => {
   if (!dateStr) return "";
   const d = new Date(dateStr);
@@ -29,10 +16,22 @@ export const formatConversationDate = (dateStr: string | null): string => {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit" }).format(d);
 };
 
+import { formatDistanceToNow } from "date-fns";
+import { ru } from "date-fns/locale";
+
+// A user who went offline within the last minute reads as «был(а) только что»
+// instead of «был(а) в сети 1 минуту назад» — same rule as the profile's
+// OnlineStatus (date-fns rounds 30–90 s up to a full minute, which looks wrong
+// the moment the status flips to offline).
+const JUST_NOW_MS = 60_000;
+
 export const formatPresence = (isOnline: boolean | null, lastSeenAt: string | null): string => {
   if (isOnline) return "онлайн";
   if (!lastSeenAt) return "не в сети";
-  return `был(а) ${formatDate(lastSeenAt)}`;
+  const d = new Date(lastSeenAt);
+  if (Number.isNaN(d.getTime())) return "не в сети";
+  if (Date.now() - d.getTime() <= JUST_NOW_MS) return "был(а) только что";
+  return `был(а) в сети ${formatDistanceToNow(d, { addSuffix: true, locale: ru })}`;
 };
 
 export const getInitials = (username: string): string => username.slice(0, 2).toUpperCase();

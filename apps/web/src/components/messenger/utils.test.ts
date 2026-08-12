@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   formatTime,
-  formatDate,
   formatConversationDate,
   formatPresence,
   getInitials,
@@ -18,31 +17,6 @@ describe("utils", () => {
 
     it("returns empty string for null", () => {
       expect(formatTime(null)).toBe("");
-    });
-  });
-
-  describe("formatDate", () => {
-    it("returns 'Сегодня' for today", () => {
-      const today = new Date().toISOString();
-      expect(formatDate(today)).toBe("Сегодня");
-    });
-
-    it("returns 'Вчера' for yesterday", () => {
-      const yesterday = new Date(Date.now() - 86400000).toISOString();
-      expect(formatDate(yesterday)).toBe("Вчера");
-    });
-
-    it("returns formatted date for older dates", () => {
-      const oldDate = "2024-01-15T00:00:00Z";
-      const result = formatDate(oldDate);
-      // "15 января" — Cyrillic characters won't match \w, just check it's not empty and not today/yesterday
-      expect(result).not.toBe("");
-      expect(result).not.toBe("Сегодня");
-      expect(result).not.toBe("Вчера");
-    });
-
-    it("returns empty string for null", () => {
-      expect(formatDate(null)).toBe("");
     });
   });
 
@@ -79,9 +53,18 @@ describe("utils", () => {
       expect(formatPresence(null, null)).toBe("не в сети");
     });
 
-    it("returns 'был(а)' prefix with date when offline with lastSeen", () => {
+    it("returns 'был(а) только что' when offline within the last minute", () => {
+      const justNow = new Date(Date.now() - 30_000).toISOString();
+      expect(formatPresence(false, justNow)).toBe("был(а) только что");
+    });
+
+    it("returns relative 'был(а) в сети N назад' for older offline", () => {
       const result = formatPresence(false, "2025-06-01T12:00:00Z");
-      expect(result).toMatch(/^был\(а\)/);
+      expect(result).toMatch(/^был\(а\) в сети .+ назад$/);
+    });
+
+    it("returns 'не в сети' for an invalid lastSeen date", () => {
+      expect(formatPresence(false, "not-a-date")).toBe("не в сети");
     });
 
     it("online takes precedence over lastSeen", () => {

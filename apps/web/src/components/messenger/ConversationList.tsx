@@ -5,7 +5,7 @@ import { PentagramLoader } from "@/components/PentagramLoader";
 import { UserBadge } from "@/components/UserBadge";
 import { storageUrl } from "@/utils/storage";
 import { useMessengerStore } from "@/stores/messengerStore";
-import { formatConversationDate, getInitials } from "./utils";
+import { formatConversationDate, formatPresence, getInitials } from "./utils";
 import { NewChatDialog } from "./NewChatDialog";
 import type { ConversationView } from "./types";
 
@@ -86,6 +86,10 @@ const ConversationCard = memo(function ConversationCard({
         <div className="conversation-meta">
           {conversation.last_message_preview ? (
             <span className="conversation-preview">{conversation.last_message_preview}</span>
+          ) : !conversation.is_group && (conversation.other_is_online || conversation.other_last_seen_at) ? (
+            <span className="conversation-preview muted">
+              {formatPresence(conversation.other_is_online, conversation.other_last_seen_at)}
+            </span>
           ) : (
             <span className="conversation-preview muted">Нет сообщений</span>
           )}

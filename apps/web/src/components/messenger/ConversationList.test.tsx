@@ -179,6 +179,38 @@ describe("ConversationList", () => {
       expect(screen.getByText("3")).toBeInTheDocument();
     });
 
+    it("shows 'был(а) только что' for a 1:1 chat without messages and a fresh last seen", () => {
+      mockStore.conversations = [mockConversation({
+        id: "conv-1",
+        last_message_preview: null,
+        other_is_online: false,
+        other_last_seen_at: new Date(Date.now() - 30_000).toISOString(),
+      })];
+      render(<ConversationList />);
+      expect(screen.getByText("был(а) только что")).toBeInTheDocument();
+      expect(screen.queryByText("Нет сообщений")).not.toBeInTheDocument();
+    });
+
+    it("shows relative 'был(а) в сети N назад' for a 1:1 chat with an older last seen", () => {
+      mockStore.conversations = [mockConversation({
+        id: "conv-1",
+        last_message_preview: null,
+        other_is_online: false,
+        other_last_seen_at: "2025-06-01T12:00:00Z",
+      })];
+      render(<ConversationList />);
+      expect(screen.getByText(/^был\(а\) в сети .+ назад$/)).toBeInTheDocument();
+    });
+
+    it("keeps 'Нет сообщений' for groups and 1:1 chats without a last seen", () => {
+      mockStore.conversations = [
+        mockConversation({ id: "conv-1", last_message_preview: null, is_group: true, other_last_seen_at: null }),
+        mockConversation({ id: "conv-2", last_message_preview: null, other_is_online: null, other_last_seen_at: null }),
+      ];
+      render(<ConversationList />);
+      expect(screen.getAllByText("Нет сообщений")).toHaveLength(2);
+    });
+
     it("selects conversation on card click", async () => {
       mockStore.conversations = conversations;
       render(<ConversationList />);
