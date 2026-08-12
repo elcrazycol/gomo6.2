@@ -315,7 +315,7 @@
 			reverse_proxy backend:8080
 		}
 		@bot {
-			header User-Agent *TelegramBot* *Twitterbot* *facebookexternalhit* *Facebot* *Discordbot* *Slackbot* *Slack-ImgProxy* *VKShare* *vk.com* *LinkedInBot* *WhatsApp* *Viber* *Pinterest* *redditbot* *SkypeUriPreview* *Snapchat* *Applebot* *Instagram* *embed.ly* *microsoftteams* *Linbot* *YoozBot* *MJ12bot* *DotBot* *DuckDuckBot* *Bytespider* *PetalBot*
+			header User-Agent ~(?i)(TelegramBot|Twitterbot|facebookexternalhit|Facebot|Discordbot|Slackbot|Slack-ImgProxy|VKShare|vk[.]com|LinkedInBot|WhatsApp|Viber|Pinterest|redditbot|SkypeUriPreview|Snapchat|Applebot|Instagram|embed[.]ly|microsoftteams|Linbot|YoozBot|MJ12bot|DotBot|DuckDuckBot|Bytespider|PetalBot)
 			not path /api/*
 			not path /rest/*
 			not path /rpc/*
