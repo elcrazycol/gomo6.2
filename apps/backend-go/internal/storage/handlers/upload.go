@@ -128,10 +128,10 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 		key = fmt.Sprintf("%s/messenger/%s%s", claims.UserID, hash, ext)
 	}
 
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	// H2.1: the stored Content-Type is derived server-side from the extension,
+	// never from the client's multipart part header — a client-declared
+	// text/html can no longer be persisted and later executed in the app origin.
+	contentType := contentTypeForUpload(header.Filename)
 
 	var generated *media.ImageVariants
 	if isImageBucket(bucket) && isImageKey(key) {
@@ -140,6 +140,9 @@ func (h *StorageHandler) UploadFile(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("invalid image"))
 			return
 		}
+		// H2.2: persist the EXIF/GPS-stripped re-encode produced alongside the
+		// preview instead of the raw upload bytes.
+		data = generated.Original
 	}
 
 	var fileInfo *storage.FileInfo
@@ -228,10 +231,8 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 		}
 	}
 
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
+	// H2.1: server-derived Content-Type — see contentTypeForUpload.
+	contentType := contentTypeForUpload(header.Filename)
 
 	// Ownership check. Messenger attachments live under <userID>/messenger/,
 	// every other user-uploaded object under <userID>/... . Keys are guessable
@@ -265,6 +266,10 @@ func (h *StorageHandler) UploadFileWithKey(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, models.ErrorResponse("invalid image"))
 			return
 		}
+		// H2.2: persist the EXIF/GPS-stripped re-encode instead of the raw
+		// upload bytes (produced inside GenerateImageVariants — no extra
+		// decode on the hot path).
+		data = generated.Original
 		variants = &imageVariantResponse{
 			PreviewKey:  key + ".preview.jpg",
 			LQIP:        generated.LQIP,
@@ -503,14 +508,18 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 			}
 			return
 		}
+		// H2.1: legacy objects may carry a client-forged type — force unsafe
+		// types to an opaque attachment so they can never run as a document.
+		ctype, disp := safeContentHeaders(contentType)
 		if strings.HasSuffix(strings.ToLower(key), ".preview.jpg") {
 			c.Header("Cache-Control", "private, max-age=31536000, immutable")
 		} else {
 			c.Header("Cache-Control", "private, no-store")
 		}
 		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("Content-Disposition", "inline")
-		c.Data(http.StatusOK, contentType, data)
+		c.Header("Content-Security-Policy", "sandbox")
+		c.Header("Content-Disposition", disp)
+		c.Data(http.StatusOK, ctype, data)
 		return
 	}
 
@@ -544,6 +553,7 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 			if bucket == "post-images" && strings.Contains(key, "avatar") {
 				c.Header("Content-Type", "image/svg+xml")
 				c.Header("Cache-Control", "public, max-age=3600")
+				c.Header("Content-Security-Policy", "sandbox")
 				c.Data(http.StatusOK, "image/svg+xml", []byte(storage.AvatarPlaceholderSVG))
 				return
 			}
@@ -555,9 +565,16 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 	}
 	defer out.Body.Close()
 
-	// Set common headers
+	// Set common headers. The stored Content-Type may be client-forged on
+	// legacy objects, so unsafe/unknown types are downgraded to an opaque
+	// attachment (H2.1).
 	if out.ContentType != nil && aws.ToString(out.ContentType) != "" {
-		c.Header("Content-Type", aws.ToString(out.ContentType))
+		ctype, disp := safeContentHeaders(aws.ToString(out.ContentType))
+		c.Header("Content-Type", ctype)
+		c.Header("Content-Disposition", disp)
+	} else {
+		c.Header("Content-Type", "application/octet-stream")
+		c.Header("Content-Disposition", "attachment")
 	}
 	if out.ETag != nil {
 		c.Header("ETag", aws.ToString(out.ETag))
@@ -575,6 +592,7 @@ func (h *StorageHandler) ServeObject(c *gin.Context) {
 		c.Header("Cache-Control", "public, max-age=3600")
 	}
 	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Security-Policy", "sandbox")
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 	c.Header("Access-Control-Allow-Headers", "Content-Type, Range")

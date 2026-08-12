@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gomo6/backend/internal/media"
 	"github.com/gomo6/backend/internal/storage"
 )
 
@@ -69,19 +70,27 @@ func (h *StorageHandler) UploadAvatar(c *gin.Context) {
 	hash := fmt.Sprintf("%x", md5.Sum(data))
 	key := fmt.Sprintf("%s%s", hash, ext)
 
-	// Determine content type
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "image/jpeg"
-		switch ext {
-		case ".png":
-			contentType = "image/png"
-		case ".gif":
-			contentType = "image/gif"
-		case ".webp":
-			contentType = "image/webp"
-		}
+	// H2.1/H2.2: an avatar must be a real decodable image (magic bytes — an
+	// HTML/JS blob can never masquerade as one) and the stored original is
+	// re-encoded so EXIF/GPS from the uploader's camera never reaches profile
+	// viewers. The Content-Type is derived server-side from the extension.
+	if err := media.ValidateImageShape(data); err != nil {
+		c.JSON(http.StatusBadRequest, storage.UploadResponse{
+			Success: false,
+			Error:   "Invalid avatar image",
+		})
+		return
 	}
+	stripped, stripErr := media.StripImageMetadata(data, ext)
+	if stripErr != nil {
+		c.JSON(http.StatusBadRequest, storage.UploadResponse{
+			Success: false,
+			Error:   "Invalid avatar image",
+		})
+		return
+	}
+	data = stripped
+	contentType := contentTypeForUpload(header.Filename)
 
 	// Upload avatar
 	fileInfo, err := h.client.UploadFile("avatars", key, data, contentType)
@@ -118,5 +127,11 @@ func (h *StorageHandler) GetAvatar(c *gin.Context) {
 		return
 	}
 
-	c.Data(http.StatusOK, contentType, data)
+	// H2.1: a legacy avatar stored with a forged type must not render as a
+	// document in the app origin — force unsafe types to an attachment.
+	ctype, disp := safeContentHeaders(contentType)
+	c.Header("Content-Type", ctype)
+	c.Header("Content-Disposition", disp)
+	c.Header("Content-Security-Policy", "sandbox")
+	c.Data(http.StatusOK, ctype, data)
 }

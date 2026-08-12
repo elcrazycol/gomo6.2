@@ -23,11 +23,14 @@ const (
 	maxImagePixels   = 40_000_000
 )
 
-// ImageVariants contains a compact preview and an inline low-quality placeholder.
-// The original bytes are intentionally not included: callers keep the uploaded
-// object as-is and store only these derived variants alongside it.
+// ImageVariants contains a compact preview, an inline low-quality placeholder
+// and the metadata-stripped original. Original is a re-encode of the uploaded
+// image in its own format with EXIF/GPS/XMP removed (H2.2) — callers persist
+// it INSTEAD of the raw upload bytes so camera metadata never reaches viewers.
+// Formats without a pure-Go encoder (WebP) fall back to the raw bytes.
 type ImageVariants struct {
 	Preview     []byte
+	Original    []byte
 	LQIP        string
 	Width       int
 	Height      int
@@ -44,7 +47,7 @@ func GenerateImageVariants(data []byte) (*ImageVariants, error) {
 		return nil, fmt.Errorf("empty image")
 	}
 
-	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode image config: %w", err)
 	}
@@ -55,6 +58,14 @@ func GenerateImageVariants(data []byte) (*ImageVariants, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)
+	}
+
+	// H2.2: strip EXIF/GPS while the image is already decoded — no second
+	// decode on the upload hot path. JPEG/PNG re-encode the in-memory image;
+	// GIF re-decodes with DecodeAll to preserve animation frames.
+	original, err := stripOriginalImage(data, img, format)
+	if err != nil {
+		return nil, fmt.Errorf("strip image metadata: %w", err)
 	}
 	bounds := img.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
@@ -76,6 +87,7 @@ func GenerateImageVariants(data []byte) (*ImageVariants, error) {
 
 	return &ImageVariants{
 		Preview:     previewBytes,
+		Original:    original,
 		LQIP:        "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(lqipBytes),
 		Width:       width,
 		Height:      height,

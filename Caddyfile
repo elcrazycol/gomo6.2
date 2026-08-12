@@ -147,6 +147,11 @@
 					Access-Control-Expose-Headers "Content-Length, Content-Range, Content-Type, Accept-Ranges"
 					Cache-Control "public, max-age=3600"
 					Accept-Ranges "bytes"
+					# Untrusted media is served directly from Garage for public
+					# buckets. Sandbox the document so a legacy object stored with
+					# a forged HTML-capable Content-Type can never execute scripts
+					# in the app origin (H2.1 defense-in-depth for pre-fix files).
+					Content-Security-Policy "sandbox"
 				}
 				rewrite * /{re.storage_read.2}
 				reverse_proxy garage:3902 {
@@ -268,6 +273,11 @@
 					Access-Control-Expose-Headers "Content-Length, Content-Range, Content-Type, Accept-Ranges"
 					Cache-Control "public, max-age=3600"
 					Accept-Ranges "bytes"
+					# Untrusted media is served directly from Garage for public
+					# buckets. Sandbox the document so a legacy object stored with
+					# a forged HTML-capable Content-Type can never execute scripts
+					# in the app origin (H2.1 defense-in-depth for pre-fix files).
+					Content-Security-Policy "sandbox"
 				}
 				rewrite * /{re.storage_read.2}
 				reverse_proxy garage:3902 {

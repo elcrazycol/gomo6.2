@@ -715,6 +715,7 @@ func SetupRoutes(router *gin.Engine, db *sql.DB, redis *redis.Client, wsHub *web
 					if bucket == "post-images" && strings.Contains(key, "avatar") {
 						c.Header("Content-Type", "image/svg+xml")
 						c.Header("Cache-Control", "public, max-age=3600")
+						c.Header("Content-Security-Policy", "sandbox")
 						c.String(http.StatusOK, stor.AvatarPlaceholderSVG)
 						return
 					}

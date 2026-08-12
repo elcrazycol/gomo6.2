@@ -44,6 +44,30 @@ func TestGenerateImageVariants(t *testing.T) {
 	}
 }
 
+// TestGenerateImageVariants_StripsMetadataFromOriginal guards the upload hot
+// path: upload.go persists generated.Original INSTEAD of the raw upload bytes,
+// so the returned Original must be free of EXIF/GPS metadata.
+func TestGenerateImageVariants_StripsMetadataFromOriginal(t *testing.T) {
+	in := jpegWithExif(t)
+	if !bytes.Contains(in, []byte("Exif\x00\x00")) {
+		t.Fatal("test precondition failed: EXIF payload missing from input")
+	}
+
+	variants, err := GenerateImageVariants(in)
+	if err != nil {
+		t.Fatalf("GenerateImageVariants: %v", err)
+	}
+	if len(variants.Original) == 0 {
+		t.Fatal("Original is empty")
+	}
+	if bytes.Contains(variants.Original, []byte("Exif")) {
+		t.Fatal("Original retained EXIF metadata — the upload path would store it")
+	}
+	if _, _, err := image.Decode(bytes.NewReader(variants.Original)); err != nil {
+		t.Fatalf("stripped Original no longer decodes: %v", err)
+	}
+}
+
 func TestGenerateImageVariantsRejectsInvalidData(t *testing.T) {
 	if _, err := GenerateImageVariants([]byte("not-an-image")); err == nil {
 		t.Fatal("expected invalid image error")
