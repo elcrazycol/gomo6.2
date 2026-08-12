@@ -3,7 +3,6 @@ import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { api } from "@/integrations/api/compat";
 import { useMobileKeyboard } from "@/hooks/useMobileKeyboard";
-import { isEditableElement } from "@/lib/mobileKeyboard";
 import type { GomoRichEditorHandle } from "@/components/GomoRichEditor";
 import { WallCommentTreeContext } from "./WallCommentContext";
 import { WallCommentNode } from "./WallCommentNode";
@@ -47,191 +46,44 @@ export const WallCommentTree = ({
   const rootRef = useRef<HTMLDivElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
   const composerEditorRef = useRef<GomoRichEditorHandle>(null);
-  const touchEndTimerRef = useRef<number | null>(null);
   const hasLoadedRef = useRef(false);
   const firstLoadFiredRef = useRef(false);
 
-  // While the composer is focused the on-screen keyboard is (about to be) up.
-  // position:sticky would let the composer scroll away with the comment list;
-  // position:fixed pins it above the keyboard no matter how the page scrolls.
-  // Only the focused composer gets pinned — focus tracking is per-tree, so
-  // other posts' composers on the same wall stay in flow.
-  const { isTouch, isOpen: keyboardOpen } = useMobileKeyboard();
-  const [composerActive, setComposerActive] = useState(false);
-  // keyboardOpen differs by platform: on iOS it is true while the keyboard is
-  // up (and stays true through the ~280ms dismissal slide); on Android with
-  // resizes-content the layout shrinks so the delta is ~0 and it stays false
-  // even while typing. The focusout handler needs the live value, hence the ref.
-  const keyboardOpenRef = useRef(keyboardOpen);
-  keyboardOpenRef.current = keyboardOpen;
-  const isTouchRef = useRef(isTouch);
-  isTouchRef.current = isTouch;
-  // Track open→closed transitions. The [keyboardOpen] effect must NOT clear
-  // the pin on its mount run: autoFocus pins synchronously in the listeners
-  // effect, and at that moment keyboardOpen is still false (the keyboard opens
-  // a beat later via the visual-viewport resize). Clearing on mount would
-  // immediately undo the pin — the "1 in 10 opens off the top" bug. Only a
-  // real open→closed transition (keyboard fully dismissed) releases the pin.
-  const prevOpenRef = useRef(keyboardOpen);
+  // Mobile keyboard state — used to detect if we're on touch device
+  const { isTouch } = useMobileKeyboard();
+  
+  // Simple state: is the composer focused (keyboard up)?
+  const [composerFocused, setComposerFocused] = useState(false);
+  const composerFocusedRef = useRef(composerFocused);
+  composerFocusedRef.current = composerFocused;
 
-  // The pin must be applied SYNCHRONOUSLY in the focus event: React state
-  // renders a frame later, and in that window iOS performs its focus-scroll
-  // (and the autoFocus case fires before this component's listeners exist),
-  // dragging the still-sticky composer off the top edge — the "1 in 10 opens
-  // above the screen" bug. Adding the fixed class + width + data-kb-locked
-  // directly on the DOM node in the focus handler closes that race. React's
-  // static className never rewrites these (the value doesn't change), so the
-  // manual classes are the single source of truth.
-  // A tap-and-immediately-drag on the composer (user presses to open it and
-  // keeps dragging) starts the gesture before focus ever lands, so the
-  // focusin-based pin is too late — the still-sticky bar rides off the top
-  // edge. Pinning on touchstart (synchronously, in the same touch dispatch)
-  // closes that window: the composer is fixed + locked the instant the finger
-  // touches it, before the first touchmove can scroll anything.
-  const applyPin = useCallback(() => {
-    const anchor = composerAnchorRef.current;
-    const root = rootRef.current;
-    if (!anchor || !root || !isTouchRef.current) return;
-    anchor.classList.add("wall-composer-fixed");
-    anchor.setAttribute("data-kb-locked", "true");
-    anchor.style.width = `${root.clientWidth}px`;
-  }, []);
-
-  const clearPin = useCallback(() => {
-    const anchor = composerAnchorRef.current;
-    if (!anchor) return;
-    anchor.classList.remove("wall-composer-fixed");
-    anchor.removeAttribute("data-kb-locked");
-    anchor.style.width = "";
-  }, []);
-
+  // Simple focus tracking for the composer
   useEffect(() => {
     const anchor = composerAnchorRef.current;
     if (!anchor) return;
+    
     const onFocusIn = (e: FocusEvent) => {
-      if (!anchor.contains(e.target as Node)) return;
-      // Focus landed — the touchend timer (if any) must not clear the pin in
-      // case focus arrived slower than its 120ms window (slow keyboard open).
-      if (touchEndTimerRef.current) {
-        clearTimeout(touchEndTimerRef.current);
-        touchEndTimerRef.current = null;
+      if (anchor.contains(e.target as Node)) {
+        setComposerFocused(true);
       }
-      setComposerActive(true);
-      applyPin();
     };
+    
     const onFocusOut = (e: FocusEvent) => {
-      const related = e.relatedTarget;
-      // Hand-off to another editable (an inline comment editor) → release the
-      // pin; that editor owns the keyboard now.
-      if (related instanceof HTMLElement && !anchor.contains(related) && isEditableElement(related)) {
-        setComposerActive(false);
-        clearPin();
-        return;
-      }
-      // Focus moving INSIDE the composer (toolbar buttons, cancel…) keeps it
-      // pinned. Leaving the composer unpins immediately when the keyboard is
-      // already gone or never tracked (Android tap-outside → keyboard hides
-      // right away). On iOS a scroll-to-dismiss blur keeps it pinned while the
-      // keyboard slides away; the keyboardOpen effect below releases it once
-      // the keyboard is fully gone.
-      if (!keyboardOpenRef.current) {
-        setComposerActive(false);
-        clearPin();
+      // Check if focus moved outside the composer
+      const related = e.relatedTarget as HTMLElement | null;
+      if (!related || !anchor.contains(related)) {
+        setComposerFocused(false);
       }
     };
-    // Pin the moment the finger touches the composer (see applyPin comment).
-    const onTouchStart = () => {
-      if (!isTouchRef.current) return;
-      setComposerActive(true);
-      applyPin();
-    };
-    // A pure scroll gesture that began on the composer never delivers focus
-    // (the drag is also cancelled by the [data-kb-locked] handler, so nothing
-    // moved). Release the optimistic touchstart pin after a beat so the bar
-    // returns to the document flow — unless focus actually landed (real tap).
-    const onTouchEnd = () => {
-      if (!isTouchRef.current) return;
-      if (touchEndTimerRef.current) clearTimeout(touchEndTimerRef.current);
-      touchEndTimerRef.current = window.setTimeout(() => {
-        touchEndTimerRef.current = null;
-        const still = composerAnchorRef.current;
-        if (still && !still.contains(document.activeElement)) {
-          setComposerActive(false);
-          clearPin();
-        }
-      }, 120);
-    };
+    
     anchor.addEventListener("focusin", onFocusIn);
     anchor.addEventListener("focusout", onFocusOut);
-    anchor.addEventListener("touchstart", onTouchStart, { passive: true });
-    anchor.addEventListener("touchend", onTouchEnd, { passive: true });
-    anchor.addEventListener("touchcancel", onTouchEnd, { passive: true });
-    // autoFocus fires during commit, before this effect's listeners attach —
-    // re-check the live focus and pin right away so the composer never starts
-    // out sticky (which iOS focus-scrolls off-screen).
-    if (isTouchRef.current && anchor.contains(document.activeElement)) {
-      setComposerActive(true);
-      applyPin();
-    }
+    
     return () => {
-      if (touchEndTimerRef.current) {
-        clearTimeout(touchEndTimerRef.current);
-        touchEndTimerRef.current = null;
-      }
       anchor.removeEventListener("focusin", onFocusIn);
       anchor.removeEventListener("focusout", onFocusOut);
-      anchor.removeEventListener("touchstart", onTouchStart);
-      anchor.removeEventListener("touchend", onTouchEnd);
-      anchor.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [applyPin, clearPin]);
-
-  // Release the pin only on a real open→closed transition (keyboard fully
-  // dismissed — after the dismissal slide, or the user dismissed it via the
-  // keyboard itself) so the composer returns to the document flow at the end
-  // of the comment list. The mount run (false→false) never clears: see the
-  // prevOpenRef comment above.
-  useEffect(() => {
-    const wasOpen = prevOpenRef.current;
-    prevOpenRef.current = keyboardOpen;
-    if (wasOpen && !keyboardOpen) {
-      setComposerActive(false);
-      clearPin();
-    }
-  }, [keyboardOpen, clearPin]);
-
-  const pinned = composerActive && isTouch;
-  const padActive = pinned;
-
-  // A position:fixed element cannot inherit its container's width, so while the
-  // composer is pinned we measure the comment tree's content width and mirror
-  // it (re-measuring on rotation / window resize). This keeps the pinned
-  // composer pixel-aligned with the post column in every layout (profile
-  // column, standalone post page, embedded cards). Only re-measures while the
-  // pin is actually applied (pinned); the pin itself is added/removed
-  // synchronously in the focus handlers.
-  useEffect(() => {
-    const anchor = composerAnchorRef.current;
-    const root = rootRef.current;
-    if (!anchor || !root) return;
-    if (!pinned) return;
-    const applyWidth = () => {
-      anchor.style.width = `${root.clientWidth}px`;
-    };
-    applyWidth();
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(applyWidth);
-      observer.observe(root);
-    }
-    window.addEventListener("resize", applyWidth);
-    window.addEventListener("orientationchange", applyWidth);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", applyWidth);
-      window.removeEventListener("orientationchange", applyWidth);
-    };
-  }, [pinned]);
+  }, []);
   // Keep onFirstLoad in a ref so loadComments stays identity-stable — if the
   // parent passed an inline function, the [loadComments] effect below would
   // refetch (and flash the skeleton) on every parent re-render.
@@ -324,18 +176,6 @@ export const WallCommentTree = ({
   }, [comments]);
 
   const startReply = useCallback((commentId: string) => {
-    // Pin BEFORE anything mounts. GomoRichEditor's autoFocus effect focuses
-    // the editor DURING the flushSync commit below — if the composer were
-    // still sticky at that instant, iOS's native focus-scroll would scroll
-    // the page down to the composer's natural position (the end of the
-    // comment list) and everything would fly up. position:fixed from the very
-    // first frame makes that focus-scroll a no-op, while the keyboard still
-    // opens because the focus happens inside the tap's call stack.
-    const isTouch = isTouchRef.current;
-    if (isTouch) {
-      setComposerActive(true);
-      applyPin();
-    }
     // iOS only opens the keyboard for a focus() call that runs synchronously
     // inside the tap's call stack. React state updates are deferred, so flush
     // the reply-target change NOW (mounting the editor box — showBox forces it
@@ -348,19 +188,10 @@ export const WallCommentTree = ({
       });
     });
     if (nextId) {
-      // Only focus when actually starting a reply — a toggle-off (cancel) must
-      // not pop the keyboard back open. The pin above is already in place;
-      // focusin re-applies it idempotently.
+      // Focus the editor to open the keyboard
       composerEditorRef.current?.focus();
-    } else if (isTouch && !keyboardOpenRef.current) {
-      // Toggle-off (cancel): undo the optimistic pin so the bar returns to
-      // the document flow. When the keyboard is still open, leave the pin in
-      // place — the keyboardOpen effect releases it once the keyboard fully
-      // closes (unpinning mid-open would drop the bar behind the keyboard).
-      setComposerActive(false);
-      clearPin();
     }
-  }, [applyPin, clearPin]);
+  }, []);
 
   // The reply target the floating composer answers (or null → plain comment).
   const replyTarget = activeReplyId ? comments.find((c) => c.id === activeReplyId) ?? null : null;
@@ -619,7 +450,7 @@ export const WallCommentTree = ({
           height), so it would sit hidden behind the keyboard/composer. */}
       <div
         ref={rootRef}
-        className={`space-y-3 border-t border-border/60 pt-4 ${padActive ? "wall-comments-pad" : ""}`}
+        className={`space-y-3 border-t border-border/60 pt-4 ${isTouch && composerFocused ? "wall-comments-pad" : ""}`}
       >
         {loading ? (
           <div className="space-y-3 py-2">
@@ -655,17 +486,11 @@ export const WallCommentTree = ({
         )}
 
         {currentUserId && (
-          // Floating, backgroundless composer: lifted off the bottom edge so
-          // the panel reads as a clean input, not a docked bar. kb-bottom-8
-          // adds the keyboard inset to the offset, so on iOS the bar floats
-          // above the keyboard instead of under it (the layout viewport never
-          // shrinks there). While the composer is focused the bar switches to
-          // position:fixed — sticky would let it scroll away with the comment
-          // list, which is exactly the "composer rides off who-knows-where"
-          // bug. The width is measured and applied inline (see above).
+          // Fixed composer at bottom on mobile, sticky on desktop.
+          // Uses wall-composer-fixed class for position:fixed with --kb-inset
           <div
             ref={composerAnchorRef}
-            className="sticky kb-bottom-8 z-20"
+            className={`${isTouch && composerFocused ? 'wall-composer-fixed' : 'sticky kb-bottom-8'} z-20`}
           >
             <WallCommentComposer
               focusToExpand
