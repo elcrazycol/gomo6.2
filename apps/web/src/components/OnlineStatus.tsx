@@ -3,6 +3,11 @@ import { ru } from "date-fns/locale";
 import { safeDate } from "@/utils/safeDate";
 import { useUserRealtimeStatus } from "@/hooks/useRealtimeStatus";
 
+// A user who went offline within the last minute reads as «был(а) только что»
+// instead of «был(а) в сети 1 минуту назад» — date-fns rounds 30–90 s up to a
+// full minute, which looks wrong the moment the status flips to offline.
+const JUST_NOW_MS = 60_000;
+
 interface OnlineStatusProps {
   userId?: string;
   isOnline?: boolean;
@@ -43,14 +48,23 @@ export function OnlineStatus({
 
   if (lastSeen) {
     try {
-      const timeAgo = formatDistanceToNow(safeDate(lastSeen), {
-        addSuffix: true,
-        locale: ru,
-      });
+      const lastSeenDate = safeDate(lastSeen);
+      const justNow = Date.now() - lastSeenDate.getTime() <= JUST_NOW_MS;
+
+      let label: string;
+      if (justNow) {
+        label = showText ? "был(а) только что" : "только что";
+      } else {
+        const timeAgo = formatDistanceToNow(lastSeenDate, {
+          addSuffix: true,
+          locale: ru,
+        });
+        label = showText ? `был(а) в сети ${timeAgo}` : timeAgo;
+      }
 
       return (
         <span className={`text-sm text-muted-foreground ${className}`}>
-          {showText ? `был(а) в сети ${timeAgo}` : timeAgo}
+          {label}
         </span>
       );
     } catch (error) {

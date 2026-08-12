@@ -32,6 +32,18 @@ describe("OnlineStatus", () => {
     expect(screen.getByText(/был\(а\) в сети/)).toBeInTheDocument();
   });
 
+  it("shows 'был(а) только что' when the user just went offline", () => {
+    const recent = new Date(Date.now() - 10_000).toISOString();
+    render(<OnlineStatus userId="u1" isOnline={false} lastSeen={recent} />);
+    expect(screen.getByText("был(а) только что")).toBeInTheDocument();
+  });
+
+  it("shows 'только что' without the prefix when showText is false", () => {
+    const recent = new Date(Date.now() - 10_000).toISOString();
+    render(<OnlineStatus userId="u1" isOnline={false} lastSeen={recent} showText={false} />);
+    expect(screen.getByText("только что")).toBeInTheDocument();
+  });
+
   it("hides text when showText is false for online", () => {
     render(<OnlineStatus userId="u1" isOnline showText={false} />);
     expect(screen.queryByText("в сети")).not.toBeInTheDocument();
