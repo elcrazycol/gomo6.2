@@ -21,9 +21,10 @@
  * What this module does
  * ────────────────────
  *  • Computes the real keyboard height as
- *    `window.innerHeight − visualViewport.height` (this formula is exact on
- *    every platform, regardless of `interactive-widget` mode or URL-bar
- *    state).
+ *    `window.innerHeight − visualViewport.height − visualViewport.offsetTop`
+ *    (the delta includes the expanded iOS URL bar, which sits at the TOP of
+ *    the screen and must not lift bottom-anchored bars; exact on every
+ *    platform regardless of `interactive-widget` mode or URL-bar state).
  *  • Publishes CSS variables on <html> so the whole app can react:
  *      --app-vh   — visual viewport height in px. Use instead of `100dvh`
  *                   for full-screen surfaces (messenger page, chat panel…).
@@ -101,6 +102,8 @@ let dismissAnimFrame: number | null = null;
 // pinned composer bar). Such gestures must never scroll the page or dismiss
 // the keyboard — the bar is position:fixed and cannot be dragged.
 let lockedGestureActive = false;
+// Cancels an in-flight fixed-bar scroll guard (see guardFixedBarFocusScroll).
+let cancelFixedGuard: (() => void) | null = null;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -180,6 +183,8 @@ export function initMobileKeyboard(): () => void {
     dismissUntil = 0;
     dismissalActive = false;
     focusedEditable = null;
+    cancelFixedGuard?.();
+    cancelFixedGuard = null;
   };
 }
 
@@ -188,9 +193,12 @@ export function initMobileKeyboard(): () => void {
 export function computeKeyboardMetrics(input: {
   innerHeight: number;
   visualViewportHeight: number | null;
+  /** iOS: the visual viewport is pushed down by the expanded URL bar
+   *  (visualViewport.offsetTop ≈ URL-bar height, 0 when collapsed). */
+  visualViewportOffsetTop?: number;
   isTouch: boolean;
 }): Pick<MobileKeyboardState, "isOpen" | "keyboardInset" | "viewportHeight"> {
-  const { innerHeight, visualViewportHeight, isTouch } = input;
+  const { innerHeight, visualViewportHeight, visualViewportOffsetTop = 0, isTouch } = input;
   if (visualViewportHeight === null) {
     return { isOpen: false, keyboardInset: 0, viewportHeight: innerHeight };
   }
@@ -198,9 +206,14 @@ export function computeKeyboardMetrics(input: {
   const isOpen = isTouch && delta >= OPEN_THRESHOLD_PX;
   return {
     isOpen,
-    // Below the threshold the delta is URL-bar noise, not a keyboard — keep
-    // the CSS inset 0 so fixed bars don't jump for nothing.
-    keyboardInset: isOpen ? Math.round(delta) : 0,
+    // The delta covers everything below the visual viewport — on iOS that is
+    // the keyboard PLUS the expanded URL bar (visualViewport.offsetTop), which
+    // sits at the TOP of the screen. A bottom-anchored bar must only clear the
+    // real keyboard height; including the URL bar makes it float up by that
+    // amount whenever the keyboard opens mid-page (URL bar expanded). Below
+    // the threshold the delta is URL-bar noise, not a keyboard — keep the CSS
+    // inset 0 so fixed bars don't jump for nothing.
+    keyboardInset: isOpen ? Math.max(0, Math.round(delta - visualViewportOffsetTop)) : 0,
     viewportHeight: Math.round(visualViewportHeight),
   };
 }
@@ -375,6 +388,7 @@ function computeRaw(): MobileKeyboardState {
     ...computeKeyboardMetrics({
       innerHeight,
       visualViewportHeight: vv ? vv.height : null,
+      visualViewportOffsetTop: vv ? vv.offsetTop : 0,
       isTouch,
     }),
   };
@@ -483,6 +497,16 @@ function handleFocusIn(e: FocusEvent) {
   }
   dismissUntil = 0;
   if (!state.isTouch) return;
+  // Focus inside a fixed/sticky bar (pinned wall composer, messenger shell):
+  // the bar is already positioned above the keyboard by the app, so the
+  // browser's own focus-scroll must not move the page — iOS yanks it (and
+  // collapses the URL bar) the moment the keyboard opens, which reads as the
+  // composer "flying up" when re-tapped mid-page. Pin the scroll position for
+  // the keyboard-animation window; a real user touch cancels the pin.
+  if (getScrollContext(el).mode === "fixed") {
+    guardFixedBarFocusScroll();
+    return;
+  }
   // Skip scroll-into-view for elements that are already fully visible.
   // This prevents jumping when focusing an already-expanded composer
   // (e.g. when clicking reply on a comment while the composer is open).
@@ -703,6 +727,40 @@ function clearPendingScrolls() {
   for (const timer of pendingScrollTimers) clearTimeout(timer);
   pendingScrollTimers.clear();
   cancelUserInterrupt?.();
+  cancelFixedGuard?.();
+}
+
+/**
+ * Undoes the browser's own focus-scroll for a fixed/sticky composer bar. The
+ * browser scrolls the page to "reveal" a just-focused element even when it
+ * lives inside a fixed bar that is already positioned above the keyboard —
+ * that yanks the page (and collapses the URL bar), reading as the composer
+ * "flying up" when re-tapped mid-page.
+ *
+ * The scroll position is snap-restored across the keyboard-animation window
+ * (rAF + two later checkpoints). Plain scroll events do NOT cancel the pin —
+ * the browser fires those itself and they are exactly what we are undoing;
+ * a real user touch (touchstart), a blur, or the next fixed-bar focus cancels
+ * it, so the user is never fought.
+ */
+function guardFixedBarFocusScroll() {
+  const scrollY = window.scrollY;
+  const scrollX = window.scrollX;
+  const restore = () => {
+    if (window.scrollY !== scrollY || window.scrollX !== scrollX) {
+      window.scrollTo({ top: scrollY, left: scrollX, behavior: "instant" });
+    }
+  };
+  cancelFixedGuard?.();
+  requestAnimationFrame(restore);
+  const timers = [120, 300].map((delay) => setTimeout(restore, delay));
+  const onUserTouch = () => cancelFixedGuard?.();
+  cancelFixedGuard = () => {
+    cancelFixedGuard = null;
+    for (const timer of timers) clearTimeout(timer);
+    document.removeEventListener("touchstart", onUserTouch, true);
+  };
+  document.addEventListener("touchstart", onUserTouch, true);
 }
 
 function scheduleScrollIntoView(delay: number) {

@@ -55,6 +55,40 @@ describe("computeKeyboardMetrics", () => {
     expect(m.keyboardInset).toBe(299);
     expect(m.viewportHeight).toBe(502);
   });
+
+  it("excludes the expanded iOS URL bar from the keyboard inset", () => {
+    // URL bar expanded: the visual viewport is pushed down by 60px, so the
+    // raw delta (800 − 340 = 460) over-counts the keyboard by that amount.
+    // A bottom-anchored bar must only clear the true keyboard height (400).
+    const m = computeKeyboardMetrics({
+      innerHeight: 800,
+      visualViewportHeight: 340,
+      visualViewportOffsetTop: 60,
+      isTouch: true,
+    });
+    expect(m.keyboardInset).toBe(400);
+    expect(m.viewportHeight).toBe(340);
+  });
+
+  it("keeps the full delta when the URL bar is collapsed (offset 0)", () => {
+    const m = computeKeyboardMetrics({
+      innerHeight: 800,
+      visualViewportHeight: 400,
+      visualViewportOffsetTop: 0,
+      isTouch: true,
+    });
+    expect(m.keyboardInset).toBe(400);
+  });
+
+  it("never yields a negative inset from a transient offset overshoot", () => {
+    const m = computeKeyboardMetrics({
+      innerHeight: 800,
+      visualViewportHeight: 700,
+      visualViewportOffsetTop: 120,
+      isTouch: true,
+    });
+    expect(m.keyboardInset).toBe(0);
+  });
 });
 
 describe("computeDismissalFrame", () => {

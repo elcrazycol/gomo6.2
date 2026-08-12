@@ -994,10 +994,12 @@ html.kb-open body {
 .wall-composer-pinned {
   position: fixed !important;
   top: auto !important;
-  left: 0 !important;
   right: auto !important;
   bottom: calc(var(--kb-inset, 0px) + env(safe-area-inset-bottom, 0px)) !important;
   z-index: 40 !important;
+  /* NOTE: no `left` here on purpose — WallCommentTree mirrors the comment
+     column via inline style.left/width, and an !important `left` here would
+     override that inline value and pin the bar to the screen edge. */
 }
 
 /* When the composer is pinned, reserve scroll room so the last comment can be
