@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   computeContainerScrollDelta,
+  computeDismissalFrame,
   computeKeyboardMetrics,
   computeWindowScrollDelta,
   getScrollContext,
+  isBeyondTouchSlop,
   isEditableElement,
   isIOSDevice,
 } from "./mobileKeyboard";
@@ -51,6 +53,62 @@ describe("computeKeyboardMetrics", () => {
     const m = computeKeyboardMetrics({ innerHeight: 800.4, visualViewportHeight: 501.6, isTouch: true });
     expect(m.keyboardInset).toBe(299);
     expect(m.viewportHeight).toBe(502);
+  });
+});
+
+describe("computeDismissalFrame", () => {
+  it("keeps the open geometry at progress 0", () => {
+    const frame = computeDismissalFrame({ startInset: 300, startViewportHeight: 500, endViewportHeight: 800, progress: 0 });
+    expect(frame).toEqual({ keyboardInset: 300, viewportHeight: 500 });
+  });
+
+  it("reaches the closed geometry at progress 1", () => {
+    const frame = computeDismissalFrame({ startInset: 300, startViewportHeight: 500, endViewportHeight: 800, progress: 1 });
+    expect(frame).toEqual({ keyboardInset: 0, viewportHeight: 800 });
+  });
+
+  it("eases out: the descent is fast at first, slow at the end", () => {
+    // easeOutCubic(0.5) = 1 - (1-0.5)^3 = 0.875 → inset ≈ 300 * 0.125 ≈ 38
+    const half = computeDismissalFrame({ startInset: 300, startViewportHeight: 500, endViewportHeight: 800, progress: 0.5 });
+    expect(half.keyboardInset).toBe(38);
+    expect(half.viewportHeight).toBe(763); // 500 + 300 * 0.875
+  });
+
+  it("clamps progress outside [0,1]", () => {
+    expect(computeDismissalFrame({ startInset: 300, startViewportHeight: 500, endViewportHeight: 800, progress: 2 })).toEqual({
+      keyboardInset: 0,
+      viewportHeight: 800,
+    });
+    expect(computeDismissalFrame({ startInset: 300, startViewportHeight: 500, endViewportHeight: 800, progress: -1 })).toEqual({
+      keyboardInset: 300,
+      viewportHeight: 500,
+    });
+  });
+});
+
+describe("isBeyondTouchSlop", () => {
+  it("returns false for a tap (sub-slop movement)", () => {
+    expect(
+      isBeyondTouchSlop({ startX: 100, startY: 200, currentX: 104, currentY: 204, slopPx: 10 }),
+    ).toBe(false);
+  });
+
+  it("returns true once the finger moves past the slop", () => {
+    expect(
+      isBeyondTouchSlop({ startX: 100, startY: 200, currentX: 106, currentY: 206, slopPx: 10 }),
+    ).toBe(true);
+  });
+
+  it("returns true for a purely vertical scroll", () => {
+    expect(
+      isBeyondTouchSlop({ startX: 100, startY: 200, currentX: 102, currentY: 260, slopPx: 10 }),
+    ).toBe(true);
+  });
+
+  it("never treats an unknown origin as a scroll", () => {
+    expect(
+      isBeyondTouchSlop({ startX: null, startY: null, currentX: 500, currentY: 900, slopPx: 10 }),
+    ).toBe(false);
   });
 });
 

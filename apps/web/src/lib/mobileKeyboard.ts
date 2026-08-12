@@ -34,6 +34,10 @@
  *    (12px above the keyboard) with exact math, overriding the browser's own
  *    buggy focus-scrolling, and cancels Safari's document pan when typing
  *    inside the full-screen messenger.
+ *  • iOS scroll-to-dismiss behaves exactly like tapping outside the composer:
+ *    the focused input is blurred (so focus-to-expand composers collapse via
+ *    their own onBlur animation) and the fixed/sticky bars descend smoothly
+ *    (eased rAF interpolation of the CSS vars) instead of teleporting.
  *
  * Only touch devices (`(pointer: coarse)`) ever get keyboard handling;
  * desktop layouts are untouched.
@@ -67,6 +71,14 @@ const CLOSE_IMMEDIATE_THRESHOLD_PX = 24;
  *  values would keep `--kb-inset` applied (composer floating mid-screen).
  *  `dismissUntil` ignores stale "open" events until the gesture ends. */
 const GESTURE_SUPPRESS_MS = 200;
+/** Movement (px) a touch must exceed before we treat it as a scroll — matches
+ *  the iOS touch slop. Sub-slop jitter (a slightly-off tap) must not dismiss
+ *  the keyboard while composing. */
+const TOUCH_SLOP_PX = 10;
+/** Duration of the scroll-to-dismiss descent animation. The keyboard slides
+ *  away over roughly this time on iOS; the eased interpolation keeps the
+ *  fixed/sticky bars glued to it instead of teleporting. */
+const DISMISS_DURATION_MS = 280;
 
 const listeners = new Set<Listener>();
 let initialized = false;
@@ -83,6 +95,8 @@ let closeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let dismissUntil = 0;
 let dismissalActive = false;
 let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
+let gestureStart: { x: number; y: number } | null = null;
+let dismissAnimFrame: number | null = null;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -119,6 +133,10 @@ export function initMobileKeyboard(): () => void {
   // iOS scroll-to-dismiss detection (see handleGestureScroll).
   document.addEventListener("touchmove", handleGestureScroll, { passive: true, capture: true });
   document.addEventListener("wheel", handleGestureScroll, { passive: true, capture: true });
+  // Track the finger's origin so sub-slop jitter is never treated as a scroll.
+  document.addEventListener("touchstart", handleTouchStart, { passive: true, capture: true });
+  document.addEventListener("touchend", handleTouchEnd, { passive: true, capture: true });
+  document.addEventListener("touchcancel", handleTouchEnd, { passive: true, capture: true });
 
   // Seed the CSS variables immediately so full-screen surfaces are sized
   // correctly before the first user interaction.
@@ -137,11 +155,17 @@ export function initMobileKeyboard(): () => void {
     document.removeEventListener("focusout", handleFocusOut);
     document.removeEventListener("touchmove", handleGestureScroll, { capture: true });
     document.removeEventListener("wheel", handleGestureScroll, { capture: true });
+    document.removeEventListener("touchstart", handleTouchStart, { capture: true });
+    document.removeEventListener("touchend", handleTouchEnd, { capture: true });
+    document.removeEventListener("touchcancel", handleTouchEnd, { capture: true });
     clearPendingScrolls();
     if (closeDebounceTimer) clearTimeout(closeDebounceTimer);
     closeDebounceTimer = null;
     if (dismissProbeTimer) clearTimeout(dismissProbeTimer);
     dismissProbeTimer = null;
+    if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
+    dismissAnimFrame = null;
+    gestureStart = null;
     dismissUntil = 0;
     dismissalActive = false;
     focusedEditable = null;
@@ -219,6 +243,42 @@ export function isIOSDevice(input: {
 }): boolean {
   if (/iP(hone|ad|od)/i.test(input.userAgent)) return true;
   return input.platform === "MacIntel" && input.maxTouchPoints > 1;
+}
+
+/**
+ * One frame of the scroll-to-dismiss descent: eased interpolation of the
+ * keyboard inset (300px → 0) and the viewport height (shrunk → full screen),
+ * so fixed/sticky bars follow the departing keyboard smoothly instead of
+ * teleporting. progress ∈ [0,1]. Pure, for tests.
+ */
+export function computeDismissalFrame(input: {
+  startInset: number;
+  startViewportHeight: number;
+  endViewportHeight: number;
+  progress: number;
+}): { keyboardInset: number; viewportHeight: number } {
+  const t = Math.min(1, Math.max(0, input.progress));
+  const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+  return {
+    keyboardInset: Math.round(input.startInset * (1 - eased)),
+    viewportHeight: Math.round(input.startViewportHeight + (input.endViewportHeight - input.startViewportHeight) * eased),
+  };
+}
+
+/**
+ * Whether the finger has moved far enough from the gesture origin to count as
+ * a scroll. Below the iOS touch slop a touch is a tap — dismissing the
+ * keyboard there would make the UI feel broken (taps killing the composer).
+ */
+export function isBeyondTouchSlop(input: {
+  startX: number | null;
+  startY: number | null;
+  currentX: number;
+  currentY: number;
+  slopPx: number;
+}): boolean {
+  if (input.startX === null || input.startY === null) return false;
+  return Math.abs(input.currentX - input.startX) + Math.abs(input.currentY - input.startY) >= input.slopPx;
 }
 
 function currentIsIOS(): boolean {
@@ -369,11 +429,17 @@ function handleFocusIn(e: FocusEvent) {
   const el = e.target as HTMLElement | null;
   if (!isEditableElement(el)) return;
   focusedEditable = el;
-  // Fresh focus re-arms keyboard detection: cancel any pending dismissal.
+  // Fresh focus re-arms keyboard detection: cancel any pending dismissal,
+  // including an in-flight descent animation (user re-tapped the composer
+  // while the keyboard was sliding away).
   dismissalActive = false;
   if (dismissProbeTimer) {
     clearTimeout(dismissProbeTimer);
     dismissProbeTimer = null;
+  }
+  if (dismissAnimFrame !== null) {
+    cancelAnimationFrame(dismissAnimFrame);
+    dismissAnimFrame = null;
   }
   dismissUntil = 0;
   if (!state.isTouch) return;
@@ -396,20 +462,113 @@ function handleFocusOut() {
  * resize events until the gesture ends. If we waited for those, fixed/sticky
  * bars would keep floating at the keyboard height during the whole scroll.
  *
- * Instead we react to the gesture itself: drop `--kb-inset` (and restore
- * `--app-vh` to innerHeight — on iOS the layout-viewport height is always the
- * full screen, so it is live and correct here) so composers follow the
- * keyboard down like in a native app. Scrolling inside the focused editor is
- * excluded — iOS keeps the keyboard for that.
+ * Instead we react to the gesture itself and behave exactly like a tap
+ * outside the composer:
+ *  • blur the focused editable — focus-to-expand composers collapse through
+ *    their own onBlur animation (identical to clicking outside), and iOS
+ *    dismisses the keyboard the same way;
+ *  • animate `--kb-inset` → 0 and `--app-vh` → innerHeight with an eased rAF
+ *    interpolation (see startDismissalAnimation) so the bar descends smoothly
+ *    in sync with the departing keyboard instead of teleporting.
+ *
+ * Scrolling inside the focused editor is excluded — iOS keeps the keyboard
+ * there.
  */
 function handleGestureScroll(e: Event) {
   if (!state.isOpen || !state.isTouch || !currentIsIOS()) return;
+  // One dismissal per gesture — later touchmoves during the same scroll must
+  // not restart the descent animation or re-blur (would jitter).
+  if (dismissalActive) return;
   if (focusedEditable && e.target instanceof Node && focusedEditable.contains(e.target)) return;
+
+  // A touch that has not yet exceeded the iOS touch slop is a tap, not a
+  // scroll — never dismiss on sub-slop jitter (a slightly-off tap must not
+  // kill the keyboard while the user is about to type). Wheel events are
+  // always real scrolling intent.
+  if (e.type === "touchmove") {
+    const touch = (e as TouchEvent).touches?.[0];
+    if (
+      !touch ||
+      !isBeyondTouchSlop({
+        startX: gestureStart?.x ?? null,
+        startY: gestureStart?.y ?? null,
+        currentX: touch.clientX,
+        currentY: touch.clientY,
+        slopPx: TOUCH_SLOP_PX,
+      })
+    ) {
+      return;
+    }
+  }
 
   dismissalActive = true;
   dismissUntil = Date.now() + GESTURE_SUPPRESS_MS;
-  applyState({ ...state, isOpen: false, keyboardInset: 0, viewportHeight: window.innerHeight });
+  // Scroll = tap outside: drop focus so focus-to-expand composers collapse via
+  // their own existing onBlur animation (no new collapse code needed), and the
+  // keyboard dismisses exactly like it does for a real outside tap.
+  focusedEditable?.blur();
+  startDismissalAnimation();
   scheduleDismissProbe();
+}
+
+/**
+ * Records where the current touch began so handleGestureScroll can tell a
+ * real scroll from sub-slop tap jitter.
+ */
+function handleTouchStart(e: TouchEvent) {
+  const touch = e.touches?.[0];
+  if (!touch) return;
+  gestureStart = { x: touch.clientX, y: touch.clientY };
+}
+
+function handleTouchEnd() {
+  gestureStart = null;
+}
+
+/**
+ * Smoothly lowers the bars: animates `--kb-inset` from its current value to 0
+ * and `--app-vh` from the shrunk viewport height to `innerHeight` (which on
+ * iOS is always the full layout-viewport height, so it is live and correct
+ * here) over ~280ms with easeOutCubic. The composer's own 300ms onBlur
+ * collapse (triggered above) runs in parallel — the two animations compose
+ * into one natural descent, like a native app.
+ */
+function startDismissalAnimation() {
+  const startInset = state.keyboardInset;
+  const startViewportHeight = state.viewportHeight;
+  const endViewportHeight = typeof window === "undefined" ? startViewportHeight : window.innerHeight;
+  const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - startedAt) / DISMISS_DURATION_MS);
+    const frame = computeDismissalFrame({
+      startInset,
+      startViewportHeight,
+      endViewportHeight,
+      progress,
+    });
+    if (typeof document !== "undefined") {
+      const root = document.documentElement;
+      root.style.setProperty("--kb-inset", `${frame.keyboardInset}px`);
+      root.style.setProperty("--app-vh", `${frame.viewportHeight}px`);
+    }
+    if (progress < 1) {
+      dismissAnimFrame = requestAnimationFrame(step);
+    } else {
+      dismissAnimFrame = null;
+      // Commit the final state so listeners/kb-open sync up exactly when the
+      // animation ends — the CSS vars already hold the final values. Guarded
+      // on dismissalActive: if the probe already decided the keyboard stayed
+      // up (and re-opened), or the user re-focused mid-slide, the commit must
+      // not stomp that newer open state.
+      if (dismissalActive) {
+        applyState({ ...state, isOpen: false, keyboardInset: 0, viewportHeight: endViewportHeight });
+      }
+    }
+  };
+
+  if (dismissAnimFrame !== null) cancelAnimationFrame(dismissAnimFrame);
+  dismissAnimFrame = requestAnimationFrame(step);
 }
 
 /**
@@ -424,9 +583,28 @@ function scheduleDismissProbe() {
   if (dismissProbeTimer) clearTimeout(dismissProbeTimer);
   dismissProbeTimer = setTimeout(() => {
     dismissProbeTimer = null;
+    if (Date.now() < dismissUntil) {
+      // Still inside the suppression window (more events arrived while the
+      // timer was pending) — stay in dismissal mode; a stale "open" resize
+      // must not re-open the state mid-slide.
+      dismissalActive = true;
+      return;
+    }
     dismissalActive = false;
-    if (Date.now() < dismissUntil) return;
-    if (currentVisualDelta() >= OPEN_THRESHOLD_PX) applyState(computeRaw());
+    // Stop the descent animation either way: it may still be mid-flight, and a
+    // later frame would overwrite the vars with intermediate values (or its
+    // guarded final commit would be skipped, leaving the state stale).
+    if (dismissAnimFrame !== null) {
+      cancelAnimationFrame(dismissAnimFrame);
+      dismissAnimFrame = null;
+    }
+    // Re-sync with the live geometry. computeRaw() reads the real visual
+    // viewport, so it decides the outcome itself: keyboard still covering the
+    // screen → open state restored; keyboard gone → closed state applied
+    // deterministically (values match the animation's end state: inset 0,
+    // vh = innerHeight — no flash), instead of relying on the deferred resize
+    // to self-heal in case the animation's own final commit was skipped.
+    applyState(computeRaw());
   }, GESTURE_SUPPRESS_MS + 80);
 }
 
