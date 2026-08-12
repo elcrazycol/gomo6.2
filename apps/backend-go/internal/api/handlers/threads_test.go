@@ -311,7 +311,8 @@ func TestGetThread_InvalidUUID(t *testing.T) {
 
 func TestDeleteThread_Success(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newDELETEPContext("/api/v1/threads/t1", nil, nil)
+	// The author (u1) deletes their own thread — no moderation-role check fires.
+	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u1", Username: "author"})
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
 	// Get owner
@@ -341,7 +342,7 @@ func TestDeleteThread_Success(t *testing.T) {
 
 func TestDeleteThread_NotFound(t *testing.T) {
 	handler, mock := setupThreadsHandler(t)
-	c, w := newDELETEPContext("/api/v1/threads/t1", nil, nil)
+	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u1"})
 	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
 
 	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
@@ -364,6 +365,73 @@ func TestDeleteThread_EmptyID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// ─── H1: delete ownership (IDOR fix) ────────────────────────────────────────
+
+// TestDeleteThread_ForeignAuthor_Forbidden proves a stranger cannot delete
+// another user's thread: the moderation-role check returns zero rows, so the
+// handler must 403 BEFORE issuing the DELETE (sqlmock would fail the test on
+// any unexpected DELETE).
+func TestDeleteThread_ForeignAuthor_Forbidden(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	// u2 (attacker) targets a thread owned by u1.
+	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u2", Username: "attacker"})
+	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
+
+	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	handler.DeleteThread(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestDeleteThread_ModeratorAllowed verifies the moderation flow still works: a
+// user holding the moderator role may delete a foreign thread through the same
+// endpoint the moderation UI uses.
+func TestDeleteThread_ModeratorAllowed(t *testing.T) {
+	handler, mock := setupThreadsHandler(t)
+	c, w := newDELETEPContextWithClaims("/api/v1/threads/t1", nil, nil, &auth.Claims{UserID: "u2", Username: "mod"})
+	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
+
+	mock.ExpectQuery(`SELECT user_id FROM threads WHERE id = \$1`).
+		WithArgs("t1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow("u1"))
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectExec(`DELETE FROM threads WHERE id = \$1`).
+		WithArgs("t1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	handler.DeleteThread(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteThread_NotAuthenticated(t *testing.T) {
+	handler, _ := setupThreadsHandler(t)
+	// No claims on the context — the handler must 401 before any DB access.
+	c, w := newDELETEPContext("/api/v1/threads/t1", nil, nil)
+	c.Params = []gin.Param{{Key: "id", Value: "t1"}}
+
+	handler.DeleteThread(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

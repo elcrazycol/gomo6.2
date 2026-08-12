@@ -219,6 +219,17 @@ func newDELETEPContext(url string, queryParams map[string]string, pathParams map
 	return c, w
 }
 
+// newDELETEPContextWithClaims creates a gin test context for a DELETE request
+// with auth claims and path params (same shape as newDELETEPContext but sets
+// the authenticated claims on the context).
+func newDELETEPContextWithClaims(url string, queryParams map[string]string, pathParams map[string]string, claims *auth.Claims) (*gin.Context, *httptest.ResponseRecorder) {
+	c, w := newDELETEPContext(url, queryParams, pathParams)
+	if claims != nil {
+		c.Set("claims", claims)
+	}
+	return c, w
+}
+
 // newPUTContext creates a gin test context for a PUT request with JSON body, auth claims, and path params.
 // Returns (context, *httptest.ResponseRecorder).
 func newPUTContext(url string, body interface{}, claims *auth.Claims, pathParams map[string]string) (*gin.Context, *httptest.ResponseRecorder) {

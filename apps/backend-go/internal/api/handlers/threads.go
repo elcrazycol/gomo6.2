@@ -527,11 +527,12 @@ func (h *ThreadsHandler) GetThread(c *gin.Context) {
 
 // DeleteThread godoc
 // @Summary      Delete thread
-// @Description  Delete a thread (author only)
+// @Description  Delete a thread (author or moderator/admin only)
 // @Tags         Threads
 // @Produce      json
 // @Param        id query string true "Thread ID"
 // @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
 // @Failure      404 {object} models.APIResponse
 // @Router       /threads [delete]
 // @Security     BearerAuth
@@ -546,6 +547,13 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		return
 	}
 
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	userClaims := claims.(*auth.Claims)
+
 	var ownerID string
 	err := h.db.QueryRow(`SELECT user_id FROM threads WHERE id = $1`, id).Scan(&ownerID)
 	if err != nil {
@@ -555,6 +563,22 @@ func (h *ThreadsHandler) DeleteThread(c *gin.Context) {
 		}
 		serverError(c, "handler error", err)
 		return
+	}
+
+	// H1 (security audit): deleting a thread is restricted to its author or
+	// platform staff. The moderation UI (ModerationPosts, ModeratorMenu) deletes
+	// foreign threads through this same endpoint, so moderator/admin roles must
+	// be allowed; anyone else gets 403.
+	if ownerID != userClaims.UserID {
+		isStaff, staffErr := isModeratorOrAdmin(h.db, userClaims.UserID)
+		if staffErr != nil {
+			serverError(c, "check moderation role", staffErr)
+			return
+		}
+		if !isStaff {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Only the author or a moderator can delete this thread"))
+			return
+		}
 	}
 
 	result, err := h.db.Exec("DELETE FROM threads WHERE id = $1", id)

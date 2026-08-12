@@ -356,7 +356,8 @@ func TestGetPost_DBError(t *testing.T) {
 
 func TestDeletePost_Success(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newDELETEPContext("/api/v1/posts", nil, map[string]string{"id": "p1"})
+	// The author (u1) deletes their own post — no moderation-role check fires.
+	c, w := newDELETEPContextWithClaims("/api/v1/posts", nil, map[string]string{"id": "p1"}, &auth.Claims{UserID: "u1", Username: "author"})
 
 	// Get author and thread
 	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
@@ -390,7 +391,7 @@ func TestDeletePost_Success(t *testing.T) {
 
 func TestDeletePost_NotFound(t *testing.T) {
 	handler, mock := setupPostsHandler(t)
-	c, w := newDELETEPContext("/api/v1/posts", nil, map[string]string{"id": "p1"})
+	c, w := newDELETEPContextWithClaims("/api/v1/posts", nil, map[string]string{"id": "p1"}, &auth.Claims{UserID: "u1"})
 
 	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
 		WithArgs("p1").
@@ -412,6 +413,74 @@ func TestDeletePost_EmptyID(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// ─── H1: delete ownership (IDOR fix) ────────────────────────────────────────
+
+// TestDeletePost_ForeignAuthor_Forbidden proves a stranger cannot delete
+// another user's post: the moderation-role check returns zero rows, so the
+// handler must 403 BEFORE issuing the DELETE (sqlmock would fail the test on
+// any unexpected DELETE).
+func TestDeletePost_ForeignAuthor_Forbidden(t *testing.T) {
+	handler, mock := setupPostsHandler(t)
+	// u2 (attacker) targets a post authored by u1.
+	c, w := newDELETEPContextWithClaims("/api/v1/posts", nil, map[string]string{"id": "p1"}, &auth.Claims{UserID: "u2", Username: "attacker"})
+
+	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("u1", "t1"))
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	handler.DeletePost(c)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestDeletePost_ModeratorAllowed verifies the moderation flow still works: a
+// user holding the moderator role may delete a foreign post through the same
+// endpoint the moderation UI uses.
+func TestDeletePost_ModeratorAllowed(t *testing.T) {
+	handler, mock := setupPostsHandler(t)
+	c, w := newDELETEPContextWithClaims("/api/v1/posts", nil, map[string]string{"id": "p1"}, &auth.Claims{UserID: "u2", Username: "mod"})
+
+	mock.ExpectQuery(`SELECT user_id, thread_id FROM posts WHERE id = \$1`).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "thread_id"}).AddRow("u1", "t1"))
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM user_roles WHERE user_id = \$1 AND role IN \(.*\)`).
+		WithArgs("u2").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectExec(`DELETE FROM posts WHERE id = \$1`).
+		WithArgs("p1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectExec(`UPDATE threads SET post_count.*WHERE id = \$1`).
+		WithArgs("t1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	handler.DeletePost(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeletePost_NotAuthenticated(t *testing.T) {
+	handler, _ := setupPostsHandler(t)
+	// No claims on the context — the handler must 401 before any DB access.
+	c, w := newDELETEPContext("/api/v1/posts", nil, map[string]string{"id": "p1"})
+
+	handler.DeletePost(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

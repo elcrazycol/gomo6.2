@@ -397,11 +397,12 @@ func (h *PostsHandler) GetPost(c *gin.Context) {
 
 // DeletePost godoc
 // @Summary      Delete post
-// @Description  Delete a post (author only)
+// @Description  Delete a post (author or moderator/admin only)
 // @Tags         Posts
 // @Produce      json
 // @Param        id query string true "Post ID"
 // @Success      200 {object} models.APIResponse
+// @Failure      403 {object} models.APIResponse
 // @Failure      404 {object} models.APIResponse
 // @Router       /posts [delete]
 // @Security     BearerAuth
@@ -416,6 +417,13 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		return
 	}
 
+	claims, exists := c.Get("claims")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, models.ErrorResponse("Not authenticated"))
+		return
+	}
+	userClaims := claims.(*auth.Claims)
+
 	var authorID, threadID string
 	err := h.db.QueryRow(`SELECT user_id, thread_id FROM posts WHERE id = $1`, id).Scan(&authorID, &threadID)
 	if err != nil {
@@ -425,6 +433,22 @@ func (h *PostsHandler) DeletePost(c *gin.Context) {
 		}
 		serverError(c, "handler error", err)
 		return
+	}
+
+	// H1 (security audit): deleting a post is restricted to its author or
+	// platform staff. The moderation UI (ModerationPosts, ModeratorMenu) deletes
+	// foreign posts through this same endpoint, so moderator/admin roles must be
+	// allowed; anyone else gets 403.
+	if authorID != userClaims.UserID {
+		isStaff, staffErr := isModeratorOrAdmin(h.db, userClaims.UserID)
+		if staffErr != nil {
+			serverError(c, "check moderation role", staffErr)
+			return
+		}
+		if !isStaff {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("Only the author or a moderator can delete this post"))
+			return
+		}
 	}
 
 	query := `DELETE FROM posts WHERE id = $1`
