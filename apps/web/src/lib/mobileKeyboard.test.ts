@@ -5,7 +5,24 @@ import {
   computeWindowScrollDelta,
   getScrollContext,
   isEditableElement,
+  isIOSDevice,
 } from "./mobileKeyboard";
+
+describe("isIOSDevice", () => {
+  it("detects iPhone and iPad user agents", () => {
+    expect(isIOSDevice({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari", platform: "iPhone", maxTouchPoints: 5 })).toBe(true);
+    expect(isIOSDevice({ userAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) Safari", platform: "iPad", maxTouchPoints: 5 })).toBe(true);
+  });
+
+  it("detects iPadOS 13+ which reports a desktop-style UA", () => {
+    expect(isIOSDevice({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 5 })).toBe(true);
+  });
+
+  it("does not flag real Macs or Android", () => {
+    expect(isIOSDevice({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", platform: "MacIntel", maxTouchPoints: 0 })).toBe(false);
+    expect(isIOSDevice({ userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome", platform: "Linux armv8l", maxTouchPoints: 5 })).toBe(false);
+  });
+});
 
 describe("computeKeyboardMetrics", () => {
   it("detects an open keyboard from the visual-viewport delta", () => {

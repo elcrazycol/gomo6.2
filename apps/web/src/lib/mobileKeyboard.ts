@@ -62,6 +62,11 @@ const SCROLL_GAP_PX = 12;
 const CLOSE_DEBOUNCE_MS = 120;
 /** Below this delta the keyboard is gone for sure — close immediately. */
 const CLOSE_IMMEDIATE_THRESHOLD_PX = 24;
+/** iOS scroll-to-dismiss: WebKit defers visualViewport resize events while a
+ *  scroll gesture is running, so after the keyboard starts hiding the stale
+ *  values would keep `--kb-inset` applied (composer floating mid-screen).
+ *  `dismissUntil` ignores stale "open" events until the gesture ends. */
+const GESTURE_SUPPRESS_MS = 200;
 
 const listeners = new Set<Listener>();
 let initialized = false;
@@ -75,6 +80,9 @@ let focusedEditable: HTMLElement | null = null;
 const pendingScrollTimers = new Set<ReturnType<typeof setTimeout>>();
 let cancelUserInterrupt: (() => void) | null = null;
 let closeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let dismissUntil = 0;
+let dismissalActive = false;
+let dismissProbeTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -108,6 +116,9 @@ export function initMobileKeyboard(): () => void {
   window.addEventListener("pageshow", handleMetricsChanged);
   document.addEventListener("focusin", handleFocusIn);
   document.addEventListener("focusout", handleFocusOut);
+  // iOS scroll-to-dismiss detection (see handleGestureScroll).
+  document.addEventListener("touchmove", handleGestureScroll, { passive: true, capture: true });
+  document.addEventListener("wheel", handleGestureScroll, { passive: true, capture: true });
 
   // Seed the CSS variables immediately so full-screen surfaces are sized
   // correctly before the first user interaction.
@@ -124,9 +135,15 @@ export function initMobileKeyboard(): () => void {
     window.removeEventListener("pageshow", handleMetricsChanged);
     document.removeEventListener("focusin", handleFocusIn);
     document.removeEventListener("focusout", handleFocusOut);
+    document.removeEventListener("touchmove", handleGestureScroll, { capture: true });
+    document.removeEventListener("wheel", handleGestureScroll, { capture: true });
     clearPendingScrolls();
     if (closeDebounceTimer) clearTimeout(closeDebounceTimer);
     closeDebounceTimer = null;
+    if (dismissProbeTimer) clearTimeout(dismissProbeTimer);
+    dismissProbeTimer = null;
+    dismissUntil = 0;
+    dismissalActive = false;
     focusedEditable = null;
   };
 }
@@ -188,6 +205,29 @@ export function computeContainerScrollDelta(input: {
   if (delta > 0) return delta;
   if (elementRectTop < scrollerRectTop) return elementRectTop - scrollerRectTop - 8;
   return 0;
+}
+
+/**
+ * iOS detection, including iPadOS 13+ which reports a desktop-style UA
+ * (touch-capable MacIntel = iPad). Scroll-to-dismiss only exists on iOS, so
+ * the gesture-based keyboard dismissal is gated on this.
+ */
+export function isIOSDevice(input: {
+  userAgent: string;
+  platform: string;
+  maxTouchPoints: number;
+}): boolean {
+  if (/iP(hone|ad|od)/i.test(input.userAgent)) return true;
+  return input.platform === "MacIntel" && input.maxTouchPoints > 1;
+}
+
+function currentIsIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return isIOSDevice({
+    userAgent: navigator.userAgent,
+    platform: navigator.platform || "",
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+  });
 }
 
 export function isEditableElement(el: Element | null): boolean {
@@ -286,6 +326,17 @@ function currentVisualDelta(): number {
 }
 
 function handleMetricsChanged() {
+  if (dismissalActive) {
+    // Scroll-to-dismiss in progress: WebKit reports the old keyboard-open
+    // geometry until the scroll (including the momentum phase, which fires
+    // visualViewport.scroll events with no touch contact at all) fully ends.
+    // Every event postpones the probe; the dropped state (isOpen:false,
+    // inset:0, --app-vh: innerHeight) is already the correct final one on
+    // iOS, so nothing needs to be applied mid-scroll.
+    dismissUntil = Date.now() + GESTURE_SUPPRESS_MS;
+    scheduleDismissProbe();
+    return;
+  }
   const next = computeRaw();
   if (next.isOpen) {
     if (closeDebounceTimer) {
@@ -318,6 +369,13 @@ function handleFocusIn(e: FocusEvent) {
   const el = e.target as HTMLElement | null;
   if (!isEditableElement(el)) return;
   focusedEditable = el;
+  // Fresh focus re-arms keyboard detection: cancel any pending dismissal.
+  dismissalActive = false;
+  if (dismissProbeTimer) {
+    clearTimeout(dismissProbeTimer);
+    dismissProbeTimer = null;
+  }
+  dismissUntil = 0;
   if (!state.isTouch) return;
   scheduleScrollIntoView(0);
   if (state.isOpen) {
@@ -330,6 +388,46 @@ function handleFocusOut() {
   // Keep `focusedEditable` — the scroll keeper still targets it while the
   // keyboard is animating closed. Just cancel pending scrolls.
   clearPendingScrolls();
+}
+
+/**
+ * iOS scroll-to-dismiss: the moment the user starts scrolling with the
+ * keyboard up, iOS begins hiding the keyboard but defers visualViewport
+ * resize events until the gesture ends. If we waited for those, fixed/sticky
+ * bars would keep floating at the keyboard height during the whole scroll.
+ *
+ * Instead we react to the gesture itself: drop `--kb-inset` (and restore
+ * `--app-vh` to innerHeight — on iOS the layout-viewport height is always the
+ * full screen, so it is live and correct here) so composers follow the
+ * keyboard down like in a native app. Scrolling inside the focused editor is
+ * excluded — iOS keeps the keyboard for that.
+ */
+function handleGestureScroll(e: Event) {
+  if (!state.isOpen || !state.isTouch || !currentIsIOS()) return;
+  if (focusedEditable && e.target instanceof Node && focusedEditable.contains(e.target)) return;
+
+  dismissalActive = true;
+  dismissUntil = Date.now() + GESTURE_SUPPRESS_MS;
+  applyState({ ...state, isOpen: false, keyboardInset: 0, viewportHeight: window.innerHeight });
+  scheduleDismissProbe();
+}
+
+/**
+ * Schedules the post-scroll probe. It only fires once the scroll has truly
+ * ended (no touchmove/wheel/visualViewport events for a while), so the visual
+ * viewport values are live again and the decision is reliable:
+ *  • delta still >= threshold → the keyboard actually stayed up → re-open.
+ *  • delta < threshold → the keyboard dismissed and the deferred resize (or
+ *    our dropped state) already reflects it → stay closed.
+ */
+function scheduleDismissProbe() {
+  if (dismissProbeTimer) clearTimeout(dismissProbeTimer);
+  dismissProbeTimer = setTimeout(() => {
+    dismissProbeTimer = null;
+    dismissalActive = false;
+    if (Date.now() < dismissUntil) return;
+    if (currentVisualDelta() >= OPEN_THRESHOLD_PX) applyState(computeRaw());
+  }, GESTURE_SUPPRESS_MS + 80);
 }
 
 /** While any scroll correction is pending, the user must be able to take over:
