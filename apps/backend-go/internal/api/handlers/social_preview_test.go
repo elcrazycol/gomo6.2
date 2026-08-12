@@ -272,6 +272,49 @@ WHERE slug = $1`)).
 	}
 }
 
+// Regression: the handler is mounted via router.NoRoute, and gin's serveError
+// pre-sets writermem.status = 404 before invoking NoRoute handlers. A
+// successful render must still return HTTP 200 — otherwise crawlers treat the
+// preview as a missing page (404 + full body) and drop the card.
+func TestRenderViaNoRouteReturns200(t *testing.T) {
+	h, mock := setupSocialPreview(t)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT p.title, p.content, p.image_url, p.attachments,
+       u.username, COALESCE(u.display_name, ''), COALESCE(u.avatar_url, ''),
+       COALESCE(ps.private_profile, false), COALESCE(ps.private_hide_wall, false),
+       COALESCE(author_ps.private_hide_avatar, false)
+FROM profile_wall_posts p
+LEFT JOIN users u ON u.id = p.author_id
+LEFT JOIN privacy_settings ps ON ps.user_id = p.user_id
+LEFT JOIN privacy_settings author_ps ON author_ps.user_id = u.id
+WHERE p.id = $1`)).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"title", "content", "image_url", "attachments",
+			"username", "display_name", "avatar_url", "private_profile", "private_hide_wall", "private_hide_avatar",
+		}).AddRow(
+			"Мой первый пост", "Смотрите, что я нашёл!", "/storage/v1/object/wall/u1/img.webp", nil,
+			"alice", "Alice", "u1/avatar.webp", false, false, false,
+		))
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.NoRoute(h.Render)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/profile/u1/wall/p1", nil)
+	req.Header.Set("User-Agent", "TelegramBot (like TwitterBot)")
+	req.Host = "gomo6.wtf"
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 via NoRoute, got %d (gin pre-sets 404 for NoRoute)", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `property="og:title" content="Мой первый пост"`) {
+		t.Error("expected the wall post preview body")
+	}
+}
+
 func TestRenderUnknownPath404(t *testing.T) {
 	h, _ := setupSocialPreview(t)
 

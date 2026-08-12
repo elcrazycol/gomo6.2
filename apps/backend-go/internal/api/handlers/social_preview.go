@@ -170,6 +170,12 @@ func (h *SocialPreviewHandler) Render(c *gin.Context) {
 	}
 	meta.finalize(c)
 
+	// This handler is registered via router.NoRoute. Gin's serveError sets
+	// writermem.status = 404 BEFORE invoking NoRoute handlers and only
+	// flushes it on the first Write — so a successful render used to ship as
+	// "404 + full OG body", which link-preview crawlers treat as a missing
+	// page and drop the card. Override the status explicitly before writing.
+	c.Status(http.StatusOK)
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.Header("Cache-Control", "public, max-age=900")
 	if err := ogPageTemplate.Execute(c.Writer, meta); err != nil {
